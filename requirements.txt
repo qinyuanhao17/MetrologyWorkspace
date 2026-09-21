@@ -1,0 +1,8 @@
+PyQt6>=6.6,<7
+numpy>=1.24,<3
+pandas>=2.0,<3
+scipy>=1.10,<2
+matplotlib>=3.7,<4
+openpyxl>=3.1,<4
+lmfit>=1.2,<2
+PyYAML>=6,<7
