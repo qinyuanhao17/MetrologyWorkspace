@@ -159,6 +159,10 @@ _DISPLAY_CMAPS = {}
 
 def auto_cmap_range(name, min_luminance=0.38):
     """Default slice of ``name`` that skips the near-black ends."""
+    # Rainbow's red and violet endpoints are intentionally darker hues, not
+    # near-black padding. Preserve its full spectrum instead of clipping them.
+    if name == "rainbow":
+        return 0.0, 1.0
     samples = colormaps[name](np.linspace(0.0, 1.0, 256))
     luminance = 0.299 * samples[:, 0] + 0.587 * samples[:, 1] + 0.114 * samples[:, 2]
     bright = np.flatnonzero(luminance >= min_luminance)

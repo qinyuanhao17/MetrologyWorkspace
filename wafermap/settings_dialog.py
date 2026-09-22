@@ -5,17 +5,8 @@ from PyQt6.QtWidgets import (
     QPushButton, QVBoxLayout,
 )
 
+from .appearance import COLOR_MAP_OPTIONS
 from .settings import get_settings, load_settings, save_settings
-
-
-COLOR_MAPS = [
-    ("Viridis", "viridis"),
-    ("Turbo", "turbo"),
-    ("Plasma", "plasma"),
-    ("Jet", "jet"),
-    ("Coolwarm", "coolwarm"),
-    ("Spectral", "Spectral_r"),
-]
 
 
 class SettingsDialog(QDialog):
@@ -38,7 +29,7 @@ class SettingsDialog(QDialog):
         form.addRow("Default resolution", self.resolution)
 
         self.color_map = QComboBox()
-        for title, name in COLOR_MAPS:
+        for title, name in COLOR_MAP_OPTIONS:
             self.color_map.addItem(title, name)
         form.addRow("Default color map", self.color_map)
 

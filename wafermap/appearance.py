@@ -9,6 +9,25 @@ from PyQt6.QtGui import QColor, QFont, QFontDatabase, QPalette
 from PyQt6.QtWidgets import QApplication
 
 
+# Shared by the live plot control and the persistent Settings dialog.  Keeping
+# one list prevents a saved palette from disappearing in one of the two places.
+COLOR_MAP_OPTIONS = (
+    ("Turbo", "turbo"),
+    ("Viridis", "viridis"),
+    ("Plasma", "plasma"),
+    ("Inferno", "inferno"),
+    ("Magma", "magma"),
+    ("Cividis", "cividis"),
+    ("Rainbow", "rainbow"),
+    ("Jet", "jet"),
+    ("Coolwarm", "coolwarm"),
+    ("Spectral", "Spectral_r"),
+    ("Red–Yellow–Blue", "RdYlBu_r"),
+    ("Red–Yellow–Green", "RdYlGn"),
+    ("Seismic", "seismic"),
+)
+
+
 def configure_fonts(app):
     # Explicit registration also keeps offscreen renders consistent with Windows.
     for name in ("SegUIVar.ttf", "segoeui.ttf", "msyh.ttc"):

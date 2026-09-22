@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .array_plot import ArrayOptions, draw_array, prepare_array
-from .appearance import configure_resolution_combo, resolution_settings, screen_render_scale
+from .appearance import COLOR_MAP_OPTIONS, configure_resolution_combo, resolution_settings, screen_render_scale
 from .color_range_bar import ColorRangeBar
 from .map_selector import MapSelector
 from .plot import auto_cmap_range, display_colormap, restyle_panel_title
@@ -107,11 +107,10 @@ class PlotPage(QWidget):
         appearance.addWidget(self.resolution)
         appearance.addWidget(QLabel("Color", objectName="muted"))
         self.color_map = QComboBox()
-        for title, name in (("Viridis", "viridis"), ("Turbo", "turbo"), ("Plasma", "plasma"),
-                            ("Jet", "jet"), ("Coolwarm", "coolwarm"), ("Spectral", "Spectral_r")):
+        for title, name in COLOR_MAP_OPTIONS:
             self.color_map.addItem(title, name)
         self.color_map.setCurrentIndex(max(0, self.color_map.findData(prefs.get("color_map", "turbo"))))
-        self.color_map.setFixedWidth(104)
+        self.color_map.setFixedWidth(142)
         self.color_map.currentIndexChanged.connect(self.change_colormap)
         appearance.addWidget(self.color_map)
         appearance.addWidget(QLabel("Colors", objectName="muted"))
