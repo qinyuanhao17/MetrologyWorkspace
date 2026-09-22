@@ -381,6 +381,12 @@ class PlotWorkspaceTests(unittest.TestCase):
         QTest.qWait(300)
         self.assertTrue(page.artists[0][0].axes.images[0].get_cmap().name.startswith("rainbow"))
         self.assertEqual(page.color_range.range(), (0.0, 1.0))
+        with patch("wafermap.plot_page.save_settings") as persist:
+            page.color_range.set_range(.2, .8, notify=True)
+            QTest.qWait(400)
+            persist.assert_called_once_with({
+                "color_map": "rainbow", "color_range_low": .2, "color_range_high": .8,
+            })
         page.scale_bar.setChecked(False)
         QTest.qWait(300)
         self.assertIsNone(page.artists[0][0].colorbar)
@@ -389,6 +395,21 @@ class PlotWorkspaceTests(unittest.TestCase):
         page.draw_maps()
         self.assertIsNone(page.result)
         self.assertEqual(page.stack.currentIndex(), 0)
+
+    def test_saved_color_range_is_restored(self):
+        from wafermap.plot_page import PlotPage
+
+        preferences = dict(get_settings(), color_map="rainbow",
+                           color_range_low=.18, color_range_high=.82)
+        with patch("wafermap.plot_page.get_settings", return_value=preferences):
+            page = PlotPage()
+        try:
+            self.assertEqual(page.color_map.currentData(), "rainbow")
+            self.assertEqual(page.color_range.range(), (.18, .82))
+        finally:
+            page.stop()
+            page.deleteLater()
+            APP.processEvents()
 
     def test_changed_selection_discards_running_job(self):
         self.unique_fixture()

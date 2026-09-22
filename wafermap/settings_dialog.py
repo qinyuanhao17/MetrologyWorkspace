@@ -2,11 +2,11 @@
 
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFormLayout, QHBoxLayout,
-    QPushButton, QVBoxLayout,
+    QLabel, QPushButton, QVBoxLayout, QWidget,
 )
 
 from .appearance import COLOR_MAP_OPTIONS
-from .settings import get_settings, load_settings, save_settings
+from .settings import get_settings, save_settings
 
 
 class SettingsDialog(QDialog):
@@ -32,6 +32,20 @@ class SettingsDialog(QDialog):
         for title, name in COLOR_MAP_OPTIONS:
             self.color_map.addItem(title, name)
         form.addRow("Default color map", self.color_map)
+
+        self.color_low, self.color_high = QDoubleSpinBox(), QDoubleSpinBox()
+        for control in (self.color_low, self.color_high):
+            control.setRange(0, 100)
+            control.setDecimals(1)
+            control.setSingleStep(1)
+            control.setSuffix("%")
+        range_widget = QWidget()
+        range_layout = QHBoxLayout(range_widget)
+        range_layout.setContentsMargins(0, 0, 0, 0)
+        range_layout.addWidget(self.color_low)
+        range_layout.addWidget(QLabel("to"))
+        range_layout.addWidget(self.color_high)
+        form.addRow("Default color range", range_widget)
 
         self.font_size = QComboBox()
         self.font_size.addItems(["8", "9", "10", "11", "12", "14", "16"])
@@ -70,13 +84,10 @@ class SettingsDialog(QDialog):
             form.addRow(control)
 
         buttons = QHBoxLayout()
-        load = QPushButton("Load from YAML")
         save = QPushButton("Save", objectName="primary")
         cancel = QPushButton("Cancel")
-        load.clicked.connect(self.load_from_yaml)
         save.clicked.connect(self.save)
         cancel.clicked.connect(self.reject)
-        buttons.addWidget(load)
         buttons.addStretch()
         buttons.addWidget(cancel)
         buttons.addWidget(save)
@@ -84,12 +95,14 @@ class SettingsDialog(QDialog):
         root = QVBoxLayout(self)
         root.addLayout(form)
         root.addLayout(buttons)
-        self.load_from_yaml()
+        self._update_from(get_settings())
 
     def _update_from(self, settings):
         self.theme.setCurrentIndex(max(0, self.theme.findData(settings.get("theme", "dark"))))
         self.resolution.setCurrentIndex(max(0, self.resolution.findText(settings.get("resolution", "High"))))
         self.color_map.setCurrentIndex(max(0, self.color_map.findData(settings.get("color_map", "turbo"))))
+        self.color_low.setValue(100 * float(settings.get("color_range_low", 0.0)))
+        self.color_high.setValue(100 * float(settings.get("color_range_high", 1.0)))
         self.font_size.setCurrentIndex(max(0, self.font_size.findText(str(settings.get("font_size", 10)))))
         self.smoothing.setCurrentIndex(max(0, self.smoothing.findData(float(settings.get("smoothing", 0.06)))))
         self.opacity.setCurrentIndex(max(0, self.opacity.findData(int(settings.get("opacity", 100)))))
@@ -103,10 +116,17 @@ class SettingsDialog(QDialog):
         self.point_outline.setChecked(bool(settings.get("point_outline", False)))
 
     def _collect(self):
+        low = self.color_low.value() / 100
+        high = self.color_high.value() / 100
+        if high - low < 0.03:
+            high = min(1.0, low + 0.03)
+            low = max(0.0, high - 0.03)
         return {
             "theme": self.theme.currentData(),
             "resolution": self.resolution.currentText(),
             "color_map": self.color_map.currentData(),
+            "color_range_low": round(low, 4),
+            "color_range_high": round(high, 4),
             "font_size": int(self.font_size.currentText()),
             "smoothing": float(self.smoothing.currentData()),
             "opacity": int(self.opacity.currentData()),
@@ -119,9 +139,6 @@ class SettingsDialog(QDialog):
             "contour": self.contour.isChecked(),
             "point_outline": self.point_outline.isChecked(),
         }
-
-    def load_from_yaml(self):
-        self._update_from(load_settings())
 
     def save(self):
         save_settings(self._collect())

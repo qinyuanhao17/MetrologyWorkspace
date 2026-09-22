@@ -5,9 +5,10 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtWidgets import QApplication, QPushButton, QWidget
 
 from wafermap.module_registry import ComponentRegistry, ComponentSpec
+from wafermap.settings_dialog import SettingsDialog
 from wafermap.shell import MainWindow
 
 
@@ -15,6 +16,21 @@ APP = QApplication.instance() or QApplication([])
 
 
 class ShellTests(unittest.TestCase):
+    def test_settings_has_color_range_without_yaml_reload_button(self):
+        dialog = SettingsDialog()
+        try:
+            labels = [button.text() for button in dialog.findChildren(QPushButton)]
+            self.assertNotIn("Load from YAML", labels)
+            dialog.color_low.setValue(21.5)
+            dialog.color_high.setValue(78.5)
+            values = dialog._collect()
+            self.assertEqual(values["color_range_low"], .215)
+            self.assertEqual(values["color_range_high"], .785)
+        finally:
+            dialog.close()
+            dialog.deleteLater()
+            APP.processEvents()
+
     def test_registry_rejects_duplicates_and_non_widgets(self):
         registry = ComponentRegistry()
         registry.register(ComponentSpec("sample", "Sample", "Description", "Test", QWidget))

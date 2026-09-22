@@ -21,7 +21,7 @@ from .appearance import COLOR_MAP_OPTIONS, configure_resolution_combo, resolutio
 from .color_range_bar import ColorRangeBar
 from .map_selector import MapSelector
 from .plot import auto_cmap_range, display_colormap, restyle_panel_title
-from .settings import get_settings
+from .settings import get_settings, save_settings
 
 rcParams["font.family"] = ["Segoe UI", "Microsoft YaHei", "DejaVu Sans"]
 rcParams["axes.unicode_minus"] = False
@@ -61,6 +61,8 @@ class PlotPage(QWidget):
         self.font_timer.timeout.connect(self.apply_font_style)
         self.style_timer = QTimer(self, interval=120, singleShot=True)
         self.style_timer.timeout.connect(self.apply_plot_style)
+        self.settings_timer = QTimer(self, interval=350, singleShot=True)
+        self.settings_timer.timeout.connect(self.persist_color_preferences)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 12, 10, 10)
         layout.setSpacing(10)
@@ -112,12 +114,17 @@ class PlotPage(QWidget):
         self.color_map.setCurrentIndex(max(0, self.color_map.findData(prefs.get("color_map", "turbo"))))
         self.color_map.setFixedWidth(142)
         self.color_map.currentIndexChanged.connect(self.change_colormap)
+        self.color_map.activated.connect(lambda *_: self.settings_timer.start())
         appearance.addWidget(self.color_map)
         appearance.addWidget(QLabel("Colors", objectName="muted"))
         self.color_range = ColorRangeBar()
         self.color_range.set_colormap(colormaps[self.color_map.currentData()])
-        self.color_range.set_range(*auto_cmap_range(self.color_map.currentData()))
-        self.color_range.changed.connect(self.queue_plot_style)
+        saved_range = (float(prefs.get("color_range_low", 0.0)),
+                       float(prefs.get("color_range_high", 1.0)))
+        if saved_range[1] - saved_range[0] < self.color_range.GAP:
+            saved_range = auto_cmap_range(self.color_map.currentData())
+        self.color_range.set_range(*saved_range)
+        self.color_range.changed.connect(self.color_range_changed)
         self.color_range.setFixedWidth(130)
         appearance.addWidget(self.color_range)
         appearance.addWidget(QLabel("Opacity", objectName="muted"))
@@ -273,6 +280,22 @@ class PlotPage(QWidget):
         self.color_range.set_colormap(colormaps[name])
         self.color_range.set_range(*auto_cmap_range(name))
         self.queue_plot_style()
+
+    def color_range_changed(self, *_):
+        """Apply immediately, then persist once the user pauses dragging."""
+        self.queue_plot_style()
+        self.settings_timer.start()
+
+    def persist_color_preferences(self):
+        low, high = self.color_range.range()
+        try:
+            save_settings({
+                "color_map": self.color_map.currentData(),
+                "color_range_low": round(low, 4),
+                "color_range_high": round(high, 4),
+            })
+        except OSError as error:
+            self.status.setText(f"Could not save color preferences: {error}")
 
     def invalidate(self, *_):
         self.revision += 1
@@ -588,6 +611,9 @@ class PlotPage(QWidget):
             self.status.setText(f"Copy failed: {error}")
 
     def stop(self):
+        if self.settings_timer.isActive():
+            self.settings_timer.stop()
+            self.persist_color_preferences()
         if self.worker is not None:
             self.worker.requestInterruption()
             self.worker.wait()

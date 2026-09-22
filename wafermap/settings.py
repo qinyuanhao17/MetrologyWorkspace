@@ -14,6 +14,8 @@ DEFAULTS = {
     "theme": "dark",
     "resolution": "High",
     "color_map": "turbo",
+    "color_range_low": 0.1019607843,
+    "color_range_high": 0.8627450980,
     "font_size": 10,
     "fill_edge": True,
     "shared_scale": False,
