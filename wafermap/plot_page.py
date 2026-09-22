@@ -55,6 +55,7 @@ class PlotPage(QWidget):
         self.dirty = True
         self.revision = 0
         self.worker = None
+        self.pending_fill_refresh = False
         self.result = None
         self.artists = []
         self.font_timer = QTimer(self, interval=120, singleShot=True)
@@ -185,8 +186,8 @@ class PlotPage(QWidget):
         self.points.toggled.connect(self.apply_overlay_visibility)
         self.contour.toggled.connect(self.queue_plot_style)
         self.point_outline.toggled.connect(self.queue_plot_style)
-        for control in (self.fill_edge, self.shared):
-            control.toggled.connect(self.invalidate)
+        self.fill_edge.toggled.connect(self.refresh_fill_edge)
+        self.shared.toggled.connect(self.invalidate)
         for control in (self.labels, self.points, self.contour, self.point_outline, self.fill_edge, self.shared):
             options.addWidget(control)
         self.scale_bar.setToolTip("Show the color scale beside every wafer map.")
@@ -298,6 +299,7 @@ class PlotPage(QWidget):
             self.status.setText(f"Could not save color preferences: {error}")
 
     def invalidate(self, *_):
+        self.pending_fill_refresh = False
         self.revision += 1
         self.dirty = True
         self.result = None
@@ -315,7 +317,25 @@ class PlotPage(QWidget):
         self.summary.setText(f"{count} / {nr * nc} selected  ·  {nr} × {nc}")
         self.status.setText("Drag to select boxes, then click Draw selected; old results are hidden.")
 
-    def draw_maps(self):
+    def refresh_fill_edge(self, *_):
+        """Recompute edge continuation while leaving the current plot visible."""
+        if self.result is None or self.stack.currentWidget() is not self.scroll:
+            self.invalidate()
+            return
+        if self.worker is not None:
+            # Coalesce rapid checkbox changes and redraw once with the latest
+            # state after the current interpolation has stopped.
+            self.pending_fill_refresh = True
+            self.revision += 1
+            self.worker.requestInterruption()
+            self.status.setText("Restarting Fill edge update…")
+            return
+        self._start_surface_job(preserve_canvas=True)
+
+    def draw_maps(self, *_):
+        self._start_surface_job(preserve_canvas=False)
+
+    def _start_surface_job(self, preserve_canvas=False):
         if self.worker is not None:
             self.worker.requestInterruption()
             self.status.setText("Cancelling…")
@@ -339,20 +359,45 @@ class PlotPage(QWidget):
             cells = self.selector.selected_cells()
             if not cells:
                 raise ValueError("Select at least one map box before drawing.")
-            self.invalidate()
+            if preserve_canvas:
+                self.revision += 1
+                self.dirty = True
+                self.export_button.setEnabled(False)
+                self.copy_button.setEnabled(False)
+            else:
+                self.invalidate()
             revision = self.revision
             self.worker = SurfaceJob(self.frame, dict(self.selection, cells=list(cells)), options, self)
             self.worker.ready.connect(lambda result: self.render_result(result) if revision == self.revision else None)
-            self.worker.failed.connect(lambda message: self.show_error(message) if revision == self.revision else None)
+            if preserve_canvas:
+                self.worker.failed.connect(
+                    lambda message: self.show_refresh_error(message) if revision == self.revision else None)
+            else:
+                self.worker.failed.connect(lambda message: self.show_error(message) if revision == self.revision else None)
             self.worker.progress.connect(lambda done, total: self.status.setText(f"Interpolating {done} / {total} maps…")
                                          if revision == self.revision else None)
             self.worker.finished.connect(self.finished)
             self.draw_button.setText("Cancel")
-            self.stack.setCurrentIndex(0)
-            self.empty.setText("Preparing wafer maps…")
+            if preserve_canvas:
+                self.stack.setCurrentWidget(self.scroll)
+                self.status.setText("Updating Fill edge…")
+            else:
+                self.stack.setCurrentIndex(0)
+                self.empty.setText("Preparing wafer maps…")
             self.worker.start()
         except (ValueError, KeyError) as error:
-            self.show_error(str(error))
+            if preserve_canvas and self.result is not None:
+                self.show_refresh_error(str(error))
+            else:
+                self.show_error(str(error))
+
+    def show_refresh_error(self, message):
+        """Report an option-refresh failure without discarding the last plot."""
+        self.dirty = False
+        self.stack.setCurrentWidget(self.scroll)
+        self.export_button.setEnabled(bool(self.artists))
+        self.copy_button.setEnabled(bool(self.artists))
+        self.status.setText(f"Could not update Fill edge: {message}")
 
     def show_error(self, message):
         self.result = None
@@ -366,6 +411,11 @@ class PlotPage(QWidget):
         self.worker.deleteLater()
         self.worker = None
         self.draw_button.setText("Draw selected")
+        if (self.pending_fill_refresh and self.result is not None
+                and self.stack.currentWidget() is self.scroll):
+            self.pending_fill_refresh = False
+            QTimer.singleShot(0, self.refresh_fill_edge)
+            return
         if self.result is None and self.empty.text() == "Preparing wafer maps…":
             self.show_selector()
 

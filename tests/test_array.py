@@ -380,6 +380,15 @@ class PlotWorkspaceTests(unittest.TestCase):
         self.assertEqual(page.result["shape"], (3, 3))
         self.assertEqual(page.result["selected_count"], 1)
         self.assertEqual(sum(ax.axison for ax in page.figure.axes), 2)  # Selected map + colorbar
+        previous_result = page.result
+        expected_fill = not page.fill_edge.isChecked()
+        page.fill_edge.setChecked(expected_fill)
+        self.assertIs(page.stack.currentWidget(), page.scroll)
+        self.assertIs(page.result, previous_result)
+        self.wait_render()
+        self.assertIs(page.stack.currentWidget(), page.scroll)
+        self.assertIsNot(page.result, previous_result)
+        self.assertEqual(page.result["settings"].fill_edge, expected_fill)
         page.color_map.setCurrentText("Plasma")
         QTest.qWait(300)
         self.assertTrue(page.artists[0][0].axes.images[0].get_cmap().name.startswith("plasma"))
