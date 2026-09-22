@@ -409,6 +409,17 @@ class PlotPage(QWidget):
         render_scale = self.figure.dpi / 100
         self.scroll.resetTransform()
         self.scroll.scale(display_scale / render_scale, display_scale / render_scale)
+        # The transformed scene's scrollbar range is finalized on the next
+        # event-loop pass. Centering before then can use the previous range.
+        QTimer.singleShot(0, self.center_canvas)
+
+    def center_canvas(self):
+        """Center the plot array horizontally without losing its vertical row."""
+        if self.result is None:
+            return
+        viewport_center = self.scroll.mapToScene(self.scroll.viewport().rect().center())
+        canvas_center = self.canvas_proxy.sceneBoundingRect().center()
+        self.scroll.centerOn(canvas_center.x(), viewport_center.y())
 
     def change_resolution(self, *_):
         if self.result is None:
@@ -474,6 +485,7 @@ class PlotPage(QWidget):
         self.status.setText(f"Color: {name} · Palette {cmap_range[0]:.0%}–{cmap_range[1]:.0%} · "
                             f"Opacity {opacity:.0%} · Contours: {'on' if contour else 'off'} · "
                             f"Scale bar: {'shown' if show_colorbar else 'hidden'}.")
+        QTimer.singleShot(0, self.center_canvas)
 
     def apply_overlay_visibility(self, *_):
         """Toggle values and measured points without recalculating map surfaces."""
@@ -493,6 +505,7 @@ class PlotPage(QWidget):
         values = "shown" if show_labels else "hidden"
         points = "shown" if show_points else "hidden"
         self.status.setText(f"Point values: {values} · Measurement points: {points}.")
+        QTimer.singleShot(0, self.center_canvas)
 
     def apply_font_style(self):
         """Update existing text artists instead of rebuilding every map/colorbar."""
@@ -518,6 +531,7 @@ class PlotPage(QWidget):
             self.figure._supxlabel.set_fontsize(tick_size)
         self.canvas.draw_idle()
         self.status.setText(f"Plot font {base} pt · axis labels {label_size} pt · ticks {tick_size} pt.")
+        QTimer.singleShot(0, self.center_canvas)
 
     def eventFilter(self, watched, event):
         if event.type() == QEvent.Type.Wheel and self.result is not None:

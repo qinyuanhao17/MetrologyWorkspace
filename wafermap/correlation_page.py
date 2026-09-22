@@ -320,6 +320,7 @@ class CorrelationPage(QWidget):
             ax.yaxis.label.set_fontsize(max(6, base - 1))
             ax.tick_params(labelsize=max(5, base - 2))
         self.canvas.draw_idle()
+        QTimer.singleShot(0, self.center_canvas)
 
     def refresh_canvas(self):
         if not self.ready:
@@ -345,6 +346,15 @@ class CorrelationPage(QWidget):
         render_scale = self.figure.dpi / 100
         self.scroll.resetTransform()
         self.scroll.scale(max(.5, display) / render_scale, max(.5, display) / render_scale)
+        QTimer.singleShot(0, self.center_canvas)
+
+    def center_canvas(self):
+        """Center the plot array horizontally without changing the visible row."""
+        if not self.ready:
+            return
+        viewport_center = self.scroll.mapToScene(self.scroll.viewport().rect().center())
+        canvas_center = self.canvas_proxy.sceneBoundingRect().center()
+        self.scroll.centerOn(canvas_center.x(), viewport_center.y())
 
     def change_resolution(self, *_):
         if self.ready:
