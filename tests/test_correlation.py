@@ -144,6 +144,7 @@ class CorrelationTests(unittest.TestCase):
             self.assertFalse(page.ready)
             self.assertEqual(page.fits, [])
             self.assertEqual(len(page.all_fits), 3)
+            self.assertGreaterEqual(page.figure.texts[0].get_fontsize(), 15)
             page.min_rsq.setValue(.5)
             QTest.qWait(220)
             self.assertTrue(page.ready)

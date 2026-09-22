@@ -180,9 +180,14 @@ class CorrelationPage(QWidget):
         self.export_button.setEnabled(False)
         self.copy_button.setEnabled(False)
         self.figure.clear()
-        self.figure.text(.5, .5, "Choose at least 2 numeric columns and click Draw pairwise fits",
-                         ha="center", va="center", color="#746b7e")
+        self.draw_canvas_message("Choose at least 2 numeric columns and click Draw pairwise fits")
         self.canvas.draw_idle()
+
+    def draw_canvas_message(self, message):
+        """Draw a readable centered message that follows the plot font setting."""
+        size = max(15, int(self.font_size.currentText()) + 3)
+        return self.figure.text(.5, .5, message, ha="center", va="center",
+                                color="#746b7e", fontsize=size)
 
     def selected_rows(self):
         wafers = self.selection.get("wafers", [])
@@ -256,8 +261,7 @@ class CorrelationPage(QWidget):
             self.export_button.setEnabled(False)
             self.copy_button.setEnabled(False)
             self.figure.clear()
-            self.figure.text(.5, .5, f"No pairwise fit has R² > {threshold:.2f}",
-                             ha="center", va="center", color="#746b7e")
+            self.draw_canvas_message(f"No pairwise fit has R² > {threshold:.2f}")
             self.canvas.draw_idle()
             self.status.setText(f"0 / {len(self.all_fits)} fits pass R² > {threshold:.2f}.")
             return
@@ -312,6 +316,9 @@ class CorrelationPage(QWidget):
 
     def restyle(self, *_):
         if not self.ready:
+            for text in self.figure.texts:
+                text.set_fontsize(max(15, int(self.font_size.currentText()) + 3))
+            self.canvas.draw_idle()
             return
         base = int(self.font_size.currentText())
         for ax in self.figure.axes:
