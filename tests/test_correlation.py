@@ -24,6 +24,29 @@ APP = QApplication.instance() or QApplication([])
 
 
 class CorrelationTests(unittest.TestCase):
+    def test_die_seq_plot_uses_real_missing_sequence_numbers(self):
+        frame = pd.DataFrame({
+            "Wafer ID": ["W1", "W1", "W1", "W2", "W2"],
+            "Die Seq": [1, 4, 9, 2, 8],
+            "FIELD X": [0, 1, 2, 0, 1], "FIELD Y": [0, 0, 0, 1, 1],
+            "Value A": [10, 11, 12, 20, 21], "Value B": [3, 5, 4, 8, 9],
+        })
+        window = CorrelationWindow()
+        try:
+            window.set_table(frame, "Missing Die Seq fixture")
+            page = window.sequence_page
+            page.draw_plot()
+            self.assertTrue(page.ready, page.status.text())
+            self.assertEqual(page.figure.axes[0]._die_sequence_values, [[1, 4, 9], [2, 8]])
+            self.assertEqual(page.figure.axes[0]._wafer_ids, ["W1", "W2"])
+            visible_ticks = {text.get_text() for text in page.figure.axes[0].get_xticklabels()}
+            self.assertTrue({"1", "4", "9", "2", "8"}.issubset(visible_ticks))
+        finally:
+            window.model.undo.setClean()
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
     def test_first_cell_paste_auto_selects_numeric_columns(self):
         window = CorrelationWindow()
         try:
@@ -107,9 +130,10 @@ class CorrelationTests(unittest.TestCase):
         window = CorrelationWindow()
         try:
             window.load_path(ROOT / "OCD_measurement_data.csv")
-            self.assertEqual(window.tabs.count(), 2)
+            self.assertEqual(window.tabs.count(), 3)
             self.assertEqual(window.tabs.tabText(0), "1. Data")
             self.assertEqual(window.tabs.tabText(1), "2. Pairwise Fit")
+            self.assertEqual(window.tabs.tabText(2), "3. Die Seq Plot")
             self.assertGreater(window.sheet.model().rowCount(), 0)
             self.assertEqual(len(window.selection["metrics"]), 15)
             tree = window.parameter_list
@@ -151,6 +175,20 @@ class CorrelationTests(unittest.TestCase):
             self.assertEqual(len(page.fits), 1)
             page.copy_png()
             self.assertFalse(APP.clipboard().image().isNull())
+
+            window.tabs.setCurrentIndex(2)
+            sequence = window.sequence_page
+            sequence.draw_plot()
+            self.assertTrue(sequence.ready, sequence.status.text())
+            self.assertEqual(sequence.wafer_column, "Wafer ID")
+            self.assertEqual(sequence.die_column, "Die Seq")
+            self.assertEqual(len(sequence.figure.axes), 3)
+            self.assertEqual({axis.get_title() for axis in sequence.figure.axes},
+                             {"OCD_H1", "OCD_H2", "OCD_H3"})
+            self.assertTrue(all(axis._die_sequence_values for axis in sequence.figure.axes))
+            self.assertTrue(all(axis._wafer_ids for axis in sequence.figure.axes))
+            self.assertTrue(all(axis.get_xlabel() == "Die Seq" for axis in sequence.figure.axes))
+            self.assertEqual(sequence.copy_shortcut.key(), QKeySequence(QKeySequence.StandardKey.Copy))
         finally:
             window.model.undo.setClean()
             window.close()

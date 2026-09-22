@@ -1,6 +1,6 @@
 # Metrology Workspace
 
-Python 3.10+ / PyQt6 桌面软件。启动后进入主窗口，**Wafer Map** 与 **Correlation Analysis** 作为两个可加载组件独立打开。Wafer Map 包含 Data、Wafer Maps、Radius Plot；Correlation Analysis 复用相同的 Data 工作区，并在 Pairwise Fit 中绘制两两数值关系。
+Python 3.10+ / PyQt6 桌面软件。启动后进入主窗口，**Wafer Map** 与 **Correlation Analysis** 作为两个可加载组件独立打开。Wafer Map 包含 Data、Wafer Maps、Radius Plot；Correlation Analysis 复用相同的 Data 工作区，并提供 Pairwise Fit 与 Die Seq Plot。
 
 ## 运行
 
@@ -80,6 +80,7 @@ python -m PyInstaller --noconfirm --clean MetrologyWorkspace.spec
 - 所有散点图按照 R² 从高到低排列，标题显示变量对、拟合方程、R²、有效点数和排名。Min R² 默认 0.50，仅绘制严格满足 R² > 0.50 的结果；修改阈值只筛选已有 lmfit 结果，不重新拟合。一次最多选择 40 列；为避免低阈值生成超大画布，界面按排名显示最强的 12 张图并在状态栏报告完整通过数量。
 - Min R²、列数、字号和分辨率的连续修改会合并为一次刷新；大阵列的屏幕渲染自动限制像素量，PNG 导出仍使用所选 Standard / High / Ultra 的完整 DPI。
 - 支持每行 2/3/4 图、字体大小、Standard/High/Ultra 分辨率、快速缩放、完整阵列 Export PNG 和 Copy PNG。
+- Tab 3 **Die Seq Plot** 按已选 Numeric 参数分别绘制折线与测点，标题为参数名；横轴内层显示真实 Die Seq（允许缺号，不自动补齐），外层显示 Wafer ID，各测量条目之间用留白和分隔线区分。支持单列/双列布局、字号、缩放、分辨率、Export PNG、Copy PNG 和 Ctrl+C。
 
 绘图区不再提供独立分组下拉框；测量分组在 Data 页自动完成。当前 CSV 的 480 行会完整拆为 **3 个 Wafer ID × 2 个 PAD Name = 6 个测量条目，每条 80 点**，可直接绘制，无需删除其中一组。原始文件未被改动。
 
@@ -103,6 +104,7 @@ wafermap/
   module_button.py         带实例数徽标（N OPEN / UNLOADED）的导航按钮
   correlation_window.py    复用 Data 页的相关性分析组件窗口
   correlation_page.py      lmfit 两两线性拟合、R² 排序与散点图阵列
+  sequence_page.py         Numeric 参数按 Die Seq / Wafer ID 分组的折线图
   data.py                  表格导入、字段识别、数据筛选
   measurements.py          Wafer/Lot/PAD 等复合测量身份识别
   sheet.py                 表格模型、单元格编辑、复制粘贴和撤销

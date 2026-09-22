@@ -36,7 +36,7 @@ def main():
         wafer = window.open_component("wafer_map")
         correlation = window.open_component("correlation_analysis")
         app.processEvents()
-        valid = wafer.tabs.count() == 3 and correlation.tabs.count() == 2
+        valid = wafer.tabs.count() == 3 and correlation.tabs.count() == 3
         window.unload_all_components()
         window.close()
         app.processEvents()

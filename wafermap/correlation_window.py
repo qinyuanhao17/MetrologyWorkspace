@@ -1,6 +1,7 @@
 """Loadable correlation-analysis workspace reusing the WaferMap data editor."""
 
 from .correlation_page import CorrelationPage
+from .sequence_page import SequencePage
 from .window import MainWindow as DataWorkspaceWindow, parameter_checked_by_default
 
 
@@ -14,10 +15,12 @@ class CorrelationWindow(DataWorkspaceWindow):
         self.tabs.removeTab(1)
         self.correlation_page = CorrelationPage()
         self.tabs.addTab(self.correlation_page, "2. Pairwise Fit")
+        self.sequence_page = SequencePage()
+        self.tabs.addTab(self.sequence_page, "3. Die Seq Plot")
         self.update_plan()
 
     def change_tab(self, index):
-        if index == 1 and self.refresh_timer.isActive():
+        if index in (1, 2) and self.refresh_timer.isActive():
             self.recognize()
 
     def default_parameters(self, metrics):
@@ -28,6 +31,8 @@ class CorrelationWindow(DataWorkspaceWindow):
         super().update_plan()
         if hasattr(self, "correlation_page"):
             self.correlation_page.set_input(self._frame, self.selection)
+        if hasattr(self, "sequence_page"):
+            self.sequence_page.set_input(self._frame, self.selection)
 
 
 __all__ = ["CorrelationWindow"]
