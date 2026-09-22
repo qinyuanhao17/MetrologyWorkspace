@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 
 from wafermap.data import Dataset, read_table
 from wafermap.plot import (
@@ -111,6 +112,25 @@ class PlotTests(unittest.TestCase):
             path = Path(folder) / "plot.png"
             plot.save(path)
             self.assertGreater(path.stat().st_size, 10000)
+
+    def test_dense_value_labels_are_thinned_without_overlap(self):
+        grid = np.linspace(-1, 1, 11)
+        points = np.array([(x, y) for y in grid for x in grid])
+        layer = pd.DataFrame(points, columns=["x", "y"])
+        layer["value"] = np.linspace(10, 99, len(layer))
+        plot = WaferPlot()
+        plot.figure.set_size_inches(2.2, 2.2)
+        plot.draw(layer, "Value", "W1", PlotOptions(0, 0, 1.5, resolution=35,
+                                                      show_colorbar=False), compact=True)
+        FigureCanvasAgg(plot.figure).draw()
+        boxes = plot.value_labels.drawn_boxes
+        self.assertGreater(len(boxes), 0)
+        self.assertLess(len(boxes), len(layer))
+        for index, box in enumerate(boxes):
+            for other in boxes[index + 1:]:
+                overlaps = (box[0] < other[2] and box[2] > other[0]
+                            and box[1] < other[3] and box[3] > other[1])
+                self.assertFalse(overlaps)
 
     def test_edge_continuation_does_not_saturate_to_extreme(self):
         points = np.array([[-1., -1.], [1., -1.], [1., 1.], [-1., 1.], [0., 0.]])

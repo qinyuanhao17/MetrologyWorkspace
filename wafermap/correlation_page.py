@@ -12,7 +12,7 @@ from lmfit.models import LinearModel
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from PyQt6.QtCore import QEvent, QPointF, Qt, QTimer
-from PyQt6.QtGui import QImage, QPainter
+from PyQt6.QtGui import QImage, QKeySequence, QPainter, QShortcut
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QDoubleSpinBox, QFileDialog, QFrame, QGraphicsScene, QGraphicsView,
     QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
@@ -153,6 +153,10 @@ class CorrelationPage(QWidget):
         self.scroll.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
         self.canvas.installEventFilter(self)
         self.scroll.viewport().installEventFilter(self)
+        self.copy_shortcut = QShortcut(QKeySequence.StandardKey.Copy, self)
+        self.copy_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.copy_shortcut.activated.connect(self.copy_png)
+        self.copy_button.setToolTip("Copy the complete plot as PNG (Ctrl+C while this tab is active).")
         layout.addWidget(self.scroll, 1)
         self.status = QLabel("Choose numeric columns in Data, then draw.", objectName="hint")
         layout.addWidget(self.status)

@@ -14,7 +14,7 @@ from matplotlib import colormaps
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from PyQt6.QtCore import QPoint, QPointF, Qt
-from PyQt6.QtGui import QWheelEvent
+from PyQt6.QtGui import QKeySequence, QWheelEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QFileDialog, QHBoxLayout, QLabel, QPushButton
 
@@ -298,6 +298,7 @@ class PlotWorkspaceTests(unittest.TestCase):
         self.assertEqual(len(page.figure.axes), 18)  # 9 maps + 9 colorbars
         self.assertIsNone(page.figure._suptitle)
         self.assertTrue(page.copy_button.isEnabled())
+        self.assertEqual(page.copy_shortcut.key(), QKeySequence(QKeySequence.StandardKey.Copy))
         page.copy_png()
         copied = APP.clipboard().image()
         self.assertFalse(copied.isNull())

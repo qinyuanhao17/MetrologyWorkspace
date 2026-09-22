@@ -9,6 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import numpy as np
 import pandas as pd
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QKeySequence
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
@@ -124,6 +125,7 @@ class CorrelationTests(unittest.TestCase):
             page = window.correlation_page
             page.draw_plot()
             self.assertTrue(page.ready, page.status.text())
+            self.assertEqual(page.copy_shortcut.key(), QKeySequence(QKeySequence.StandardKey.Copy))
             self.assertEqual(page.min_rsq.value(), .5)
             self.assertEqual(len(page.all_fits), 3)
             self.assertEqual(len(page.fits), 1)
@@ -146,6 +148,8 @@ class CorrelationTests(unittest.TestCase):
             QTest.qWait(220)
             self.assertTrue(page.ready)
             self.assertEqual(len(page.fits), 1)
+            page.copy_png()
+            self.assertFalse(APP.clipboard().image().isNull())
         finally:
             window.model.undo.setClean()
             window.close()

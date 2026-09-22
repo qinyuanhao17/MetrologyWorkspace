@@ -7,7 +7,7 @@ import pandas as pd
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from PyQt6.QtCore import QEvent, QPointF, Qt, QTimer
-from PyQt6.QtGui import QImage, QPainter
+from PyQt6.QtGui import QImage, QKeySequence, QPainter, QShortcut
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QFrame, QGraphicsScene, QGraphicsView,
     QHBoxLayout, QLabel, QPushButton, QStackedWidget, QVBoxLayout, QWidget,
@@ -103,6 +103,10 @@ class RadiusPage(QWidget):
         self.scroll.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
         self.canvas.installEventFilter(self)
         self.scroll.viewport().installEventFilter(self)
+        self.copy_shortcut = QShortcut(QKeySequence.StandardKey.Copy, self)
+        self.copy_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.copy_shortcut.activated.connect(self.copy_png)
+        self.copy_button.setToolTip("Copy the complete plot as PNG (Ctrl+C while this tab is active).")
         self.stack.addWidget(self.scroll)
         self.selector_panel = QWidget()
         box_layout = QVBoxLayout(self.selector_panel)

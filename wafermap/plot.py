@@ -59,6 +59,8 @@ class ValueLabels(Artist):
         self.positions = np.asarray(positions, dtype=float)
         self.fontsize = fontsize
         self.labels = [f"{value:.4g}" for value in values]
+        self.drawn_indices = []
+        self.drawn_boxes = []
         for character in set("".join(self.labels)):
             if character not in self._glyphs:
                 glyph = TextPath((0, 0), character, size=1, prop=self._font)
@@ -76,21 +78,36 @@ class ValueLabels(Artist):
         scale = renderer.points_to_pixels(self.fontsize)
         offsets = self.axes.transData.transform(self.positions)
         vertices, codes = [], []
-        for label, (x, y) in zip(self.labels, offsets):
-            width = sum(self._glyphs[character][1] for character in label)
-            cursor = x - width * scale / 2
+        accepted_boxes = []
+        accepted_indices = []
+        # Keep labels at their measured coordinates, but omit labels that would
+        # collide at the current panel size. Moving a value would imply a false
+        # coordinate; deterministic thinning is honest and keeps arrays legible.
+        gap = max(1.5, scale * .12)
+        for index, (label, (x, y)) in enumerate(zip(self.labels, offsets)):
+            width = sum(self._glyphs[character][1] for character in label) * scale
             baseline = y - (self._top + .75) * scale
+            box = (x - width / 2 - gap, baseline - gap,
+                   x + width / 2 + gap, baseline + self._top * scale + gap)
+            if any(box[0] < other[2] and box[2] > other[0]
+                   and box[1] < other[3] and box[3] > other[1]
+                   for other in accepted_boxes):
+                continue
+            accepted_boxes.append(box)
+            accepted_indices.append(index)
+            cursor = x - width / 2
             for character in label:
                 glyph, advance = self._glyphs[character]
                 vertices.append(glyph.vertices * scale + (cursor, baseline))
                 codes.append(glyph.codes)
                 cursor += advance * scale
+        self.drawn_indices = accepted_indices
+        self.drawn_boxes = accepted_boxes
+        if not vertices:
+            return
         compound = Path(np.concatenate(vertices), np.concatenate(codes))
         gc = renderer.new_gc()
         self._set_gc_clip(gc)
-        gc.set_foreground("white")
-        gc.set_linewidth(.65)
-        renderer.draw_path(gc, compound, IdentityTransform())
         gc.set_foreground("#101820")
         gc.set_linewidth(0)
         renderer.draw_path(gc, compound, IdentityTransform(), to_rgba("#101820"))

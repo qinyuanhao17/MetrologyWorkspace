@@ -8,6 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QKeySequence
 from PyQt6.QtWidgets import QApplication
 
 from wafermap.radius_page import signed_radius
@@ -53,6 +54,9 @@ class RadiusTests(unittest.TestCase):
             screen_scale = screen_render_scale(3 * 460, 6 * 370 + 30, screen_scale)
             self.assertEqual(page.canvas.width(), round(3 * 460 * screen_scale))
             self.assertIn("18 / 18 radius plots drawn", page.status.text())
+            self.assertEqual(page.copy_shortcut.key(), QKeySequence(QKeySequence.StandardKey.Copy))
+            page.copy_png()
+            self.assertFalse(APP.clipboard().image().isNull())
             first_axis = page.figure.axes[0]
             self.assertEqual(first_axis.get_title(loc="center"), "OCD_H1")
             self.assertEqual(first_axis.title.get_fontweight(), "bold")
