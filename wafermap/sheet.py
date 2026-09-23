@@ -145,11 +145,49 @@ class SheetModel(QAbstractTableModel):
             return pd.DataFrame()
         columns = max(c for _, c in self.cells) + 1
         rows = max(r for r, _ in self.cells) + 1
-        headers = [self.cells.get((0, c), "").strip() or f"Column {column_letter(c)}" for c in range(columns)]
+        headers = self.headers(columns)
         if len(set(headers)) != len(headers):
             raise ValueError("Duplicate column names in row 1. Rename them to continue.")
         matrix = [[self.cells.get((r, c), "") for c in range(columns)] for r in range(1, rows)]
         return pd.DataFrame([row for row in matrix if any(v.strip() for v in row)], columns=headers)
+
+    def headers(self, columns=None):
+        """Row-1 header text, falling back to the column letter when it is blank."""
+        if columns is None:
+            columns = max((c for _, c in self.cells), default=-1) + 1
+        return [self.cells.get((0, c), "").strip() or f"Column {column_letter(c)}"
+                for c in range(columns)]
+
+    def duplicate_header_count(self):
+        """How many row-1 names repeat (0 when every header is unique)."""
+        headers = self.headers()
+        return len(headers) - len(set(headers))
+
+    def rename_duplicate_headers(self):
+        """Number repeated row-1 headers by column order and return the renames.
+
+        The first column of each name keeps it; later repeats become ``name_2``,
+        ``name_3`` … (skipping any suffix already used elsewhere), so the table
+        can be read again without touching any other cell. Renames go through the
+        undo stack.
+        """
+        headers = self.headers()
+        used = set(headers)
+        seen, changes = {}, {}
+        for column, name in enumerate(headers):
+            seen[name] = seen.get(name, 0) + 1
+            if seen[name] == 1:
+                continue
+            suffix = seen[name]
+            candidate = f"{name}_{suffix}"
+            while candidate in used:
+                suffix += 1
+                candidate = f"{name}_{suffix}"
+            used.add(candidate)
+            changes[(0, column)] = candidate
+        if changes:
+            self.edit(changes)
+        return {column: (headers[column], value) for (_, column), value in changes.items()}
 
 
 class SheetView(QTableView):

@@ -10,13 +10,13 @@ class CorrelationWindow(DataWorkspaceWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Correlation Analysis")
+        self.setWindowTitle("Correlation and Trend")
         self.tabs.removeTab(2)
         self.tabs.removeTab(1)
         self.correlation_page = CorrelationPage()
-        self.tabs.addTab(self.correlation_page, "2. Pairwise Fit")
+        self.tabs.addTab(self.correlation_page, "2. Correlation")
         self.sequence_page = SequencePage()
-        self.tabs.addTab(self.sequence_page, "3. Die Seq Plot")
+        self.tabs.addTab(self.sequence_page, "3. Trend")
         self.update_plan()
 
     def change_tab(self, index):

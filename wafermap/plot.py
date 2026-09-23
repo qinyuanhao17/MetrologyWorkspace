@@ -367,6 +367,8 @@ class WaferPlot:
         self.marker = None
         self.value_labels = None
         self.point_markers = None
+        self.contours = None
+        self.circle = None
         self.positions = np.empty((0, 2))
 
     def clear(self, message="Open CSV / XLSX or paste a table to begin"):
@@ -375,6 +377,8 @@ class WaferPlot:
         self.colorbar = self.marker = None
         self.image = None
         self.point_markers = None
+        self.contours = None
+        self.circle = None
         self.positions = np.empty((0, 2))
         self.figure.text(0.5, 0.5, message, ha="center", va="center", color="#746b7e")
 
@@ -406,6 +410,7 @@ class WaferPlot:
         self.marker = None
         self.value_labels = None
         self.point_markers = None
+        self.contours = None
         ax = axes
         self.axes = ax
         palette = "coolwarm" if options.difference else options.cmap
@@ -418,17 +423,19 @@ class WaferPlot:
         circle = Circle(center, radius, facecolor="none", edgecolor="#343b45", linewidth=0.8)
         ax.add_patch(circle)
         image.set_clip_path(circle)
-        if options.contour:
-            # Iso-lines make the interpolated surface readable as a topography.
-            # The masked array already keeps them inside the measured hull / circle.
-            levels = MaxNLocator(nbins=9).tick_values(low, high)
-            levels = levels[(levels >= low) & (levels <= high)]
-            if len(levels) >= 2:
-                # Pick each line's own shade from the fill underneath it, so the
-                # contours stay visible on the dark and the light ends of the map.
-                colours = [contour_colour(cmap, low, high, level) for level in levels]
-                ax.contour(gx, gy, surface, levels=levels, colors=colours,
-                           linewidths=0.5, alpha=0.9, zorder=2)
+        self.circle = circle
+        # Iso-lines make the interpolated surface readable as a topography. They
+        # are built for every map and only toggled, so the Contour lines checkbox
+        # repaints the overlays instead of rebuilding all maps.
+        levels = MaxNLocator(nbins=9).tick_values(low, high)
+        levels = levels[(levels >= low) & (levels <= high)]
+        if len(levels) >= 2:
+            # Pick each line's own shade from the fill underneath it, so the
+            # contours stay visible on the dark and the light ends of the map.
+            colours = [contour_colour(cmap, low, high, level) for level in levels]
+            self.contours = ax.contour(gx, gy, surface, levels=levels, colors=colours,
+                                       linewidths=0.5, alpha=0.9, zorder=2)
+            self.contours.set_visible(bool(options.contour))
         if options.point_outline:
             # A light ring keeps the measured symbols readable on the dark parts
             # of the map; colouring them with the map palette would just hide them.

@@ -16,6 +16,7 @@ from .sheet import SheetModel, SheetView, clipboard_rows, column_letter
 from .plot_page import PlotPage
 from .radius_page import RadiusPage
 from .measurements import default_identity_columns, detect_measurements
+from .appearance import fit_window_to_screen
 from .settings import apply_theme
 
 
@@ -90,8 +91,9 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Wafer Insight")
-        self.resize(1520, 950)
-        self.setMinimumSize(1180, 760)
+        # Prefer a large workspace, but never larger than the display lets us
+        # show above the taskbar; the shell centres it again when it opens.
+        fit_window_to_screen(self, (1520, 950), minimum=(1000, 680))
         apply_theme(self)
         self.model = SheetModel()
         self._frame = pd.DataFrame()
@@ -126,10 +128,19 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(10, 12, 10, 10)
         layout.setSpacing(10)
+        banner = QHBoxLayout()
+        banner.setSpacing(10)
         self.message = label("", "warning")
         self.message.setWordWrap(True)
         self.message.hide()
-        layout.addWidget(self.message)
+        banner.addWidget(self.message, 1)
+        self.auto_rename_button = QPushButton("Auto rename", objectName="subtle")
+        self.auto_rename_button.setToolTip(
+            "Append 2, 3 … to repeated row-1 column names, in column order.")
+        self.auto_rename_button.hide()
+        self.auto_rename_button.clicked.connect(self.auto_rename_columns)
+        banner.addWidget(self.auto_rename_button)
+        layout.addLayout(banner)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
         splitter.addWidget(self.build_sheet_card())
@@ -354,6 +365,7 @@ class MainWindow(QMainWindow):
             self.measurements = detect_measurements(frame, primary, chosen_groups, use_die_seq=False)
             self._frame = frame
             self.message.hide()
+            self.auto_rename_button.hide()
             for tree in (self.wafer_list, self.parameter_list):
                 tree.blockSignals(True)
                 tree.clear()
@@ -393,6 +405,7 @@ class MainWindow(QMainWindow):
             self.parameter_list.clear()
             self.message.setText(str(error))
             self.message.show()
+            self.auto_rename_button.setVisible(bool(self.model.duplicate_header_count()))
         finally:
             self.wafer_list.blockSignals(False)
             self.parameter_list.blockSignals(False)
@@ -527,3 +540,20 @@ class MainWindow(QMainWindow):
             event.accept()
         else:
             event.ignore()
+
+    def auto_rename_columns(self):
+        """Number repeated row-1 headers so the table can be read again.
+
+        The button sits next to the duplicate-name warning; renaming keeps every
+        other cell untouched and is undoable with Ctrl+Z.
+        """
+        renames = self.model.rename_duplicate_headers()
+        if not renames:
+            self.auto_rename_button.hide()
+            return
+        summary = ", ".join(f"{old} → {new}" for old, new in renames.values())
+        self.recognize()
+        if self.model.duplicate_header_count():
+            self.statusBar().showMessage(f"Still duplicated after renaming: {summary}", 8000)
+        else:
+            self.statusBar().showMessage(f"Renamed {len(renames)} duplicate column(s): {summary}", 8000)

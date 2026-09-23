@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .appearance import configure_resolution_combo, resolution_settings, screen_render_scale
+from .array_plot import drawn_axes
 from .data import number
 from .map_selector import MapSelector
 from .plot import infer_wafer_geometry, restyle_panel_title, set_panel_title
@@ -198,6 +199,9 @@ class RadiusPage(QWidget):
             if not cells:
                 raise ValueError("Select at least one plot box before drawing.")
             parts, labels = self._parts(), self.selection.get("labels", {})
+            # Only the rows and columns that hold a drawn box end up on the
+            # canvas, so its size follows the number of drawn plots.
+            wafers, metrics = drawn_axes(wafers, metrics, cells)
             columns, rows = len(metrics), len(wafers)
             self.figure.clear()
             axes = self.figure.subplots(rows, columns, squeeze=False)
@@ -238,7 +242,8 @@ class RadiusPage(QWidget):
             grow = max(0, base - 10)
             self.figure.subplots_adjust(left=(60 + 7 * grow) / width, right=1 - (30 + 4 * grow) / width,
                                         top=1 - (75 + 8 * grow) / height, bottom=(55 + 6 * grow) / height,
-                                        wspace=.32, hspace=.48)
+                                        # Row titles need more room as the font grows.
+                                        wspace=.32 + .02 * grow, hspace=.48 + .055 * grow)
             self.base_size = width, height
             self.ready = True
             self.refresh_canvas()

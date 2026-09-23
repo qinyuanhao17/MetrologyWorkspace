@@ -1,5 +1,6 @@
 """Prepare row-by-wafer arrays; keep numerical work independent of Qt."""
 from dataclasses import dataclass
+from textwrap import wrap
 
 import numpy as np
 import pandas as pd
@@ -138,6 +139,28 @@ def prepare_array(frame, selection, options, progress=lambda *_: None, cancelled
             "geometry": geometry, "selected_count": len(selected), "size_summary": size_summary}
 
 
+def edge_note(settings):
+    """Describe what the area outside the measured sample hull contains."""
+    return ("mirrored edge extension" if settings.fill_edge
+            else "outside sample hull = no data")
+
+
+def drawn_axes(wafers, metrics, cells):
+    """Keep only the array rows and columns that contain at least one drawn cell.
+
+    The canvas is sized from this trimmed pair, so a 2 x 2 box selection inside a
+    6 x 20 grid produces a 2 x 2 canvas instead of a mostly empty one. Rows and
+    columns keep their original order, so boxes that are still drawn stay
+    aligned with each other.
+    """
+    chosen = {(wafer, metric) for wafer, metric in cells}
+    kept_wafers = [wafer for wafer in wafers
+                   if any((wafer, metric) in chosen for metric in metrics)]
+    kept_metrics = [metric for metric in metrics
+                    if any((wafer, metric) in chosen for wafer in wafers)]
+    return kept_wafers, kept_metrics
+
+
 def draw_array(figure, result, font_size=10):
     """All Matplotlib mutations stay on the calling (GUI) thread."""
     figure.clear()
@@ -151,10 +174,22 @@ def draw_array(figure, result, font_size=10):
     base_width, base_height = columns * 460, rows * 420 + 30
     grow = max(0, font_size - 10)
     left, right = 58 + 9 * grow, 78 + 6 * grow
-    top, bottom = 70 + 9 * grow, 55 + 6 * grow
+    # Bottom margin holds the tick labels, the axis label and the footer note;
+    # it has to grow with the font or the bottom row prints over the footer.
+    top, bottom = 70 + 9 * grow, 58 + 11 * grow
+    note = f"RBF inside sample hull; {edge_note(settings)}; {result['size_summary']}"
+    footer_size = max(5, font_size - 2)
+    # Narrow boards (one column, one row) are now common, so wrap the footnote
+    # instead of letting Matplotlib clip it at the canvas edge.
+    per_line = max(24, int((base_width / 100) / (0.5 * footer_size / 72)))
+    lines = wrap(note, per_line) or [note]
+    bottom += (len(lines) - 1) * (footer_size + 8)
     figure.subplots_adjust(left=left / base_width, right=1 - right / base_width,
                            top=1 - top / base_height, bottom=bottom / base_height,
-                           wspace=.42, hspace=.28)
+                           # The row titles sit above their axes, so larger fonts
+                           # need a taller gap or they print over the axis label
+                           # of the row above (visible in exported copies).
+                           wspace=.42 + .02 * grow, hspace=.28 + .055 * grow)
     artists = []
     for ax, scene in zip(axes.flat, result["scenes"]):
         if scene.get("skip"):
@@ -171,8 +206,5 @@ def draw_array(figure, result, font_size=10):
                   (settings.x, settings.y), axes=ax, prepared=scene["surface"], compact=True,
                   size_note=scene["size_note"], font_size=font_size)
         artists.append((plot, scene))
-    edge = "mirrored edge extension" if settings.fill_edge else "outside sample hull = no data"
-    circle = result["size_summary"]
-    figure.supxlabel(f"RBF inside sample hull; {edge}; {circle}",
-                     fontsize=max(5, font_size - 2), color="#666666")
+    figure.supxlabel("\n".join(lines), fontsize=footer_size, color="#666666")
     return artists

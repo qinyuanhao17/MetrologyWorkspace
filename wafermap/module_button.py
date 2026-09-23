@@ -12,14 +12,14 @@ class ModuleButton(QPushButton):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setMinimumHeight(64)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(14, 10, 10, 10)
-        layout.setSpacing(12)
+        layout.setContentsMargins(12, 10, 10, 10)
+        layout.setSpacing(10)
         self.title_label = QLabel()
         self.title_label.setObjectName("moduleTitle")
         self.state_label = QLabel()
         self.state_label.setObjectName("moduleStateBadge")
         self.state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.state_label.setMinimumSize(78, 26)
+        self.state_label.setMinimumSize(74, 26)
         for child in (self.title_label, self.state_label):
             child.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         layout.addWidget(self.title_label, 1)
@@ -35,6 +35,7 @@ class ModuleButton(QPushButton):
 
     def set_content(self, title, count=0):
         self.title_label.setText(title)
+        self.title_label.setToolTip(title)
         self.state_label.setText("UNLOADED" if count == 0 else f"{count} OPEN")
         self.state_label.setProperty("loaded", count > 0)
         self.state_label.style().unpolish(self.state_label)

@@ -5,6 +5,7 @@ __pycache__/
 .cache/
 settings.yaml
 *.log
+qa_*.png
 build/
 dist/
 release/

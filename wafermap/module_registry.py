@@ -70,7 +70,7 @@ def create_default_registry():
 
     registry.register(ComponentSpec(
         "correlation_analysis",
-        "Correlation Analysis",
+        "Correlation and Trend",
         "Compare selected numeric columns pairwise with lmfit linear models ranked by R².",
         "Statistical analysis",
         create_correlation_analysis,

@@ -16,8 +16,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .array_plot import ArrayOptions, draw_array, prepare_array
-from .appearance import COLOR_MAP_OPTIONS, configure_resolution_combo, resolution_settings, screen_render_scale
+from .array_plot import ArrayOptions, draw_array, drawn_axes, prepare_array
+from .appearance import (COLOR_MAP_OPTIONS, MAX_COPY_PIXELS, MAX_EXPORT_PIXELS,
+                         configure_resolution_combo, export_dpi, resolution_settings,
+                         screen_render_scale)
 from .color_range_bar import ColorRangeBar
 from .map_selector import MapSelector
 from .plot import auto_cmap_range, display_colormap, restyle_panel_title
@@ -58,10 +60,14 @@ class PlotPage(QWidget):
         self.pending_fill_refresh = False
         self.result = None
         self.artists = []
+        self._background = None
+        self._empty = None
         self.font_timer = QTimer(self, interval=120, singleShot=True)
         self.font_timer.timeout.connect(self.apply_font_style)
         self.style_timer = QTimer(self, interval=120, singleShot=True)
         self.style_timer.timeout.connect(self.apply_plot_style)
+        self.overlay_timer = QTimer(self, interval=120, singleShot=True)
+        self.overlay_timer.timeout.connect(self.apply_overlay_visibility)
         self.settings_timer = QTimer(self, interval=350, singleShot=True)
         self.settings_timer.timeout.connect(self.persist_color_preferences)
         layout = QVBoxLayout(self)
@@ -75,8 +81,11 @@ class PlotPage(QWidget):
         toolbar.addWidget(self.select_button)
         self.draw_button = QPushButton("Draw selected", objectName="primary")
         self.draw_button.clicked.connect(self.draw_maps)
-        self.export_button = QPushButton("Export PNG")
-        self.export_button.clicked.connect(self.export_png)
+        self.export_button = QPushButton("Export…")
+        self.export_button.setToolTip("PNG at the chosen export quality, or SVG / PDF vector output.\n"
+                                      "Vector files keep axes, text, iso-lines and points sharp; the "
+                                      "interpolated colour field is embedded as a raster layer.")
+        self.export_button.clicked.connect(self.export_image)
         self.export_button.setEnabled(False)
         self.copy_button = QPushButton("Copy PNG")
         self.copy_button.clicked.connect(self.copy_png)
@@ -182,8 +191,8 @@ class PlotPage(QWidget):
         self.points.setToolTip("Show or hide the measured-position dots.")
         self.contour.setToolTip("Overlay iso-lines of the interpolated surface (topographic look).")
         self.point_outline.setToolTip("Draw a light ring around every measured point so it stays visible on dark areas.")
-        self.labels.toggled.connect(self.apply_overlay_visibility)
-        self.points.toggled.connect(self.apply_overlay_visibility)
+        self.labels.toggled.connect(self.queue_overlay_visibility)
+        self.points.toggled.connect(self.queue_overlay_visibility)
         self.contour.toggled.connect(self.queue_plot_style)
         self.point_outline.toggled.connect(self.queue_plot_style)
         self.fill_edge.toggled.connect(self.refresh_fill_edge)
@@ -304,6 +313,8 @@ class PlotPage(QWidget):
         self.dirty = True
         self.result = None
         self.artists = []
+        self._background = None
+        self._empty = None
         if self.worker:
             self.worker.requestInterruption()
         self.export_button.setEnabled(False)
@@ -359,6 +370,13 @@ class PlotPage(QWidget):
             cells = self.selector.selected_cells()
             if not cells:
                 raise ValueError("Select at least one map box before drawing.")
+            # Lay out only the rows and columns that actually contain a drawn
+            # box: the canvas then scales with the number of maps instead of
+            # reserving blank space for every combination of the Data selection.
+            wafers, metrics = drawn_axes(self.selection.get("wafers", []),
+                                         self.selection.get("metrics", []), cells)
+            selection = dict(self.selection, cells=list(cells),
+                             wafers=wafers, metrics=metrics)
             if preserve_canvas:
                 self.revision += 1
                 self.dirty = True
@@ -367,7 +385,10 @@ class PlotPage(QWidget):
             else:
                 self.invalidate()
             revision = self.revision
-            self.worker = SurfaceJob(self.frame, dict(self.selection, cells=list(cells)), options, self)
+            # Option-driven re-renders keep the current zoom and scroll offset;
+            # only a fresh "Draw selected" recentres the canvas.
+            self._preserve_view = preserve_canvas
+            self.worker = SurfaceJob(self.frame, selection, options, self)
             self.worker.ready.connect(lambda result: self.render_result(result) if revision == self.revision else None)
             if preserve_canvas:
                 self.worker.failed.connect(
@@ -401,6 +422,8 @@ class PlotPage(QWidget):
 
     def show_error(self, message):
         self.result = None
+        self._background = None
+        self._empty = None
         self.export_button.setEnabled(False)
         self.copy_button.setEnabled(False)
         self.stack.setCurrentIndex(0)
@@ -421,20 +444,25 @@ class PlotPage(QWidget):
 
     def render_result(self, result):
         try:
+            saved_view = self.capture_view() if getattr(self, "_preserve_view", False) else None
             self.result = result
             self.artists = draw_array(self.figure, result, int(self.font_size.currentText()))
             self.dirty = False
             self.stack.setCurrentIndex(1)
             self.refresh_canvas()
+            if saved_view is not None:
+                self.restore_view(saved_view)
             self.export_button.setEnabled(bool(self.artists))
             self.copy_button.setEnabled(bool(self.artists))
+            rows, columns = result["shape"]
             self.status.setText(f"{len(self.artists)} / {result['selected_count']} maps · "
-                                f"{result['size_summary']} · Hover a point for its value.")
+                                f"{rows} × {columns} grid · {result['size_summary']} · "
+                                f"Hover a point for its value.")
         except Exception as error:
             self.show_error(str(error))
 
     def refresh_canvas(self):
-        """Render once at 100%; zoom later uses only the Qt view transform."""
+        """Render once at the current screen scale; zoom reuses the Qt view only."""
         if self.result is None:
             return
         rows, columns = self.result["shape"]
@@ -444,9 +472,87 @@ class PlotPage(QWidget):
         self.figure.set_dpi(100 * render_scale)
         self.figure.set_size_inches(base_width / 100, base_height / 100, forward=False)
         self.canvas.setFixedSize(round(base_width * render_scale), round(base_height * render_scale))
-        self.canvas.draw()
+        if self.artists:
+            # One draw doubles as the clean background cache, so point-value and
+            # measurement-point toggles only redraw two artists per panel.
+            self.capture_overlay_background()
+        else:
+            self.canvas.draw()
         self.scene.setSceneRect(self.canvas_proxy.boundingRect())
         self.resize_canvas()
+
+    def overlay_artists(self):
+        """Value labels, markers and iso-lines: the artists toggled by checkboxes."""
+        return [artist for plot, _scene in self.artists
+                for artist in (plot.contours, plot.value_labels, plot.point_markers)
+                if artist is not None]
+
+    def capture_overlay_background(self):
+        """Rebuild the cached backdrops the fast repaint paths compose from.
+
+        ``_empty`` holds the axes, ticks and titles only; ``_background`` adds
+        the colour fields, wafer outlines and colour bars. Overlay toggles then
+        only redraw a few artists, and colour changes redraw the fields onto the
+        empty backdrop so semi-transparent fills blend correctly.
+        """
+        fields = [(plot.image, plot.image.get_visible()) for plot, _scene in self.artists
+                  if plot.image is not None]
+        state = [(artist, artist.get_visible()) for artist in self.overlay_artists()]
+        state += fields
+        for artist, _visible in state:
+            artist.set_visible(False)
+        self.canvas.draw()
+        self._empty = self.canvas.copy_from_bbox(self.figure.bbox)
+        for artist, visible in state:
+            artist.set_visible(visible)
+        self.draw_fields()
+        self._background = self.canvas.copy_from_bbox(self.figure.bbox)
+        self.blit_overlays()
+
+    def draw_fields(self):
+        """Draw colour fields, wafer outlines and colour bars onto the buffer."""
+        canvas = self.canvas
+        canvas.restore_region(self._empty)
+        renderer = canvas.get_renderer()
+        for plot, _scene in self.artists:
+            if plot.image is not None:
+                plot.image.draw(renderer)
+            if plot.circle is not None:
+                plot.circle.draw(renderer)
+            canvas.blit(plot.axes.bbox)
+            if plot.colorbar is not None:
+                for image in plot.colorbar.ax.images:
+                    image.draw(renderer)
+                canvas.blit(plot.colorbar.ax.bbox)
+
+    def blit_overlays(self):
+        """Repaint just the value/point overlays over the cached background."""
+        if self._background is None:
+            self.canvas.draw_idle()
+            return
+        canvas = self.canvas
+        renderer = canvas.get_renderer()
+        canvas.restore_region(self._background)
+        for plot, _scene in self.artists:
+            artists = [artist for artist in (plot.contours, plot.value_labels, plot.point_markers)
+                       if artist is not None]
+            for artist in artists:
+                if artist.get_visible():
+                    artist.draw(renderer)
+            if artists:
+                canvas.blit(plot.axes.bbox)
+        canvas.update()
+
+    def repaint_fields(self):
+        """Repaint the colour fields, wafer outlines and colour bars in place."""
+        if self._empty is None:
+            self.capture_overlay_background()
+            return
+        self.draw_fields()
+        # The new colours belong to the background now, so refresh the cache and
+        # lay the overlays back on top of it.
+        self._background = self.canvas.copy_from_bbox(self.figure.bbox)
+        self.blit_overlays()
 
     def resize_canvas(self, *_):
         if self.result is None:
@@ -470,6 +576,32 @@ class PlotPage(QWidget):
         viewport_center = self.scroll.mapToScene(self.scroll.viewport().rect().center())
         canvas_center = self.canvas_proxy.sceneBoundingRect().center()
         self.scroll.centerOn(canvas_center.x(), viewport_center.y())
+
+    def capture_view(self):
+        """Remember zoom and scroll offset so a re-render can keep the same view."""
+        return {"zoom": self.zoom.currentText(),
+                "scale": self.scroll.transform().m11(),
+                "h": self.scroll.horizontalScrollBar().value(),
+                "v": self.scroll.verticalScrollBar().value()}
+
+    def restore_view(self, saved):
+        """Re-apply a captured view after the canvas has been re-rendered."""
+        if self.zoom.currentText() != saved["zoom"]:
+            self.zoom.setCurrentText(saved["zoom"])
+        self.scroll.resetTransform()
+        self.scroll.scale(saved["scale"], saved["scale"])
+        horizontal = self.scroll.horizontalScrollBar()
+        vertical = self.scroll.verticalScrollBar()
+        horizontal.setValue(saved["h"])
+        vertical.setValue(saved["v"])
+
+        def settle():
+            # Ranges are finalised on the next event-loop pass; setting the
+            # offsets again keeps the exact row and column the user was on.
+            horizontal.setValue(min(saved["h"], horizontal.maximum()))
+            vertical.setValue(min(saved["v"], vertical.maximum()))
+
+        QTimer.singleShot(0, settle)
 
     def change_resolution(self, *_):
         if self.result is None:
@@ -500,7 +632,12 @@ class PlotPage(QWidget):
         opacity = self.opacity.currentData() / 100
         cmap_range = self.color_range.range()
         previous = self.result["settings"]
-        structural_change = (show_colorbar != previous.show_colorbar or contour != previous.contour)
+        # Only the colour bar changes the figure layout; contours, outlines and
+        # overlays are toggled in place on the fast blit path.
+        structural_change = (show_colorbar != previous.show_colorbar)
+        palette_change = (cmap != previous.cmap
+                          or tuple(cmap_range) != tuple(previous.cmap_range or ())
+                          or opacity != previous.opacity)
         self.result["settings"].cmap = cmap
         self.result["settings"].show_colorbar = show_colorbar
         self.result["settings"].contour = contour
@@ -530,12 +667,26 @@ class PlotPage(QWidget):
                     plot.point_markers.set_sizes(np.full(len(plot.positions), 13 if point_outline else 5))
                     plot.point_markers.set_linewidths(.9 if point_outline else 0)
                     plot.point_markers.set_edgecolors("#f5f5f5" if point_outline else "none")
-            self.canvas.draw_idle()
+                if plot.contours is not None:
+                    plot.contours.set_visible(contour)
+            if palette_change:
+                # Only the colour fields change; repaint those instead of the
+                # whole array and refresh the cached background afterwards.
+                self.repaint_fields()
+            else:
+                self.blit_overlays()
         name = self.color_map.currentText()
         self.status.setText(f"Color: {name} · Palette {cmap_range[0]:.0%}–{cmap_range[1]:.0%} · "
                             f"Opacity {opacity:.0%} · Contours: {'on' if contour else 'off'} · "
                             f"Scale bar: {'shown' if show_colorbar else 'hidden'}.")
         QTimer.singleShot(0, self.center_canvas)
+
+    def queue_overlay_visibility(self, *_):
+        """Merge rapid value/point toggles into a single repaint."""
+        if self.result is None or not self.artists:
+            return
+        self.status.setText("Updating overlays…")
+        self.overlay_timer.start()
 
     def apply_overlay_visibility(self, *_):
         """Toggle values and measured points without recalculating map surfaces."""
@@ -551,11 +702,10 @@ class PlotPage(QWidget):
                 plot.point_markers.set_visible(show_points)
             scene["options"].labels = show_labels
             scene["options"].points = show_points
-        self.canvas.draw_idle()
+        self.blit_overlays()
         values = "shown" if show_labels else "hidden"
         points = "shown" if show_points else "hidden"
         self.status.setText(f"Point values: {values} · Measurement points: {points}.")
-        QTimer.singleShot(0, self.center_canvas)
 
     def apply_font_style(self):
         """Update existing text artists instead of rebuilding every map/colorbar."""
@@ -579,9 +729,8 @@ class PlotPage(QWidget):
                 plot.value_labels.set_fontsize(size)
         if self.figure._supxlabel is not None:
             self.figure._supxlabel.set_fontsize(tick_size)
-        self.canvas.draw_idle()
+        self.capture_overlay_background()
         self.status.setText(f"Plot font {base} pt · axis labels {label_size} pt · ticks {tick_size} pt.")
-        QTimer.singleShot(0, self.center_canvas)
 
     def eventFilter(self, watched, event):
         if event.type() == QEvent.Type.Wheel and self.result is not None:
@@ -646,33 +795,58 @@ class PlotPage(QWidget):
                                         f"X = {point.x:.6g}, Y = {point.y:.6g}")
                 break
 
-    def export_png(self):
+    def export_image(self):
+        """Write the complete array as PNG (chosen quality) or as SVG / PDF vector."""
         if self.result is None or not self.artists:
             return
-        path, _ = QFileDialog.getSaveFileName(self, "Export wafer map array", "wafer_maps.png", "PNG (*.png)")
-        if path:
-            try:
-                path = str(Path(path).with_suffix(".png"))
-                _render_scale, dpi = resolution_settings(self.resolution)
+        path, chosen = QFileDialog.getSaveFileName(
+            self, "Export wafer map array", "wafer_maps.png",
+            "PNG image (*.png);;SVG vector (*.svg);;PDF vector (*.pdf)")
+        if not path:
+            return
+        try:
+            suffix = Path(path).suffix.lower()
+            if suffix not in (".png", ".svg", ".pdf"):
+                suffix = ".svg" if "SVG" in chosen else ".pdf" if "PDF" in chosen else ".png"
+            path = str(Path(path).with_suffix(suffix))
+            _render_scale, requested = resolution_settings(self.resolution)
+            dpi = export_dpi(self.figure, requested, MAX_EXPORT_PIXELS)
+            if suffix == ".png":
                 self.figure.savefig(path, dpi=dpi, facecolor="white")
-                self.status.setText(f"Exported complete array ({dpi} dpi): {path}")
-            except Exception as error:
-                self.status.setText(f"Export failed: {error}")
+                note = f" · capped from {requested} dpi" if dpi < requested else ""
+                self.status.setText(f"Exported complete array as PNG ({dpi} dpi{note}): {path}")
+            else:
+                # Vector output keeps axes, text, iso-lines and measured points
+                # sharp; dpi only sets how finely the colour field is rasterised
+                # inside the file.
+                self.figure.savefig(path, dpi=dpi, facecolor="white")
+                self.status.setText(f"Exported complete array as {suffix[1:].upper()} vector "
+                                    f"({dpi} dpi raster layer): {path}")
+        except Exception as error:
+            self.status.setText(f"Export failed: {error}")
 
     def copy_png(self):
         if self.result is None or not self.artists:
             return
+        _render_scale, requested = resolution_settings(self.resolution)
+        dpi = export_dpi(self.figure, requested, MAX_COPY_PIXELS)
+        note = f" · capped from {requested} dpi" if dpi < requested else ""
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        self.status.setText("Copying…")
+        QApplication.processEvents()
         try:
             buffer = BytesIO()
-            _render_scale, dpi = resolution_settings(self.resolution)
             self.figure.savefig(buffer, format="png", dpi=dpi, facecolor="white")
             image = QImage.fromData(buffer.getvalue(), "PNG")
             if image.isNull():
                 raise ValueError("Unable to create the PNG image.")
             QApplication.clipboard().setImage(image)
-            self.status.setText(f"Copied complete array as PNG ({dpi} dpi) · {image.width()} × {image.height()} px")
+            self.status.setText(f"Copied complete array as PNG ({dpi} dpi{note}) · "
+                                f"{image.width()} × {image.height()} px")
         except Exception as error:
             self.status.setText(f"Copy failed: {error}")
+        finally:
+            QApplication.restoreOverrideCursor()
 
     def stop(self):
         if self.settings_timer.isActive():

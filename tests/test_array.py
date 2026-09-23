@@ -14,12 +14,12 @@ from matplotlib import colormaps
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from PyQt6.QtCore import QPoint, QPointF, Qt
-from PyQt6.QtGui import QKeySequence, QWheelEvent
+from PyQt6.QtGui import QImage, QKeySequence, QWheelEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QFileDialog, QHBoxLayout, QLabel, QPushButton
 
 from wafermap.array_plot import ArrayOptions, draw_array, prepare_array
-from wafermap.appearance import configure_fonts
+from wafermap.appearance import MAX_COPY_PIXELS, configure_fonts, export_dpi
 from wafermap.window import MainWindow
 from wafermap.appearance import screen_render_scale
 from wafermap.settings import get_settings
@@ -252,6 +252,134 @@ class PlotWorkspaceTests(unittest.TestCase):
             self.assertGreaterEqual(page.summary.geometry().width(), page.summary.sizeHint().width(),
                                     f"{page.objectName()} clipped its summary")
 
+    def test_row_titles_do_not_collide_at_large_fonts(self):
+        """A row's three-line title must stay clear of the row above's axis label."""
+        for size in ("12", "14", "16"):
+            with self.subTest(font=size):
+                self.unique_fixture()
+                w, page = self.window, self.window.plot_page
+                w.tabs.setCurrentIndex(1)
+                w.resize(1520, 950)
+                APP.processEvents()
+                page.font_size.setCurrentText(size)
+                QTest.qWait(250)
+                page.selector.selectAll()
+                page.draw_maps()
+                self.wait_render()
+                page.figure.canvas.draw()
+                renderer = page.figure.canvas.get_renderer()
+                axes = [plot.axes for plot, _scene in page.artists]
+                rows = {}
+                for axis in axes:
+                    rows.setdefault(round(axis.get_position().y0, 3), []).append(axis)
+                ordered = [rows[key] for key in sorted(rows, reverse=True)]  # top row first
+                for upper, lower in zip(ordered, ordered[1:]):
+                    label_bottom = min(axis.xaxis.label.get_window_extent(renderer).y0
+                                       for axis in upper)
+                    title_top = max(max(text.get_window_extent(renderer).y1
+                                        for text in (axis.title, *axis._wafer_title_details))
+                                    for axis in lower)
+                    self.assertLess(title_top, label_bottom,
+                                    f"font {size}: row title overlaps the axis label above")
+                footer = page.figure._supxlabel
+                if footer is not None:
+                    footer_top = footer.get_window_extent(renderer).y1
+                    label_bottom = min(axis.xaxis.label.get_window_extent(renderer).y0
+                                       for axis in ordered[-1])
+                    self.assertGreater(label_bottom, footer_top,
+                                       f"font {size}: bottom row overlaps the footer note")
+
+    def test_checkbox_toggles_repaint_without_a_full_draw(self):
+        """Overlay, outline, contour and colour toggles stay on the blit path."""
+        w, page = self.window, self.window.plot_page
+        w.check_all(w.wafer_list, True)
+        self.select_metrics("NGOF", "OCD_H1")
+        w.tabs.setCurrentIndex(1)
+        APP.processEvents()
+        page.selector.selectAll()
+        page.draw_maps()
+        self.wait_render()
+        APP.processEvents()
+        self.assertIsNotNone(page._background)
+        self.assertIsNotNone(page._empty)
+
+        with patch.object(page.canvas, "draw") as redraw:
+            page.labels.setChecked(not page.labels.isChecked())
+            page.points.setChecked(not page.points.isChecked())
+            page.contour.setChecked(not page.contour.isChecked())
+            page.point_outline.setChecked(not page.point_outline.isChecked())
+            page.opacity.setCurrentText("80%")
+            page.color_map.setCurrentText("Viridis")
+            QTest.qWait(400)
+            APP.processEvents()
+            redraw.assert_not_called()
+        self.assertTrue(page.artists[0][0].contours.get_visible())
+        self.assertEqual(page.artists[0][0].image.get_alpha(), .8)
+
+    def test_option_redraw_keeps_the_view(self):
+        """Toggling Fill edge must not resize, rescale or scroll the canvas."""
+        w, page = self.window, self.window.plot_page
+        w.check_all(w.wafer_list, True)
+        self.select_metrics("NGOF", "OCD_H1")
+        w.tabs.setCurrentIndex(1)
+        w.resize(1520, 950)
+        APP.processEvents()
+        page.selector.selectAll()
+        page.draw_maps()
+        self.wait_render()
+        APP.processEvents()
+
+        page.zoom.setCurrentText("200%")
+        APP.processEvents()
+        page.scroll.horizontalScrollBar().setValue(120)
+        page.scroll.verticalScrollBar().setValue(260)
+        APP.processEvents()
+        canvas = (page.canvas.width(), page.canvas.height())
+        scale = page.scroll.transform().m11()
+        self.assertGreater(page.scroll.verticalScrollBar().maximum(), 0)
+
+        page.fill_edge.setChecked(not page.fill_edge.isChecked())
+        self.wait_render()
+        APP.processEvents()
+        QTest.qWait(50)
+        self.assertEqual((page.canvas.width(), page.canvas.height()), canvas)
+        self.assertAlmostEqual(page.scroll.transform().m11(), scale, places=6)
+        self.assertEqual(page.scroll.horizontalScrollBar().value(), 120)
+        self.assertEqual(page.scroll.verticalScrollBar().value(), 260)
+
+    def test_canvas_shrinks_to_the_drawn_boxes(self):
+        """A sub-block selection must not leave the rest of the array as blank canvas."""
+        w, page = self.window, self.window.plot_page
+        w.check_all(w.wafer_list, True)
+        self.select_metrics("NGOF", "OCD_H1")
+        w.tabs.setCurrentIndex(1)
+        boxes = page.selector
+        self.assertEqual((boxes.rowCount(), boxes.columnCount()), (6, 2))
+
+        boxes.clearSelection()
+        for row in (0, 1):
+            for column in (0, 1):
+                boxes.item(row, column).setSelected(True)
+        page.draw_maps()
+        self.wait_render()
+        self.assertEqual(page.result["shape"], (2, 2))
+        self.assertEqual(len(page.artists), 4)
+        self.assertFalse(any(scene.get("skip") for scene in page.result["scenes"]))
+        width, height = page.figure.get_size_inches()
+        self.assertAlmostEqual(width * 100, 2 * 460)
+        self.assertAlmostEqual(height * 100, 2 * 420 + 30)
+
+        # Scattered boxes keep their relative order: only the rows and columns
+        # that hold a drawn box reach the canvas, the gaps between them stay.
+        boxes.clearSelection()
+        boxes.item(0, 0).setSelected(True)
+        boxes.item(5, 1).setSelected(True)
+        page.draw_maps()
+        self.wait_render()
+        self.assertEqual(page.result["shape"], (2, 2))
+        self.assertEqual(len(page.artists), 2)
+        self.assertEqual(sum(bool(scene.get("skip")) for scene in page.result["scenes"]), 2)
+
     def test_compact_layout_and_simple_column_names(self):
         w = self.window
         self.assertEqual(w.tabs.tabText(0), "1. Data")
@@ -259,6 +387,10 @@ class PlotWorkspaceTests(unittest.TestCase):
         self.assertIn("Wafer ID / Lot ID / PAD Name", w.group_picker.text())
         paste = next(b for b in w.findChildren(QPushButton) if b.text() == "Paste table")
         self.assertEqual(paste.parentWidget().objectName(), "sheetCard")
+        # The table takes the bulk of a normal-sized workspace window; the
+        # startup window itself now adapts to the display, so size it here.
+        w.resize(1520, 950)
+        QTest.qWait(50)
         self.assertGreater(w.sheet.height(), 600)
         labels = [c.text() for c in w.findChildren(QLabel)]
         self.assertNotIn("LOCAL", labels)
@@ -307,7 +439,12 @@ class PlotWorkspaceTests(unittest.TestCase):
         copied = APP.clipboard().image()
         self.assertFalse(copied.isNull())
         export_scale = {"Standard": 2, "High": 3, "Ultra": 4}[page.resolution.currentText()]
-        self.assertEqual(copied.width(), 3 * 460 * export_scale)
+        # The copy follows the chosen quality, but an array this tall is capped
+        # so the clipboard image stays pasteable.
+        expected_dpi = export_dpi(page.figure, export_scale * 100, MAX_COPY_PIXELS)
+        self.assertEqual(copied.width(), round(3 * 460 * expected_dpi / 100))
+        if expected_dpi < export_scale * 100:
+            self.assertIn("capped", page.status.text())
         page.font_size.setCurrentText("14")
         QTest.qWait(250)
         axis = page.artists[0][0].axes
@@ -320,11 +457,14 @@ class PlotWorkspaceTests(unittest.TestCase):
         self.assertTrue(page.artists[0][0].point_markers.get_visible())
         page.labels.setChecked(False)
         page.points.setChecked(False)
+        QTest.qWait(200)   # the overlay toggles are merged into one fast repaint
         self.assertFalse(page.artists[0][0].value_labels.get_visible())
         self.assertFalse(page.artists[0][0].point_markers.get_visible())
         self.assertIsNotNone(page.result)
         page.labels.setChecked(True)
         page.points.setChecked(True)
+        QTest.qWait(200)
+        # View zoom touches only the Qt view transform, never the render.
         page.zoom.setCurrentText("100%")
         APP.processEvents()
         with patch.object(page.canvas, "draw") as redraw:
@@ -342,11 +482,16 @@ class PlotWorkspaceTests(unittest.TestCase):
         QTest.qWait(100)
         self.assertGreater(page.scroll.horizontalScrollBar().maximum(), 0)
         page.scroll.horizontalScrollBar().setValue(page.scroll.horizontalScrollBar().minimum())
+        horizontal = page.scroll.horizontalScrollBar().value()
+        vertical = page.scroll.verticalScrollBar().value()
         page.points.setChecked(not page.points.isChecked())
         QTest.qWait(20)
-        viewport_center = page.scroll.mapToScene(page.scroll.viewport().rect().center())
-        canvas_center = page.canvas_proxy.sceneBoundingRect().center()
-        self.assertAlmostEqual(viewport_center.x(), canvas_center.x(), delta=2)
+        # Toggling an overlay repaints it in place: the view must not move.
+        self.assertEqual(page.scroll.horizontalScrollBar().value(), horizontal)
+        self.assertEqual(page.scroll.verticalScrollBar().value(), vertical)
+
+        # Resolution supersamples the screen raster and drives the export DPI,
+        # exactly as before; Export… additionally offers vector output.
         page.resolution.setCurrentText("Standard")
         self.assertEqual(page.canvas.width(), 3 * 460)
         self.assertIsNotNone(page.result)
@@ -366,9 +511,36 @@ class PlotWorkspaceTests(unittest.TestCase):
         QTest.qWait(100)
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "array.png"
-            with patch.object(QFileDialog, "getSaveFileName", return_value=(str(path), "")):
-                page.export_png()
+            with patch.object(QFileDialog, "getSaveFileName",
+                              return_value=(str(path), "PNG image (*.png)")):
+                page.export_image()
             self.assertGreater(path.stat().st_size, 100000)
+            page.resolution.setCurrentText("Ultra")
+            large = Path(folder) / "array_ultra.png"
+            with patch.object(QFileDialog, "getSaveFileName",
+                              return_value=(str(large), "PNG image (*.png)")):
+                page.export_image()
+            self.assertGreater(QImage(str(large)).width(), QImage(str(path)).width())
+            page.resolution.setCurrentText("Standard")
+
+            # Vector output: axes, text and iso-lines stay vector; only the
+            # interpolated colour field is embedded as a raster layer.
+            svg = Path(folder) / "array.svg"
+            with patch.object(QFileDialog, "getSaveFileName",
+                              return_value=(str(svg), "SVG vector (*.svg)")):
+                page.export_image()
+            markup = svg.read_text(encoding="utf-8", errors="replace")
+            self.assertIn("<svg", markup[:4000])
+            self.assertIn("<path", markup)          # axes, text and points stay vector
+            # Only the interpolated colour field is rasterised: one embedded
+            # image per map and colour bar, not one bitmap of the whole figure.
+            self.assertEqual(markup.count("<image"), 2 * len(page.artists))
+            pdf = Path(folder) / "array.pdf"
+            with patch.object(QFileDialog, "getSaveFileName",
+                              return_value=(str(pdf), "PDF vector (*.pdf)")):
+                page.export_image()
+            self.assertEqual(pdf.read_bytes()[:4], b"%PDF")
+        page.resolution.setCurrentText("High")
         page.show_selector()
         page.selector.clearSelection()
         page.selector.item(1, 1).setSelected(True)
@@ -377,7 +549,9 @@ class PlotWorkspaceTests(unittest.TestCase):
         page.draw_maps()
         self.wait_render()
         self.assertEqual(len(page.artists), 1)
-        self.assertEqual(page.result["shape"], (3, 3))
+        # The canvas is laid out for the drawn boxes only, so a single selected
+        # box no longer reserves the whole 3 x 3 array.
+        self.assertEqual(page.result["shape"], (1, 1))
         self.assertEqual(page.result["selected_count"], 1)
         self.assertEqual(sum(ax.axison for ax in page.figure.axes), 2)  # Selected map + colorbar
         previous_result = page.result
@@ -405,7 +579,8 @@ class PlotWorkspaceTests(unittest.TestCase):
         page.scale_bar.setChecked(False)
         QTest.qWait(300)
         self.assertIsNone(page.artists[0][0].colorbar)
-        self.assertEqual(len(page.figure.axes), 9)  # Array cells remain; colorbars are optional.
+        # One drawn box keeps one panel; only its colorbar disappears.
+        self.assertEqual(len(page.figure.axes), 1)
         page.diameter.setCurrentText("invalid")
         page.draw_maps()
         self.assertIsNone(page.result)

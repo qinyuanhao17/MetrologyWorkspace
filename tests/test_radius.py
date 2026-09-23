@@ -90,11 +90,71 @@ class RadiusTests(unittest.TestCase):
             page.selector.item(1, 1).setSelected(True)
             page.draw_plot()
             self.assertTrue(page.ready)
-            self.assertEqual(len(page.figure.axes), 12)
+            # Only the drawn box is laid out: the canvas no longer reserves the
+            # full 6 x 2 grid around a single selected plot.
+            self.assertEqual(len(page.figure.axes), 1)
             self.assertEqual(sum(ax.axison for ax in page.figure.axes), 1)
-            self.assertIn("1 / 12", page.status.text())
+            self.assertIn("1 / 1 radius plots drawn", page.status.text())
             # The wafer-map selection keeps every box; the two selectors are independent.
             self.assertEqual(len(window.plot_page.selector.selected_cells()), 12)
+        finally:
+            window.model.undo.setClean()
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_radius_row_titles_do_not_collide_at_large_fonts(self):
+        """A row's title must stay clear of the axis label of the row above."""
+        for size in ("12", "14", "16"):
+            with self.subTest(font=size):
+                window = MainWindow()
+                try:
+                    window.load_path(ROOT / "OCD_measurement_data.csv")
+                    self.select_parameters(window, {"OCD_H1", "OCD_H2", "OCD_H3"})
+                    window.tabs.setCurrentIndex(2)
+                    page = window.radius_page
+                    page.font_size.setCurrentText(size)
+                    page.selector.selectAll()
+                    page.draw_plot()
+                    APP.processEvents()
+                    self.assertTrue(page.ready, page.status.text())
+                    page.figure.canvas.draw()
+                    renderer = page.figure.canvas.get_renderer()
+                    rows = {}
+                    for axis in page.figure.axes:
+                        rows.setdefault(round(axis.get_position().y0, 3), []).append(axis)
+                    ordered = [rows[key] for key in sorted(rows, reverse=True)]
+                    self.assertEqual(len(ordered), 6)
+                    for upper, lower in zip(ordered, ordered[1:]):
+                        label_bottom = min(axis.xaxis.label.get_window_extent(renderer).y0
+                                           for axis in upper)
+                        title_top = max(max(text.get_window_extent(renderer).y1
+                                            for text in (axis.title, *axis._wafer_title_details))
+                                        for axis in lower)
+                        self.assertLess(title_top, label_bottom,
+                                        f"font {size}: radius row title overlaps the label above")
+                finally:
+                    window.model.undo.setClean()
+                    window.close()
+                    window.deleteLater()
+                    APP.processEvents()
+
+    def test_radius_canvas_shrinks_to_the_drawn_boxes(self):
+        window = MainWindow()
+        try:
+            window.load_path(ROOT / "OCD_measurement_data.csv")
+            self.select_parameters(window, {"NGOF", "OCD_H1"})
+            page = window.radius_page
+            self.assertEqual((page.selector.rowCount(), page.selector.columnCount()), (6, 2))
+            page.selector.clearSelection()
+            for row in (0, 1):
+                for column in (0, 1):
+                    page.selector.item(row, column).setSelected(True)
+            page.draw_plot()
+            self.assertTrue(page.ready, page.status.text())
+            self.assertEqual(page.base_size, (2 * 460, 2 * 370 + 30))
+            self.assertEqual(len(page.figure.axes), 4)
+            self.assertIn("4 / 4 radius plots drawn", page.status.text())
         finally:
             window.model.undo.setClean()
             window.close()

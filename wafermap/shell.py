@@ -3,14 +3,15 @@
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtCore import QSize, Qt, QTimer
 from PyQt6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
-    QFrame, QGridLayout, QHBoxLayout, QLabel, QListWidget, QMainWindow,
-    QMenu, QPushButton, QSizePolicy, QToolBar, QToolButton, QVBoxLayout, QWidget,
+    QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel, QListWidget, QMainWindow,
+    QMenu, QPushButton, QScrollArea, QSizePolicy, QToolBar, QToolButton, QVBoxLayout,
+    QWidget,
 )
 
-from .appearance import set_theme_palette, style_titlebar
+from .appearance import fit_window_to_screen, set_theme_palette, style_titlebar
 from .module_button import ModuleButton
 from .module_registry import create_default_registry
 from .settings import apply_theme, get_settings, load_settings
@@ -39,8 +40,10 @@ class MainWindow(QMainWindow):
         self.close_all_buttons = {}
         self.setObjectName("applicationShell")
         self.setWindowTitle(APPLICATION_NAME)
-        self.resize(1440, 880)
-        self.setMinimumSize(1180, 680)
+        # A modest window centred on the display: the shell only holds two
+        # module cards, so there is no reason to take the whole screen. The
+        # size still shrinks automatically on smaller / high-DPI displays.
+        fit_window_to_screen(self, (1180, 820), minimum=(900, 600))
         self._apply_theme()
         self._build_toolbar()
         self._build_content()
@@ -125,11 +128,18 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._build_sidebar(), 23)
         layout.addWidget(self._build_overview(), 47)
         layout.addWidget(self._build_activity(), 30)
-        self.setCentralWidget(root)
+        # Compressed panels stay reachable: the shell scrolls instead of hiding
+        # whatever does not fit into the window.
+        scroll = QScrollArea(objectName="shellScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(root)
+        self.shell_scroll = scroll
+        self.setCentralWidget(scroll)
 
     def _build_sidebar(self):
         panel = QFrame(objectName="sidebar")
-        panel.setMinimumWidth(285)
+        panel.setMinimumWidth(300)
         panel.setMaximumWidth(345)
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(18, 24, 18, 18)
@@ -249,12 +259,34 @@ class MainWindow(QMainWindow):
         self.set_module_state(component_id)
         self.last_loaded_value.setText(label)
         widget.show()
+        self.place_component(widget, serial)
         style_titlebar(widget, get_settings()["theme"])
         widget.raise_()
         widget.activateWindow()
         self.record("Component", f"{label} opened")
         self.update_overview()
         return widget
+
+    def place_component(self, widget, serial):
+        """Cascade a component window inside the screen area the taskbar leaves free."""
+        self.cascade_component(widget, serial)
+        # The frame is added while the window is shown, so clamp once more after.
+        QTimer.singleShot(0, lambda: self.cascade_component(widget, serial))
+
+    def cascade_component(self, widget, serial):
+        screen = widget.screen() or QApplication.primaryScreen()
+        if screen is None:
+            return
+        area = screen.availableGeometry()
+        frame = widget.frameGeometry()
+        step = 26 * (serial - 1)
+        # Keep the whole frame (title bar included) inside the free area, so the
+        # window never slips behind the taskbar or off the edge of the display.
+        x = min(max(area.left(), self.x() + 44 + step),
+                max(area.left(), area.right() - frame.width() + 1))
+        y = min(max(area.top(), self.y() + 44 + step),
+                max(area.top(), area.bottom() - frame.height() + 1))
+        widget.move(x, y)
 
     def open_settings(self):
         dialog = SettingsDialog(self)

@@ -203,6 +203,36 @@ class WorkspaceTests(unittest.TestCase):
             self.assertEqual(read_table(csv, dtype=str).iloc[0, 1], "9.80")
             self.assertTrue(w.model.undo.isClean())
 
+    def test_auto_rename_numbers_duplicate_headers_in_column_order(self):
+        """The Auto rename button fixes repeated row-1 names without touching data."""
+        import pandas as pd
+
+        w = self.window
+        frame = pd.DataFrame([["W1", 1, 2, 3], ["W2", 4, 5, 6]],
+                             columns=["Wafer ID", "Value", "Value", "Value_2"])
+        w.set_table(frame, "Clipboard")
+        w.recognize()
+        self.assertIn("Duplicate", w.message.text())
+        self.assertFalse(w.auto_rename_button.isHidden())
+        before = dict(w.model.cells)
+
+        w.auto_rename_button.click()
+        # The second "Value" skips the suffix already taken by the last column,
+        # so renaming never introduces a fresh duplicate.
+        self.assertEqual(w.model.headers(), ["Wafer ID", "Value", "Value_3", "Value_2"])
+        self.assertTrue(w.auto_rename_button.isHidden())
+        self.assertTrue(w.message.isHidden())   # the warning banner is gone
+        self.assertEqual(w._frame.shape, (2, 4))
+        # Only row-1 names change: the measurement rows are byte-identical.
+        self.assertEqual({key: value for key, value in w.model.cells.items() if key[0]},
+                         {key: value for key, value in before.items() if key[0]})
+        self.assertEqual(sorted(w._frame.columns), ["Value", "Value_2", "Value_3", "Wafer ID"])
+
+        w.model.undo.undo()
+        self.assertEqual(w.model.headers(), ["Wafer ID", "Value", "Value", "Value_2"])
+        w.model.undo.redo()
+        self.assertEqual(w.model.headers(), ["Wafer ID", "Value", "Value_3", "Value_2"])
+
     def test_duplicate_headers_and_unsaved_cancel(self):
         w = self.window
         w.model.edit({(0, 2): "Wafer ID"})

@@ -6,3 +6,4 @@ matplotlib>=3.7,<4
 openpyxl>=3.1,<4
 lmfit>=1.2,<2
 PyYAML>=6,<7
+pyqtgraph>=0.13,<1
