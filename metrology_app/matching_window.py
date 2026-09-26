@@ -34,6 +34,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .appearance import fit_window_to_screen
+from .data import inspect_table
 from .matching import MAX_ROWS, MatchWorkbook, ParameterMapping, extrema_sample_indices
 from .settings import apply_theme
 
@@ -212,7 +213,10 @@ class MatchingWindow(QMainWindow):
         mapping_layout.setContentsMargins(16, 14, 16, 12)
         heading = QHBoxLayout()
         heading.addWidget(_label("Parameter mapping", "panelTitle"))
-        heading.addWidget(_label("Reference columns ending in “Reference” are paired by name.", "hint"))
+        heading.addWidget(_label(
+            "Numeric Reference columns are listed; “Reference” suffix columns pair by name.",
+            "hint",
+        ))
         heading.addStretch()
         self.analyze_button = QPushButton("Run analysis", objectName="primary")
         self.analyze_button.clicked.connect(self._run_analysis_clicked)
@@ -468,8 +472,13 @@ class MatchingWindow(QMainWindow):
         selected_by_reference = {mapping.reference_column: mapping for mapping in selected}
         suggestions = MatchWorkbook.suggest_mappings(self.reference_frame, self.raw_frame)
         suggestion_by_reference = {mapping.reference_column: mapping for mapping in suggestions}
-        reference_columns = [str(column) for column in self.reference_frame.columns
-                             if str(column).strip().lower().endswith(" reference")]
+        numeric_columns = set(inspect_table(self.reference_frame)[2])
+        reference_columns = [
+            str(column)
+            for column in self.reference_frame.columns
+            if column in numeric_columns
+            or str(column).strip().lower().endswith(" reference")
+        ]
         self.mapping_table.blockSignals(True)
         self.mapping_table.setRowCount(len(reference_columns))
         for row, reference_column in enumerate(reference_columns):
@@ -478,7 +487,11 @@ class MatchingWindow(QMainWindow):
             use.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
             use.setCheckState(Qt.CheckState.Checked if mapping else Qt.CheckState.Unchecked)
             self.mapping_table.setItem(row, 0, use)
-            default_name = reference_column[:-len(" Reference")].strip()
+            default_name = (
+                reference_column[:-len(" Reference")].strip()
+                if reference_column.strip().lower().endswith(" reference")
+                else reference_column.strip()
+            )
             self.mapping_table.setItem(row, 1, QTableWidgetItem(mapping.name if mapping else default_name))
             reference_item = QTableWidgetItem(reference_column)
             reference_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)

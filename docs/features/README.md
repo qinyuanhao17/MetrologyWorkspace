@@ -3,6 +3,7 @@
 `card_matching.feature` 保存业务语言；项目不额外引入 Cucumber 运行时。相同场景由现有 `unittest` 公共接口测试执行：
 
 - Preview two mapped parameters → `MatchWorkbookTests.test_preview_generates_one_card_per_parameter_and_applies_it_lazily`
+- Manually map a numeric Reference column without a suffix → `MatchingWindowTests.test_numeric_reference_columns_without_suffix_can_be_mapped_manually`
 - Final data is not carded a second time → `MatchingWindowTests.test_final_mode_keeps_evaluated_values_equal_to_raw_data`
 - Reopen a saved matching workbook → `MatchWorkbookTests.test_wkb_round_trip_preserves_source_tables_and_settings`
 - Load an older schema 1 workbook → `MatchWorkbookTests.test_schema_one_wkb_still_opens_without_fullmap_stage_tables`

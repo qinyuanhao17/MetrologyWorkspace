@@ -11,6 +11,13 @@ Feature: Build a card matching workbook
       Then one Card is reported for each mapped parameter
       And trend and bias data use the Card-adjusted values
 
+    Scenario: Manually map a numeric Reference column without a suffix
+      Given a Reference table with Wafer ID, Die Seq, PMISH, TEM, and BIAS
+      And Raw Data whose matching parameter uses a different column name
+      When the engineer chooses TEM and its corresponding Raw Data column
+      Then Wafer ID and Die Seq are not offered as parameters
+      And the engineer can run the analysis without renaming TEM
+
     Scenario: Final data is not carded a second time
       Given Raw Data already produced by the OCD software with a Card
       When the engineer runs a Final match

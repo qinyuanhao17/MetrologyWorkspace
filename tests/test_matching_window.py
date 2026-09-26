@@ -8,6 +8,7 @@ import unittest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pandas as pd
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication
 
 from metrology_app.matching_window import MatchingWindow
@@ -56,6 +57,45 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(result.parameter_names, ("CD_Bot", "SPA"))
         self.assertEqual(self.window.summary_model.rowCount(), 2)
         self.assertEqual(self.window.tabs.currentWidget(), self.window.results_page)
+
+    def test_numeric_reference_columns_without_suffix_can_be_mapped_manually(self):
+        reference = pd.DataFrame({
+            "Wafer ID": ["slot16", "", "slot17"],
+            "Die Seq": ["2", "36", "2"],
+            "PMISH": ["1.1", "2.1", "3.1"],
+            "TEM": ["2.0", "4.0", "6.0"],
+            "BIAS": ["0.9", "1.9", "2.9"],
+        })
+        raw = pd.DataFrame({
+            "Cur SME File Path": ["a", "b", "c"],
+            "Wafer ID": ["W1", "W1", "W2"],
+            "Lot ID": ["L1", "L1", "L1"],
+            "Tool SN": ["T1", "T1", "T1"],
+            "PAD Name": ["P1", "P1", "P1"],
+            "OCD CD": ["1.0", "2.0", "3.0"],
+        })
+
+        self.window.set_reference_frame(reference, "Clipboard")
+        self.window.set_raw_frame(raw, "Clipboard")
+
+        reference_columns = [
+            self.window.mapping_table.item(row, 2).text()
+            for row in range(self.window.mapping_table.rowCount())
+        ]
+        self.assertEqual(reference_columns, ["PMISH", "TEM", "BIAS"])
+        self.assertTrue(all(
+            self.window.mapping_table.item(row, 0).checkState() == Qt.CheckState.Unchecked
+            for row in range(self.window.mapping_table.rowCount())
+        ))
+
+        tem_row = reference_columns.index("TEM")
+        self.window.mapping_table.cellWidget(tem_row, 3).setCurrentText("OCD CD")
+        self.window.mapping_table.item(tem_row, 0).setCheckState(Qt.CheckState.Checked)
+
+        self.assertTrue(self.window.analyze_button.isEnabled())
+        result = self.window.run_analysis()
+        self.assertEqual(result.parameter_names, ("TEM",))
+        self.assertEqual(result.card("TEM").slope, 2.0)
 
     def test_final_mode_keeps_evaluated_values_equal_to_raw_data(self):
         reference = pd.DataFrame({"CD Reference": [10.0, 20.0, 30.0]})
