@@ -4,8 +4,8 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from wafermap.array_plot import ArrayOptions, prepare_array
-from wafermap.measurements import default_identity_columns, detect_measurements, sequence_runs
+from metrology_app.array_plot import ArrayOptions, prepare_array
+from metrology_app.measurements import default_identity_columns, detect_measurements, sequence_runs
 
 
 class MeasurementTests(unittest.TestCase):

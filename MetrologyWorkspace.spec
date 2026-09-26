@@ -5,9 +5,9 @@ import sys
 
 root = Path(SPECPATH)
 datas = [
-    (str(root / "wafermap" / "theme.qss"), "wafermap"),
-    (str(root / "wafermap" / "theme_light.qss"), "wafermap"),
-    (str(root / "wafermap" / "assets"), "wafermap/assets"),
+    (str(root / "metrology_app" / "theme.qss"), "metrology_app"),
+    (str(root / "metrology_app" / "theme_light.qss"), "metrology_app"),
+    (str(root / "metrology_app" / "assets"), "metrology_app/assets"),
 ]
 ffi = Path(sys.base_prefix) / "Library" / "bin" / "ffi.dll"
 binaries = [(str(ffi), ".")] if ffi.exists() else []

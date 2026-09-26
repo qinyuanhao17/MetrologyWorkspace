@@ -7,8 +7,8 @@ import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 
-from wafermap.data import Dataset, read_table
-from wafermap.plot import (
+from metrology_app.data import Dataset, read_table
+from metrology_app.plot import (
     PlotOptions, WaferPlot, infer_geometry,
     infer_wafer_geometry, interpolate, interpolate_many,
 )
@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class DataTests(unittest.TestCase):
     def test_real_csv_layers(self):
-        data = Dataset(read_table(ROOT / "OCD_measurement_data.csv"), "fixture")
+        data = Dataset(read_table(ROOT / "sample_data" / "OCD_measurement_data.csv"), "fixture")
         self.assertEqual(len(data.frame), 480)
         self.assertEqual(len(data.metrics), 20)
         self.assertEqual(len(data.wafers()), 3)

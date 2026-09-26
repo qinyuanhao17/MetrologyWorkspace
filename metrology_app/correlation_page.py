@@ -24,14 +24,13 @@ from PyQt6.QtWidgets import (
 )
 
 from .appearance import (MAX_COPY_PIXELS, MAX_EXPORT_PIXELS, configure_resolution_combo,
-                         export_dpi, frame_plot_axes,
-                         panel_title_label, resolution_settings)
+                         export_dpi, panel_title_label, resolution_settings)
 from .appearance import widget_to_qimage
 from .array_plot import drawn_axes
 from .data import number
 from .map_selector import MapSelector
-from .panel_grid import PanelGrid
 from .plot import set_panel_title
+from .plotting import InteractivePlotWidget, PanelGrid, PlotPanel
 from .settings import get_settings
 
 
@@ -54,14 +53,22 @@ class LinearFit:
 
 def fit_numeric_pair(frame, x_name, y_name):
     """Fit y = slope*x + intercept with lmfit after paired numeric cleanup."""
-    data = pd.DataFrame({"x": number(frame[x_name]), "y": number(frame[y_name])})
-    data = data.replace([np.inf, -np.inf], np.nan).dropna()
-    if len(data) < 3:
+    x = number(frame[x_name]).to_numpy(float)
+    y = number(frame[y_name]).to_numpy(float)
+    return _fit_numeric_values(x, y, x_name, y_name)
+
+
+def _fit_numeric_values(x, y, x_name, y_name, model=None):
+    """Fit already-converted arrays while preserving the public frame seam."""
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    paired = np.isfinite(x) & np.isfinite(y)
+    x, y = x[paired], y[paired]
+    if len(x) < 3:
         raise ValueError("fewer than 3 paired numeric points")
-    x, y = data.x.to_numpy(float), data.y.to_numpy(float)
     if np.ptp(x) == 0 or np.ptp(y) == 0:
         raise ValueError("constant data cannot be fitted")
-    model = LinearModel()
+    model = model or LinearModel()
     result = model.fit(y, model.guess(y, x=x), x=x)
     predicted = np.asarray(result.best_fit, dtype=float)
     residual = float(np.square(y - predicted).sum())
@@ -81,15 +88,26 @@ def pairwise_linear_fits(frame, metrics, groups=None, cells=None):
     narrow a fit without mixing in rows the user did not pick.
     """
     fits, errors = [], []
+    # Converting a 40-column selection inside every one of its 780 pair loops
+    # repeats the same pandas parsing 39 times per column. Convert each column
+    # once and keep row selection positional, matching the workspace's stable
+    # source-row mapping.
+    numeric = {name: number(frame[name]).to_numpy(float) for name in metrics}
+    model = LinearModel()
+    row_cache = {}
     for x_name, y_name in combinations(metrics, 2):
-        rows = frame
+        positions = None
         if groups is not None and cells is not None:
-            chosen = [index for key, indices in groups.items()
-                      if (key, x_name) in cells and (key, y_name) in cells
-                      for index in indices]
-            rows = frame.iloc[chosen] if chosen else frame.iloc[0:0]
+            selected_keys = tuple(key for key in groups
+                                  if (key, x_name) in cells and (key, y_name) in cells)
+            if selected_keys not in row_cache:
+                row_cache[selected_keys] = np.asarray(
+                    [index for key in selected_keys for index in groups[key]], dtype=int)
+            positions = row_cache[selected_keys]
+        x = numeric[x_name] if positions is None else numeric[x_name][positions]
+        y = numeric[y_name] if positions is None else numeric[y_name][positions]
         try:
-            fits.append(fit_numeric_pair(rows, x_name, y_name))
+            fits.append(_fit_numeric_values(x, y, x_name, y_name, model))
         except ValueError as error:
             errors.append((x_name, y_name, str(error)))
     fits.sort(key=lambda fit: fit.rsquared if np.isfinite(fit.rsquared) else -np.inf, reverse=True)
@@ -157,9 +175,10 @@ class CorrelationPage(QWidget):
         self.columns.setFixedWidth(54)
         self.columns.currentIndexChanged.connect(lambda: self.queue_update("layout"))
         options.addWidget(self.columns)
-        options.addWidget(QLabel("Wheel: zoom · drag: box zoom · right-drag: pan", objectName="muted"))
+        options.addWidget(QLabel("Scroll to zoom · drag a box to zoom · right-drag to pan",
+                                 objectName="muted"))
         self.reset_button = QPushButton("Reset views")
-        self.reset_button.setToolTip("Restore every plot to the view it had after drawing.")
+        self.reset_button.setToolTip("Return every plot to its original range.")
         self.reset_button.clicked.connect(self.reset_views)
         options.addWidget(self.reset_button)
         options.addWidget(QLabel("Font", objectName="muted"))
@@ -187,7 +206,7 @@ class CorrelationPage(QWidget):
         self.copy_shortcut = QShortcut(QKeySequence.StandardKey.Copy, self)
         self.copy_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self.copy_shortcut.activated.connect(self.copy_png)
-        self.copy_button.setToolTip("Copy the complete plot as PNG (Ctrl+C while this tab is active).")
+        self.copy_button.setToolTip("Copy the full plot grid as a PNG. Ctrl+C works while this tab is active.")
         self.plot_host = None
         self.interactive_scroll = QScrollArea()
         self.interactive_scroll.setWidgetResizable(True)
@@ -214,7 +233,8 @@ class CorrelationPage(QWidget):
         box_layout.addWidget(self.selector, 1)
         self.stack.addWidget(self.selector_panel)
         layout.addWidget(self.stack, 1)
-        self.status = QLabel("Choose numeric columns in Data, then draw.", objectName="hint")
+        self.status = QLabel("Choose numeric columns in Data, then select the fits to draw.",
+                             objectName="hint")
         layout.addWidget(self.status)
         self.selector.changed.connect(self.invalidate)
         self.invalidate()
@@ -245,8 +265,8 @@ class CorrelationPage(QWidget):
         self._copy_image = None
         self._copy_dpi = None
         self.figure.clear()
-        self.draw_canvas_message("Choose boxes, then click Draw selected")
-        self.clear_interactive("Choose boxes, then click Draw selected")
+        self.draw_canvas_message("Select one or more boxes, then click Draw selected")
+        self.clear_interactive("Select one or more boxes, then click Draw selected")
         wafers = self.selection.get("wafers", [])
         metrics = self.selection.get("metrics", [])
         rows, columns = len(wafers), len(metrics)
@@ -258,7 +278,7 @@ class CorrelationPage(QWidget):
             self.stack.setCurrentWidget(self.selector_panel)
         count = len(self.selector.selected_cells())
         self.summary.setText(f"{count} / {rows * columns} selected  ·  {rows} × {columns}")
-        self.status.setText("Drag to select fits, then click Draw selected.")
+        self.status.setText("Drag across the fits you want, then click Draw selected.")
 
     def draw_canvas_message(self, message):
         """Draw a readable centered message that follows the plot font setting."""
@@ -363,11 +383,11 @@ class CorrelationPage(QWidget):
         self.stack.setCurrentWidget(self.interactive_scroll)
         self.export_button.setEnabled(True)
         self.copy_button.setEnabled(True)
-        skipped = f" · {self.skipped_count} invalid pairs skipped" if self.skipped_count else ""
-        limited = (f" · showing top {MAX_VISIBLE_FITS}" if len(self.fits) > MAX_VISIBLE_FITS else "")
+        skipped = f" · skipped {self.skipped_count} invalid pairs" if self.skipped_count else ""
+        limited = (f" · showing the top {MAX_VISIBLE_FITS}" if len(self.fits) > MAX_VISIBLE_FITS else "")
         self.status.setText(
             f"{len(self.fits)} / {len(self.all_fits)} fits pass R² > {threshold:.2f}"
-            f" · sorted high → low{limited}{skipped}"
+            f" · highest R² first{limited}{skipped}"
         )
 
     def render_fits(self):
@@ -441,14 +461,14 @@ class CorrelationPage(QWidget):
         """Build a resizable grid of independently zoomable PyQtGraph plots."""
         self.clear_interactive()
         base = int(self.font_size.currentText())
-        panel_width, panel_height = 470, 350
+        panel_height = 350
         grid = PanelGrid(columns)
-        grid.setMinimumSize(columns * panel_width, rows * panel_height)
+        grid.set_minimum_row_height(rows, panel_height)
         for rank, fit in enumerate(visible_fits, start=1):
-            widget = pg.PlotWidget(background="w")
-            widget.setMinimumSize(420, 310)
-            widget.setToolTip("Mouse wheel: zoom · Left drag: box zoom · Right drag: pan · "
-                              "Double-click: fit · Reset views: restore all")
+            widget = InteractivePlotWidget(background="w", frame_tick_length=3)
+            widget.setMinimumSize(180, 310)
+            widget.setToolTip("Scroll to zoom · Drag a box to zoom · Right-drag to pan · "
+                              "Double-click to fit this plot · Reset views restores all plots")
             plot = widget.getPlotItem()
             plot.setTitle(None)   # the QLabel above the plot owns the heading
             plot.showGrid(x=True, y=True, alpha=.18)
@@ -462,12 +482,7 @@ class CorrelationPage(QWidget):
                 base + 1)
             # A QLabel keeps every title line in its own space; pyqtgraph's own
             # title reserves one line and printed the second over the plot.
-            container = QWidget()
-            box = QVBoxLayout(container)
-            box.setContentsMargins(0, 0, 0, 0)
-            box.setSpacing(2)
-            box.addWidget(heading)
-            box.addWidget(widget, 1)
+            container = PlotPanel(heading, widget)
             plot.addItem(pg.ScatterPlotItem(fit.x, fit.y, size=6.5,
                                             pen=pg.mkPen("#ffffff", width=.5),
                                             brush=pg.mkBrush(53, 109, 145, 165)))
@@ -484,8 +499,6 @@ class CorrelationPage(QWidget):
                 axis.setPen(pg.mkPen("#30343b"))
                 axis.setTextPen(pg.mkPen("#30343b"))
                 axis.setStyle(tickFont=widget.font())
-            # The export keeps ticks on all four sides; mirror that frame here.
-            frame_plot_axes(plot, tick_length=3)
             grid.add_panel(container)
             self.plot_widgets.append(widget)
             self.panel_hosts.append(container)
@@ -510,7 +523,7 @@ class CorrelationPage(QWidget):
             for widget, home in zip(self.plot_widgets, self.home_views):
                 widget.getPlotItem().getViewBox().setRange(xRange=home[0], yRange=home[1],
                                                            padding=0)
-        self.status.setText(f"Reset {len(self.plot_widgets)} interactive plot views.")
+        self.status.setText(f"Reset {len(self.plot_widgets)} plot views.")
 
     def relayout(self, *_):
         if not self.ready:
@@ -538,7 +551,7 @@ class CorrelationPage(QWidget):
     def change_resolution(self, *_):
         if self.ready:
             _scale, dpi = resolution_settings(self.resolution)
-            self.status.setText(f"PNG output resolution: {dpi} dpi. Interactive plots stay vector-sharp.")
+            self.status.setText(f"PNG output: {dpi} dpi. This setting does not change the on-screen plots.")
 
     def export_png(self):
         if not self.ready:
@@ -557,8 +570,8 @@ class CorrelationPage(QWidget):
         try:
             self.figure.savefig(path, dpi=dpi, facecolor="white")
             shown = min(len(self.fits), MAX_VISIBLE_FITS)
-            self.status.setText(f"Exported top {shown} / {len(self.fits)} ranked fits "
-                                f"({dpi} dpi{note}): {path}")
+            self.status.setText(f"Exported {shown} of {len(self.fits)} fits "
+                                f"at {dpi} dpi{note}: {path}")
         except Exception as error:
             self.status.setText(f"Export failed: {error}")
         finally:
@@ -584,8 +597,8 @@ class CorrelationPage(QWidget):
             note = f" · capped from {requested} dpi" if dpi < requested else ""
             QApplication.clipboard().setImage(image)
             shown = min(len(self.fits), MAX_VISIBLE_FITS)
-            self.status.setText(f"Copied top {shown} / {len(self.fits)} ranked fits "
-                                f"({dpi} dpi{note}) · {image.width()} × {image.height()} px")
+            self.status.setText(f"Copied {shown} of {len(self.fits)} fits "
+                                f"at {dpi} dpi{note} · {image.width()} × {image.height()} px")
         except Exception as error:
             self.status.setText(f"Copy failed: {error}")
         finally:

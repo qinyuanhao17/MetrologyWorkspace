@@ -8,10 +8,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtCore import QRect
 from PyQt6.QtWidgets import QApplication, QPushButton, QWidget
 
-from wafermap.appearance import configure_fonts, fit_window_to_screen
-from wafermap.module_registry import ComponentRegistry, ComponentSpec
-from wafermap.settings_dialog import SettingsDialog
-from wafermap.shell import MainWindow
+from metrology_app.appearance import configure_fonts, fit_window_to_screen
+from metrology_app.module_registry import ComponentRegistry, ComponentSpec
+from metrology_app.settings_dialog import SettingsDialog
+from metrology_app.shell import MainWindow
 
 
 APP = QApplication.instance() or QApplication([])
@@ -148,7 +148,7 @@ class ShellTests(unittest.TestCase):
             self.assertTrue(shell.unload_component("wafer_map"))
             APP.processEvents()
             self.assertEqual(shell.loaded_component_ids, ())
-            self.assertEqual(shell.module_buttons["wafer_map"].state_label.text(), "UNLOADED")
+            self.assertEqual(shell.module_buttons["wafer_map"].state_label.text(), "CLOSED")
             self.assertFalse(shell.close_all_buttons["wafer_map"].isEnabled())
             self.assertIn("correlation_analysis", shell.module_buttons)
         finally:

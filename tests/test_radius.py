@@ -11,10 +11,10 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QKeySequence
 from PyQt6.QtWidgets import QApplication
 
-from wafermap.radius_page import signed_radius
-from wafermap.appearance import screen_render_scale
-from wafermap.settings import get_settings
-from wafermap.window import MainWindow
+from metrology_app.radius_page import signed_radius
+from metrology_app.appearance import screen_render_scale
+from metrology_app.settings import get_settings
+from metrology_app.window import MainWindow
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = QApplication.instance() or QApplication([])
@@ -38,7 +38,7 @@ class RadiusTests(unittest.TestCase):
     def test_real_data_draws_selected_parameters(self):
         window = MainWindow()
         try:
-            window.load_path(ROOT / "OCD_measurement_data.csv")
+            window.load_path(ROOT / "sample_data" / "OCD_measurement_data.csv")
             self.select_parameters(window, {"OCD_H1", "OCD_H2", "OCD_H3"})
             self.assertEqual(window.tabs.tabText(2), "3. Radius Plot")
             page = window.radius_page
@@ -81,7 +81,7 @@ class RadiusTests(unittest.TestCase):
     def test_radius_plot_keeps_its_own_box_selection(self):
         window = MainWindow()
         try:
-            window.load_path(ROOT / "OCD_measurement_data.csv")
+            window.load_path(ROOT / "sample_data" / "OCD_measurement_data.csv")
             self.select_parameters(window, {"OCD_H1", "OCD_H2"})
             page = window.radius_page
             self.assertIsNot(page.selector, window.plot_page.selector)
@@ -109,7 +109,7 @@ class RadiusTests(unittest.TestCase):
             with self.subTest(font=size):
                 window = MainWindow()
                 try:
-                    window.load_path(ROOT / "OCD_measurement_data.csv")
+                    window.load_path(ROOT / "sample_data" / "OCD_measurement_data.csv")
                     self.select_parameters(window, {"OCD_H1", "OCD_H2", "OCD_H3"})
                     window.tabs.setCurrentIndex(2)
                     page = window.radius_page
@@ -142,7 +142,7 @@ class RadiusTests(unittest.TestCase):
     def test_radius_canvas_shrinks_to_the_drawn_boxes(self):
         window = MainWindow()
         try:
-            window.load_path(ROOT / "OCD_measurement_data.csv")
+            window.load_path(ROOT / "sample_data" / "OCD_measurement_data.csv")
             self.select_parameters(window, {"NGOF", "OCD_H1"})
             page = window.radius_page
             self.assertEqual((page.selector.rowCount(), page.selector.columnCount()), (6, 2))

@@ -48,7 +48,7 @@ class MainWindow(QMainWindow):
         self._build_toolbar()
         self._build_content()
         self._populate_modules()
-        self.record("System", "Application started")
+        self.record("App", "Metrology Workspace is ready")
         self.update_overview()
 
     @property
@@ -80,7 +80,7 @@ class MainWindow(QMainWindow):
         self.menu_button = menu_button
         menu_button.setIconSize(QSize(16, 16))
         self._update_menu_icon(get_settings()["theme"])
-        menu_button.setToolTip("Application menu")
+        menu_button.setToolTip("Open the application menu")
         menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu = QMenu(menu_button)
         settings = QAction("Settings…", self)
@@ -91,7 +91,7 @@ class MainWindow(QMainWindow):
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         toolbar.addWidget(spacer)
-        unload = QAction("Unload all", self)
+        unload = QAction("Close all windows", self)
         unload.triggered.connect(self.unload_all_components)
         toolbar.addAction(unload)
         state = QWidget()
@@ -144,7 +144,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(18, 24, 18, 18)
         layout.setSpacing(12)
-        layout.addWidget(_label("ANALYSIS MODULES", "navigationLabel"))
+        layout.addWidget(_label("ANALYSIS TOOLS", "navigationLabel"))
         self.module_layout = QVBoxLayout()
         self.module_layout.setSpacing(9)
         layout.addLayout(self.module_layout)
@@ -155,7 +155,7 @@ class MainWindow(QMainWindow):
         footer = QHBoxLayout()
         dot = QFrame(objectName="readyDot")
         dot.setFixedSize(9, 9)
-        self.sidebar_state = _label("System ready", "sidebarState")
+        self.sidebar_state = _label("No tools open", "sidebarState")
         footer.addWidget(dot)
         footer.addWidget(self.sidebar_state)
         footer.addStretch()
@@ -167,29 +167,29 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(30, 26, 30, 28)
         layout.setSpacing(10)
-        layout.addWidget(_label("System overview", "pageTitle"))
-        layout.addWidget(_label("Load independent analysis tools from one workspace.", "pageSubtitle"))
+        layout.addWidget(_label("Workspace", "pageTitle"))
+        layout.addWidget(_label("Open a tool in its own analysis window.", "pageSubtitle"))
         layout.addSpacing(18)
         card = QFrame(objectName="overviewCard")
         grid = QGridLayout(card)
         grid.setContentsMargins(22, 20, 22, 20)
         grid.setHorizontalSpacing(24)
         grid.setVerticalSpacing(14)
-        grid.addWidget(_label("WORKSPACE", "sectionTitle"), 0, 0, 1, 2)
+        grid.addWidget(_label("CURRENT SESSION", "sectionTitle"), 0, 0, 1, 2)
         self.available_value = _label("0", "detailValue")
         self.loaded_value = _label("0", "detailValue")
         self.last_loaded_value = _label("—", "accentValue")
         for row, (name, value) in enumerate((
-            ("Available components", self.available_value),
-            ("Loaded instances", self.loaded_value),
-            ("Last loaded", self.last_loaded_value),
+            ("Available tools", self.available_value),
+            ("Open windows", self.loaded_value),
+            ("Last opened", self.last_loaded_value),
         ), start=1):
             grid.addWidget(_label(name, "detailLabel"), row, 0)
             grid.addWidget(value, row, 1)
         grid.setColumnStretch(1, 1)
         layout.addWidget(card)
         layout.addSpacing(16)
-        layout.addWidget(_label("AVAILABLE COMPONENTS", "sectionTitle"))
+        layout.addWidget(_label("AVAILABLE TOOLS", "sectionTitle"))
         self.catalog = QVBoxLayout()
         self.catalog.setSpacing(10)
         layout.addLayout(self.catalog)
@@ -202,7 +202,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(20, 24, 20, 18)
         layout.setSpacing(10)
         layout.addWidget(_label("Activity", "panelTitle"))
-        layout.addWidget(_label("Component lifecycle and workspace events.", "pageSubtitle"))
+        layout.addWidget(_label("Windows and files opened in this session.", "pageSubtitle"))
         self.activity = QListWidget(objectName="activityLog")
         self.activity.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         layout.addWidget(self.activity, 1)
@@ -212,7 +212,7 @@ class MainWindow(QMainWindow):
         for spec in self.registry:
             button = ModuleButton()
             button.set_content(spec.title, 0)
-            button.setToolTip(f"{spec.description}\n\nClick to open a new instance.")
+            button.setToolTip(f"{spec.description}\n\nOpen another {spec.title} window.")
             button.clicked.connect(
                 lambda _=False, component_id=spec.component_id: self.open_component(component_id)
             )
@@ -232,7 +232,7 @@ class MainWindow(QMainWindow):
             row.addLayout(text, 1)
             actions = QVBoxLayout()
             actions.setSpacing(6)
-            launch = QPushButton("Load", objectName="componentLaunch")
+            launch = QPushButton("Open", objectName="componentLaunch")
             launch.clicked.connect(lambda _=False, component_id=spec.component_id: self.open_component(component_id))
             close_all = QPushButton("Close all", objectName="componentCloseAll")
             close_all.setEnabled(False)
@@ -263,7 +263,7 @@ class MainWindow(QMainWindow):
         style_titlebar(widget, get_settings()["theme"])
         widget.raise_()
         widget.activateWindow()
-        self.record("Component", f"{label} opened")
+        self.record("Window", f"Opened {label}")
         self.update_overview()
         return widget
 
@@ -312,10 +312,10 @@ class MainWindow(QMainWindow):
         refused = [widget for widget in instances if not widget.close()]
         if refused:
             self.loaded_components[component_id] = refused
-            self.record("Warning", f"{self.registry.get(component_id).title} refused to close")
+            self.record("Warning", f"Could not close {self.registry.get(component_id).title}")
         else:
             self.loaded_components.pop(component_id, None)
-            self.record("Component", f"{self.registry.get(component_id).title} unloaded")
+            self.record("Window", f"Closed all {self.registry.get(component_id).title} windows")
         self.set_module_state(component_id)
         self.update_overview()
         return not refused
@@ -329,7 +329,7 @@ class MainWindow(QMainWindow):
             instances.remove(widget)
             if not instances:
                 self.loaded_components.pop(component_id, None)
-            self.record("Component", f"{self.registry.get(component_id).title} instance closed")
+            self.record("Window", f"Closed a {self.registry.get(component_id).title} window")
         self.set_module_state(component_id)
         self.update_overview()
 
@@ -346,9 +346,9 @@ class MainWindow(QMainWindow):
         total = sum(len(instances) for instances in self.loaded_components.values())
         self.available_value.setText(str(len(self.registry)))
         self.loaded_value.setText(str(total))
-        state = f"{total} loaded" if total else "Ready"
+        state = f"{total} open" if total else "Ready"
         self.toolbar_state.setText(state)
-        self.sidebar_state.setText("Components active" if total else "System ready")
+        self.sidebar_state.setText(f"{total} window{'s' if total != 1 else ''} open" if total else "No tools open")
 
     def record(self, source, message):
         self.activity.insertItem(0, f"{datetime.now():%H:%M:%S}   {source}\n{message}")

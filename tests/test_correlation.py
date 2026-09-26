@@ -10,15 +10,15 @@ import numpy as np
 import pandas as pd
 import pyqtgraph as pg
 from PyQt6.QtCore import QPoint, QPointF, Qt
-from PyQt6.QtGui import QKeySequence, QWheelEvent
+from PyQt6.QtGui import QKeySequence, QPalette, QWheelEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QHBoxLayout
 
-from wafermap.correlation_page import fit_numeric_pair, pairwise_linear_fits
-from wafermap.correlation_window import CorrelationWindow
-from wafermap.appearance import MAX_COPY_PIXELS, configure_fonts
-from wafermap.settings import get_settings
-from wafermap.window import MainWindow as WaferMapWindow
+from metrology_app.correlation_page import fit_numeric_pair, pairwise_linear_fits
+from metrology_app.correlation_window import CorrelationWindow
+from metrology_app.appearance import MAX_COPY_PIXELS, configure_fonts
+from metrology_app.settings import get_settings
+from metrology_app.window import MainWindow as WaferMapWindow
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -93,6 +93,46 @@ class CorrelationTests(unittest.TestCase):
                             widget.minimumWidth(), widget.minimumSizeHint().width())
                         self.assertGreaterEqual(widget.geometry().width(), floor,
                                                 f"{page.objectName()} squeezed a control")
+        finally:
+            window.model.undo.setClean()
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_interactive_grids_fit_their_selected_columns(self):
+        """Configured plot columns stay fully visible and keep readable light panel chrome."""
+        window = CorrelationWindow()
+        try:
+            window.show()
+            window.resize(1180, 760)
+            x = np.linspace(-2, 2, 80)
+            frame = pd.DataFrame({"Wafer ID": ["W1"] * len(x),
+                                  "Die Seq": np.arange(len(x))})
+            for index in range(6):
+                frame[f"Measurement {index + 1}"] = (index + 1) * x + index
+            window.set_table(frame, "Clipboard")
+            window.update_plan()
+
+            window.tabs.setCurrentIndex(1)
+            page = window.correlation_page
+            page.min_rsq.setValue(0.0)
+            page.draw_plot()
+            APP.processEvents()
+            self.assertEqual(page.columns.currentText(), "3")
+            self.assertEqual(page.interactive_scroll.horizontalScrollBar().maximum(), 0)
+            for host in page.panel_hosts:
+                background = host.palette().color(QPalette.ColorRole.Window)
+                self.assertGreater(background.lightness(), 200)
+
+            window.tabs.setCurrentIndex(2)
+            page = window.sequence_page
+            page.columns.setCurrentText("2")
+            page.draw_plot()
+            APP.processEvents()
+            self.assertEqual(page.interactive_scroll.horizontalScrollBar().maximum(), 0)
+            for host in page.panel_hosts:
+                background = host.palette().color(QPalette.ColorRole.Window)
+                self.assertGreater(background.lightness(), 200)
         finally:
             window.model.undo.setClean()
             window.close()
@@ -209,7 +249,7 @@ class CorrelationTests(unittest.TestCase):
         """Copying fifteen curves must not build a 160 megapixel image."""
         window = CorrelationWindow()
         try:
-            window.load_path(ROOT / "OCD_measurement_data.csv")
+            window.load_path(ROOT / "sample_data" / "OCD_measurement_data.csv")
             window.check_all(window.parameter_list, True)
             window.check_all(window.wafer_list, True)
             window.update_plan()
@@ -244,7 +284,7 @@ class CorrelationTests(unittest.TestCase):
         """Boxes choose which parameters and measurement sets a curve is drawn from."""
         window = CorrelationWindow()
         try:
-            window.load_path(ROOT / "OCD_measurement_data.csv")
+            window.load_path(ROOT / "sample_data" / "OCD_measurement_data.csv")
             self.select_parameters(window, {"OCD_H1", "OCD_H2"})
             window.check_all(window.wafer_list, True)
             window.update_plan()
@@ -407,7 +447,7 @@ class CorrelationTests(unittest.TestCase):
         """The curve is continuous; wafers are appended and labelled below the axis."""
         window = CorrelationWindow()
         try:
-            window.load_path(ROOT / "OCD_measurement_data.csv")
+            window.load_path(ROOT / "sample_data" / "OCD_measurement_data.csv")
             self.select_parameters(window, {"OCD_H1", "OCD_H2"})
             window.tabs.setCurrentIndex(2)
             page = window.sequence_page
@@ -449,6 +489,43 @@ class CorrelationTests(unittest.TestCase):
             self.assertEqual(view.viewRange(), drawn)
             page.copy_png()
             self.assertFalse(APP.clipboard().image().isNull())
+        finally:
+            window.model.undo.setClean()
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_trend_auto_range_keeps_tight_x_extent_and_visible_right_frame(self):
+        """Auto Range must not restore side gaps or collapse the right plot border."""
+        window = CorrelationWindow()
+        try:
+            window.show()
+            window.resize(1180, 760)
+            window.load_path(ROOT / "sample_data" / "OCD_measurement_data.csv")
+            self.select_parameters(window, {"OCD_H1"})
+            window.tabs.setCurrentIndex(2)
+            page = window.sequence_page
+            page.draw_plot()
+            APP.processEvents()
+
+            plot = page.plot_widgets[0].getPlotItem()
+            view = plot.getViewBox()
+            _positions, values = plot.listDataItems()[0].getData()
+            midpoint = float(np.nanmean(values))
+            view.setYRange(midpoint - .1, midpoint + .1, padding=0)
+            plot.autoBtnClicked()
+            APP.processEvents()
+
+            x_range = view.viewRange()[0]
+            self.assertAlmostEqual(x_range[0], page.x_range[0])
+            self.assertAlmostEqual(x_range[1], page.x_range[1])
+            y_range = view.viewRange()[1]
+            self.assertLessEqual(y_range[0], float(np.nanmin(values)))
+            self.assertGreaterEqual(y_range[1], float(np.nanmax(values)))
+            right_axis = plot.getAxis("right")
+            self.assertTrue(right_axis.isVisible())
+            self.assertGreater(right_axis.geometry().width(), 0)
+            self.assertGreater(view.border.widthF(), 0)
         finally:
             window.model.undo.setClean()
             window.close()
@@ -562,7 +639,7 @@ class CorrelationTests(unittest.TestCase):
     def test_window_reuses_data_tab_and_draws_ranked_array(self):
         window = CorrelationWindow()
         try:
-            window.load_path(ROOT / "OCD_measurement_data.csv")
+            window.load_path(ROOT / "sample_data" / "OCD_measurement_data.csv")
             self.assertEqual(window.tabs.count(), 3)
             self.assertEqual(window.tabs.tabText(0), "1. Data")
             self.assertEqual(window.tabs.tabText(1), "2. Correlation")

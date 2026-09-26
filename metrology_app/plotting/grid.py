@@ -1,18 +1,36 @@
-"""Resizable panel area for the PyQtGraph workspace pages.
-
-Rows are stacked in an outer splitter and every row is an inner splitter, so the
-boundaries between plots can be dragged to give one panel more room (or to push
-it out of the way completely and drag it back). Column widths stay in step
-across rows, which keeps the array aligned like a grid, and double-clicking any
-boundary restores the default layout.
-"""
+"""Resizable panel grid shared by the PyQtGraph workspace pages."""
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QSplitter, QSplitterHandle
+from PyQt6.QtGui import QColor, QPalette
+from PyQt6.QtWidgets import (
+    QSizePolicy, QSplitter, QSplitterHandle, QVBoxLayout, QWidget,
+)
+
+
+class PlotPanel(QWidget):
+    """Keep a light title area and plot together as one resizable panel."""
+
+    def __init__(self, heading, plot_widget, parent=None):
+        super().__init__(parent)
+        self.setObjectName("plotPanel")
+        self.setAutoFillBackground(True)
+        palette = self.palette()
+        palette.setColor(QPalette.ColorRole.Window, QColor("#ffffff"))
+        palette.setColor(QPalette.ColorRole.WindowText, QColor("#20242a"))
+        self.setPalette(palette)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.setMinimumWidth(0)
+        heading.setMinimumWidth(0)
+        heading.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+        layout.addWidget(heading)
+        layout.addWidget(plot_widget, 1)
 
 
 class _Handle(QSplitterHandle):
-    """Splitter handle: a double click restores the default panel layout."""
+    """Restore the default panel layout on double-click."""
 
     def mouseDoubleClickEvent(self, event):
         grid = getattr(self.splitter(), "grid", None)
@@ -24,8 +42,6 @@ class _Handle(QSplitterHandle):
 
 
 class _Splitter(QSplitter):
-    """Splitter that reports double clicks on its handles back to the grid."""
-
     def __init__(self, orientation, grid):
         super().__init__(orientation)
         self.grid = grid
@@ -35,23 +51,26 @@ class _Splitter(QSplitter):
 
 
 class PanelGrid(_Splitter):
-    """A rows x columns panel area with draggable boundaries."""
+    """Lay out resizable panels while keeping column widths aligned."""
 
     def __init__(self, columns=1, parent=None):
         super().__init__(Qt.Orientation.Vertical, self)
         self.setObjectName("panelGrid")
         if parent is not None:
             self.setParent(parent)
-        # A boundary may be dragged past its neighbour, which hides that panel
-        # completely; dragging back shows it again and a double click resets.
         self.setChildrenCollapsible(True)
         self.setHandleWidth(6)
         self.columns = max(1, int(columns))
         self.panels = []
         self.row_splitters = []
 
+    def set_minimum_row_height(self, rows, panel_height):
+        """Reserve full rows but let their columns share the viewport width."""
+        rows = max(1, int(rows))
+        height = rows * int(panel_height) + max(0, rows - 1) * self.handleWidth()
+        self.setMinimumSize(0, height)
+
     def add_panel(self, widget):
-        """Append a panel in reading order, opening a new row when needed."""
         index = len(self.panels)
         row = index // self.columns
         while len(self.row_splitters) <= row:
@@ -67,14 +86,12 @@ class PanelGrid(_Splitter):
         self.panels.append(widget)
 
     def reset_layout(self):
-        """Restore the default layout: equal rows and equal columns."""
         for splitter in (self, *self.row_splitters):
             if splitter.count():
                 splitter.setSizes([1] * splitter.count())
         self.sync_columns(self.row_splitters[0] if self.row_splitters else self)
 
     def sync_columns(self, source):
-        """Mirror a dragged row's column widths onto every other row."""
         sizes = source.sizes()
         for splitter in self.row_splitters:
             if splitter is not source and splitter.count() == source.count():

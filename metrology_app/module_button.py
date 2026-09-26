@@ -36,11 +36,11 @@ class ModuleButton(QPushButton):
     def set_content(self, title, count=0):
         self.title_label.setText(title)
         self.title_label.setToolTip(title)
-        self.state_label.setText("UNLOADED" if count == 0 else f"{count} OPEN")
+        self.state_label.setText("CLOSED" if count == 0 else f"{count} OPEN")
         self.state_label.setProperty("loaded", count > 0)
         self.state_label.style().unpolish(self.state_label)
         self.state_label.style().polish(self.state_label)
-        self.setAccessibleName(f"{title}, {count} open" if count else f"{title}, unloaded")
+        self.setAccessibleName(f"{title}, {count} open" if count else f"{title}, closed")
 
     def animate_glow(self, target):
         self.animation.stop()

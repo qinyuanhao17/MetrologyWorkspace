@@ -7,7 +7,7 @@ import yaml
 
 
 APP_DIRECTORY = (Path(sys.executable).resolve().parent if getattr(sys, "frozen", False)
-                 else Path(__file__).resolve().parent.parent)
+                 else Path(__file__).resolve().parent.parent / "config")
 SETTINGS_PATH = APP_DIRECTORY / "settings.yaml"
 
 DEFAULTS = {
@@ -51,6 +51,7 @@ def save_settings(data, path=SETTINGS_PATH):
     for key in DEFAULTS:
         if key in data:
             _current[key] = data[key]
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(_current, sort_keys=False, allow_unicode=True), encoding="utf-8")
     return dict(_current)
 

@@ -1,21 +1,24 @@
 # Metrology Workspace
 
-Python 3.10+ / PyQt6 桌面软件。启动后进入主窗口，**Wafer Map** 与 **Correlation and Trend** 作为两个可加载组件独立打开。Wafer Map 包含 Data、Wafer Maps、Radius Plot；Correlation and Trend 复用相同的 Data 工作区，并提供 Correlation 与 Trend 两个页签。
+Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据，并绘制 Wafer Map、径向图、相关性图和 Die Seq 趋势图。主窗口提供 **Wafer Map** 和 **Correlation and Trend** 两个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例。
 
 ## 运行
 
-本机已准备项目环境：
+项目已经提供 Anaconda 环境文件。首次使用时，在项目目录执行：
 
 ```powershell
-cd D:\WaferMap
-.\.venv\Scripts\python.exe main.py
+conda env create -f environment.yml
+conda activate metrology-workspace
+python main.py
 ```
 
-VS Code 选择 `D:\WaferMap\.venv\Scripts\python.exe`，直接运行 `main.py`。
-主窗口在屏幕中央以适中尺寸（约 1180 × 820）打开，并按当前显示器的**可用区域**（已扣除任务栏）自动收缩：小屏或高缩放屏都不会超出屏幕，也不会被任务栏挡住；窗口压小时各面板可以用滚动条/滚轮查看。组件窗口会级联排在可用区域内并置于最前，不会跑到屏幕外。
-主窗口默认不加载任何组件；即使工作目录或命令行中存在数据文件，也保持 **UNLOADED**。点击 **Wafer Map**、**Correlation and Trend** 或组件卡片中的 **Load** 会**新开一个组件实例**，同一模块可重复点击实现多开；每个实例窗口右上角有编号，导航按钮徽标显示当前打开数（如 `2 OPEN`）。组件卡片中的 **Close all** 关闭该模块全部实例，顶部 **Unload all** 关闭所有模块。
-该环境复用本机已有的 PyQt6，其余依赖装在本项目。
-换电脑时使用 Python 3.10+ 执行：
+本机环境位于 `C:\Users\Yuanhao Qin\.conda\envs\metrology-workspace`。在 VS Code 中选择该目录下的 `python.exe` 即可运行和调试。环境会独立安装 `requirements.txt` 中的依赖，不使用系统 Python 包。
+
+主窗口通常以约 1180 × 820 的尺寸居中打开；在小屏幕或高缩放比例下，会按任务栏以上的可用空间自动缩小。分析窗口依次错开，窗口变小时仍可通过滚动条查看内容。
+
+程序启动后不会自动打开分析工具。点击左侧的 **Wafer Map**、**Correlation and Trend**，或工具卡片上的 **Open**，即可新建一个窗口。卡片上的 **Close all** 关闭该工具的全部窗口；顶部的 **Close all windows** 关闭所有分析窗口。
+
+如果不使用 Conda，也可以在 Python 3.10+ 环境中安装依赖：
 
 ```powershell
 python -m pip install -r requirements.txt
@@ -24,7 +27,7 @@ python main.py
 
 ## Windows 便携版
 
-解压 `MetrologyWorkspace-Windows-x64-v1.1.0.zip` 后，双击目录中的 `MetrologyWorkspace.exe` 即可运行，不需要另装 Python。请保留 `_internal` 文件夹与 EXE 在同一目录；`settings.yaml` 位于 EXE 旁边，保存设置后下次启动会自动读取。
+解压 `MetrologyWorkspace-Windows-x64-v1.2.0.zip`，双击 `MetrologyWorkspace.exe` 即可运行，无需另装 Python。`_internal` 文件夹必须和 EXE 放在同一目录。设置保存在 EXE 旁边的 `settings.yaml` 中，下次启动时会自动读取。
 
 重新构建便携版：
 
@@ -33,119 +36,139 @@ python -m pip install -r requirements-build.txt
 python -m PyInstaller --noconfirm --clean MetrologyWorkspace.spec
 ```
 
-## 设置与主题
+## 设置
 
-主窗口左上角的菜单按钮里选择 **Settings…** 打开设置弹窗，可配置浅色/深色主题，以及分辨率、默认色阶、字号、插值平滑、Min R²、边缘填充、共享色阶、点值、色条、等值线和测点着色等默认项。**Save** 会把配置写入项目根目录的 `settings.yaml` 并立即应用主题；下次启动会自动读取，无需重复设置。弹窗里的 **Load from YAML** 可重新读回已保存的配置。浅色主题采用 Codex 风格的中性灰白配色，原生标题栏会随主题一起切换，不再是黑条。
+从主窗口左上角菜单打开 **Settings…**。这里可以设置主题、分辨率、默认色阶、字体、插值平滑、Min R²、边缘填充、共享色阶、点值、色条、等值线和测点样式。
 
-## 当前功能
+点击 **Save** 后，源码版会把配置写入 `config/settings.yaml` 并立即生效。便携版仍保存到 EXE 旁边。**Load from YAML** 用于重新读取磁盘上的设置。浅色和深色主题都会同步应用到原生窗口标题栏。
 
-- 左侧 Excel 式表格：字母列号、数字行号、可编辑单元格、完整值编辑栏、区域复制/粘贴、清空单元格、撤销/重做。
-- 第一行为字段标题；编辑标题或数据后，右侧自动重新识别。若第一行出现**重复列名**，表格上方会给出提示并在右侧提供 **Auto rename** 按钮：点一下即按列顺序给重复项加编号（第一个保留原名，之后依次 `名称_2`、`名称_3`…；若该后缀已被占用会自动顺延），只改第一行标题、不动任何数据，且可用 Ctrl+Z 撤销。
-- CSV/XLSX 导入；多个 Excel 工作表可选择；保留 `001` 等文本 ID 和原始数值字符串。
-- **Paste table**（Ctrl+Shift+V）用完整表格替换工作区；表格里的 **Ctrl+V** 在 A1 粘贴带表头的整表时同样按“替换工作区”处理，并清除上一张表留下的多余行列、重新自动识别 wafer/参数；在其他单元格粘贴则只覆盖该区域，保留已有分组。
-- **Ctrl+C** 复制区域，**Delete** 清空区域，**Ctrl+Z / Ctrl+Y** 撤销/重做，**Ctrl+S** 保存 CSV。
-- 右上 Wafers：顶部直接显示当前分组条件（如 `Wafer ID / Lot ID / PAD Name`），点击可多选表格中的身份字段；默认选中 Wafer ID、Lot ID、PAD Name。下方列表点击整行任意位置即可勾选/取消，悬停可查看完整身份信息。
-- 右下 Parameters：识别所有标题，默认只显示可绘制的数值列；在 Wafer Map 中新导入或粘贴数据后不默认勾选参数。取消 Numeric 可看元数据标题，支持搜索、多选/全选，点击整行即可切换选择。
-- X/Y、FIELD X/Y、X(mm)/Y(mm)、Die Seq 等作为元数据，不默认作为测量项目。
-- 阵列规则固定为：**行 = 已选测量条目数；列 = 已选项目数**。同一 Wafer ID 的不同 PAD Name 是不同条目；当前 CSV 为 6 个条目 × 3 项 = 18 张 Map。
-- 未保存编辑在关闭或替换表格前提示；输入不修改原文件，只有手动保存才写入所选 CSV。
-- 表格是数据编辑器，暂不支持 Excel 公式计算、合并单元格或完整 Excel 格式。
-- 页签采用相连矩形样式；新建、打开、粘贴、保存放在表格标题栏，不再占用独立的大标题区。
-- 四个数据按钮统一为 104 × 34；去掉品牌栏和 LOCAL 标识。Data 页不再重复显示 MAP ARRAY 卡片，切换到 Wafer Maps 后直接选择方框。
+## Data 工作区
 
-## 绘图区
+- 左侧表格支持单元格编辑、区域复制和粘贴、清空、撤销及重做。第一行始终作为字段名。
+- 可以导入 CSV 和 XLSX。Excel 文件包含多个工作表时，可选择要读取的工作表。`001` 这类文本 ID 和原始数值字符串会保留。
+- 在 A1 使用 **Ctrl+V** 粘贴带表头的整张表时，程序会替换当前工作区并重新识别字段；在其他位置粘贴时，只覆盖选中的区域。**Paste table**（Ctrl+Shift+V）始终替换整张表。
+- 如果第一行有重复列名，**Auto rename** 会按列顺序添加 `_2`、`_3` 等后缀。该操作只修改表头，也可以用 Ctrl+Z 撤销。
+- Wafers 列表上方显示当前身份字段，例如 `Wafer ID / Lot ID / PAD Name`。身份字段可以多选。
+- Parameters 默认只显示可绘图的 numeric 列。取消 **Numeric** 后，可以查看和选择元数据列。
+- X/Y、FIELD X/Y、X(mm)/Y(mm) 和 Die Seq 默认按元数据处理，不会自动作为测量参数。
+- 只有手动保存才会写回 CSV。关闭窗口或替换表格前，程序会提示尚未保存的修改。
 
-1. 在 Data 勾选晶圆和参数，切换到 Tab 2 进入方框阵列，不自动绘图。
-2. 优先识别 `X(mm) / Y(mm)`，没有时使用 FIELD X/Y 或 X/Y；也可手动选择坐标列。
-3. 鼠标拖动选择矩形区域；Ctrl 增减格子，Shift 扩选；All / None 全选或清空。点击 **Draw selected** 只计算选中的 Map，画板也只排布**真正有图的那些行和列**（行、列顺序不变）：选 2 × 2 就得到 2 × 2 的画板，不会再为其它组合留出大片空白。跨越中间未选格子的选择（例如第 1 行和第 6 行）仍保留它们之间的间距，方便对照相对位置。**Select maps** 可返回方框模式。
-4. 每张图包含圆形裁切、连续彩色插值、原始测量点及数值和四边坐标轴框。默认 Color 为 Turbo，也可选择 Viridis、Plasma、Jet、Coolwarm 或 Spectral；色阶会自动裁掉过暗的色段并整体提亮（亮度低于 0.38 的色段不进入映射，再向白色混入 16%），所以晶圆外圈不会被画成一条近黑的边，colorbar 两端是可读的浅蓝和亮红。色阶实际用到的**颜色范围**可以拖动调整：工具栏 **Colors** 是一条可拖动的色带，两个手柄决定使用调色板的哪一段（默认已自动跳过近黑的两端）。把左手柄向右拖，底图最深的那一档就会变浅；把右手柄向左拖则去掉最红的一端。拖动时立即复用已有插值结果重新着色（色面与 colorbar 同步更新，不再重跑 RBF），状态栏会显示当前使用的百分比区间。**Opacity** 控制每张 Map 填色的不透明度（100%–50%），等值线和测点始终保持实心，colorbar 显示的是同样的混色结果；调低后整个图会变淡，适合叠加或弱化底图。Point values 和 Measurement points 可分别即时显示或隐藏，Scale bar 可控制每张图的 colorbar 是否显示；这些勾选**不再重画整张阵列**——程序缓存了“去掉叠加层”的底图，勾选时只重画变化的图元（18 张图约 0.05 s，之前是 1.2 s），并且不会改变缩放和滚动位置。**Contour lines** 在填色面上叠加等值线（等值线在绘制时一次算好、勾选只切换显示，因此同样走快速重绘），呈现参考图那种地形图观感；每条等值线按底下填色的亮度自动取深色或浅色，所以色阶最暗的一端也看得见。**Point outline** 给每个测点加一圈浅色描边（点本身仍是深色），在色阶最暗的边缘区域也能看清测点；关闭时是普通深色小圆点。两者都只更新已有插值结果，不重新做 RBF。悬停测量点可查看更完整的数值。标题依次为参数名、测量分类、实测 Min / Max / Mean。
-5. 行对应测量条目（晶圆 + Lot + PAD / Run）、列对应参数；图标题和方框标签带 PAD Name。默认每张图使用独立色阶；勾选 Shared scale 才让同一参数的已选 Map 共享色阶。跨图比较绝对大小时应开启共享色阶。
-6. Diameter 默认 **Auto**：当坐标列是 X(mm) / Y(mm) 时，根据 XY 覆盖范围识别 100、200 或 300 mm 标准晶圆；小幅采样偏心会吸附到圆心 (0, 0)。坐标轴边框严格使用识别直径，例如 300 mm 显示为 -150…150 mm，不再额外扩成约 320 mm。其他坐标类型使用数据范围估计圆，也可手动输入直径；边界过小会提示而非截掉测量点。标准换算为 100 mm≈4 英寸、200 mm≈8 英寸、300 mm≈12 英寸。
-7. Fill edge 控制是否填充采样点凸包之外；该区域不是实测数据。开启时把外侧采样点沿晶圆半径镜像成虚拟样本，再用同一个全局薄板样条覆盖整个圆面：全圆是一张连续曲面，没有凸包接缝，也不会像无通量调和延拓那样在边缘压出一圈均匀色带，边缘会延续实测的径向趋势。镜像只取外侧样本（r ≥ 0.5R），避免把内部离群点投射到边缘；结果再按实测 Min/Max 截断。关闭后凸包外留白，只显示实测覆盖范围。
-8. 默认使用 Turbo 连续色阶；标注加浅色描边以保证在底图上的可读性。View 支持适宽和 50–300% 缩放：普通滚轮纵向滚动，Shift+滚轮横向滚动，Ctrl+滚轮逐级缩放并尽量保持鼠标指向的位置。Resolution 可选 Standard（100% 屏幕渲染 / 200 dpi PNG）、High（150% / 300 dpi，默认）或 Ultra（200% / 400 dpi）：它同时决定屏幕超采样的清晰度（放大后文字与晶圆边缘不发虚）和 Export / Copy 的 dpi。滚轮只更新 Qt 视图矩阵，不重新插值或重画整套图元；QGraphicsView 打开了平滑重采样并关闭了会失真的字形 hinting。
-9. Font 可在 8–16 pt 间调整基础绘图字号，坐标轴标签小 1 pt、坐标刻度和 colorbar 刻度小 2 pt；连续选择会延迟合并，直接更新现有文字对象，不重新创建图或重新插值。阵列的四周边距随字号一起放大，字体调大后最左列的 Y 轴标签和标题不会被裁掉、整组图仍居中。**Export…** 可选 PNG（按 Resolution 所选的 200 / 300 / 400 dpi）或 **SVG / PDF 矢量**：矢量文件里坐标轴、标题、等值线、测点和 colorbar 刻度都是矢量，只有插值出来的彩色面以图像层嵌入（嵌入分辨率同样跟随 Resolution）；**Copy PNG** 按所选 dpi 复制整个阵列，图像过大时自动下调（复制约 25 MP、导出约 64 MP 上限）并在状态栏写明 «capped from … dpi»，避免剪贴板或内存被超大位图拖垮。
-10. 同一测量条目中坐标完全相同的多个参数共享一次 RBF 矩阵求解；点值合并为每张 Map 一个矢量文字图层。插值显示网格按阵列规模自适应（≤12 张用 400 × 400，≤48 张用 300 × 300，更大用 200 × 200），小阵列因此接近屏幕像素密度，显示不再发虚。薄板样条支持平滑项（Settings → Interpolation smoothing：Off / Light / Medium / Strong）：Off 精确穿过每个测点，Medium（默认）会让曲面残差约为「该参数自身量程」的 9%，用来压掉螺旋采样点之间产生的放射状等值线抖动。求解前每个参数列都按自身均值和量程标准化，因此量程差别很大的参数共用一次求解时，不会互相把对方抹平；数值结果由逐参数对照测试保证一致。
+这个表格用于整理绘图数据，不支持 Excel 公式、合并单元格或完整的 Excel 格式。
+
+## Wafer Map
+
+基本流程如下：
+
+1. 在 Data 中勾选测量条目和参数。
+2. 切换到 **Wafer Maps**，确认 X、Y 坐标列。
+3. 在方框阵列中拖动选择要绘制的组合。Ctrl 用于增减选择，Shift 用于扩选，**All** 和 **None** 可以全选或清空。
+4. 点击 **Draw selected**。只有选中的组合会参与计算，画布也只保留实际用到的行和列。
+
+坐标列优先匹配 `X(mm) / Y(mm)`，其次是 FIELD X/Y 和 X/Y，也可以手动指定。阵列中的行对应测量条目，列对应参数。同一个 Wafer ID 下，不同 PAD Name 会作为不同条目。
+
+每张图显示插值曲面、原始测点、点值、坐标轴和 Min/Max/Mean。默认色阶为 Turbo，也可以选择 Viridis、Plasma、Jet、Coolwarm 或 Spectral。**Colors** 两端的手柄用于裁剪调色板范围；拖动时只更新颜色，不重新计算 RBF。**Opacity** 只改变填色透明度，等值线和测点保持实心。
+
+**Point values**、**Measurement points**、**Contour lines**、**Point outline** 和 **Scale bar** 可以单独开关。程序会复用已有插值结果，因此切换这些显示项不会改变当前缩放或滚动位置。在 18 张图的测试数据上，叠加层更新约为 0.05 秒；原来的完整重绘约为 1.2 秒。
+
+每张图默认使用独立色阶。需要比较不同测量条目的绝对数值时，打开 **Shared scale / parameter**，让同一参数共用色阶。
+
+**Diameter** 设为 Auto 时，X(mm)/Y(mm) 坐标会识别 100、200 或 300 mm 标准晶圆。300 mm 晶圆的坐标范围固定为 -150 到 150 mm。其他坐标类型按数据范围估算，也可以手动输入直径。
+
+**Fill edge** 用外侧测点的径向镜像样本估计凸包之外的区域。该区域不是实测数据。关闭后，凸包外保持空白；开启后，结果仍限制在实测 Min/Max 范围内。
+
+**View** 支持适宽和 50% 到 300% 缩放。普通滚轮纵向滚动，Shift+滚轮横向滚动，Ctrl+滚轮按指针位置缩放。**Resolution** 提供 Standard、High 和 Ultra，分别对应 200、300 和 400 dpi 的 PNG 输出。图像过大时，复制和导出会自动降低 DPI，避免耗尽剪贴板或内存。
+
+**Export…** 支持 PNG、SVG 和 PDF。SVG/PDF 中的坐标轴、标题、等值线、测点和 colorbar 刻度保持矢量；插值色面作为图像层嵌入。**Copy PNG** 会复制整个阵列，包括当前滚动区域之外的内容。
+
+同一测量条目中，只要坐标一致，多个参数会共用一次 RBF 矩阵求解。显示网格按图数自动调整：不超过 12 张时使用 400 × 400，不超过 48 张时使用 300 × 300，更大的阵列使用 200 × 200。插值平滑可以在 Settings 中选择 Off、Light、Medium 或 Strong。
 
 ## Radius Plot
 
-- Tab 3 使用 Data 页当前勾选的测量条目和参数，无需再次配置分组。进入后先在 **Select maps** 面板框选要画的格子（**与 Wafer Maps 的框选是两套独立状态，互不影响**），再点 **Draw selected**；画板同样只排布实际画出的行和列，未选中的格子不占版面。
-- 横轴按 `signed R = sign(X) × sqrt(X² + Y²)` 计算：X < 0 显示在负半轴，X > 0 显示在正半轴；X = 0 时为 0。纵轴为所选参数值。
-- 阵列规则与 Wafer Maps 一致：行＝已选测量条目，列＝已选参数；每个“晶圆/PAD × 参数”单独一张散点图，不再将多个测量条目叠在同一张图。标题依次显示参数、测量分类和 Min/Max/Mean。
-- 标准毫米坐标沿用 100/200/300 mm 自动识别，因此 300 mm 晶圆的 signed radius 横轴固定为 -150…150 mm。支持 8–16 pt 字体、适宽及 50–300% 缩放、普通/Shift/Ctrl 滚轮操作，并与 Wafer Maps 共用 Standard / High / Ultra 分辨率和 PNG 输出规则。
+Radius Plot 使用 Data 中当前勾选的测量条目和参数，但保留自己独立的方框选择。横轴按下式计算：
+
+`signed R = sign(X) × sqrt(X² + Y²)`
+
+X < 0 位于负半轴，X > 0 位于正半轴，X = 0 时半径为 0。每个“测量条目 × 参数”单独绘制，不会把多组数据叠在一张图上。标准毫米坐标沿用 100/200/300 mm 晶圆识别，缩放、字体、分辨率和 PNG 输出规则与 Wafer Maps 一致。
 
 ## Correlation and Trend
 
-- 主窗口中手动加载 **Correlation and Trend**；Tab 1 与 Wafer Map 的 Data 页一致，可导入、粘贴和编辑表格。Tab 2 / Tab 3 与 Wafer Maps 一样先进入 **Select maps** 方框阵列（行＝测量条目，列＝参数），拖动框选后再点 **Draw selected**：没被框选的组合不参与计算、也不占版面。
-- Wafers 的勾选范围决定参与拟合的数据行，Parameters 中选中的 numeric 列决定两两组合；选择 n 列会生成 n(n-1)/2 个组合。新导入或粘贴数据时默认全选所有测量条目，并自动勾选可用 numeric 列，但排除 MSE、GOF、NGOF、LBH、regIter（也兼容 reglter 拼写）和 CINDEX；名称匹配忽略大小写、空格、下划线和连字符。
-- Tab 2 **Correlation** 对每一对列使用 `lmfit.models.LinearModel` 拟合 `y = slope × x + intercept`，忽略未能成对转为数值的行；有效配对少于 3 点或常数列会跳过。方框选择会进一步收窄拟合：只有被框选的列才参与两两组合，而且某一对（X, Y）只用**同时勾选了 X 和 Y 的那些测量条目**的数据行拟合；例如只框选前 3 个测量条目 × 2 个参数，就得到 1 组只基于这 3 条数据的拟合。
-- 所有散点图按照 R² 从高到低排列，标题显示变量对、拟合方程、R²、有效点数和排名。Min R² 默认 0.50，仅绘制严格满足 R² > 0.50 的结果；修改阈值只筛选已有 lmfit 结果，不重新拟合。一次最多选择 40 列；为避免低阈值生成超大画布，界面按排名显示最强的 12 张图并在状态栏报告完整通过数量。
-- Min R²、列数、字号和分辨率的连续修改会合并为一次刷新；屏幕上的图由 PyQtGraph 绘制，缩放和平移只改视图、不重新拟合也不重算数据。Matplotlib 导出图只在 Export / Copy 时才构建，所以拖动工具栏选项时不会为导出再画一遍。
-- 每张图都能独立交互：鼠标停在图上滚轮缩放（以指针为中心）、**左键拖动框选一块区域放大**、**右键拖动平移**、双击恢复该图的初始视图；工具栏 **Reset views** 一次性把所有图恢复到刚绘制时的视图。**面板之间的边界可以拖动**：把某张图拉大、压小，甚至一直拖到底就把它完全收起（拉回来即可恢复，同一列的其它行会跟着对齐）；在任意边界上**双击**即可恢复默认的等分布局。外层滚动条负责在整套阵列之间移动。
-- 支持每行 2/3/4 图、字体大小和 Standard/High/Ultra 分辨率。Export PNG 仍走 Matplotlib，以所选分辨率输出完整的印刷图；Copy PNG / Ctrl+C 则直接把**完整 PyQtGraph 阵列**（包括滚动区域外的图）按所选分辨率送入剪贴板，不再重复构建、PNG 压缩再解码一张大图，并缓存相同设置下的结果，因此首次复制更快、再次复制近乎即时。复制采用当前交互视图，Export 不受屏幕缩放影响。
-- Tab 3 **Trend**（Die Seq 曲线）把每个 Numeric 参数画成**一条连续曲线**：所有测量条目按 Data 页的顺序首尾相接，不再拆成一段段、也不再留组间空隙；横轴内层标注真实 Die Seq（允许缺号，不自动补齐），下层用第二条轴标出每一段属于哪个 Wafer ID，接缝处是浅色虚线。方框选择决定画哪些曲线、以及每条曲线包含哪些测量条目（未勾选的条目跳过、连线不间断，横轴只覆盖真正有曲线的区段，左右不留大片空白）；列数/字号只重建屏幕网格，Matplotlib 导出图在导出时才生成，因此连续调整不会卡；Die Seq 刻度按面板像素宽度自动取间隔，跨片边界不会再出现数字压在一起；曲线由 PyQtGraph 绘制，可滚轮缩放单张曲线、左键拖动框选放大、右键拖动平移、双击复位；面板之间的边界同样可以拖动改变每行高度（拖到底可完全收起、双击边界恢复默认布局），工具栏 **Reset views** 一键恢复全部视图。支持单列/双列布局、字号、Standard/High/Ultra 分辨率和 Export PNG / Copy PNG / Ctrl+C；Copy 直接捕获完整交互阵列并复用缓存，Export 仍由 Matplotlib 按所选 DPI 输出完整图。参数很多时（例如 15–20 个参数、画布约 1300 in²）Ultra 400 dpi 会变成两亿像素，因此**复制在上限约 25 MP、导出在上限约 64 MP 内自动下调 DPI**，状态栏会注明 «capped from 400 dpi»。
+该工具的 Data 页支持同样的导入、粘贴和编辑操作。新表格会默认选中所有测量条目，并勾选可用的 numeric 列；MSE、GOF、NGOF、LBH、regIter（包括 `reglter` 拼写）和 CINDEX 默认排除。名称匹配忽略大小写、空格、下划线和连字符。
 
-绘图区不再提供独立分组下拉框；测量分组在 Data 页自动完成。当前 CSV 的 480 行会完整拆为 **3 个 Wafer ID × 2 个 PAD Name = 6 个测量条目，每条 80 点**，可直接绘制，无需删除其中一组。原始文件未被改动。
+### Correlation
 
-### 自动识别规则
+Correlation 使用 `lmfit.models.LinearModel` 对所选 numeric 列做两两线性拟合：
 
-- 菜单中勾选的普通字段共同组成测量身份；任何一项不同都单独列出。首次导入或粘贴表格时自动勾选身份列：`Wafer ID` 一定参与；`PAD Name` / `Lot ID` 只有在确实有多个不同取值时才加入。PAD 恒为 `CELL` 的文件按 Wafer ID 分组，同一 Wafer ID 有多个 PAD（如两次时间戳测量）的文件拆成 `Wafer ID × PAD`。也可手动改选其他元数据字段。空值不猜测或向下填充；列名识别忽略大小写、空格和下划线。
-- Die Seq 是每个测点的元数据，允许跳号和缺号（例如范围 1–100 只测到 92 个 die），**不作为分图或筛选条件**，也不出现在身份字段菜单中；缺失的编号不会被当成新 wafer。
-- 同一个最终测量条目内仍不允许重复 X/Y；遇到无法拆分的重复点会报错，**不会平均、选择第一组或覆盖原行**。所有绘图使用对应条目的原始行索引。
+`y = slope × x + intercept`
 
-无有效数据的组合保留在画板中并显示原因，不会被悄悄丢掉。修改数据、勾选、方框选择或设置会隐藏旧结果；后台插值可以取消。为控制内存，每批最多 120 个阵列位置。
+无法成对转换为数值的行会被忽略；有效点少于 3 个或存在常数列时，该组合会跳过。方框阵列同时限定参数和测量条目。例如选择 3 个测量条目和 2 个参数，只会得到 1 个基于这 3 组数据的拟合。
 
-本软件使用 SciPy 薄板样条 RBF 插值；外观参考用户提供的 Wafer Map，**不是 KLA 专有算法的复现**。不同测量可并排查看；当前不实现 A/B 差值 UI 或测量单位自动换算。
+结果按 R² 从高到低排列。Min R² 默认是 0.50，只有严格满足 `R² > 0.50` 的结果会显示。修改阈值只过滤现有结果，不会重新拟合。一次最多选择 40 列，屏幕最多显示排名最高的 12 张图，状态栏会给出完整的通过数量。
 
-## 架构
+屏幕图由 PyQtGraph 绘制。滚轮缩放，左键拖动框选区域，右键拖动平移，双击恢复单张图；**Reset views** 恢复全部图。面板边界也可以拖动，双击边界恢复等分布局。默认三列布局会根据窗口宽度伸缩，不会横向裁掉最后一列。
+
+**Export PNG** 使用 Matplotlib 输出完整图，**Copy PNG** 直接复制当前 PyQtGraph 阵列。复制包含滚动区域外的图，并缓存相同设置下的结果。
+
+### Trend
+
+Trend 按 Data 页顺序把每个 numeric 参数画成连续的 Die Seq 曲线。横轴保留真实 Die Seq，允许缺号；下方的第二条轴标出各段对应的 Wafer ID，测量条目之间用浅色虚线分隔。
+
+方框选择决定要画的参数和测量条目。未选条目会跳过，横轴只覆盖实际有曲线的区段。默认双列布局会随窗口宽度伸缩。滚轮缩放，左键拖动框选区域，右键拖动平移；Auto Scale 会重新适配 Y 轴，但保留紧凑的 X 范围。右侧边框会一直显示。该页也支持 Reset views、Export PNG、Copy PNG 和 Ctrl+C。
+
+## 数据识别与限制
+
+- 勾选的身份字段共同定义测量条目。`Wafer ID` 一定参与；`PAD Name` 和 `Lot ID` 只有存在多个不同值时才默认加入。
+- Die Seq 是测点元数据，可以跳号或缺号，不用于拆分测量条目。
+- 空白身份值不会自动向下填充，也不会猜测。
+- 同一测量条目内不允许重复 X/Y。程序会报告无法拆分的重复点，不会擅自平均或覆盖原行。
+- 无有效数据的组合会留在画布中并显示原因。修改数据、选择或设置后，旧结果会隐藏。
+- 每批最多处理 120 个阵列位置。
+
+Wafer Map 使用 SciPy 薄板样条 RBF 插值。它用于展示和比较量测结果，不是 KLA 专有算法的复现。目前不提供 A/B 差值界面，也不会自动换算测量单位。
+
+项目附带的 CSV 放在 `sample_data/`。测试数据不会在运行或测试时被改写。
+
+## 代码结构
 
 ```text
-main.py                    仅启动、配置字体和自动载入
-wafermap/
-  shell.py                 主窗口、组件多开/卸载、设置弹窗和活动记录
-  module_registry.py       可加载组件元数据和延迟创建工厂
-  module_button.py         带实例数徽标（N OPEN / UNLOADED）的导航按钮
-  correlation_window.py    复用 Data 页的相关性分析组件窗口
-  correlation_page.py      lmfit 两两线性拟合、R² 排序；屏幕用 PyQtGraph 交互阵列、导出用 Matplotlib
-  panel_grid.py            可拖动边界的面板阵列（PyQtGraph 页面共用）
-  sequence_page.py         Numeric 参数按 Die Seq 连成一条曲线的折线图（PyQtGraph 交互 + Matplotlib 导出）
-  data.py                  表格导入、字段识别、数据筛选
-  measurements.py          Wafer/Lot/PAD 等复合测量身份识别
-  sheet.py                 表格模型、单元格编辑、复制粘贴和撤销
-  window.py                三个 Tab、面板布局与选择联动
-  appearance.py            字体、Qt 配色与原生 Windows 标题栏
-  theme.qss                深色控件样式
-  theme_light.qss          浅色控件样式
-  settings.py              YAML 配置读写与主题应用
-  settings_dialog.py       设置弹窗，主窗口左上角菜单入口
-  assets/atmosphere.png     深色背景素材
-  assets/arrow_*_*.png      两套主题的下拉/微调箭头
-  assets/check_white.png    勾选框对勾图标
-  plot.py                  单张 Wafer Map 插值、坐标轴与 colorbar
-  array_plot.py            选中格子的数据准备、重复检查、统一色阶与画板行列裁剪
-  map_selector.py          方框阵列、鼠标拖选及选择保留
-  plot_page.py             绘图区控件、后台插值、缩放和导出（含 SVG / PDF）
-  radius_page.py           带 X 正负号的径向散点图、导出和复制
-tests/
-  test_core.py             数据及绘图回归
-  test_workspace.py        表格编辑与第一个 Tab 的交互回归
-  test_array.py            阵列顺序、拖选、重复检查、取消与导出回归
-  test_measurements.py     自动身份、字段别名、序列重启及原始行映射
-  test_radius.py           Signed radius 计算与真实数据绘制回归
+main.py                    程序入口
+sample_data/               示例量测数据
+config/                    源码版运行设置（不提交 settings.yaml）
+docs/                      开发交接文档
+metrology_app/             应用主包
+  shell.py                 主窗口、分析窗口和 Activity
+  module_registry.py       工具注册信息和延迟创建工厂
+  correlation_window.py    Correlation and Trend 窗口
+  correlation_page.py      两两线性拟合、R² 排序和相关性图
+  sequence_page.py         Die Seq 趋势图
+  plotting/                PyQtGraph 交互、外框和可调整面板网格
+  data.py                  文件导入、字段识别和数据筛选
+  measurements.py          Wafer/Lot/PAD 测量身份识别
+  sheet.py                 表格编辑、复制粘贴和撤销
+  window.py                Wafer Map 主窗口和页签联动
+  plot.py                  单张 Wafer Map 插值和绘制
+  array_plot.py            阵列数据准备、检查和布局
+  map_selector.py          方框选择
+  plot_page.py             Wafer Map 绘图区、后台插值和导出
+  radius_page.py           Signed radius 绘图
+  settings.py              YAML 设置读写
+  settings_dialog.py       设置窗口
+tests/                     单元测试和 Qt 回归测试
 ```
 
-保持按职责拆分；主窗口只依赖组件注册信息，Wafer Map 在首次加载时才导入和创建。组件内部第二个 Tab 直接消费当前选择：
-`window.selection = {wafers, metrics, wafer_column, groups, labels}`。
-其中 wafers 保存稳定的测量身份键，groups 映射到原始行位置，labels 提供人类可读标签；不向用户表格插入辅助列。
+主窗口只依赖注册信息，分析模块在第一次打开时才导入。绘图页通过 `window.selection = {wafers, metrics, wafer_column, groups, labels}` 接收当前选择；`groups` 始终映射到原始行位置，不会向用户数据中插入辅助列。
 
-## UI 来源
+## 界面说明
 
-外观采用 Segoe UI Variable 字体、紫黑背景、细边框卡片与紫色交互色，另提供浅色主题；中文内容使用微软雅黑回退。
-当前数据页布局按用户要求重新组织，非仪器控制主页的逐像素复制。
+界面使用 Segoe UI Variable，中文回退到微软雅黑。深色主题采用紫黑背景和紫色交互色，浅色主题使用中性灰白配色。当前布局针对量测数据编辑和多图比较设计，并非某款仪器控制界面的逐像素复制。
 
 ## 验证
 
+在项目目录运行：
+
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+conda run -n metrology-workspace python -m unittest discover -s tests -v
 ```
 
-运行完整回归测试即可验证数据识别、绘图和模块窗口行为；开发时生成的截图与视觉检查临时文件不纳入项目。
+测试覆盖数据识别、编辑操作、插值、绘图、导出、窗口行为和 Correlation/Trend 交互。开发过程中生成的截图和临时视觉检查文件不纳入项目。
+
+当前开发状态和 Skill 使用约定见 [docs/HANDOFF.md](docs/HANDOFF.md)。

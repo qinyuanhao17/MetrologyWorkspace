@@ -5,7 +5,6 @@ import sys
 from ctypes import wintypes
 from pathlib import Path
 
-import pyqtgraph as pg
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QFont, QFontDatabase, QImage, QPainter, QPalette
 from PyQt6.QtWidgets import QApplication, QLabel
@@ -162,16 +161,6 @@ def panel_title_label(html, base_size=10):
     label.setWordWrap(False)
     label.setStyleSheet(f"color: #20242a; font-size: {base_size}pt;")
     return label
-
-
-def frame_plot_axes(plot_item, tick_length=0, colour="#30343b"):
-    """Show the top and right axes so a panel keeps the export's four-sided frame."""
-    for name in ("top", "right"):
-        axis = plot_item.getAxis(name)
-        axis.setStyle(showValues=False, tickLength=tick_length)
-        axis.setPen(pg.mkPen(colour))
-        axis.setTextPen(pg.mkPen(colour))
-        plot_item.showAxis(name)
 
 
 def fit_window_to_screen(window, preferred, minimum=None, margin=28, offset=(0, 0), screen=None):

@@ -24,13 +24,12 @@ from PyQt6.QtWidgets import (
 )
 
 from .appearance import (MAX_COPY_PIXELS, MAX_EXPORT_PIXELS, configure_resolution_combo,
-                         export_dpi, frame_plot_axes,
-                         panel_title_label, resolution_settings)
+                         export_dpi, panel_title_label, resolution_settings)
 from .appearance import widget_to_qimage
 from .array_plot import drawn_axes
 from .data import number
 from .map_selector import MapSelector
-from .panel_grid import PanelGrid
+from .plotting import InteractivePlotWidget, PanelGrid, PlotPanel
 from .settings import get_settings
 
 
@@ -143,9 +142,10 @@ class SequencePage(QWidget):
         self.columns.setFixedWidth(54)
         self.columns.currentIndexChanged.connect(self.relayout)
         options.addWidget(self.columns)
-        options.addWidget(QLabel("Wheel: zoom · drag: box zoom · right-drag: pan", objectName="muted"))
+        options.addWidget(QLabel("Scroll to zoom · drag a box to zoom · right-drag to pan",
+                                 objectName="muted"))
         self.reset_button = QPushButton("Reset views")
-        self.reset_button.setToolTip("Restore every curve to the view it had after drawing.")
+        self.reset_button.setToolTip("Return every curve to its original range.")
         self.reset_button.clicked.connect(self.reset_views)
         options.addWidget(self.reset_button)
         options.addWidget(QLabel("Font", objectName="muted"))
@@ -170,7 +170,7 @@ class SequencePage(QWidget):
         self.copy_shortcut = QShortcut(QKeySequence.StandardKey.Copy, self)
         self.copy_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self.copy_shortcut.activated.connect(self.copy_png)
-        self.copy_button.setToolTip("Copy the complete plot as PNG (Ctrl+C while this tab is active).")
+        self.copy_button.setToolTip("Copy the full plot grid as a PNG. Ctrl+C works while this tab is active.")
 
         self.plot_host = None
         self.interactive_scroll = QScrollArea()
@@ -199,7 +199,7 @@ class SequencePage(QWidget):
         box_layout.addWidget(self.selector, 1)
         self.stack.addWidget(self.selector_panel)
         layout.addWidget(self.stack, 1)
-        self.status = QLabel("Select measurement sets and numeric parameters in Data, then draw.",
+        self.status = QLabel("Choose measurement sets and numeric parameters in Data, then select the curves to draw.",
                              objectName="hint")
         layout.addWidget(self.status)
         self.selector.changed.connect(self.invalidate)
@@ -229,8 +229,8 @@ class SequencePage(QWidget):
         self.export_button.setEnabled(False)
         self.copy_button.setEnabled(False)
         self.figure.clear()
-        self.draw_canvas_message("Choose boxes, then click Draw selected")
-        self.clear_interactive("Choose boxes, then click Draw selected")
+        self.draw_canvas_message("Select one or more boxes, then click Draw selected")
+        self.clear_interactive("Select one or more boxes, then click Draw selected")
         wafers = self.selection.get("wafers", [])
         metrics = self.selection.get("metrics", [])
         rows, columns = len(wafers), len(metrics)
@@ -243,7 +243,7 @@ class SequencePage(QWidget):
             self.stack.setCurrentWidget(self.selector_panel)
         count = len(self.selector.selected_cells())
         self.summary.setText(f"{count} / {rows * columns} selected  ·  {rows} × {columns}")
-        self.status.setText("Drag to select curves, then click Draw selected.")
+        self.status.setText("Drag across the curves you want, then click Draw selected.")
 
     def draw_canvas_message(self, message):
         """Keep the export figure readable when there is nothing to plot yet."""
@@ -413,27 +413,22 @@ class SequencePage(QWidget):
         """One zoomable PyQtGraph curve per numeric parameter, in a resizable grid."""
         self.clear_interactive()
         base = int(self.font_size.currentText())
-        panel_width, panel_height = 900, 320
+        panel_height = 320
         grid = PanelGrid(columns)
-        grid.setMinimumSize(columns * panel_width, rows * panel_height)
+        grid.set_minimum_row_height(rows, panel_height)
         positions = np.concatenate([group["positions"] for group in groups])
         self.wafer_ticks = [(group["center"], group["wafer"]) for group in self.view_groups]
         for rank, metric in enumerate(metrics):
-            widget = pg.PlotWidget(background="w")
-            widget.setMinimumSize(820, 280)
-            widget.setToolTip("Mouse wheel: zoom · Left drag: box zoom · Right drag: pan · "
-                              "Double-click: fit · Reset views: restore all")
+            widget = InteractivePlotWidget(background="w", auto_x_range=self.x_range)
+            widget.setMinimumSize(360, 280)
+            widget.setToolTip("Scroll to zoom · Drag a box to zoom · Right-drag to pan · "
+                              "Double-click to fit this curve · Reset views restores all curves")
             plot = widget.getPlotItem()
             plot.setTitle(None)   # the QLabel above the plot owns the heading
             plot.showGrid(x=False, y=True, alpha=.18)
             plot.setLabel("left", "Value", color="#30343b", size=f"{max(7, base - 1)}pt")
             heading = panel_title_label(f"<b>{escape(str(metric))}</b>", base + 1)
-            container = QWidget()
-            box = QVBoxLayout(container)
-            box.setContentsMargins(0, 0, 0, 0)
-            box.setSpacing(2)
-            box.addWidget(heading)
-            box.addWidget(widget, 1)
+            container = PlotPanel(heading, widget)
             chosen = [group for group in groups if (group["key"], metric) in self.cells]
             drawn = np.concatenate([group["positions"] for group in chosen])
             values = np.concatenate([number(group["frame"][metric]).to_numpy(float)
@@ -469,8 +464,6 @@ class SequencePage(QWidget):
             left.setPen(pg.mkPen("#30343b"))
             left.setTextPen(pg.mkPen("#30343b"))
             left.setStyle(tickFont=widget.font())
-            # The export draws a full box; mirror it here without extra ticks.
-            frame_plot_axes(plot)
             view = plot.getViewBox()
             # Left drag selects a region to zoom into; right drag pans.
             view.setMouseMode(pg.ViewBox.RectMode)
@@ -503,7 +496,7 @@ class SequencePage(QWidget):
             for widget, home in zip(self.plot_widgets, self.home_views):
                 widget.getPlotItem().getViewBox().setRange(xRange=home[0], yRange=home[1],
                                                            padding=0)
-        self.status.setText(f"Reset {len(self.plot_widgets)} interactive curve views.")
+        self.status.setText(f"Reset {len(self.plot_widgets)} curve views.")
 
     def relayout(self, *_):
         if self.ready:
@@ -531,8 +524,8 @@ class SequencePage(QWidget):
             effective = export_dpi(self.figure, dpi, MAX_EXPORT_PIXELS)
             note = (f" · capped to {effective} dpi for this {len(self.metrics)}-plot size"
                     if effective < dpi else "")
-            self.status.setText(f"PNG output resolution: {dpi} dpi{note}. "
-                                f"Interactive curves stay vector-sharp.")
+            self.status.setText(f"PNG output: {dpi} dpi{note}. "
+                                "This setting does not change the on-screen curves.")
 
     def export_png(self):
         if not self.ready:

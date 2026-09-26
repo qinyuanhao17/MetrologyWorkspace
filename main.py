@@ -1,4 +1,4 @@
-"""Launch the component shell with every module initially unloaded."""
+"""Launch the application shell with no analysis windows open."""
 import os
 import sys
 import tempfile
@@ -16,9 +16,9 @@ os.environ["MPLCONFIGDIR"] = str(_cache_root)
 
 from PyQt6.QtWidgets import QApplication
 
-from wafermap.shell import MainWindow
-from wafermap.appearance import configure_fonts, set_theme_palette, style_titlebar
-from wafermap.settings import load_settings
+from metrology_app.shell import MainWindow
+from metrology_app.appearance import configure_fonts, set_theme_palette, style_titlebar
+from metrology_app.settings import load_settings
 
 
 def main():

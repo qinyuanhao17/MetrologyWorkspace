@@ -12,10 +12,10 @@ from PyQt6.QtCore import QPoint, Qt
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
-from wafermap.appearance import configure_fonts
-from wafermap.data import read_table
-from wafermap.sheet import SheetModel, column_letter
-from wafermap.window import MainWindow, parameter_checked_by_default
+from metrology_app.appearance import configure_fonts
+from metrology_app.data import read_table
+from metrology_app.sheet import SheetModel, column_letter
+from metrology_app.window import MainWindow, parameter_checked_by_default
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = QApplication.instance() or QApplication([])
@@ -93,8 +93,8 @@ class WorkspaceTests(unittest.TestCase):
 
     def setUp(self):
         self.window = MainWindow()
-        self.window.load_path(ROOT / "OCD_measurement_data.csv")
-        self.source_shape = read_table(ROOT / "OCD_measurement_data.csv").shape
+        self.window.load_path(ROOT / "sample_data" / "OCD_measurement_data.csv")
+        self.source_shape = read_table(ROOT / "sample_data" / "OCD_measurement_data.csv").shape
 
     def tearDown(self):
         self.window.model.undo.setClean()

@@ -1,1 +1,0 @@
-"""WaferMap desktop application."""

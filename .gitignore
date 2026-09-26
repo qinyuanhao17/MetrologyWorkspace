@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 .cache/
 settings.yaml
+config/settings.yaml
 *.log
 qa_*.png
 build/

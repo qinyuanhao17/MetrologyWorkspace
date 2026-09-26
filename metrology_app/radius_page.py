@@ -107,7 +107,7 @@ class RadiusPage(QWidget):
         self.copy_shortcut = QShortcut(QKeySequence.StandardKey.Copy, self)
         self.copy_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self.copy_shortcut.activated.connect(self.copy_png)
-        self.copy_button.setToolTip("Copy the complete plot as PNG (Ctrl+C while this tab is active).")
+        self.copy_button.setToolTip("Copy the full plot grid as a PNG. Ctrl+C works while this tab is active.")
         self.stack.addWidget(self.scroll)
         self.selector_panel = QWidget()
         box_layout = QVBoxLayout(self.selector_panel)
@@ -124,7 +124,8 @@ class RadiusPage(QWidget):
         box_layout.addWidget(self.selector, 1)
         self.stack.addWidget(self.selector_panel)
         layout.addWidget(self.stack, 1)
-        self.status = QLabel("Select measurement sets and parameters in Data, then draw.", objectName="hint")
+        self.status = QLabel("Choose measurement sets and parameters in Data, then select the plots to draw.",
+                             objectName="hint")
         layout.addWidget(self.status)
         self.x_column.currentIndexChanged.connect(self.invalidate)
         self.y_column.currentIndexChanged.connect(self.invalidate)
@@ -174,7 +175,7 @@ class RadiusPage(QWidget):
         if not available:
             self.empty.setText("Select measurement sets and parameters in the Data tab.")
         self.stack.setCurrentWidget(self.selector_panel if available else self.empty)
-        self.status.setText("Drag to select plots, then click Draw selected; unselected cells stay blank.")
+        self.status.setText("Drag across the plots you want, then click Draw selected.")
 
     def _parts(self):
         wafers = self.selection.get("wafers", [])
@@ -250,7 +251,7 @@ class RadiusPage(QWidget):
             self.export_button.setEnabled(True)
             self.copy_button.setEnabled(True)
             self.stack.setCurrentWidget(self.scroll)
-            self.status.setText(f"{drawn} / {rows * columns} radius plots drawn  ·  "
+            self.status.setText(f"{drawn} / {rows * columns} radius plots drawn · "
                                 f"{rows} measurement rows × {columns} parameters.")
         except (ValueError, KeyError) as error:
             self.ready = False

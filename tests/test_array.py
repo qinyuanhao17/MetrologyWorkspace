@@ -18,11 +18,11 @@ from PyQt6.QtGui import QImage, QKeySequence, QWheelEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QFileDialog, QHBoxLayout, QLabel, QPushButton
 
-from wafermap.array_plot import ArrayOptions, draw_array, prepare_array
-from wafermap.appearance import MAX_COPY_PIXELS, configure_fonts, export_dpi
-from wafermap.window import MainWindow
-from wafermap.appearance import screen_render_scale
-from wafermap.settings import get_settings
+from metrology_app.array_plot import ArrayOptions, draw_array, prepare_array
+from metrology_app.appearance import MAX_COPY_PIXELS, configure_fonts, export_dpi
+from metrology_app.window import MainWindow
+from metrology_app.appearance import screen_render_scale
+from metrology_app.settings import get_settings
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = QApplication.instance() or QApplication([])
@@ -118,7 +118,7 @@ class ArrayTests(unittest.TestCase):
         self.assertEqual(clear_artists[0][0].axes.images[0].get_alpha(), 1.0)
 
     def test_palette_range_bar_changes_the_colours(self):
-        from wafermap.color_range_bar import ColorRangeBar
+        from metrology_app.color_range_bar import ColorRangeBar
 
         bar = ColorRangeBar()
         bar.set_colormap(colormaps["turbo"])
@@ -175,7 +175,7 @@ class PlotWorkspaceTests(unittest.TestCase):
     def setUp(self):
         self.window = MainWindow()
         self.window.show()
-        self.window.load_path(ROOT / "OCD_measurement_data.csv")
+        self.window.load_path(ROOT / "sample_data" / "OCD_measurement_data.csv")
 
     def tearDown(self):
         self.window.model.undo.setClean()
@@ -570,7 +570,7 @@ class PlotWorkspaceTests(unittest.TestCase):
         QTest.qWait(300)
         self.assertTrue(page.artists[0][0].axes.images[0].get_cmap().name.startswith("rainbow"))
         self.assertEqual(page.color_range.range(), (0.0, 1.0))
-        with patch("wafermap.plot_page.save_settings") as persist:
+        with patch("metrology_app.plot_page.save_settings") as persist:
             page.color_range.set_range(.2, .8, notify=True)
             QTest.qWait(400)
             persist.assert_called_once_with({
@@ -587,11 +587,11 @@ class PlotWorkspaceTests(unittest.TestCase):
         self.assertEqual(page.stack.currentIndex(), 0)
 
     def test_saved_color_range_is_restored(self):
-        from wafermap.plot_page import PlotPage
+        from metrology_app.plot_page import PlotPage
 
         preferences = dict(get_settings(), color_map="rainbow",
                            color_range_low=.18, color_range_high=.82)
-        with patch("wafermap.plot_page.get_settings", return_value=preferences):
+        with patch("metrology_app.plot_page.get_settings", return_value=preferences):
             page = PlotPage()
         try:
             self.assertEqual(page.color_map.currentData(), "rainbow")

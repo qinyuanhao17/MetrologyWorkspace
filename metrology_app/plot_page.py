@@ -82,9 +82,9 @@ class PlotPage(QWidget):
         self.draw_button = QPushButton("Draw selected", objectName="primary")
         self.draw_button.clicked.connect(self.draw_maps)
         self.export_button = QPushButton("Export…")
-        self.export_button.setToolTip("PNG at the chosen export quality, or SVG / PDF vector output.\n"
-                                      "Vector files keep axes, text, iso-lines and points sharp; the "
-                                      "interpolated colour field is embedded as a raster layer.")
+        self.export_button.setToolTip("Export a PNG at the selected resolution, or save an SVG or PDF.\n"
+                                      "Axes, text, contours, and points remain vector graphics; the "
+                                      "interpolated color field is embedded as an image.")
         self.export_button.clicked.connect(self.export_image)
         self.export_button.setEnabled(False)
         self.copy_button = QPushButton("Copy PNG")
@@ -179,7 +179,7 @@ class PlotPage(QWidget):
         self.fill_edge = QCheckBox("Fill edge")
         self.shared = QCheckBox("Shared scale / parameter")
         self.scale_bar = QCheckBox("Scale bar")
-        self.fill_edge.setToolTip("Harmonic continuation from the measured hull to the wafer edge; this area is estimated.")
+        self.fill_edge.setToolTip("Estimate the unmeasured edge by mirroring outer samples before interpolation.")
         self.labels.setChecked(bool(prefs.get("point_values", True)))
         self.points.setChecked(bool(prefs.get("measurement_points", True)))
         self.contour.setChecked(bool(prefs.get("contour", False)))
@@ -224,7 +224,7 @@ class PlotPage(QWidget):
         self.copy_shortcut = QShortcut(QKeySequence.StandardKey.Copy, self)
         self.copy_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self.copy_shortcut.activated.connect(self.copy_png)
-        self.copy_button.setToolTip("Copy the complete plot as PNG (Ctrl+C while this tab is active).")
+        self.copy_button.setToolTip("Copy the full map grid as a PNG. Ctrl+C works while this tab is active.")
         self.stack.addWidget(self.scroll)
         self.selector_panel = QWidget()
         box_layout = QVBoxLayout(self.selector_panel)
@@ -282,7 +282,7 @@ class PlotPage(QWidget):
         available = bool(self.selector.rowCount() and self.selector.columnCount())
         self.empty.setText("Select wafers and parameters in the Data tab to create map boxes.")
         self.stack.setCurrentWidget(self.selector_panel if available else self.empty)
-        self.status.setText("Select boxes, then click Draw selected. Unselected positions stay blank.")
+        self.status.setText("Select the maps you want, then click Draw selected.")
 
     def change_colormap(self, *_):
         """Follow the palette box: show the new palette and reset to its default slice."""
@@ -326,7 +326,7 @@ class PlotPage(QWidget):
             self.stack.setCurrentWidget(self.empty)
         count = len(self.selector.selected_cells())
         self.summary.setText(f"{count} / {nr * nc} selected  ·  {nr} × {nc}")
-        self.status.setText("Drag to select boxes, then click Draw selected; old results are hidden.")
+        self.status.setText("Drag across the maps you want, then click Draw selected.")
 
     def refresh_fill_edge(self, *_):
         """Recompute edge continuation while leaving the current plot visible."""
@@ -339,7 +339,7 @@ class PlotPage(QWidget):
             self.pending_fill_refresh = True
             self.revision += 1
             self.worker.requestInterruption()
-            self.status.setText("Restarting Fill edge update…")
+            self.status.setText("Restarting the edge-fill update…")
             return
         self._start_surface_job(preserve_canvas=True)
 
@@ -401,7 +401,7 @@ class PlotPage(QWidget):
             self.draw_button.setText("Cancel")
             if preserve_canvas:
                 self.stack.setCurrentWidget(self.scroll)
-                self.status.setText("Updating Fill edge…")
+                self.status.setText("Updating the estimated edge…")
             else:
                 self.stack.setCurrentIndex(0)
                 self.empty.setText("Preparing wafer maps…")
@@ -418,7 +418,7 @@ class PlotPage(QWidget):
         self.stack.setCurrentWidget(self.scroll)
         self.export_button.setEnabled(bool(self.artists))
         self.copy_button.setEnabled(bool(self.artists))
-        self.status.setText(f"Could not update Fill edge: {message}")
+        self.status.setText(f"Could not update the estimated edge: {message}")
 
     def show_error(self, message):
         self.result = None
@@ -428,7 +428,7 @@ class PlotPage(QWidget):
         self.copy_button.setEnabled(False)
         self.stack.setCurrentIndex(0)
         self.empty.setText(message)
-        self.status.setText("Check the data and plot settings, then draw again.")
+        self.status.setText("Check the data and settings, then try again.")
 
     def finished(self):
         self.worker.deleteLater()
@@ -615,13 +615,13 @@ class PlotPage(QWidget):
         """Merge rapid combo changes before touching the large Matplotlib tree."""
         if self.result is None:
             return
-        self.status.setText("Updating plot typography…")
+        self.status.setText("Updating plot labels…")
         self.font_timer.start()
 
     def queue_plot_style(self, *_):
         """Color changes reuse prepared surfaces instead of repeating interpolation."""
         if self.result is not None and self.stack.currentWidget() is self.scroll:
-            self.status.setText("Updating color style…")
+            self.status.setText("Updating colors…")
             self.style_timer.start()
 
     def apply_plot_style(self):
@@ -685,7 +685,7 @@ class PlotPage(QWidget):
         """Merge rapid value/point toggles into a single repaint."""
         if self.result is None or not self.artists:
             return
-        self.status.setText("Updating overlays…")
+        self.status.setText("Updating points and contours…")
         self.overlay_timer.start()
 
     def apply_overlay_visibility(self, *_):
@@ -814,14 +814,13 @@ class PlotPage(QWidget):
             if suffix == ".png":
                 self.figure.savefig(path, dpi=dpi, facecolor="white")
                 note = f" · capped from {requested} dpi" if dpi < requested else ""
-                self.status.setText(f"Exported complete array as PNG ({dpi} dpi{note}): {path}")
+                self.status.setText(f"Exported the map grid at {dpi} dpi{note}: {path}")
             else:
                 # Vector output keeps axes, text, iso-lines and measured points
                 # sharp; dpi only sets how finely the colour field is rasterised
                 # inside the file.
                 self.figure.savefig(path, dpi=dpi, facecolor="white")
-                self.status.setText(f"Exported complete array as {suffix[1:].upper()} vector "
-                                    f"({dpi} dpi raster layer): {path}")
+                self.status.setText(f"Exported {suffix[1:].upper()} with a {dpi} dpi color layer: {path}")
         except Exception as error:
             self.status.setText(f"Export failed: {error}")
 
@@ -841,7 +840,7 @@ class PlotPage(QWidget):
             if image.isNull():
                 raise ValueError("Unable to create the PNG image.")
             QApplication.clipboard().setImage(image)
-            self.status.setText(f"Copied complete array as PNG ({dpi} dpi{note}) · "
+            self.status.setText(f"Copied the map grid at {dpi} dpi{note} · "
                                 f"{image.width()} × {image.height()} px")
         except Exception as error:
             self.status.setText(f"Copy failed: {error}")

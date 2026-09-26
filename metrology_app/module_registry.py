@@ -59,7 +59,7 @@ def create_default_registry():
     registry.register(ComponentSpec(
         "wafer_map",
         "Wafer Map",
-        "Load CSV, XLSX or clipboard data; create wafer-map arrays and signed-radius plots.",
+        "Edit CSV, XLSX, or clipboard data, then draw wafer maps and signed-radius plots.",
         "Metrology analysis",
         create_wafer_map,
     ))
@@ -71,7 +71,7 @@ def create_default_registry():
     registry.register(ComponentSpec(
         "correlation_analysis",
         "Correlation and Trend",
-        "Compare selected numeric columns pairwise with lmfit linear models ranked by R².",
+        "Fit numeric columns in pairs, rank them by R², and plot Die Seq trends.",
         "Statistical analysis",
         create_correlation_analysis,
     ))
