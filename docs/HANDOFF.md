@@ -17,6 +17,24 @@ python main.py
 conda run -n metrology-workspace python -m unittest discover -s tests -v
 ```
 
+## v2 Card Matching 当前状态
+
+v2 在独立的 `v2` 分支开发，`VERSION` 为 `2.0.0-dev`。v1.2.0 的提交、标签和 Release 均不移动。
+
+当前完成的纵向切片：
+
+- Reference-first：先粘贴整理好的 Reference，再粘贴相同行数的 Raw Data；当前按行序对应。
+- 一张 Reference 表支持多参数列；`<name> Reference` 自动对应 Raw Data 的 `<name>`，可在界面取消或改选。
+- Card 固定按 `Reference = slope × Raw + intercept` 拟合；Preview 应用 Card，Final 直接使用已经加 Card 的 Raw Data。
+- 同时提供绝对 Bias 和百分比 Bias；Reference 为 0 的百分比为 NaN。
+- KLA/NOVA 按 Wafer ID 输出单片 SLOPE、INTERCEPT 和 R²；TEM 隐藏单片视图。
+- 结果图包括 Match、Trend、Bias，以及适用时的单片 R²/SLOPE；线性拟合图可关闭。
+- `.wkb` 使用 SQLite schema 1，原子保存 Reference、Raw Data、映射与设置。Excel 和逐图 PNG 只作为可选导出。
+- 工具已注册到主窗口，可同时打开多个 Matching Workbook 进行对照。
+
+规模目标是 100,000 行、50 参数。当前开发机随机浮点基准：全部 Card 0.16 秒，单参数派生结果 0.004 秒，WKB 保存 1.05 秒、载入 2.43 秒，文件 97.9 MB。分析结果按参数惰性展开，避免常驻 50 份完整派生表。
+
+后续明确保留的故事：TEM Card 确认后单独输入 FullMap Raw Data；把 Preview/Final 接到 Radius Plot 和 Wafer Map；以后再按 Wafer ID、Slot ID、PAD Name 和坐标自动对齐尚未整理的 Reference。当前不要把这些未完成故事混入行序匹配的 interface。
 ## 最近完成的修改
 
 ### Correlation 和 Trend 布局
@@ -83,8 +101,11 @@ conda run -n metrology-workspace python -m unittest discover -s tests -v
 
 `metrology_app` 是应用边界，不再用单一功能 `wafermap` 命名整个 package，也不重复产品名 `MetrologyWorkspace`。暂不继续拆成 UI、domain、renderer 等多层目录；项目规模还不足以证明这种搬迁有 leverage，而且会同时影响导入、测试和 PyInstaller。下一项值得单独评估的工作，是把 Trend 的数据准备结果变成一个稳定 interface，再由 PyQtGraph 和 Matplotlib 两个 adapter 消费；不要把这项重构混入小型 bug 修复。
 
-本次没有新增 ADR。当前目录整理容易撤销，也没有形成需要长期保存的困难取舍。
+v2 新增 ADR 0001：WKB 采用 SQLite，并让 `MatchWorkbook` 成为分析与持久化的稳定 interface；Qt 窗口只负责编排和展示。
 
+## 方法来源
+
+v2 结果图的极值保留降采样与“显示抽样、统计全量”披露规则参考：Timothy Kassis, Vinayak Agarwal, Yuhuan He, Darshil Patel, and Aubrey M. Brueckner (2026), *Scientific Agent Skills: A Library of Procedural Knowledge for Research Agents*, arXiv:2609.00065, https://doi.org/10.48550/arXiv.2609.00065。
 ## 维护要求
 
 - 保留原始量测字符串和行映射，除非需求明确要求改变。

@@ -130,7 +130,7 @@ class ShellTests(unittest.TestCase):
         shell = MainWindow()
         try:
             self.assertEqual(shell.loaded_component_ids, ())
-            self.assertEqual(shell.available_value.text(), "2")
+            self.assertEqual(shell.available_value.text(), "3")
             first = shell.open_component("wafer_map")
             second = shell.open_component("wafer_map")
             APP.processEvents()

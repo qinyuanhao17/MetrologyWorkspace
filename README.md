@@ -1,6 +1,6 @@
 # Metrology Workspace
 
-Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据，并绘制 Wafer Map、径向图、相关性图和 Die Seq 趋势图。主窗口提供 **Wafer Map** 和 **Correlation and Trend** 两个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例。
+Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配，并绘制 Wafer Map、径向图、相关性图和 Die Seq 趋势图。主窗口提供 **Wafer Map**、**Correlation and Trend** 和 **Card Matching Workbook** 三个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例。当前 `v2` 分支为 `2.0.0-dev`；已发布且保留的稳定版本是 `v1.2.0`。
 
 ## 运行
 
@@ -16,7 +16,7 @@ python main.py
 
 主窗口通常以约 1180 × 820 的尺寸居中打开；在小屏幕或高缩放比例下，会按任务栏以上的可用空间自动缩小。分析窗口依次错开，窗口变小时仍可通过滚动条查看内容。
 
-程序启动后不会自动打开分析工具。点击左侧的 **Wafer Map**、**Correlation and Trend**，或工具卡片上的 **Open**，即可新建一个窗口。卡片上的 **Close all** 关闭该工具的全部窗口；顶部的 **Close all windows** 关闭所有分析窗口。
+程序启动后不会自动打开分析工具。点击左侧的 **Wafer Map**、**Correlation and Trend**、**Card Matching Workbook**，或工具卡片上的 **Open**，即可新建一个窗口。卡片上的 **Close all** 关闭该工具的全部窗口；顶部的 **Close all windows** 关闭所有分析窗口。
 
 如果不使用 Conda，也可以在 Python 3.10+ 环境中安装依赖：
 
@@ -55,6 +55,30 @@ python -m PyInstaller --noconfirm --clean MetrologyWorkspace.spec
 
 这个表格用于整理绘图数据，不支持 Excel 公式、合并单元格或完整的 Excel 格式。
 
+## Card Matching Workbook（v2 开发中）
+
+该工具把日常的 Reference/Raw Data 匹配流程从手工 Excel 中独立出来。当前实现按以下顺序工作：
+
+1. 先粘贴已经整理好的 Reference 表。一个表可以同时包含多列参数，例如 `CD_Bot Reference`、`SPA Reference`。
+2. 再粘贴 Raw Data。当前版本按从上到下的行顺序对应，两张表必须具有相同的行数。
+3. 软件会把 `<参数名> Reference` 自动匹配到 Raw Data 中同名参数，也可以在映射表中取消或修改选择。一次最多选择 50 个参数，最多处理 100,000 行。
+4. 选择 KLA、NOVA 或 TEM，并运行 Preview 或 Final。
+
+Card 的定义为：
+
+`Reference = slope × Raw + intercept`
+
+- **Preview** 会把新生成的 slope/intercept 应用到 Raw Data，得到 Card Value，再用它绘制 Trend 和 Bias。
+- **Final** 假定 Raw Data 已经由 OCD 软件应用 Card，不会重复加 Card；Trend 和 Bias 直接使用输入值。
+- Bias 默认是 `Evaluated Value - Reference`，也可以切换成百分比 `(Evaluated Value - Reference) / Reference × 100%`。Reference 为 0 时百分比留空，不猜测替代值。
+- KLA/NOVA 会额外按 Wafer ID 显示单片 SLOPE、INTERCEPT 和 R²；TEM 不显示该组单片结果。
+- Match、Trend、Bias 和单片指标按参数惰性生成，不会同时展开 50 个参数的全部派生表。
+
+**Save WKB** 保存 Reference、Raw Data、参数映射和分析设置。WKB 是 SQLite-backed 的主工作文件，可以在多个独立窗口中重新打开比较；它不依赖 Excel，也不会执行不安全的 pickle。**Export Excel** 是确认结果后的可选输出，包含 Summary、Reference、Raw Data 和 Preview/Final 工作表。**Save images** 会把每个参数的图分别保存为 PNG。
+
+10 万行、50 参数的随机浮点基准中，50 个 Card 的计算约 0.16 秒，单个参数结果展开约 0.004 秒；WKB 保存约 1.05 秒、载入约 2.43 秒，文件约 97.9 MB。结果取自当前开发机的一次可重复测量，不代表所有磁盘和数据分布。 可用 python benchmarks/benchmark_matching.py 复测。
+
+当前 v2 切片尚未加入 TEM 匹配后单独粘贴 FullMap 的第二阶段流程，也尚未把 Preview/Final 数据接到 Wafer Map 和 Radius Plot；这些属于后续切片，不会回写或覆盖 v1.2.0。
 ## Wafer Map
 
 基本流程如下：
@@ -137,6 +161,8 @@ docs/                      开发交接文档
 metrology_app/             应用主包
   shell.py                 主窗口、分析窗口和 Activity
   module_registry.py       工具注册信息和延迟创建工厂
+  matching/                Card 拟合、按参数惰性结果和 WKB 存储
+  matching_window.py       Reference-first 工作流、结果图和导出
   correlation_window.py    Correlation and Trend 窗口
   correlation_page.py      两两线性拟合、R² 排序和相关性图
   sequence_page.py         Die Seq 趋势图
@@ -169,6 +195,6 @@ tests/                     单元测试和 Qt 回归测试
 conda run -n metrology-workspace python -m unittest discover -s tests -v
 ```
 
-测试覆盖数据识别、编辑操作、插值、绘图、导出、窗口行为和 Correlation/Trend 交互。开发过程中生成的截图和临时视觉检查文件不纳入项目。
+测试覆盖数据识别、编辑操作、插值、绘图、导出、窗口行为、Correlation/Trend 交互以及 Card Matching/WKB 工作流。开发过程中生成的截图和临时视觉检查文件不纳入项目。
 
 当前开发状态和 Skill 使用约定见 [docs/HANDOFF.md](docs/HANDOFF.md)。

@@ -75,6 +75,18 @@ def create_default_registry():
         "Statistical analysis",
         create_correlation_analysis,
     ))
+
+    def create_card_matching():
+        from .matching_window import MatchingWindow
+        return MatchingWindow()
+
+    registry.register(ComponentSpec(
+        "card_matching",
+        "Card Matching Workbook",
+        "Map Reference and Raw Data parameters, generate Cards, and review Preview or Final results.",
+        "OCD matching",
+        create_card_matching,
+    ))
     return registry
 
 
