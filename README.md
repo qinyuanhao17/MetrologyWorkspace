@@ -64,7 +64,7 @@ python -m PyInstaller --noconfirm --clean MetrologyWorkspace.spec
 3. 软件会把 `<参数名> Reference` 自动匹配到 Raw Data 中同名参数。像 `TEM`、`PMISH` 这样没有 `Reference` 后缀的数值列也会出现在映射表中，但不会擅自自动选择；勾选需要的 Reference 列，再选择对应的 Raw Data 参数。Wafer ID、Die Seq 等元数据不会列为参数。一次最多选择 50 个参数，最多处理 100,000 行。
 4. 在顶部选择 **Preview** 或 **Final**，再选择 KLA、NOVA 或 TEM；`Bias` 和 `Bias %` 至少勾选一个，也可以同时勾选。
 5. 首次点击 **Run analysis** 后，Slope、Intercept、R²、Valid pairs 等结果直接显示在 Parameter mapping 的同一行。以后在 Raw Data 的 A1 粘贴新表会自动重新分析，不需要重复点击；Reference 与 Raw Data 都直接在网格中按 `Ctrl+V` 粘贴，不再保留重复的 Paste 按钮。
-6. 继续向下滚动即可同时查看 Match、Trend 和勾选的 Bias 图；输入、映射和绘图区之间的分隔线可以拖动。当前模式对应的 **Open Preview/Final Wafer Map / Radius** 位于顶部右侧。
+6. 继续向下滚动即可查看全部已映射参数。每个参数都有独立卡片，Match、Trend、Bias、Bias % 采用宽松的 2 × 2 图格，不需要再从 Parameter 下拉框逐个切换；输入、映射和绘图区之间的分隔线可以拖动。当前模式对应的 **Open Preview/Final Wafer Map / Radius** 位于顶部右侧。
 
 Card 的定义为：
 
@@ -74,7 +74,7 @@ Card 的定义为：
 - **Final** 假定当前 Raw Data 已经由 OCD 软件应用 Card，不会重复加 Card；Trend、Bias、Wafer Map 和 Radius Plot 都直接使用输入值。
 - `Bias` 是 `Evaluated Value - Reference`；`Bias %` 是 `(Evaluated Value - Reference) / Reference × 100%`。两者可以同时显示，Reference 为 0 时百分比留空，不猜测替代值。
 - KLA/NOVA 会额外按 Wafer ID 显示单片 SLOPE、INTERCEPT 和 R²；TEM 不显示该组单片结果。
-- Match 始终显示线性拟合，不再提供重复的开关。Match、Trend、Bias、Bias % 同屏显示，但仍按当前参数惰性生成，不会同时展开 50 个参数的全部派生表。
+- Match 始终显示线性拟合，不再提供重复的开关。所有参数卡片按纵向顺序排列，卡片内的 Match、Trend、Bias、Bias % 同时显示；KLA/NOVA 的单片图也跟随对应参数。分析层仍按需生成每个参数的派生数据，界面只保留经过极值采样的绘图数组，不复制 50 份完整结果表。
 
 **Save WKB** 保存 Reference、Raw Data、参数映射、Bias 显示选择和分析设置；旧 WKB 中已有的 Preview/Final FullMap 数据仍会保留。WKB 是 SQLite-backed 的主工作文件，可以在多个独立窗口中重新打开比较；它不依赖 Excel，也不会执行不安全的 pickle。**Export Excel** 是确认结果后的可选输出，包含 Summary、Reference、Raw Data、Preview/Final 结果，以及存在时的 FullMap 工作表。**Save images** 会把当前选择显示的每个参数图分别保存为 PNG。
 

@@ -12,7 +12,7 @@
 - Export a customer-facing result → `MatchingWindowTests.test_exports_excel_and_separate_plot_images_after_analysis`
 - Reference-first state → `MatchingWindowTests.test_reference_is_loaded_before_raw_data_and_enables_analysis`
 - Editable Reference/Raw spreadsheet grids → `MatchingWindowTests.test_reference_and_raw_inputs_are_editable_spreadsheet_grids`
-- Single-page Card review with both Bias views → `MatchingWindowTests.test_analysis_results_share_the_scrollable_setup_workspace` and `MatchWorkbookTests.test_wkb_round_trip_preserves_source_tables_and_settings`
+- All-parameter vertical Card review with unclipped 2 × 2 plots and both Bias views → `MatchingWindowTests.test_analysis_results_share_the_scrollable_setup_workspace` and `MatchWorkbookTests.test_wkb_round_trip_preserves_source_tables_and_settings`
 - Preview/Final top mode tabs and their contextual map action → `MatchingWindowTests.test_analysis_results_share_the_scrollable_setup_workspace`
 - Raw Data paste auto-runs after the first manual analysis → `MatchingWindowTests.test_raw_table_paste_auto_runs_after_first_manual_run`
 - Options invalidate stale results → `MatchingWindowTests.test_changing_analysis_options_invalidates_the_displayed_result`

@@ -35,7 +35,9 @@ Feature: Build a card matching workbook
       And both absolute and percentage bias are selected
       When the engineer runs a Preview match
       Then each Card result is shown beside its parameter mapping
-      And Match, Trend, absolute bias, and percentage bias are visible together
+      And DP and EW each have a separate plot card in vertical order
+      And Match, Trend, absolute bias, and percentage bias use an unclipped 2 by 2 grid
+      And no parameter selector is required
 
     Scenario: Reopen both selected bias views
       Given a completed matching workbook with both bias views selected

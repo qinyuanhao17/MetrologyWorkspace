@@ -124,7 +124,6 @@ class MatchingWindow(QMainWindow):
         self.preview_model = DataFrameModel(parent=self)
         self.final_model = DataFrameModel(parent=self)
         self.summary_model = DataFrameModel(parent=self)
-        self.wafer_summary_model = DataFrameModel(parent=self)
         self._build_ui()
         self.reference_model.changed.connect(
             lambda: self._input_sheet_changed("reference")
@@ -327,7 +326,6 @@ class MatchingWindow(QMainWindow):
         layout.addWidget(self.setup_scroll, 1)
         self.absolute_bias.toggled.connect(self._bias_view_changed)
         self.percent_bias.toggled.connect(self._bias_view_changed)
-        self._update_bias_plot_visibility()
         return page
 
     def _table_card(self, title, subtitle, model):
@@ -363,66 +361,25 @@ class MatchingWindow(QMainWindow):
         panel = QFrame(objectName="panel")
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(16, 14, 16, 12)
-        layout.setSpacing(10)
+        layout.setSpacing(14)
         controls = QHBoxLayout()
-        controls.addWidget(_label("Parameter", "sectionTitle"))
-        self.parameter_picker = QComboBox()
-        self.parameter_picker.currentTextChanged.connect(self._draw_parameter)
-        controls.addWidget(self.parameter_picker)
+        controls.addWidget(_label("All parameter plots", "panelTitle"))
         controls.addStretch()
         self.result_status = _label("Run an analysis to see results.", "hint")
         controls.addWidget(self.result_status)
         layout.addLayout(controls)
 
-        self.primary_plot_splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.primary_plot_splitter.setChildrenCollapsible(False)
-        self.primary_plot_splitter.setHandleWidth(8)
-        self.match_plot = self._plot_widget("Raw Data", "Reference")
-        self.trend_plot = self._plot_widget("Row", "Value")
-        self.bias_plot = self._plot_widget("Row", "Bias")
-        self.bias_percent_plot = self._plot_widget("Row", "Bias %")
-        for plot in (
-            self.match_plot, self.trend_plot, self.bias_plot, self.bias_percent_plot
-        ):
-            plot.setMinimumWidth(220)
-            self.primary_plot_splitter.addWidget(plot)
-        self.primary_plot_splitter.setSizes([420, 420, 420, 420])
-        self.primary_plot_splitter.setMinimumWidth(920)
-        self.primary_plot_splitter.setMinimumHeight(390)
-        self.plot_scroll = QScrollArea()
-        self.plot_scroll.setObjectName("matchingPlotScroll")
-        self.plot_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.plot_scroll.setWidgetResizable(True)
-        self.plot_scroll.setSizePolicy(
-            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding
+        self.plot_groups_widget = QWidget()
+        self.plot_groups_layout = QVBoxLayout(self.plot_groups_widget)
+        self.plot_groups_layout.setContentsMargins(0, 0, 0, 0)
+        self.plot_groups_layout.setSpacing(16)
+        self.plot_groups = {}
+        self.empty_plots_hint = _label(
+            "Run an analysis to show every mapped parameter below.", "hint"
         )
-        self.plot_scroll.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAsNeeded
-        )
-        self.plot_scroll.setVerticalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
-        self.plot_scroll.setWidget(self.primary_plot_splitter)
-        self.plot_scroll.setMinimumHeight(420)
-        layout.addWidget(self.plot_scroll, 1)
-
-        self.single_wafer_panel = QFrame(objectName="sheetCard")
-        wafer_layout = QVBoxLayout(self.single_wafer_panel)
-        wafer_layout.setContentsMargins(12, 10, 12, 10)
-        wafer_layout.addWidget(_label("Single-wafer metrics", "panelTitle"))
-        self.wafer_summary_view = QTableView()
-        self.wafer_summary_view.setModel(self.wafer_summary_model)
-        self.wafer_summary_view.setMaximumHeight(190)
-        self.wafer_summary_view.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        wafer_layout.addWidget(self.wafer_summary_view)
-        wafer_plots = QSplitter(Qt.Orientation.Horizontal)
-        self.wafer_r2_plot = self._plot_widget("Wafer", "R²")
-        self.wafer_slope_plot = self._plot_widget("Wafer", "Slope")
-        wafer_plots.addWidget(self.wafer_r2_plot)
-        wafer_plots.addWidget(self.wafer_slope_plot)
-        wafer_layout.addWidget(wafer_plots, 1)
-        layout.addWidget(self.single_wafer_panel)
-        self.single_wafer_panel.hide()
+        self.plot_groups_layout.addWidget(self.empty_plots_hint)
+        layout.addWidget(self.plot_groups_widget)
+        layout.addStretch()
         panel.setMinimumHeight(520)
         return panel
 
@@ -652,7 +609,7 @@ class MatchingWindow(QMainWindow):
             views.append("percent")
         return tuple(views)
 
-    def _bias_view_changed(self, checked):
+    def _bias_view_changed(self, _checked):
         if not self._selected_bias_views():
             checkbox = self.sender()
             checkbox.blockSignals(True)
@@ -661,13 +618,8 @@ class MatchingWindow(QMainWindow):
         views = self._selected_bias_views()
         if self._primary_bias_mode not in views:
             self._primary_bias_mode = views[0]
-        self._update_bias_plot_visibility()
         if self.result is not None:
-            self._draw_parameter()
-
-    def _update_bias_plot_visibility(self):
-        self.bias_plot.setVisible(self.absolute_bias.isChecked())
-        self.bias_percent_plot.setVisible(self.percent_bias.isChecked())
+            self._draw_all_parameters()
 
     def _clear_mapping_results(self):
         self.mapping_table.blockSignals(True)
@@ -705,6 +657,21 @@ class MatchingWindow(QMainWindow):
                 item.setText(text)
         self.mapping_table.blockSignals(False)
 
+    def _clear_plot_groups(self):
+        while self.plot_groups_layout.count():
+            item = self.plot_groups_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self.plot_groups.clear()
+        self.results_panel.setMinimumHeight(520)
+        self.setup_splitter.setMinimumHeight(1120)
+
+    def _show_empty_plot_hint(self, text):
+        self._clear_plot_groups()
+        self.empty_plots_hint = _label(text, "hint")
+        self.plot_groups_layout.addWidget(self.empty_plots_hint)
+
     def _invalidate_analysis(self, *_):
         if self.result is None and self.workbook is None:
             self._update_state()
@@ -712,11 +679,7 @@ class MatchingWindow(QMainWindow):
         self.result = None
         self.workbook = None
         self.summary_model.set_frame(pd.DataFrame())
-        self.wafer_summary_model.set_frame(pd.DataFrame())
-        self.parameter_picker.clear()
-        for plot in (self.match_plot, self.trend_plot, self.bias_plot,
-                     self.bias_percent_plot, self.wafer_r2_plot, self.wafer_slope_plot):
-            plot.clear()
+        self._show_empty_plot_hint("Settings changed. Run the analysis again.")
         self._clear_mapping_results()
         self.result_status.setText("Settings changed. Run the analysis again.")
         self._update_state()
@@ -808,16 +771,12 @@ class MatchingWindow(QMainWindow):
         self.result = self.workbook.analyze()
         self.summary_model.set_frame(self.result.summary)
         self._show_mapping_results()
-        self.parameter_picker.blockSignals(True)
-        self.parameter_picker.clear()
-        self.parameter_picker.addItems(list(self.result.parameter_names))
-        self.parameter_picker.blockSignals(False)
         self._result_descriptor = (
             f"{self.workbook.match_type} · {self.workbook.result_mode.title()} · "
             f"{len(self.result.parameter_names)} parameters"
         )
         self.result_status.setText(self._result_descriptor)
-        self._draw_parameter()
+        self._draw_all_parameters()
         QTimer.singleShot(
             0, lambda: self.setup_scroll.ensureWidgetVisible(self.results_panel, 0, 24)
         )
@@ -831,10 +790,106 @@ class MatchingWindow(QMainWindow):
         except Exception as error:
             QMessageBox.warning(self, "Cannot run analysis", str(error))
 
-    def _draw_parameter(self, *_):
-        if self.result is None or not self.parameter_picker.currentText():
+    def _draw_all_parameters(self):
+        self._clear_plot_groups()
+        if self.result is None:
+            self._show_empty_plot_hint("Run an analysis to see results.")
             return
-        parameter = self.parameter_picker.currentText()
+        for parameter in self.result.parameter_names:
+            group = self._create_plot_group(parameter)
+            self.plot_groups[parameter] = group
+            self.plot_groups_layout.addWidget(group["card"])
+            self._draw_parameter_group(parameter, group)
+        self._resize_results_for_plot_groups()
+        self.result_status.setText(self._result_descriptor)
+
+    def _create_plot_group(self, parameter):
+        card = QFrame(objectName="sheetCard")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(14, 12, 14, 14)
+        card_layout.setSpacing(12)
+
+        heading = QHBoxLayout()
+        heading.addWidget(_label(parameter, "panelTitle"))
+        heading.addStretch()
+        note = _label("", "hint")
+        heading.addWidget(note)
+        card_layout.addLayout(heading)
+
+        plot_container = QWidget()
+        plot_grid = QGridLayout(plot_container)
+        plot_grid.setContentsMargins(0, 0, 0, 0)
+        plot_grid.setHorizontalSpacing(14)
+        plot_grid.setVerticalSpacing(16)
+        specs = [
+            ("match", "Raw Data", "Reference"),
+            ("trend", "Row", "Value"),
+        ]
+        if self.absolute_bias.isChecked():
+            specs.append(("bias", "Row", "Bias"))
+        if self.percent_bias.isChecked():
+            specs.append(("bias-percent", "Row", "Bias %"))
+        plots = {}
+        for index, (name, bottom, left) in enumerate(specs):
+            plot = self._plot_widget(bottom, left)
+            plot.setMinimumSize(360, 300)
+            plot.setSizePolicy(
+                QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding
+            )
+            plot_grid.addWidget(plot, index // 2, index % 2)
+            plots[name] = plot
+        plot_rows = (len(plots) + 1) // 2
+        primary_height = plot_rows * 300 + max(0, plot_rows - 1) * 16
+        plot_container.setMinimumHeight(primary_height)
+        card_layout.addWidget(plot_container)
+
+        wafer_panel = QFrame(objectName="panel")
+        wafer_layout = QVBoxLayout(wafer_panel)
+        wafer_layout.setContentsMargins(12, 10, 12, 12)
+        wafer_layout.setSpacing(10)
+        wafer_layout.addWidget(_label("Single-wafer metrics", "panelTitle"))
+        wafer_model = DataFrameModel(parent=card)
+        wafer_view = QTableView()
+        wafer_view.setModel(wafer_model)
+        wafer_view.setAlternatingRowColors(True)
+        wafer_view.setMaximumHeight(180)
+        wafer_view.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Stretch
+        )
+        wafer_layout.addWidget(wafer_view)
+        wafer_plots = QWidget()
+        wafer_plot_layout = QGridLayout(wafer_plots)
+        wafer_plot_layout.setContentsMargins(0, 0, 0, 0)
+        wafer_plot_layout.setHorizontalSpacing(14)
+        wafer_r2 = self._plot_widget("Wafer", "R²")
+        wafer_slope = self._plot_widget("Wafer", "Slope")
+        for column, plot in enumerate((wafer_r2, wafer_slope)):
+            plot.setMinimumSize(360, 280)
+            plot.setSizePolicy(
+                QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding
+            )
+            wafer_plot_layout.addWidget(plot, 0, column)
+        wafer_plots.setMinimumHeight(280)
+        wafer_layout.addWidget(wafer_plots)
+        wafer_panel.hide()
+        card_layout.addWidget(wafer_panel)
+
+        card.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        group = {
+            "card": card,
+            "note": note,
+            "plots": plots,
+            "primary_height": primary_height,
+            "wafer_panel": wafer_panel,
+            "wafer_model": wafer_model,
+            "wafer_r2": wafer_r2,
+            "wafer_slope": wafer_slope,
+        }
+        return group
+
+    def _draw_parameter_group(self, parameter, group):
         data = self.result.series(parameter)
         card = self.result.card(parameter)
         reference_all = data["Reference"].to_numpy(float)
@@ -855,80 +910,88 @@ class MatchingWindow(QMainWindow):
         display_note = ""
         if len(indices) < len(data):
             display_note = f" · display {len(indices):,}/{len(data):,}; calculations use all rows"
-        descriptor = getattr(self, "_result_descriptor", "")
-        self.result_status.setText(descriptor + display_note)
+        group["note"].setText(
+            f"{len(data):,} rows" if not display_note else display_note.removeprefix(" · ")
+        )
+        plots = group["plots"]
 
-        self.match_plot.clear()
-        self.match_plot.addLegend(offset=(12, 12))
+        match_plot = plots["match"]
+        match_plot.addLegend(offset=(12, 12))
         valid = np.isfinite(raw) & np.isfinite(reference)
-        self.match_plot.plot(raw[valid], reference[valid], pen=None, symbol="o", symbolSize=5,
-                             symbolBrush="#4f8bd6", symbolPen=None, name="Rows")
+        match_plot.plot(raw[valid], reference[valid], pen=None, symbol="o", symbolSize=5,
+                        symbolBrush="#4f8bd6", symbolPen=None, name="Rows")
         if valid.any():
             low, high = float(np.min(raw[valid])), float(np.max(raw[valid]))
             x_line = np.array([low, high])
-            self.match_plot.plot(x_line, card.slope * x_line + card.intercept,
-                                 pen=pg.mkPen("#e09f3e", width=2), name="Linear fit")
-        self.match_plot.setTitle(
-            f"Match · {parameter} · R² {card.r_squared:.6g}{display_note}"
-        )
+            match_plot.plot(x_line, card.slope * x_line + card.intercept,
+                            pen=pg.mkPen("#e09f3e", width=2), name="Linear fit")
+        match_plot.setTitle(f"Match · R² {card.r_squared:.6g}")
 
-        self.trend_plot.clear()
-        self.trend_plot.addLegend(offset=(12, 12))
-        self.trend_plot.plot(row, reference, pen=pg.mkPen("#8a8f98", width=1.5, style=Qt.PenStyle.DashLine), name="Reference")
-        self.trend_plot.plot(row, evaluated, pen=pg.mkPen("#4f8bd6", width=1.5), name=self.workbook.result_mode.title())
-        self.trend_plot.setTitle(f"Trend · {parameter}{display_note}")
+        trend_plot = plots["trend"]
+        trend_plot.addLegend(offset=(12, 12))
+        trend_plot.plot(row, reference, pen=pg.mkPen("#8a8f98", width=1.5, style=Qt.PenStyle.DashLine), name="Reference")
+        trend_plot.plot(row, evaluated, pen=pg.mkPen("#4f8bd6", width=1.5), name=self.workbook.result_mode.title())
+        trend_plot.setTitle("Trend")
 
-        self.bias_plot.clear()
-        self.bias_plot.plot(row, bias, pen=pg.mkPen("#4f8bd6", width=1.3))
-        self.bias_plot.addLine(y=0, pen=pg.mkPen("#8a8f98", width=1, style=Qt.PenStyle.DashLine))
-        self.bias_plot.setTitle(f"Bias · {parameter}{display_note}")
+        bias_plot = plots.get("bias")
+        if bias_plot is not None:
+            bias_plot.plot(row, bias, pen=pg.mkPen("#4f8bd6", width=1.3))
+            bias_plot.addLine(y=0, pen=pg.mkPen("#8a8f98", width=1, style=Qt.PenStyle.DashLine))
+            bias_plot.setTitle("Bias")
 
-        self.bias_percent_plot.clear()
-        self.bias_percent_plot.plot(
-            row, bias_percent, pen=pg.mkPen("#4f8bd6", width=1.3)
-        )
-        self.bias_percent_plot.addLine(
-            y=0, pen=pg.mkPen("#8a8f98", width=1, style=Qt.PenStyle.DashLine)
-        )
-        self.bias_percent_plot.setTitle(f"Bias % · {parameter}{display_note}")
-        self._update_bias_plot_visibility()
-        self._draw_wafer_metrics(parameter)
+        bias_percent_plot = plots.get("bias-percent")
+        if bias_percent_plot is not None:
+            bias_percent_plot.plot(
+                row, bias_percent, pen=pg.mkPen("#4f8bd6", width=1.3)
+            )
+            bias_percent_plot.addLine(
+                y=0, pen=pg.mkPen("#8a8f98", width=1, style=Qt.PenStyle.DashLine)
+            )
+            bias_percent_plot.setTitle("Bias %")
+        self._draw_wafer_metrics(parameter, group)
 
-    def _draw_wafer_metrics(self, parameter):
+    def _draw_wafer_metrics(self, parameter, group):
         enabled = self.workbook.match_type in {"NOVA", "KLA"}
         if not enabled:
-            self.wafer_summary_model.set_frame(pd.DataFrame())
-            self.wafer_r2_plot.clear()
-            self.wafer_slope_plot.clear()
-            self.single_wafer_panel.hide()
+            group["wafer_panel"].hide()
             return
         try:
             summary = self.result.wafer_summary(parameter)
         except ValueError:
             summary = pd.DataFrame()
             enabled = False
-        self.single_wafer_panel.setVisible(enabled)
-        self.wafer_summary_model.set_frame(summary)
-        self.wafer_r2_plot.clear()
-        self.wafer_slope_plot.clear()
+        group["wafer_panel"].setVisible(enabled)
+        group["wafer_model"].set_frame(summary)
         if summary.empty:
             return
         x = np.arange(len(summary), dtype=float)
         labels = [(int(index), str(wafer)) for index, wafer in enumerate(summary["Wafer"])]
-        self.wafer_r2_plot.getAxis("bottom").setTicks([labels])
-        self.wafer_slope_plot.getAxis("bottom").setTicks([labels])
+        wafer_r2 = group["wafer_r2"]
+        wafer_slope = group["wafer_slope"]
+        wafer_r2.getAxis("bottom").setTicks([labels])
+        wafer_slope.getAxis("bottom").setTicks([labels])
         r_squared = summary["R²"].to_numpy(float)
         slope = summary["Slope"].to_numpy(float)
         valid_r2 = np.isfinite(r_squared)
         valid_slope = np.isfinite(slope)
         if valid_r2.any():
-            self.wafer_r2_plot.plot(x[valid_r2], r_squared[valid_r2], pen=None,
-                                    symbol="o", symbolSize=8, symbolBrush="#4f8bd6")
+            wafer_r2.plot(x[valid_r2], r_squared[valid_r2], pen=None,
+                          symbol="o", symbolSize=8, symbolBrush="#4f8bd6")
         if valid_slope.any():
-            self.wafer_slope_plot.plot(x[valid_slope], slope[valid_slope], pen=None,
-                                       symbol="o", symbolSize=8, symbolBrush="#e09f3e")
-        self.wafer_r2_plot.setTitle(f"{parameter} · single-wafer R²")
-        self.wafer_slope_plot.setTitle(f"{parameter} · single-wafer slope")
+            wafer_slope.plot(x[valid_slope], slope[valid_slope], pen=None,
+                             symbol="o", symbolSize=8, symbolBrush="#e09f3e")
+        wafer_r2.setTitle("Single-wafer R²")
+        wafer_slope.setTitle("Single-wafer slope")
+
+    def _resize_results_for_plot_groups(self):
+        total = 64
+        for group in self.plot_groups.values():
+            wafer_height = 500 if not group["wafer_panel"].isHidden() else 0
+            card_height = 54 + group["primary_height"] + wafer_height
+            group["card"].setMinimumHeight(card_height)
+            total += card_height + self.plot_groups_layout.spacing()
+        self.results_panel.setMinimumHeight(max(520, total))
+        self.setup_splitter.setMinimumHeight(max(1120, 650 + total))
 
     def export_excel(self, path):
         """Export an optional human-readable workbook; WKB remains the primary store."""
@@ -976,26 +1039,18 @@ class MatchingWindow(QMainWindow):
             self.run_analysis()
         else:
             self.workbook = self.current_workbook()
+            if tuple(self.plot_groups) != tuple(self.result.parameter_names):
+                self._draw_all_parameters()
         target = Path(folder)
         target.mkdir(parents=True, exist_ok=True)
-        original = self.parameter_picker.currentText()
         saved = []
-        plot_specs = [
-            ("match", self.match_plot),
-            ("trend", self.trend_plot),
-        ]
-        if self.absolute_bias.isChecked():
-            plot_specs.append(("bias", self.bias_plot))
-        if self.percent_bias.isChecked():
-            plot_specs.append(("bias-percent", self.bias_percent_plot))
-        if self.workbook.match_type in {"NOVA", "KLA"}:
-            plot_specs.extend([
-                ("single-wafer-r2", self.wafer_r2_plot),
-                ("single-wafer-slope", self.wafer_slope_plot),
-            ])
-        for parameter in self.result.parameter_names:
-            self.parameter_picker.setCurrentText(parameter)
-            QApplication.processEvents()
+        for parameter, group in self.plot_groups.items():
+            plot_specs = list(group["plots"].items())
+            if not group["wafer_panel"].isHidden():
+                plot_specs.extend([
+                    ("single-wafer-r2", group["wafer_r2"]),
+                    ("single-wafer-slope", group["wafer_slope"]),
+                ])
             safe_parameter = _safe_filename(parameter)
             for suffix, widget in plot_specs:
                 output = target / f"{safe_parameter}-{suffix}.png"
@@ -1003,8 +1058,6 @@ class MatchingWindow(QMainWindow):
                 exporter.parameters()["width"] = 1600
                 exporter.export(str(output))
                 saved.append(output)
-        if original:
-            self.parameter_picker.setCurrentText(original)
         self.result_status.setText(f"Saved {len(saved)} plot images")
         return tuple(saved)
 
@@ -1058,7 +1111,6 @@ class MatchingWindow(QMainWindow):
         self.percent_bias.setChecked("percent" in workbook.bias_views)
         self.absolute_bias.blockSignals(False)
         self.percent_bias.blockSignals(False)
-        self._update_bias_plot_visibility()
         self._populate_mappings(workbook.mappings)
         self._update_state()
         self.workbook = workbook
@@ -1070,11 +1122,7 @@ class MatchingWindow(QMainWindow):
         self.result_status.setText(self._result_descriptor)
         self.summary_model.set_frame(self.result.summary)
         self._show_mapping_results()
-        self.parameter_picker.blockSignals(True)
-        self.parameter_picker.clear()
-        self.parameter_picker.addItems(list(self.result.parameter_names))
-        self.parameter_picker.blockSignals(False)
-        self._draw_parameter()
+        self._draw_all_parameters()
         QTimer.singleShot(
             0, lambda: self.setup_scroll.ensureWidgetVisible(self.results_panel, 0, 24)
         )

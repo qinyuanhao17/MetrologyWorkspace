@@ -103,9 +103,9 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(
             self.window.setup_splitter.orientation(), Qt.Orientation.Vertical
         )
-        self.assertTrue(self.window.setup_page.isAncestorOf(self.window.primary_plot_splitter))
-        self.assertEqual(self.window.primary_plot_splitter.count(), 4)
-        self.assertIsInstance(self.window.plot_scroll, QScrollArea)
+        self.assertFalse(hasattr(self.window, "parameter_picker"))
+        self.assertFalse(hasattr(self.window, "primary_plot_splitter"))
+        self.assertFalse(hasattr(self.window, "plot_scroll"))
         self.assertFalse(hasattr(self.window, "result_plots"))
         self.assertFalse(hasattr(self.window, "linear_fit"))
         self.assertTrue(self.window.absolute_bias.isChecked())
@@ -129,14 +129,38 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(self.window.mapping_table.item(0, 7).text(), "3")
         self.assertEqual(self.window.mapping_table.item(0, 8).text(), "KLA")
         self.assertEqual(self.window.mapping_table.item(0, 9).text(), "Preview")
+        self.assertEqual(tuple(self.window.plot_groups), ("CD_Bot", "SPA"))
+        cd_plots = self.window.plot_groups["CD_Bot"]["plots"]
+        spa_plots = self.window.plot_groups["SPA"]["plots"]
+        self.assertEqual(
+            tuple(cd_plots), ("match", "trend", "bias", "bias-percent")
+        )
         self.assertIn(
             "Linear fit",
-            [item.name() for item in self.window.match_plot.listDataItems()],
+            [item.name() for item in cd_plots["match"].listDataItems()],
         )
-        self.assertFalse(self.window.bias_plot.isHidden())
-        self.assertFalse(self.window.bias_percent_plot.isHidden())
-        self.assertTrue(self.window.bias_plot.listDataItems())
-        self.assertTrue(self.window.bias_percent_plot.listDataItems())
+        self.assertTrue(all(plot.minimumHeight() >= 280 for plot in cd_plots.values()))
+        self.assertTrue(cd_plots["bias"].listDataItems())
+        self.assertTrue(cd_plots["bias-percent"].listDataItems())
+        self.assertTrue(spa_plots["match"].listDataItems())
+
+        self.window.resize(1600, 900)
+        self.window.show()
+        APP.processEvents()
+        self.assertGreater(self.window.setup_scroll.verticalScrollBar().maximum(), 0)
+        first_card = self.window.plot_groups["CD_Bot"]["card"]
+        second_card = self.window.plot_groups["SPA"]["card"]
+        self.assertLessEqual(first_card.geometry().bottom(), second_card.geometry().top())
+        self.assertTrue(
+            cd_plots["match"].geometry().intersected(
+                cd_plots["trend"].geometry()
+            ).isEmpty()
+        )
+        self.assertTrue(
+            cd_plots["match"].geometry().intersected(
+                cd_plots["bias"].geometry()
+            ).isEmpty()
+        )
 
         self.window.mode_tabs.setCurrentIndex(1)
         self.assertEqual(self.window.result_mode.currentText(), "Final")
@@ -265,11 +289,13 @@ class MatchingWindowTests(unittest.TestCase):
             "CD_Bot": [4.0, 5.0],
             "SPA": [5.0, 6.0],
         }), "Preview clipboard")
-        self.window.parameter_picker.setCurrentText("SPA")
 
         self.assertIsNotNone(self.window.workbook)
         self.assertIsNotNone(self.window.result)
-        self.assertEqual(self.window.parameter_picker.currentText(), "SPA")
+        self.assertIn("SPA", self.window.plot_groups)
+        self.assertTrue(
+            self.window.plot_groups["SPA"]["plots"]["trend"].listDataItems()
+        )
 
     def test_replacing_reference_requires_fresh_raw_data(self):
         self.window.set_reference_frame(self.reference(), "First Reference")
@@ -310,12 +336,13 @@ class MatchingWindowTests(unittest.TestCase):
         self.window.match_type.setCurrentText("NOVA")
         self.window.run_analysis()
 
-        self.assertFalse(self.window.single_wafer_panel.isHidden())
-        self.assertEqual(self.window.wafer_summary_model.rowCount(), 2)
+        group = self.window.plot_groups["CD"]
+        self.assertFalse(group["wafer_panel"].isHidden())
+        self.assertEqual(group["wafer_model"].rowCount(), 2)
 
         self.window.match_type.setCurrentText("TEM")
         self.window.run_analysis()
-        self.assertTrue(self.window.single_wafer_panel.isHidden())
+        self.assertTrue(self.window.plot_groups["CD"]["wafer_panel"].isHidden())
     def test_exports_excel_and_separate_plot_images_after_analysis(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")

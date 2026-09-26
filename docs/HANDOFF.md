@@ -31,14 +31,14 @@ v2 在独立的 `v2` 分支开发，`VERSION` 为 `2.0.0-dev`。v1.2.0 的提交
 - Bias 与 Bias % 改为至少选择一个的复选框；两者可同时显示，选择状态写入 WKB，旧文件按原 `bias_mode` 恢复。Reference 为 0 的百分比为 NaN。
 - KLA/NOVA 按 Wafer ID 输出单片 SLOPE、INTERCEPT 和 R²；TEM 隐藏单片视图。
 - Match Workbook 使用可滚动的单页工作流：输入、Parameter mapping 和结果区位于可拖动的纵向 splitter 中；Slope、Intercept、R² 等结果合并回 mapping 行。窗口标题与模块入口统一为简洁的 `Match Workbook`。
-- Match、Trend、Bias、Bias % 不再使用 tab，而是按勾选状态同屏显示；Match 始终绘制线性拟合。KLA/NOVA 的单片 R²/SLOPE 独立显示在下一行。
+- 结果区不再使用 Parameter 下拉框。所有映射参数按纵向顺序生成独立卡片；卡片内 Match、Trend、Bias、Bias % 使用 2 × 2 图格，固定最小高度并缩短图标题，避免标题、坐标轴和相邻图互相遮挡。Match 始终绘制线性拟合，KLA/NOVA 的单片 R²/SLOPE 放在同一参数卡片下方。
 - Preview/Final 是窗口顶部的模式 tab，替代 Result 下拉框。首次手动 Run analysis 成功后，在 Raw Data 的 A1 粘贴替换表会自动重新分析。
 - `.wkb` 使用 SQLite schema 2，原子保存 Reference、匹配 Raw Data、可选 Preview/Final FullMap、映射与设置；schema 1 文件仍可打开。Excel 和逐图 PNG 只作为可选导出。
 - 工具已注册到主窗口，可同时打开多个 Match Workbook 进行对照。
 - 独立 FullMap 输入页已从 UI 移除。Preview 将 Card 应用到当前 Raw Data；Final 直接使用当前已加 Card 的 Raw Data。旧 WKB 里已有的独立 stage 数据仍保持兼容。
 - 当前模式的 Open Preview/Final Wafer Map / Radius 按钮位于顶部 tab 右侧，通过 `MainWindow.set_table` 复用现有绘图工作区，没有复制绘图实现。
 
-规模目标是 100,000 行、50 参数。当前开发机随机浮点基准：全部 Card 0.16 秒，单参数派生结果 0.004 秒，WKB 保存 1.05 秒、载入 2.43 秒，文件 97.9 MB。分析结果按参数惰性展开，避免常驻 50 份完整派生表。
+规模目标是 100,000 行、50 参数。当前开发机随机浮点基准：全部 Card 0.16 秒，单参数派生结果 0.004 秒，WKB 保存 1.05 秒、载入 2.43 秒，文件 97.9 MB。分析结果仍按参数惰性展开；UI 为所有参数建立图卡，但每张图只保留极值采样后的绘图数组，不常驻 50 份完整派生表。
 
 后续明确保留的故事：按 Wafer ID、Slot ID、PAD Name 和坐标自动对齐尚未整理的 Reference，以及直接读取文件而不只依赖复制粘贴。当前不要把这些未完成故事混入行序匹配的 interface。
 ## 最近完成的修改
