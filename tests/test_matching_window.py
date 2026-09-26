@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import QApplication
 
 from metrology_app.matching_window import MatchingWindow
 from metrology_app.module_registry import create_default_registry
+from metrology_app.sheet import SheetModel, SheetView
 
 
 APP = QApplication.instance() or QApplication([])
@@ -40,6 +41,34 @@ class MatchingWindowTests(unittest.TestCase):
             "CD_Bot": [1.0, 2.0, 3.0],
             "SPA": [2.0, 3.0, 4.0],
         })
+
+    def test_reference_and_raw_inputs_are_editable_spreadsheet_grids(self):
+        self.assertIsInstance(self.window.reference_model, SheetModel)
+        self.assertIsInstance(self.window.raw_model, SheetModel)
+        self.assertIsInstance(self.window.reference_view, SheetView)
+        self.assertIsInstance(self.window.raw_view, SheetView)
+        self.assertGreaterEqual(self.window.reference_model.rowCount(), 100)
+        self.assertGreaterEqual(self.window.reference_model.columnCount(), 26)
+        self.assertGreaterEqual(self.window.raw_model.rowCount(), 100)
+        self.assertGreaterEqual(self.window.raw_model.columnCount(), 26)
+
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.reference_model.setData(
+            self.window.reference_model.index(1, 1),
+            "14.5",
+        )
+        self.window.raw_model.setData(
+            self.window.raw_model.index(1, 1),
+            "1.5",
+        )
+
+        self.assertEqual(self.window.reference_frame.iloc[0, 1], "14.5")
+        self.assertEqual(self.window.raw_frame.iloc[0, 1], "1.5")
+        self.assertIsNone(self.window.result)
+
+        self.window.raw_model.undo.undo()
+        self.assertEqual(self.window.raw_frame.iloc[0, 1], "1.0")
 
     def test_reference_is_loaded_before_raw_data_and_enables_analysis(self):
         self.assertFalse(self.window.raw_paste_button.isEnabled())
@@ -175,7 +204,8 @@ class MatchingWindowTests(unittest.TestCase):
         self.window.set_reference_frame(replacement, "Replacement Reference")
 
         self.assertTrue(self.window.raw_frame.empty)
-        self.assertEqual(self.window.raw_model.rowCount(), 0)
+        self.assertFalse(self.window.raw_model.cells)
+        self.assertGreaterEqual(self.window.raw_model.rowCount(), 100)
         self.assertFalse(self.window.analyze_button.isEnabled())
         self.assertIn("Paste the row-aligned Raw Data", self.window.status.text())
 

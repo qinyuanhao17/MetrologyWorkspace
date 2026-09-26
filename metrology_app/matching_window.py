@@ -37,6 +37,7 @@ from .appearance import fit_window_to_screen
 from .data import inspect_table
 from .matching import MAX_ROWS, MatchWorkbook, ParameterMapping, extrema_sample_indices
 from .settings import apply_theme
+from .sheet import SheetModel, SheetView
 
 
 PLOT_LIMIT = 20_000
@@ -109,15 +110,21 @@ class MatchingWindow(QMainWindow):
         self.final_frame = pd.DataFrame()
         self.workbook = None
         self.result = None
+        self._loading_input_sheets = False
+        self._input_sheet_errors = {"reference": "", "raw": ""}
         self._wafer_window_factory = wafer_window_factory or self._default_wafer_window_factory
         self._stage_windows = []
-        self.reference_model = DataFrameModel(parent=self)
-        self.raw_model = DataFrameModel(parent=self)
+        self.reference_model = SheetModel()
+        self.raw_model = SheetModel()
         self.preview_model = DataFrameModel(parent=self)
         self.final_model = DataFrameModel(parent=self)
         self.summary_model = DataFrameModel(parent=self)
         self.wafer_summary_model = DataFrameModel(parent=self)
         self._build_ui()
+        self.reference_model.changed.connect(
+            lambda: self._input_sheet_changed("reference")
+        )
+        self.raw_model.changed.connect(lambda: self._input_sheet_changed("raw"))
         self._install_shortcuts()
         self._update_state()
 
@@ -247,16 +254,24 @@ class MatchingWindow(QMainWindow):
         paste.clicked.connect(paste_handler)
         heading.addWidget(paste)
         layout.addLayout(heading)
-        view = QTableView()
-        view.setModel(model)
-        view.setAlternatingRowColors(True)
-        view.setWordWrap(False)
-        view.setHorizontalScrollMode(QTableView.ScrollMode.ScrollPerPixel)
-        view.setVerticalScrollMode(QTableView.ScrollMode.ScrollPerPixel)
-        view.horizontalHeader().setDefaultSectionSize(140)
+        if isinstance(model, SheetModel):
+            view = SheetView(model)
+        else:
+            view = QTableView()
+            view.setModel(model)
+            view.setAlternatingRowColors(True)
+            view.setWordWrap(False)
+            view.setHorizontalScrollMode(QTableView.ScrollMode.ScrollPerPixel)
+            view.setVerticalScrollMode(QTableView.ScrollMode.ScrollPerPixel)
+            view.horizontalHeader().setDefaultSectionSize(140)
         layout.addWidget(view, 1)
+        footer = QHBoxLayout()
         source = _label("No data", "hint")
-        layout.addWidget(source)
+        footer.addWidget(source)
+        footer.addStretch()
+        if isinstance(model, SheetModel):
+            footer.addWidget(_label("Row 1 = headers · Ctrl+V paste · Ctrl+Z undo", "hint"))
+        layout.addLayout(footer)
         return card, view, source, paste
 
     def _build_fullmap_page(self):
@@ -406,27 +421,86 @@ class MatchingWindow(QMainWindow):
     def set_reference_frame(self, frame, source="Reference"):
         self._validate_input_frame(frame, "Reference")
         self.reference_frame = frame.reset_index(drop=True)
-        self.reference_model.set_frame(self.reference_frame)
+        self._load_input_sheet(self.reference_model, self.reference_frame)
+        self._input_sheet_errors["reference"] = ""
         self.reference_source.setText(self._source_text(source, self.reference_frame))
         self.raw_frame = pd.DataFrame()
-        self.raw_model.set_frame(self.raw_frame)
+        self._load_input_sheet(self.raw_model, self.raw_frame)
+        self._input_sheet_errors["raw"] = ""
         self.raw_source.setText("No data")
         self._clear_stage_frames()
-        self.workbook = self.result = None
         self._populate_mappings()
-        self._update_state()
+        self._invalidate_analysis()
 
     def set_raw_frame(self, frame, source="Raw Data"):
         if self.reference_frame.empty:
             raise ValueError("Paste the Reference table before Raw Data.")
         self._validate_input_frame(frame, "Raw Data")
         self.raw_frame = frame.reset_index(drop=True)
-        self.raw_model.set_frame(self.raw_frame)
+        self._load_input_sheet(self.raw_model, self.raw_frame)
+        self._input_sheet_errors["raw"] = ""
         self.raw_source.setText(self._source_text(source, self.raw_frame))
         self._clear_stage_frames()
-        self.workbook = self.result = None
         self._populate_mappings()
-        self._update_state()
+        self._invalidate_analysis()
+
+    def _load_input_sheet(self, model, frame):
+        self._loading_input_sheets = True
+        try:
+            model.load(frame)
+        finally:
+            self._loading_input_sheets = False
+
+    def _input_sheet_changed(self, name):
+        """Synchronize an editable grid with the matching domain frames."""
+        if self._loading_input_sheets:
+            return
+        model = self.reference_model if name == "reference" else self.raw_model
+        title = "Reference" if name == "reference" else "Raw Data"
+        try:
+            frame = model.frame().reset_index(drop=True)
+            if not frame.empty:
+                self._validate_input_frame(frame, title)
+            error = ""
+        except ValueError as exc:
+            frame = pd.DataFrame()
+            error = str(exc)
+        self._input_sheet_errors[name] = error
+        if name == "reference":
+            self.reference_frame = frame
+            source = self.reference_source
+        else:
+            self.raw_frame = frame
+            source = self.raw_source
+        source.setText(
+            f"Fix table · {error}" if error
+            else ("No data" if frame.empty else self._source_text("Edited", frame))
+        )
+        selected = self._valid_selected_mappings()
+        self._populate_mappings(selected)
+        self._invalidate_analysis()
+
+    def _valid_selected_mappings(self):
+        """Return complete checked mappings without rejecting an in-progress edit."""
+        mappings = []
+        for row in range(self.mapping_table.rowCount()):
+            use = self.mapping_table.item(row, 0)
+            name = self.mapping_table.item(row, 1)
+            reference = self.mapping_table.item(row, 2)
+            picker = self.mapping_table.cellWidget(row, 3)
+            if (
+                use is not None
+                and use.checkState() == Qt.CheckState.Checked
+                and name is not None
+                and reference is not None
+                and picker is not None
+                and name.text().strip()
+                and picker.currentText()
+            ):
+                mappings.append(ParameterMapping(
+                    name.text().strip(), reference.text(), picker.currentText()
+                ))
+        return tuple(mappings)
 
     def _clear_stage_frames(self):
         self.preview_frame = pd.DataFrame()
@@ -540,6 +614,7 @@ class MatchingWindow(QMainWindow):
         has_reference = not self.reference_frame.empty
         has_raw = not self.raw_frame.empty
         self.raw_paste_button.setEnabled(has_reference)
+        self.raw_view.setEnabled(has_reference)
         self.preview_paste_button.setEnabled(has_raw)
         self.final_paste_button.setEnabled(has_raw)
         valid_rows = has_reference and has_raw and len(self.reference_frame) == len(self.raw_frame)
@@ -563,7 +638,10 @@ class MatchingWindow(QMainWindow):
         self.final_open_button.setEnabled(
             self.result is not None and not self.final_frame.empty
         )
-        if not has_reference:
+        input_error = self._input_sheet_errors["reference"] or self._input_sheet_errors["raw"]
+        if input_error:
+            message = input_error
+        elif not has_reference:
             message = "Paste a Reference table to begin."
         elif not has_raw:
             message = "Reference loaded. Paste the row-aligned Raw Data."
@@ -840,8 +918,9 @@ class MatchingWindow(QMainWindow):
         self.final_frame = (
             pd.DataFrame() if workbook.final_raw is None else workbook.final_raw
         )
-        self.reference_model.set_frame(self.reference_frame)
-        self.raw_model.set_frame(self.raw_frame)
+        self._load_input_sheet(self.reference_model, self.reference_frame)
+        self._load_input_sheet(self.raw_model, self.raw_frame)
+        self._input_sheet_errors = {"reference": "", "raw": ""}
         self.preview_model.set_frame(self.preview_frame)
         self.final_model.set_frame(self.final_frame)
         self.reference_source.setText(self._source_text(Path(path).name, self.reference_frame))

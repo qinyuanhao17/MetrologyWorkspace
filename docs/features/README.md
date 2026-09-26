@@ -11,6 +11,7 @@
 - Open Final FullMap without applying Card again → `MatchWorkbookTests.test_final_stage_uses_separate_already_carded_fullmap_without_reapplying_card` and `MatchingWindowTests.test_preview_and_final_fullmap_open_in_the_existing_wafer_workspace`
 - Export a customer-facing result → `MatchingWindowTests.test_exports_excel_and_separate_plot_images_after_analysis`
 - Reference-first state → `MatchingWindowTests.test_reference_is_loaded_before_raw_data_and_enables_analysis`
+- Editable Reference/Raw spreadsheet grids → `MatchingWindowTests.test_reference_and_raw_inputs_are_editable_spreadsheet_grids`
 - Options invalidate stale results → `MatchingWindowTests.test_changing_analysis_options_invalidates_the_displayed_result`
 
 场景描述保持业务语义，自动化测试通过 `MatchWorkbook` 和 `MatchingWindow` 的公开行为验证，不依赖 SQLite 表结构或 Qt 私有方法。

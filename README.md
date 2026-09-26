@@ -59,8 +59,8 @@ python -m PyInstaller --noconfirm --clean MetrologyWorkspace.spec
 
 该工具把日常的 Reference/Raw Data 匹配流程从手工 Excel 中独立出来。当前实现按以下顺序工作：
 
-1. 先粘贴已经整理好的 Reference 表。一个表可以同时包含多列参数，例如 `CD_Bot Reference`、`SPA Reference`。
-2. 再粘贴 Raw Data。当前版本按从上到下的行顺序对应，两张表必须具有相同的行数。
+1. 先在 Reference 网格粘贴已经整理好的表。一个表可以同时包含多列参数，例如 `CD_Bot Reference`、`SPA Reference`。
+2. 再在 Raw Data 网格粘贴原始数据。两个输入区与 Wafer Map / Correlation 的数据表操作一致：第 1 行是表头，可直接改单元格、区域粘贴，并用 `Ctrl+Z` 撤销。当前版本按从上到下的行顺序对应，两张表必须具有相同的行数。
 3. 软件会把 `<参数名> Reference` 自动匹配到 Raw Data 中同名参数。像 `TEM`、`PMISH` 这样没有 `Reference` 后缀的数值列也会出现在映射表中，但不会擅自自动选择；勾选需要的 Reference 列，再选择对应的 Raw Data 参数。Wafer ID、Die Seq 等元数据不会列为参数。一次最多选择 50 个参数，最多处理 100,000 行。
 4. 选择 KLA、NOVA 或 TEM，并运行 Preview 或 Final。
 5. 在 **3. FullMap** 中可粘贴 Preview FullMap 或 Final Raw Data，并直接打开现有的 Wafer Maps / Radius Plot 工作区。
