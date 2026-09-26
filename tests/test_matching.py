@@ -1,6 +1,8 @@
 """Card matching workflow tests through its public interface."""
 
+from contextlib import closing
 from pathlib import Path
+import sqlite3
 import tempfile
 import unittest
 
@@ -72,6 +74,49 @@ class MatchWorkbookTests(unittest.TestCase):
         np.testing.assert_allclose(series["Evaluated Value"], raw["CD"])
         np.testing.assert_allclose(series["Bias"], [1.0, -1.0, 1.0])
         self.assertNotEqual(result.summary.loc[0, "Slope"], 1.0)
+
+    def test_preview_stage_applies_the_match_card_to_separate_fullmap_rows(self):
+        preview_raw = pd.DataFrame({
+            "Wafer ID": ["FULL-01", "FULL-01", "FULL-02", "FULL-02"],
+            "X": [-10.0, 10.0, -10.0, 10.0],
+            "Y": [0.0, 0.0, 5.0, 5.0],
+            "CD_Bot": [4.0, 5.0, 6.0, 7.0],
+            "SPA": [5.0, 6.0, 7.0, 8.0],
+        })
+        workbook = MatchWorkbook(
+            reference=self.reference(),
+            raw=self.raw(),
+            mappings=MatchWorkbook.suggest_mappings(self.reference(), self.raw()),
+            match_type="TEM",
+            preview_raw=preview_raw,
+        )
+
+        stage = workbook.stage_frame("preview")
+
+        self.assertEqual(stage["Wafer ID"].tolist(), preview_raw["Wafer ID"].tolist())
+        self.assertEqual(stage["X"].tolist(), preview_raw["X"].tolist())
+        self.assertEqual(stage["Y"].tolist(), preview_raw["Y"].tolist())
+        np.testing.assert_allclose(stage["CD_Bot"], [42.0, 52.0, 62.0, 72.0])
+        np.testing.assert_allclose(stage["SPA"], [11.0, 13.0, 15.0, 17.0])
+
+    def test_final_stage_uses_separate_already_carded_fullmap_without_reapplying_card(self):
+        final_raw = pd.DataFrame({
+            "Wafer ID": ["FINAL-01", "FINAL-01"],
+            "X": [-2.0, 2.0],
+            "Y": [0.0, 0.0],
+            "CD_Bot": [101.5, 102.5],
+            "SPA": [8.25, 8.75],
+        })
+        workbook = MatchWorkbook(
+            reference=self.reference(),
+            raw=self.raw(),
+            mappings=MatchWorkbook.suggest_mappings(self.reference(), self.raw()),
+            final_raw=final_raw,
+        )
+
+        stage = workbook.stage_frame("final")
+
+        pd.testing.assert_frame_equal(stage, final_raw)
 
     def test_percentage_bias_is_nan_when_reference_is_zero(self):
         reference = pd.DataFrame({"CD Reference": [0.0, 10.0, 20.0]})
@@ -149,6 +194,16 @@ class MatchWorkbookTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "50 parameters"):
             MatchWorkbook(reference, raw, mappings)
     def test_wkb_round_trip_preserves_source_tables_and_settings(self):
+        preview_raw = pd.DataFrame({
+            "Wafer ID": ["P1", "P1"],
+            "CD_Bot": [4.0, 5.0],
+            "SPA": [5.0, 6.0],
+        })
+        final_raw = pd.DataFrame({
+            "Wafer ID": ["F1", "F1"],
+            "CD_Bot": [41.0, 51.0],
+            "SPA": [11.0, 13.0],
+        })
         workbook = MatchWorkbook(
             reference=self.reference(),
             raw=self.raw(),
@@ -156,6 +211,8 @@ class MatchWorkbookTests(unittest.TestCase):
             match_type="NOVA",
             result_mode="preview",
             bias_mode="percent",
+            preview_raw=preview_raw,
+            final_raw=final_raw,
         )
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "analysis.wkb"
@@ -164,11 +221,31 @@ class MatchWorkbookTests(unittest.TestCase):
 
         pd.testing.assert_frame_equal(restored.reference, workbook.reference)
         pd.testing.assert_frame_equal(restored.raw, workbook.raw)
+        pd.testing.assert_frame_equal(restored.preview_raw, preview_raw)
+        pd.testing.assert_frame_equal(restored.final_raw, final_raw)
         self.assertEqual(restored.mappings, workbook.mappings)
         self.assertEqual(restored.match_type, "NOVA")
         self.assertEqual(restored.result_mode, "preview")
         self.assertEqual(restored.bias_mode, "percent")
         self.assertEqual(restored.analyze().summary["Parameter"].tolist(), ["CD_Bot", "SPA"])
+
+    def test_schema_one_wkb_still_opens_without_fullmap_stage_tables(self):
+        workbook = MatchWorkbook(
+            reference=self.reference(),
+            raw=self.raw(),
+            mappings=MatchWorkbook.suggest_mappings(self.reference(), self.raw()),
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "legacy.wkb"
+            workbook.save(path)
+            with closing(sqlite3.connect(path)) as connection, connection:
+                connection.execute("UPDATE metadata SET schema_version = 1")
+            restored = MatchWorkbook.load(path)
+
+        pd.testing.assert_frame_equal(restored.reference, workbook.reference)
+        pd.testing.assert_frame_equal(restored.raw, workbook.raw)
+        self.assertIsNone(restored.preview_raw)
+        self.assertIsNone(restored.final_raw)
 
 
 if __name__ == "__main__":

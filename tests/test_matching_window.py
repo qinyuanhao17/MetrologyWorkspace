@@ -68,6 +68,64 @@ class MatchingWindowTests(unittest.TestCase):
 
         self.assertEqual(result.series("CD")["Evaluated Value"].tolist(), [11.0, 19.0, 31.0])
 
+    def test_preview_and_final_fullmap_open_in_the_existing_wafer_workspace(self):
+        opened = []
+
+        class FakeWaferWorkspace:
+            def set_table(self, frame, source):
+                self.frame = frame
+                self.source = source
+
+            def show(self):
+                opened.append(self)
+
+        self.window.close()
+        self.window.deleteLater()
+        self.window = MatchingWindow(wafer_window_factory=FakeWaferWorkspace)
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.set_preview_frame(pd.DataFrame({
+            "Wafer ID": ["P1", "P1"],
+            "X": [-1.0, 1.0],
+            "Y": [0.0, 0.0],
+            "CD_Bot": [4.0, 5.0],
+            "SPA": [5.0, 6.0],
+        }), "Preview clipboard")
+        final = pd.DataFrame({
+            "Wafer ID": ["F1", "F1"],
+            "X": [-1.0, 1.0],
+            "Y": [0.0, 0.0],
+            "CD_Bot": [41.0, 51.0],
+            "SPA": [11.0, 13.0],
+        })
+        self.window.set_final_frame(final, "Final clipboard")
+        self.window.run_analysis()
+
+        preview_workspace = self.window.open_stage_workspace("preview")
+        final_workspace = self.window.open_stage_workspace("final")
+
+        self.assertEqual(len(opened), 2)
+        self.assertIn("Preview", preview_workspace.source)
+        self.assertIn("Final", final_workspace.source)
+        self.assertEqual(preview_workspace.frame["CD_Bot"].tolist(), [42.0, 52.0])
+        pd.testing.assert_frame_equal(final_workspace.frame, final)
+
+    def test_pasting_fullmap_after_analysis_keeps_match_results_interactive(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+
+        self.window.set_preview_frame(pd.DataFrame({
+            "Wafer ID": ["P1", "P1"],
+            "CD_Bot": [4.0, 5.0],
+            "SPA": [5.0, 6.0],
+        }), "Preview clipboard")
+        self.window.parameter_picker.setCurrentText("SPA")
+
+        self.assertIsNotNone(self.window.workbook)
+        self.assertIsNotNone(self.window.result)
+        self.assertEqual(self.window.parameter_picker.currentText(), "SPA")
+
     def test_replacing_reference_requires_fresh_raw_data(self):
         self.window.set_reference_frame(self.reference(), "First Reference")
         self.window.set_raw_frame(self.raw(), "First Raw")
@@ -115,6 +173,15 @@ class MatchingWindowTests(unittest.TestCase):
     def test_exports_excel_and_separate_plot_images_after_analysis(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.set_preview_frame(self.raw().assign(**{
+            "Wafer ID": ["P1", "P2", "P3"],
+        }), "Preview clipboard")
+        final = pd.DataFrame({
+            "Wafer ID": ["F1", "F2", "F3"],
+            "CD_Bot": [12.0, 22.0, 32.0],
+            "SPA": [5.0, 7.0, 9.0],
+        })
+        self.window.set_final_frame(final, "Final clipboard")
         self.window.run_analysis()
         with tempfile.TemporaryDirectory() as folder:
             excel_path = Path(folder) / "result.xlsx"
@@ -123,10 +190,21 @@ class MatchingWindowTests(unittest.TestCase):
             images = self.window.save_plot_images(image_folder)
 
             with pd.ExcelFile(excel_path, engine="openpyxl") as book:
-                self.assertEqual(book.sheet_names, ["Summary", "Reference", "Raw Data", "Preview"])
+                self.assertEqual(book.sheet_names, [
+                    "Summary", "Reference", "Raw Data", "Preview",
+                    "Preview FullMap", "Final FullMap",
+                ])
             preview = pd.read_excel(excel_path, sheet_name="Preview", engine="openpyxl")
+            preview_fullmap = pd.read_excel(
+                excel_path, sheet_name="Preview FullMap", engine="openpyxl"
+            )
+            final_fullmap = pd.read_excel(
+                excel_path, sheet_name="Final FullMap", engine="openpyxl"
+            )
             self.assertIn("CD_Bot | Evaluated Value", preview.columns)
             self.assertIn("SPA | Bias", preview.columns)
+            self.assertEqual(preview_fullmap["CD_Bot"].tolist(), [12, 22, 32])
+            pd.testing.assert_frame_equal(final_fullmap, final, check_dtype=False)
             self.assertTrue(images)
             self.assertTrue(all(path.exists() and path.suffix == ".png" for path in images))
     def test_default_registry_exposes_a_multi_instance_matching_tool(self):

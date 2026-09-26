@@ -29,12 +29,14 @@ v2 在独立的 `v2` 分支开发，`VERSION` 为 `2.0.0-dev`。v1.2.0 的提交
 - 同时提供绝对 Bias 和百分比 Bias；Reference 为 0 的百分比为 NaN。
 - KLA/NOVA 按 Wafer ID 输出单片 SLOPE、INTERCEPT 和 R²；TEM 隐藏单片视图。
 - 结果图包括 Match、Trend、Bias，以及适用时的单片 R²/SLOPE；线性拟合图可关闭。
-- `.wkb` 使用 SQLite schema 1，原子保存 Reference、Raw Data、映射与设置。Excel 和逐图 PNG 只作为可选导出。
+- `.wkb` 使用 SQLite schema 2，原子保存 Reference、匹配 Raw Data、可选 Preview/Final FullMap、映射与设置；schema 1 文件仍可打开。Excel 和逐图 PNG 只作为可选导出。
 - 工具已注册到主窗口，可同时打开多个 Matching Workbook 进行对照。
+- FullMap 与匹配数据分离：Preview 可把拟合 Card 应用到后来粘贴的 FullMap，Final 直接使用 OCD 已加 Card 的数据。
+- Preview/Final 通过 `MainWindow.set_table` 打开现有 Wafer Maps / Radius Plot 工作区，没有复制绘图实现。
 
 规模目标是 100,000 行、50 参数。当前开发机随机浮点基准：全部 Card 0.16 秒，单参数派生结果 0.004 秒，WKB 保存 1.05 秒、载入 2.43 秒，文件 97.9 MB。分析结果按参数惰性展开，避免常驻 50 份完整派生表。
 
-后续明确保留的故事：TEM Card 确认后单独输入 FullMap Raw Data；把 Preview/Final 接到 Radius Plot 和 Wafer Map；以后再按 Wafer ID、Slot ID、PAD Name 和坐标自动对齐尚未整理的 Reference。当前不要把这些未完成故事混入行序匹配的 interface。
+后续明确保留的故事：按 Wafer ID、Slot ID、PAD Name 和坐标自动对齐尚未整理的 Reference，以及直接读取文件而不只依赖复制粘贴。当前不要把这些未完成故事混入行序匹配的 interface。
 ## 最近完成的修改
 
 ### Correlation 和 Trend 布局

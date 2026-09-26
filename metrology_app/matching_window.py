@@ -97,17 +97,23 @@ class DataFrameModel(QAbstractTableModel):
 class MatchingWindow(QMainWindow):
     """Build Preview or Final results from one row-aligned matching workbook."""
 
-    def __init__(self):
+    def __init__(self, wafer_window_factory=None):
         super().__init__()
         self.setWindowTitle("Card Matching Workbook")
         fit_window_to_screen(self, (1520, 930), minimum=(1050, 700))
         apply_theme(self)
         self.reference_frame = pd.DataFrame()
         self.raw_frame = pd.DataFrame()
+        self.preview_frame = pd.DataFrame()
+        self.final_frame = pd.DataFrame()
         self.workbook = None
         self.result = None
+        self._wafer_window_factory = wafer_window_factory or self._default_wafer_window_factory
+        self._stage_windows = []
         self.reference_model = DataFrameModel(parent=self)
         self.raw_model = DataFrameModel(parent=self)
+        self.preview_model = DataFrameModel(parent=self)
+        self.final_model = DataFrameModel(parent=self)
         self.summary_model = DataFrameModel(parent=self)
         self.wafer_summary_model = DataFrameModel(parent=self)
         self._build_ui()
@@ -141,8 +147,10 @@ class MatchingWindow(QMainWindow):
         self.tabs = QTabWidget(objectName="workspaceTabs")
         self.setup_page = self._build_setup_page()
         self.results_page = self._build_results_page()
+        self.fullmap_page = self._build_fullmap_page()
         self.tabs.addTab(self.setup_page, "1. Setup")
         self.tabs.addTab(self.results_page, "2. Results")
+        self.tabs.addTab(self.fullmap_page, "3. FullMap")
         layout.addWidget(self.tabs, 1)
         self.setCentralWidget(root)
 
@@ -223,7 +231,7 @@ class MatchingWindow(QMainWindow):
         layout.addWidget(mapping_card, 2)
         return page
 
-    def _table_card(self, title, subtitle, model, paste_handler):
+    def _table_card(self, title, subtitle, model, paste_handler, paste_text=None):
         card = QFrame(objectName="sheetCard")
         layout = QVBoxLayout(card)
         layout.setContentsMargins(16, 14, 16, 12)
@@ -231,7 +239,7 @@ class MatchingWindow(QMainWindow):
         heading.addWidget(_label(title, "panelTitle"))
         heading.addWidget(_label(subtitle, "hint"))
         heading.addStretch()
-        paste = QPushButton(f"Paste {title}", objectName="subtle")
+        paste = QPushButton(paste_text or f"Paste {title}", objectName="subtle")
         paste.clicked.connect(paste_handler)
         heading.addWidget(paste)
         layout.addLayout(heading)
@@ -246,6 +254,55 @@ class MatchingWindow(QMainWindow):
         source = _label("No data", "hint")
         layout.addWidget(source)
         return card, view, source, paste
+
+    def _build_fullmap_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(10, 12, 10, 10)
+        layout.setSpacing(10)
+
+        intro = QFrame(objectName="panel")
+        intro_layout = QVBoxLayout(intro)
+        intro_layout.setContentsMargins(18, 14, 18, 14)
+        intro_layout.addWidget(_label("FULLMAP STAGES", "sectionTitle"))
+        intro_layout.addWidget(_label(
+            "Preview applies the fitted Card to new FullMap Raw Data. "
+            "Final uses OCD output directly and never applies Card again.",
+            "hint",
+        ))
+        layout.addWidget(intro)
+
+        inputs = QSplitter(Qt.Orientation.Horizontal)
+        preview_card, self.preview_view, self.preview_source, self.preview_paste_button = self._table_card(
+            "Preview FullMap",
+            "For TEM, paste the later FullMap run here.",
+            self.preview_model,
+            self.paste_preview,
+            "Paste data",
+        )
+        final_card, self.final_view, self.final_source, self.final_paste_button = self._table_card(
+            "Final Raw Data",
+            "Paste OCD output that already contains the approved Card.",
+            self.final_model,
+            self.paste_final,
+            "Paste data",
+        )
+        inputs.addWidget(preview_card)
+        inputs.addWidget(final_card)
+        inputs.setSizes([720, 720])
+        inputs.setChildrenCollapsible(False)
+        layout.addWidget(inputs, 1)
+
+        actions = QHBoxLayout()
+        actions.addStretch()
+        self.preview_open_button = QPushButton("Open Preview Wafer Map / Radius", objectName="primary")
+        self.preview_open_button.clicked.connect(lambda: self._open_stage_clicked("preview"))
+        self.final_open_button = QPushButton("Open Final Wafer Map / Radius", objectName="primary")
+        self.final_open_button.clicked.connect(lambda: self._open_stage_clicked("final"))
+        actions.addWidget(self.preview_open_button)
+        actions.addWidget(self.final_open_button)
+        layout.addLayout(actions)
+        return page
 
     def _build_results_page(self):
         page = QWidget()
@@ -324,6 +381,24 @@ class MatchingWindow(QMainWindow):
         except Exception as error:
             QMessageBox.warning(self, "Raw Data", str(error))
 
+    def paste_preview(self):
+        try:
+            self.set_preview_frame(
+                clipboard_frame(QApplication.clipboard().text()),
+                "Clipboard",
+            )
+        except Exception as error:
+            QMessageBox.warning(self, "Preview FullMap", str(error))
+
+    def paste_final(self):
+        try:
+            self.set_final_frame(
+                clipboard_frame(QApplication.clipboard().text()),
+                "Clipboard",
+            )
+        except Exception as error:
+            QMessageBox.warning(self, "Final Raw Data", str(error))
+
     def set_reference_frame(self, frame, source="Reference"):
         self._validate_input_frame(frame, "Reference")
         self.reference_frame = frame.reset_index(drop=True)
@@ -332,6 +407,7 @@ class MatchingWindow(QMainWindow):
         self.raw_frame = pd.DataFrame()
         self.raw_model.set_frame(self.raw_frame)
         self.raw_source.setText("No data")
+        self._clear_stage_frames()
         self.workbook = self.result = None
         self._populate_mappings()
         self._update_state()
@@ -343,8 +419,35 @@ class MatchingWindow(QMainWindow):
         self.raw_frame = frame.reset_index(drop=True)
         self.raw_model.set_frame(self.raw_frame)
         self.raw_source.setText(self._source_text(source, self.raw_frame))
+        self._clear_stage_frames()
         self.workbook = self.result = None
         self._populate_mappings()
+        self._update_state()
+
+    def _clear_stage_frames(self):
+        self.preview_frame = pd.DataFrame()
+        self.final_frame = pd.DataFrame()
+        self.preview_model.set_frame(self.preview_frame)
+        self.final_model.set_frame(self.final_frame)
+        self.preview_source.setText("No data")
+        self.final_source.setText("No data")
+
+    def set_preview_frame(self, frame, source="Preview FullMap"):
+        if self.raw_frame.empty:
+            raise ValueError("Paste the matching Raw Data before Preview FullMap.")
+        self._validate_input_frame(frame, "Preview FullMap")
+        self.preview_frame = frame.reset_index(drop=True)
+        self.preview_model.set_frame(self.preview_frame)
+        self.preview_source.setText(self._source_text(source, self.preview_frame))
+        self._update_state()
+
+    def set_final_frame(self, frame, source="Final Raw Data"):
+        if self.raw_frame.empty:
+            raise ValueError("Paste the matching Raw Data before Final Raw Data.")
+        self._validate_input_frame(frame, "Final Raw Data")
+        self.final_frame = frame.reset_index(drop=True)
+        self.final_model.set_frame(self.final_frame)
+        self.final_source.setText(self._source_text(source, self.final_frame))
         self._update_state()
 
     @staticmethod
@@ -424,6 +527,8 @@ class MatchingWindow(QMainWindow):
         has_reference = not self.reference_frame.empty
         has_raw = not self.raw_frame.empty
         self.raw_paste_button.setEnabled(has_reference)
+        self.preview_paste_button.setEnabled(has_raw)
+        self.final_paste_button.setEnabled(has_raw)
         valid_rows = has_reference and has_raw and len(self.reference_frame) == len(self.raw_frame)
         has_mapping = False
         if valid_rows:
@@ -437,6 +542,14 @@ class MatchingWindow(QMainWindow):
         self.save_button.setEnabled(bool(valid_rows and has_mapping))
         self.export_button.setEnabled(self.result is not None)
         self.images_button.setEnabled(self.result is not None)
+        preview_ready = (
+            self.result is not None
+            and (self.match_type.currentText() != "TEM" or not self.preview_frame.empty)
+        )
+        self.preview_open_button.setEnabled(preview_ready)
+        self.final_open_button.setEnabled(
+            self.result is not None and not self.final_frame.empty
+        )
         if not has_reference:
             message = "Paste a Reference table to begin."
         elif not has_raw:
@@ -458,7 +571,42 @@ class MatchingWindow(QMainWindow):
             match_type=self.match_type.currentText(),
             result_mode=self.result_mode.currentText().lower(),
             bias_mode=self.bias_mode.currentText().lower(),
+            preview_raw=None if self.preview_frame.empty else self.preview_frame,
+            final_raw=None if self.final_frame.empty else self.final_frame,
         )
+
+    @staticmethod
+    def _default_wafer_window_factory():
+        from .window import MainWindow
+        return MainWindow()
+
+    def open_stage_workspace(self, stage):
+        if self.result is None:
+            self.run_analysis()
+        self.workbook = self.current_workbook()
+        frame = self.workbook.stage_frame(stage)
+        workspace = self._wafer_window_factory()
+        title = f"{str(stage).title()} · Card Matching Workbook"
+        workspace.set_table(frame, title)
+        if hasattr(workspace, "setWindowTitle"):
+            workspace.setWindowTitle(f"{str(stage).title()} Wafer Map / Radius")
+        self._stage_windows.append(workspace)
+        if hasattr(workspace, "destroyed"):
+            workspace.destroyed.connect(
+                lambda *_args, window=workspace: self._forget_stage_workspace(window)
+            )
+        workspace.show()
+        return workspace
+
+    def _forget_stage_workspace(self, workspace):
+        if workspace in self._stage_windows:
+            self._stage_windows.remove(workspace)
+
+    def _open_stage_clicked(self, stage):
+        try:
+            self.open_stage_workspace(stage)
+        except Exception as error:
+            QMessageBox.warning(self, f"Cannot open {stage.title()}", str(error))
 
     def run_analysis(self):
         self.workbook = self.current_workbook()
@@ -574,6 +722,8 @@ class MatchingWindow(QMainWindow):
         """Export an optional human-readable workbook; WKB remains the primary store."""
         if self.result is None:
             self.run_analysis()
+        else:
+            self.workbook = self.current_workbook()
         target = Path(path)
         if target.suffix.lower() != ".xlsx":
             target = target.with_suffix(".xlsx")
@@ -588,6 +738,14 @@ class MatchingWindow(QMainWindow):
             self.reference_frame.to_excel(writer, sheet_name="Reference", index=False)
             self.raw_frame.to_excel(writer, sheet_name="Raw Data", index=False)
             result_frame.to_excel(writer, sheet_name=self.workbook.result_mode.title(), index=False)
+            if self.workbook.preview_raw is not None:
+                self.workbook.stage_frame("preview").to_excel(
+                    writer, sheet_name="Preview FullMap", index=False
+                )
+            if self.workbook.final_raw is not None:
+                self.workbook.stage_frame("final").to_excel(
+                    writer, sheet_name="Final FullMap", index=False
+                )
         self.result_status.setText(f"Exported {target.name}")
         return target
 
@@ -604,6 +762,8 @@ class MatchingWindow(QMainWindow):
         """Save separate PNG files for every selected parameter and plot type."""
         if self.result is None:
             self.run_analysis()
+        else:
+            self.workbook = self.current_workbook()
         target = Path(folder)
         target.mkdir(parents=True, exist_ok=True)
         original = self.parameter_picker.currentText()
@@ -661,10 +821,26 @@ class MatchingWindow(QMainWindow):
         workbook = MatchWorkbook.load(path)
         self.reference_frame = workbook.reference
         self.raw_frame = workbook.raw
+        self.preview_frame = (
+            pd.DataFrame() if workbook.preview_raw is None else workbook.preview_raw
+        )
+        self.final_frame = (
+            pd.DataFrame() if workbook.final_raw is None else workbook.final_raw
+        )
         self.reference_model.set_frame(self.reference_frame)
         self.raw_model.set_frame(self.raw_frame)
+        self.preview_model.set_frame(self.preview_frame)
+        self.final_model.set_frame(self.final_frame)
         self.reference_source.setText(self._source_text(Path(path).name, self.reference_frame))
         self.raw_source.setText(self._source_text(Path(path).name, self.raw_frame))
+        self.preview_source.setText(
+            "No data" if self.preview_frame.empty
+            else self._source_text(Path(path).name, self.preview_frame)
+        )
+        self.final_source.setText(
+            "No data" if self.final_frame.empty
+            else self._source_text(Path(path).name, self.final_frame)
+        )
         self.match_type.setCurrentText(workbook.match_type)
         self.result_mode.setCurrentText(workbook.result_mode.title())
         self.bias_mode.setCurrentText(workbook.bias_mode.title())

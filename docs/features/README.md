@@ -5,6 +5,9 @@
 - Preview two mapped parameters → `MatchWorkbookTests.test_preview_generates_one_card_per_parameter_and_applies_it_lazily`
 - Final data is not carded a second time → `MatchingWindowTests.test_final_mode_keeps_evaluated_values_equal_to_raw_data`
 - Reopen a saved matching workbook → `MatchWorkbookTests.test_wkb_round_trip_preserves_source_tables_and_settings`
+- Load an older schema 1 workbook → `MatchWorkbookTests.test_schema_one_wkb_still_opens_without_fullmap_stage_tables`
+- Apply a TEM Card to a later Preview FullMap → `MatchWorkbookTests.test_preview_stage_applies_the_match_card_to_separate_fullmap_rows`
+- Open Final FullMap without applying Card again → `MatchWorkbookTests.test_final_stage_uses_separate_already_carded_fullmap_without_reapplying_card` and `MatchingWindowTests.test_preview_and_final_fullmap_open_in_the_existing_wafer_workspace`
 - Export a customer-facing result → `MatchingWindowTests.test_exports_excel_and_separate_plot_images_after_analysis`
 - Reference-first state → `MatchingWindowTests.test_reference_is_loaded_before_raw_data_and_enables_analysis`
 - Options invalidate stale results → `MatchingWindowTests.test_changing_analysis_options_invalidates_the_displayed_result`

@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 MAX_ROWS = 100_000
 MAX_PARAMETERS = 50
 _ALLOWED_MATCH_TYPES = {"TEM", "NOVA", "KLA"}
@@ -143,9 +143,12 @@ class MatchWorkbook:
     """One Reference/Raw workbook with analysis and durable `.wkb` persistence."""
 
     def __init__(self, reference, raw, mappings, match_type="KLA",
-                 result_mode="preview", bias_mode="absolute"):
+                 result_mode="preview", bias_mode="absolute",
+                 preview_raw=None, final_raw=None):
         self.reference = reference
         self.raw = raw
+        self.preview_raw = preview_raw
+        self.final_raw = final_raw
         self.mappings = tuple(mappings)
         self.match_type = str(match_type).upper()
         self.result_mode = str(result_mode).lower()
@@ -163,6 +166,8 @@ class MatchWorkbook:
             raise ValueError("Reference and Raw Data column names must be unique.")
         if _ROW_COLUMN in self.reference.columns or _ROW_COLUMN in self.raw.columns:
             raise ValueError(f"{_ROW_COLUMN!r} is reserved for WKB storage.")
+        self._validate_stage_source(self.preview_raw, "Preview FullMap")
+        self._validate_stage_source(self.final_raw, "Final Raw Data")
         if not self.mappings:
             raise ValueError("Select at least one Reference/Raw parameter mapping.")
         if len(self.mappings) > MAX_PARAMETERS:
@@ -174,12 +179,35 @@ class MatchWorkbook:
                 raise ValueError(f"Reference column not found: {mapping.reference_column}")
             if mapping.raw_column not in self.raw.columns:
                 raise ValueError(f"Raw Data column not found: {mapping.raw_column}")
+            for label, frame in (
+                ("Preview FullMap", self.preview_raw),
+                ("Final Raw Data", self.final_raw),
+            ):
+                if frame is not None and mapping.raw_column not in frame.columns:
+                    raise ValueError(
+                        f"{label} column not found for {mapping.name}: {mapping.raw_column}"
+                    )
         if self.match_type not in _ALLOWED_MATCH_TYPES:
             raise ValueError("Match type must be TEM, NOVA, or KLA.")
         if self.result_mode not in _ALLOWED_RESULT_MODES:
             raise ValueError("Result mode must be preview or final.")
         if self.bias_mode not in _ALLOWED_BIAS_MODES:
             raise ValueError("Bias mode must be absolute or percent.")
+
+    @staticmethod
+    def _validate_stage_source(frame, label):
+        if frame is None:
+            return
+        if not isinstance(frame, pd.DataFrame):
+            raise TypeError(f"{label} must be a pandas DataFrame.")
+        if frame.empty:
+            raise ValueError(f"{label} must contain at least one data row.")
+        if len(frame) > MAX_ROWS:
+            raise ValueError(f"{label} supports at most {MAX_ROWS:,} rows.")
+        if not frame.columns.is_unique:
+            raise ValueError(f"{label} column names must be unique.")
+        if _ROW_COLUMN in frame.columns:
+            raise ValueError(f"{_ROW_COLUMN!r} is reserved for WKB storage.")
 
     @staticmethod
     def suggest_mappings(reference, raw):
@@ -208,6 +236,31 @@ class MatchWorkbook:
             self.reference, self.raw, self.mappings, cards,
             self.result_mode, self.bias_mode, self.match_type,
         )
+
+    def stage_frame(self, stage):
+        """Build map-ready Preview or Final rows while preserving wafer metadata."""
+        stage = str(stage).lower()
+        if stage not in _ALLOWED_RESULT_MODES:
+            raise ValueError("Stage must be preview or final.")
+        source = self.preview_raw if stage == "preview" else self.final_raw
+        if source is None:
+            source = self.raw
+        frame = source.reset_index(drop=True).copy()
+        result = self.analyze() if stage == "preview" else None
+        for mapping in self.mappings:
+            if mapping.raw_column not in frame.columns:
+                raise ValueError(
+                    f"{stage.title()} data column not found for {mapping.name}: "
+                    f"{mapping.raw_column}"
+                )
+            values = pd.to_numeric(frame[mapping.raw_column], errors="coerce").to_numpy(float)
+            if stage == "preview":
+                card = result.card(mapping.name)
+                values = card.slope * values + card.intercept
+            frame[mapping.name] = values
+            if mapping.name != mapping.raw_column:
+                frame.drop(columns=[mapping.raw_column], inplace=True)
+        return frame
 
     def save(self, path):
         """Atomically save source tables and settings in a SQLite-backed WKB file."""
@@ -242,6 +295,10 @@ class MatchWorkbook:
                 ]).to_sql("parameter_mappings", connection, index=False, if_exists="replace")
                 _write_frame(connection, "reference_data", self.reference)
                 _write_frame(connection, "raw_data", self.raw)
+                if self.preview_raw is not None:
+                    _write_frame(connection, "preview_raw_data", self.preview_raw)
+                if self.final_raw is not None:
+                    _write_frame(connection, "final_raw_data", self.final_raw)
             os.replace(temporary, target)
         except Exception:
             temporary.unlink(missing_ok=True)
@@ -256,9 +313,11 @@ class MatchWorkbook:
                 metadata = pd.read_sql_query("SELECT * FROM metadata LIMIT 1", connection).iloc[0]
             except (sqlite3.DatabaseError, IndexError, pd.errors.DatabaseError) as error:
                 raise ValueError("This file is not a valid Matching Workbook (WKB).") from error
-            if int(metadata["schema_version"]) != SCHEMA_VERSION:
+            schema_version = int(metadata["schema_version"])
+            if schema_version not in {1, SCHEMA_VERSION}:
                 raise ValueError(
-                    f"Unsupported WKB schema {metadata['schema_version']}; expected {SCHEMA_VERSION}."
+                    f"Unsupported WKB schema {metadata['schema_version']}; "
+                    f"expected 1 or {SCHEMA_VERSION}."
                 )
             mapping_rows = pd.read_sql_query(
                 "SELECT name, reference_column, raw_column FROM parameter_mappings ORDER BY position",
@@ -266,6 +325,16 @@ class MatchWorkbook:
             )
             reference = _read_frame(connection, "reference_data")
             raw = _read_frame(connection, "raw_data")
+            preview_raw = (
+                _read_frame(connection, "preview_raw_data")
+                if schema_version >= 2 and _table_exists(connection, "preview_raw_data")
+                else None
+            )
+            final_raw = (
+                _read_frame(connection, "final_raw_data")
+                if schema_version >= 2 and _table_exists(connection, "final_raw_data")
+                else None
+            )
         mappings = tuple(ParameterMapping(row.name, row.reference_column, row.raw_column)
                          for row in mapping_rows.itertuples(index=False))
         return cls(
@@ -275,6 +344,8 @@ class MatchWorkbook:
             match_type=metadata["match_type"],
             result_mode=metadata["result_mode"],
             bias_mode=metadata["bias_mode"],
+            preview_raw=preview_raw,
+            final_raw=final_raw,
         )
 
 
@@ -326,6 +397,14 @@ def _write_frame(connection, table, frame):
 def _read_frame(connection, table):
     frame = pd.read_sql_query(f'SELECT * FROM "{table}" ORDER BY "{_ROW_COLUMN}"', connection)
     return frame.drop(columns=[_ROW_COLUMN])
+
+
+def _table_exists(connection, table):
+    row = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table,),
+    ).fetchone()
+    return row is not None
 
 
 __all__ = [

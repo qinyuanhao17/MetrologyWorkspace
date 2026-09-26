@@ -22,6 +22,22 @@ Feature: Build a card matching workbook
       Given a completed matching workbook with multiple parameters
       When the engineer saves and reopens the WKB file
       Then the Reference table, Raw Data, mappings, and analysis settings are restored
+
+  Rule: Match rows and FullMap rows have separate responsibilities
+
+    Scenario: Apply a TEM Card to a later Preview FullMap
+      Given a Card fitted from a small TEM match
+      And a separate Preview FullMap with wafer coordinates
+      When the engineer opens the Preview wafer workspace
+      Then the fitted Card is applied to every mapped FullMap parameter
+      And the wafer identifiers and coordinates are preserved
+
+    Scenario: Open Final FullMap without applying Card again
+      Given Final Raw Data already produced by the OCD software with a Card
+      When the engineer opens the Final wafer workspace
+      Then the Final parameter values are used directly
+      And the existing Wafer Map and Radius Plot workspace is reused
+
   Rule: Approved results can leave the workbook
 
     Scenario: Export a customer-facing result

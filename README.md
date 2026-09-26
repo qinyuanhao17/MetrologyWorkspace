@@ -63,22 +63,23 @@ python -m PyInstaller --noconfirm --clean MetrologyWorkspace.spec
 2. 再粘贴 Raw Data。当前版本按从上到下的行顺序对应，两张表必须具有相同的行数。
 3. 软件会把 `<参数名> Reference` 自动匹配到 Raw Data 中同名参数，也可以在映射表中取消或修改选择。一次最多选择 50 个参数，最多处理 100,000 行。
 4. 选择 KLA、NOVA 或 TEM，并运行 Preview 或 Final。
+5. 在 **3. FullMap** 中可粘贴 Preview FullMap 或 Final Raw Data，并直接打开现有的 Wafer Maps / Radius Plot 工作区。
 
 Card 的定义为：
 
 `Reference = slope × Raw + intercept`
 
-- **Preview** 会把新生成的 slope/intercept 应用到 Raw Data，得到 Card Value，再用它绘制 Trend 和 Bias。
-- **Final** 假定 Raw Data 已经由 OCD 软件应用 Card，不会重复加 Card；Trend 和 Bias 直接使用输入值。
+- **Preview** 会把新生成的 slope/intercept 应用到 Raw Data，得到 Card Value，再用它绘制 Trend 和 Bias。TEM 可在 Card 确认后另行粘贴点数更多的 FullMap；KLA/NOVA 未提供单独 FullMap 时可直接使用匹配 Raw Data。
+- **Final** 假定 Raw Data 已经由 OCD 软件应用 Card，不会重复加 Card；Trend 和 Bias 直接使用输入值。Final FullMap 作为独立输入，软件不会再次套用 slope/intercept。
 - Bias 默认是 `Evaluated Value - Reference`，也可以切换成百分比 `(Evaluated Value - Reference) / Reference × 100%`。Reference 为 0 时百分比留空，不猜测替代值。
 - KLA/NOVA 会额外按 Wafer ID 显示单片 SLOPE、INTERCEPT 和 R²；TEM 不显示该组单片结果。
 - Match、Trend、Bias 和单片指标按参数惰性生成，不会同时展开 50 个参数的全部派生表。
 
-**Save WKB** 保存 Reference、Raw Data、参数映射和分析设置。WKB 是 SQLite-backed 的主工作文件，可以在多个独立窗口中重新打开比较；它不依赖 Excel，也不会执行不安全的 pickle。**Export Excel** 是确认结果后的可选输出，包含 Summary、Reference、Raw Data 和 Preview/Final 工作表。**Save images** 会把每个参数的图分别保存为 PNG。
+**Save WKB** 保存 Reference、匹配 Raw Data、可选的 Preview/Final FullMap、参数映射和分析设置。WKB 是 SQLite-backed 的主工作文件，可以在多个独立窗口中重新打开比较；它不依赖 Excel，也不会执行不安全的 pickle。**Export Excel** 是确认结果后的可选输出，包含 Summary、Reference、Raw Data、Preview/Final 结果，以及存在时的 FullMap 工作表。**Save images** 会把每个参数的图分别保存为 PNG。
 
 10 万行、50 参数的随机浮点基准中，50 个 Card 的计算约 0.16 秒，单个参数结果展开约 0.004 秒；WKB 保存约 1.05 秒、载入约 2.43 秒，文件约 97.9 MB。结果取自当前开发机的一次可重复测量，不代表所有磁盘和数据分布。 可用 python benchmarks/benchmark_matching.py 复测。
 
-当前 v2 切片尚未加入 TEM 匹配后单独粘贴 FullMap 的第二阶段流程，也尚未把 Preview/Final 数据接到 Wafer Map 和 Radius Plot；这些属于后续切片，不会回写或覆盖 v1.2.0。
+当前 v2 已支持 TEM 匹配后单独粘贴 Preview FullMap，并将 Preview/Final 数据交给现有 Wafer Map 和 Radius Plot。尚未实现的是按 Wafer ID、Slot ID、PAD Name 和坐标自动整理尚未对齐的 Reference；当前匹配数据仍按行序对应。
 ## Wafer Map
 
 基本流程如下：
