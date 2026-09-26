@@ -144,7 +144,7 @@ class MatchWorkbook:
 
     def __init__(self, reference, raw, mappings, match_type="KLA",
                  result_mode="preview", bias_mode="absolute",
-                 preview_raw=None, final_raw=None):
+                 preview_raw=None, final_raw=None, bias_views=None):
         self.reference = reference
         self.raw = raw
         self.preview_raw = preview_raw
@@ -153,6 +153,11 @@ class MatchWorkbook:
         self.match_type = str(match_type).upper()
         self.result_mode = str(result_mode).lower()
         self.bias_mode = str(bias_mode).lower()
+        self.bias_views = tuple(
+            str(view).lower() for view in (
+                (self.bias_mode,) if bias_views is None else bias_views
+            )
+        )
         self._validate()
 
     def _validate(self):
@@ -193,6 +198,14 @@ class MatchWorkbook:
             raise ValueError("Result mode must be preview or final.")
         if self.bias_mode not in _ALLOWED_BIAS_MODES:
             raise ValueError("Bias mode must be absolute or percent.")
+        if (
+            not self.bias_views
+            or len(set(self.bias_views)) != len(self.bias_views)
+            or any(view not in _ALLOWED_BIAS_MODES for view in self.bias_views)
+        ):
+            raise ValueError("Bias views must contain absolute, percent, or both.")
+        if self.bias_mode not in self.bias_views:
+            raise ValueError("The primary Bias mode must be included in Bias views.")
 
     @staticmethod
     def _validate_stage_source(frame, label):
@@ -281,6 +294,7 @@ class MatchWorkbook:
                     "match_type": self.match_type,
                     "result_mode": self.result_mode,
                     "bias_mode": self.bias_mode,
+                    "bias_views": ",".join(self.bias_views),
                     "saved_utc": datetime.now(timezone.utc).isoformat(),
                 }])
                 metadata.to_sql("metadata", connection, index=False, if_exists="replace")
@@ -337,6 +351,13 @@ class MatchWorkbook:
             )
         mappings = tuple(ParameterMapping(row.name, row.reference_column, row.raw_column)
                          for row in mapping_rows.itertuples(index=False))
+        saved_bias_views = (
+            str(metadata["bias_views"]).split(",")
+            if "bias_views" in metadata.index
+            and pd.notna(metadata["bias_views"])
+            and str(metadata["bias_views"]).strip()
+            else None
+        )
         return cls(
             reference=reference,
             raw=raw,
@@ -344,6 +365,7 @@ class MatchWorkbook:
             match_type=metadata["match_type"],
             result_mode=metadata["result_mode"],
             bias_mode=metadata["bias_mode"],
+            bias_views=saved_bias_views,
             preview_raw=preview_raw,
             final_raw=final_raw,
         )

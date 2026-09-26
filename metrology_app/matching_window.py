@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import pyqtgraph as pg
 import pyqtgraph.exporters
-from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt
+from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt, QTimer
 from PyQt6.QtGui import QAction, QKeySequence
 from PyQt6.QtWidgets import (
     QApplication,
@@ -24,11 +24,13 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QSplitter,
     QTableView,
     QTableWidget,
     QTableWidgetItem,
-    QTabWidget,
+    QTabBar,
     QVBoxLayout,
     QWidget,
 )
@@ -101,7 +103,7 @@ class MatchingWindow(QMainWindow):
 
     def __init__(self, wafer_window_factory=None):
         super().__init__()
-        self.setWindowTitle("Card Matching Workbook")
+        self.setWindowTitle("Match Workbook")
         fit_window_to_screen(self, (1520, 930), minimum=(1050, 700))
         apply_theme(self)
         self.reference_frame = pd.DataFrame()
@@ -110,6 +112,9 @@ class MatchingWindow(QMainWindow):
         self.final_frame = pd.DataFrame()
         self.workbook = None
         self.result = None
+        self._primary_bias_mode = "absolute"
+        self._auto_run_enabled = False
+        self._auto_run_pending = False
         self._loading_input_sheets = False
         self._input_sheet_errors = {"reference": "", "raw": ""}
         self._wafer_window_factory = wafer_window_factory or self._default_wafer_window_factory
@@ -125,18 +130,19 @@ class MatchingWindow(QMainWindow):
             lambda: self._input_sheet_changed("reference")
         )
         self.raw_model.changed.connect(lambda: self._input_sheet_changed("raw"))
+        self.raw_view.table_pasted.connect(self._raw_table_pasted)
         self._install_shortcuts()
         self._update_state()
 
     def _build_ui(self):
         root = QWidget(objectName="appRoot")
         layout = QVBoxLayout(root)
-        layout.setContentsMargins(20, 12, 20, 10)
-        layout.setSpacing(8)
+        layout.setContentsMargins(14, 8, 14, 8)
+        layout.setSpacing(6)
 
         top = QHBoxLayout()
-        title = _label("Card Matching Workbook", "pageTitle")
-        top.addWidget(title)
+        self.title_label = _label("Match Workbook", "panelTitle")
+        top.addWidget(self.title_label)
         top.addStretch()
         self.open_button = QPushButton("Open WKB", objectName="subtle")
         self.open_button.clicked.connect(self.open_wkb_dialog)
@@ -152,15 +158,47 @@ class MatchingWindow(QMainWindow):
         top.addWidget(self.images_button)
         layout.addLayout(top)
 
-        self.tabs = QTabWidget(objectName="workspaceTabs")
+        self.result_mode = QComboBox(self)
+        self.result_mode.addItems(["Preview", "Final"])
+        self.result_mode.hide()
+
+        mode_row = QHBoxLayout()
+        mode_row.setSpacing(8)
+        self.mode_tabs = QTabBar()
+        self.mode_tabs.setObjectName("workspaceModeTabs")
+        self.mode_tabs.setExpanding(False)
+        self.mode_tabs.addTab("Preview")
+        self.mode_tabs.addTab("Final")
+        mode_row.addWidget(self.mode_tabs)
+        mode_row.addStretch()
+        self.preview_open_button = QPushButton(
+            "Open Preview Wafer Map / Radius", objectName="primary"
+        )
+        self.preview_open_button.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
+        self.preview_open_button.clicked.connect(
+            lambda: self._open_stage_clicked("preview")
+        )
+        self.final_open_button = QPushButton(
+            "Open Final Wafer Map / Radius", objectName="primary"
+        )
+        self.final_open_button.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
+        self.final_open_button.clicked.connect(
+            lambda: self._open_stage_clicked("final")
+        )
+        mode_row.addWidget(self.preview_open_button)
+        mode_row.addWidget(self.final_open_button)
+        layout.addLayout(mode_row)
+
         self.setup_page = self._build_setup_page()
-        self.results_page = self._build_results_page()
-        self.fullmap_page = self._build_fullmap_page()
-        self.tabs.addTab(self.setup_page, "1. Setup")
-        self.tabs.addTab(self.results_page, "2. Results")
-        self.tabs.addTab(self.fullmap_page, "3. FullMap")
-        layout.addWidget(self.tabs, 1)
+        layout.addWidget(self.setup_page, 1)
         self.setCentralWidget(root)
+        self.mode_tabs.currentChanged.connect(self._mode_tab_changed)
+        self.result_mode.currentIndexChanged.connect(self._result_mode_changed)
+        self._update_mode_actions()
 
     def _install_shortcuts(self):
         for title, shortcut, handler in (
@@ -172,6 +210,21 @@ class MatchingWindow(QMainWindow):
             action.setShortcut(QKeySequence(shortcut))
             action.triggered.connect(handler)
             self.addAction(action)
+
+    def _mode_tab_changed(self, index):
+        if index >= 0 and self.result_mode.currentIndex() != index:
+            self.result_mode.setCurrentIndex(index)
+        self._update_mode_actions()
+
+    def _result_mode_changed(self, index):
+        if index >= 0 and self.mode_tabs.currentIndex() != index:
+            self.mode_tabs.setCurrentIndex(index)
+        self._update_mode_actions()
+
+    def _update_mode_actions(self):
+        preview = self.result_mode.currentText().lower() == "preview"
+        self.preview_open_button.setVisible(preview)
+        self.final_open_button.setVisible(not preview)
 
     def _build_setup_page(self):
         page = QWidget()
@@ -186,35 +239,42 @@ class MatchingWindow(QMainWindow):
         self.match_type = QComboBox()
         self.match_type.addItems(["KLA", "NOVA", "TEM"])
         grid.addWidget(self.match_type, 1, 0)
-        grid.addWidget(_label("RESULT", "sectionTitle"), 0, 1)
-        self.result_mode = QComboBox()
-        self.result_mode.addItems(["Preview", "Final"])
-        grid.addWidget(self.result_mode, 1, 1)
-        grid.addWidget(_label("BIAS", "sectionTitle"), 0, 2)
-        self.bias_mode = QComboBox()
-        self.bias_mode.addItems(["Absolute", "Percent"])
-        grid.addWidget(self.bias_mode, 1, 2)
+        grid.addWidget(_label("BIAS", "sectionTitle"), 0, 1)
+        bias_options = QWidget()
+        bias_layout = QHBoxLayout(bias_options)
+        bias_layout.setContentsMargins(0, 0, 0, 0)
+        bias_layout.setSpacing(12)
+        self.absolute_bias = QCheckBox("Bias")
+        self.absolute_bias.setChecked(True)
+        self.percent_bias = QCheckBox("Bias %")
+        bias_layout.addWidget(self.absolute_bias)
+        bias_layout.addWidget(self.percent_bias)
+        grid.addWidget(bias_options, 1, 1)
         self.match_type.currentTextChanged.connect(self._invalidate_analysis)
         self.result_mode.currentTextChanged.connect(self._invalidate_analysis)
-        self.bias_mode.currentTextChanged.connect(self._invalidate_analysis)
-        grid.setColumnStretch(3, 1)
+        grid.setColumnStretch(2, 1)
         self.status = _label("Paste a Reference table to begin.", "hint")
-        grid.addWidget(self.status, 0, 4, 2, 1)
+        grid.addWidget(self.status, 0, 3, 2, 1)
         layout.addWidget(config)
 
         inputs = QSplitter(Qt.Orientation.Horizontal)
-        reference_card, self.reference_view, self.reference_source, self.reference_paste_button = self._table_card(
-            "Reference", "Paste the prepared table first.", self.reference_model, self.paste_reference
+        reference_card, self.reference_view, self.reference_source = self._table_card(
+            "Reference", "Paste the prepared table first.", self.reference_model
         )
-        raw_card, self.raw_view, self.raw_source, self.raw_paste_button = self._table_card(
-            "Raw Data", "Rows are matched to Reference from top to bottom.", self.raw_model, self.paste_raw
+        raw_card, self.raw_view, self.raw_source = self._table_card(
+            "Raw Data", "Rows are matched to Reference from top to bottom.", self.raw_model
         )
         inputs.addWidget(reference_card)
         inputs.addWidget(raw_card)
         inputs.setSizes([720, 720])
         inputs.setChildrenCollapsible(False)
-        layout.addWidget(inputs, 3)
-
+        for card in (reference_card, raw_card):
+            card.setSizePolicy(
+                QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding
+            )
+        inputs.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding
+        )
         mapping_card = QFrame(objectName="panel")
         mapping_layout = QVBoxLayout(mapping_card)
         mapping_layout.setContentsMargins(16, 14, 16, 12)
@@ -229,20 +289,48 @@ class MatchingWindow(QMainWindow):
         self.analyze_button.clicked.connect(self._run_analysis_clicked)
         heading.addWidget(self.analyze_button)
         mapping_layout.addLayout(heading)
-        self.mapping_table = QTableWidget(0, 4)
-        self.mapping_table.setHorizontalHeaderLabels(["Use", "Parameter", "Reference column", "Raw Data column"])
+        self.mapping_table = QTableWidget(0, 10)
+        self.mapping_table.setHorizontalHeaderLabels([
+            "Use", "Parameter", "Reference column", "Raw Data column",
+            "Slope", "Intercept", "R²", "Valid pairs", "Match type", "Result mode",
+        ])
         self.mapping_table.verticalHeader().setVisible(False)
         self.mapping_table.setAlternatingRowColors(True)
-        self.mapping_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        self.mapping_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self.mapping_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        self.mapping_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        header = self.mapping_table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        for column, width in enumerate((52, 150, 180, 210, 100, 100, 90, 95, 100, 105)):
+            self.mapping_table.setColumnWidth(column, width)
         self.mapping_table.itemChanged.connect(self._invalidate_analysis)
         mapping_layout.addWidget(self.mapping_table, 1)
-        layout.addWidget(mapping_card, 2)
+        mapping_card.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding
+        )
+
+        self.results_panel = self._build_results_panel()
+        self.results_panel.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding
+        )
+        self.setup_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.setup_splitter.setChildrenCollapsible(False)
+        self.setup_splitter.setHandleWidth(10)
+        self.setup_splitter.addWidget(inputs)
+        self.setup_splitter.addWidget(mapping_card)
+        self.setup_splitter.addWidget(self.results_panel)
+        self.setup_splitter.setSizes([430, 190, 520])
+        self.setup_splitter.setMinimumHeight(1120)
+
+        self.setup_scroll = QScrollArea()
+        self.setup_scroll.setObjectName("matchingSetupScroll")
+        self.setup_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.setup_scroll.setWidgetResizable(True)
+        self.setup_scroll.setWidget(self.setup_splitter)
+        layout.addWidget(self.setup_scroll, 1)
+        self.absolute_bias.toggled.connect(self._bias_view_changed)
+        self.percent_bias.toggled.connect(self._bias_view_changed)
+        self._update_bias_plot_visibility()
         return page
 
-    def _table_card(self, title, subtitle, model, paste_handler, paste_text=None):
+    def _table_card(self, title, subtitle, model):
         card = QFrame(objectName="sheetCard")
         layout = QVBoxLayout(card)
         layout.setContentsMargins(16, 14, 16, 12)
@@ -250,9 +338,6 @@ class MatchingWindow(QMainWindow):
         heading.addWidget(_label(title, "panelTitle"))
         heading.addWidget(_label(subtitle, "hint"))
         heading.addStretch()
-        paste = QPushButton(paste_text or f"Paste {title}", objectName="subtle")
-        paste.clicked.connect(paste_handler)
-        heading.addWidget(paste)
         layout.addLayout(heading)
         if isinstance(model, SheetModel):
             view = SheetView(model)
@@ -272,95 +357,59 @@ class MatchingWindow(QMainWindow):
         if isinstance(model, SheetModel):
             footer.addWidget(_label("Row 1 = headers · Ctrl+V paste · Ctrl+Z undo", "hint"))
         layout.addLayout(footer)
-        return card, view, source, paste
+        return card, view, source
 
-    def _build_fullmap_page(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(10, 12, 10, 10)
-        layout.setSpacing(10)
-
-        intro = QFrame(objectName="panel")
-        intro_layout = QVBoxLayout(intro)
-        intro_layout.setContentsMargins(18, 14, 18, 14)
-        intro_layout.addWidget(_label("FULLMAP STAGES", "sectionTitle"))
-        intro_layout.addWidget(_label(
-            "Preview applies the fitted Card to new FullMap Raw Data. "
-            "Final uses OCD output directly and never applies Card again.",
-            "hint",
-        ))
-        layout.addWidget(intro)
-
-        inputs = QSplitter(Qt.Orientation.Horizontal)
-        preview_card, self.preview_view, self.preview_source, self.preview_paste_button = self._table_card(
-            "Preview FullMap",
-            "For TEM, paste the later FullMap run here.",
-            self.preview_model,
-            self.paste_preview,
-            "Paste data",
-        )
-        final_card, self.final_view, self.final_source, self.final_paste_button = self._table_card(
-            "Final Raw Data",
-            "Paste OCD output that already contains the approved Card.",
-            self.final_model,
-            self.paste_final,
-            "Paste data",
-        )
-        inputs.addWidget(preview_card)
-        inputs.addWidget(final_card)
-        inputs.setSizes([720, 720])
-        inputs.setChildrenCollapsible(False)
-        layout.addWidget(inputs, 1)
-
-        actions = QHBoxLayout()
-        actions.addStretch()
-        self.preview_open_button = QPushButton("Open Preview Wafer Map / Radius", objectName="primary")
-        self.preview_open_button.clicked.connect(lambda: self._open_stage_clicked("preview"))
-        self.final_open_button = QPushButton("Open Final Wafer Map / Radius", objectName="primary")
-        self.final_open_button.clicked.connect(lambda: self._open_stage_clicked("final"))
-        actions.addWidget(self.preview_open_button)
-        actions.addWidget(self.final_open_button)
-        layout.addLayout(actions)
-        return page
-
-    def _build_results_page(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(10, 12, 10, 10)
+    def _build_results_panel(self):
+        panel = QFrame(objectName="panel")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(16, 14, 16, 12)
         layout.setSpacing(10)
         controls = QHBoxLayout()
         controls.addWidget(_label("Parameter", "sectionTitle"))
         self.parameter_picker = QComboBox()
         self.parameter_picker.currentTextChanged.connect(self._draw_parameter)
         controls.addWidget(self.parameter_picker)
-        self.linear_fit = QCheckBox("Show linear fit")
-        self.linear_fit.setChecked(True)
-        self.linear_fit.toggled.connect(self._draw_parameter)
-        controls.addWidget(self.linear_fit)
         controls.addStretch()
         self.result_status = _label("Run an analysis to see results.", "hint")
         controls.addWidget(self.result_status)
         layout.addLayout(controls)
 
-        splitter = QSplitter(Qt.Orientation.Vertical)
-        self.summary_view = QTableView()
-        self.summary_view.setModel(self.summary_model)
-        self.summary_view.setAlternatingRowColors(True)
-        self.summary_view.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        self.summary_view.horizontalHeader().setStretchLastSection(True)
-        splitter.addWidget(self.summary_view)
-
-        self.result_plots = QTabWidget()
+        self.primary_plot_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.primary_plot_splitter.setChildrenCollapsible(False)
+        self.primary_plot_splitter.setHandleWidth(8)
         self.match_plot = self._plot_widget("Raw Data", "Reference")
         self.trend_plot = self._plot_widget("Row", "Value")
         self.bias_plot = self._plot_widget("Row", "Bias")
-        self.result_plots.addTab(self.match_plot, "Match")
-        self.result_plots.addTab(self.trend_plot, "Trend")
-        self.result_plots.addTab(self.bias_plot, "Bias")
+        self.bias_percent_plot = self._plot_widget("Row", "Bias %")
+        for plot in (
+            self.match_plot, self.trend_plot, self.bias_plot, self.bias_percent_plot
+        ):
+            plot.setMinimumWidth(220)
+            self.primary_plot_splitter.addWidget(plot)
+        self.primary_plot_splitter.setSizes([420, 420, 420, 420])
+        self.primary_plot_splitter.setMinimumWidth(920)
+        self.primary_plot_splitter.setMinimumHeight(390)
+        self.plot_scroll = QScrollArea()
+        self.plot_scroll.setObjectName("matchingPlotScroll")
+        self.plot_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.plot_scroll.setWidgetResizable(True)
+        self.plot_scroll.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding
+        )
+        self.plot_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self.plot_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.plot_scroll.setWidget(self.primary_plot_splitter)
+        self.plot_scroll.setMinimumHeight(420)
+        layout.addWidget(self.plot_scroll, 1)
 
-        wafer_page = QWidget()
-        wafer_layout = QVBoxLayout(wafer_page)
-        wafer_layout.setContentsMargins(4, 4, 4, 4)
+        self.single_wafer_panel = QFrame(objectName="sheetCard")
+        wafer_layout = QVBoxLayout(self.single_wafer_panel)
+        wafer_layout.setContentsMargins(12, 10, 12, 10)
+        wafer_layout.addWidget(_label("Single-wafer metrics", "panelTitle"))
         self.wafer_summary_view = QTableView()
         self.wafer_summary_view.setModel(self.wafer_summary_model)
         self.wafer_summary_view.setMaximumHeight(190)
@@ -372,11 +421,10 @@ class MatchingWindow(QMainWindow):
         wafer_plots.addWidget(self.wafer_r2_plot)
         wafer_plots.addWidget(self.wafer_slope_plot)
         wafer_layout.addWidget(wafer_plots, 1)
-        self.wafer_tab_index = self.result_plots.addTab(wafer_page, "Single-wafer metrics")
-        splitter.addWidget(self.result_plots)
-        splitter.setSizes([220, 560])
-        layout.addWidget(splitter, 1)
-        return page
+        layout.addWidget(self.single_wafer_panel)
+        self.single_wafer_panel.hide()
+        panel.setMinimumHeight(520)
+        return panel
 
     @staticmethod
     def _plot_widget(bottom, left):
@@ -399,24 +447,6 @@ class MatchingWindow(QMainWindow):
             self.set_raw_frame(clipboard_frame(QApplication.clipboard().text()), "Clipboard")
         except Exception as error:
             QMessageBox.warning(self, "Raw Data", str(error))
-
-    def paste_preview(self):
-        try:
-            self.set_preview_frame(
-                clipboard_frame(QApplication.clipboard().text()),
-                "Clipboard",
-            )
-        except Exception as error:
-            QMessageBox.warning(self, "Preview FullMap", str(error))
-
-    def paste_final(self):
-        try:
-            self.set_final_frame(
-                clipboard_frame(QApplication.clipboard().text()),
-                "Clipboard",
-            )
-        except Exception as error:
-            QMessageBox.warning(self, "Final Raw Data", str(error))
 
     def set_reference_frame(self, frame, source="Reference"):
         self._validate_input_frame(frame, "Reference")
@@ -476,9 +506,26 @@ class MatchingWindow(QMainWindow):
             f"Fix table · {error}" if error
             else ("No data" if frame.empty else self._source_text("Edited", frame))
         )
+        self._clear_stage_frames()
         selected = self._valid_selected_mappings()
         self._populate_mappings(selected)
         self._invalidate_analysis()
+
+    def _raw_table_pasted(self):
+        """Re-run a valid workbook after the user has opted in by running once."""
+        if not self._auto_run_enabled or self._auto_run_pending:
+            return
+        self._auto_run_pending = True
+        QTimer.singleShot(0, self._run_paste_analysis)
+
+    def _run_paste_analysis(self):
+        self._auto_run_pending = False
+        if not self._auto_run_enabled or not self.analyze_button.isEnabled():
+            return
+        try:
+            self.run_analysis()
+        except Exception as error:
+            self.status.setText(f"Automatic analysis could not run: {error}")
 
     def _valid_selected_mappings(self):
         """Return complete checked mappings without rejecting an in-progress edit."""
@@ -507,8 +554,6 @@ class MatchingWindow(QMainWindow):
         self.final_frame = pd.DataFrame()
         self.preview_model.set_frame(self.preview_frame)
         self.final_model.set_frame(self.final_frame)
-        self.preview_source.setText("No data")
-        self.final_source.setText("No data")
 
     def set_preview_frame(self, frame, source="Preview FullMap"):
         if self.raw_frame.empty:
@@ -516,7 +561,6 @@ class MatchingWindow(QMainWindow):
         self._validate_input_frame(frame, "Preview FullMap")
         self.preview_frame = frame.reset_index(drop=True)
         self.preview_model.set_frame(self.preview_frame)
-        self.preview_source.setText(self._source_text(source, self.preview_frame))
         self._update_state()
 
     def set_final_frame(self, frame, source="Final Raw Data"):
@@ -525,7 +569,6 @@ class MatchingWindow(QMainWindow):
         self._validate_input_frame(frame, "Final Raw Data")
         self.final_frame = frame.reset_index(drop=True)
         self.final_model.set_frame(self.final_frame)
-        self.final_source.setText(self._source_text(source, self.final_frame))
         self._update_state()
 
     @staticmethod
@@ -577,6 +620,12 @@ class MatchingWindow(QMainWindow):
                 raw_picker.setCurrentText(mapping.raw_column)
             raw_picker.currentTextChanged.connect(self._invalidate_analysis)
             self.mapping_table.setCellWidget(row, 3, raw_picker)
+            for column in range(4, 10):
+                result_item = QTableWidgetItem("")
+                result_item.setFlags(
+                    Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+                )
+                self.mapping_table.setItem(row, column, result_item)
         self.mapping_table.blockSignals(False)
 
     def selected_mappings(self):
@@ -595,6 +644,67 @@ class MatchingWindow(QMainWindow):
             raise ValueError("Select at least one parameter mapping.")
         return tuple(mappings)
 
+    def _selected_bias_views(self):
+        views = []
+        if self.absolute_bias.isChecked():
+            views.append("absolute")
+        if self.percent_bias.isChecked():
+            views.append("percent")
+        return tuple(views)
+
+    def _bias_view_changed(self, checked):
+        if not self._selected_bias_views():
+            checkbox = self.sender()
+            checkbox.blockSignals(True)
+            checkbox.setChecked(True)
+            checkbox.blockSignals(False)
+        views = self._selected_bias_views()
+        if self._primary_bias_mode not in views:
+            self._primary_bias_mode = views[0]
+        self._update_bias_plot_visibility()
+        if self.result is not None:
+            self._draw_parameter()
+
+    def _update_bias_plot_visibility(self):
+        self.bias_plot.setVisible(self.absolute_bias.isChecked())
+        self.bias_percent_plot.setVisible(self.percent_bias.isChecked())
+
+    def _clear_mapping_results(self):
+        self.mapping_table.blockSignals(True)
+        for row in range(self.mapping_table.rowCount()):
+            for column in range(4, 10):
+                item = self.mapping_table.item(row, column)
+                if item is not None:
+                    item.setText("")
+        self.mapping_table.blockSignals(False)
+
+    def _show_mapping_results(self):
+        if self.result is None:
+            self._clear_mapping_results()
+            return
+        summaries = {
+            str(row["Reference column"]): row
+            for _, row in self.result.summary.iterrows()
+        }
+        fields = (
+            "Slope", "Intercept", "R²", "Valid pairs", "Match type", "Result mode"
+        )
+        self.mapping_table.blockSignals(True)
+        for row in range(self.mapping_table.rowCount()):
+            reference_item = self.mapping_table.item(row, 2)
+            summary = summaries.get(reference_item.text()) if reference_item else None
+            for column, field in enumerate(fields, start=4):
+                item = self.mapping_table.item(row, column)
+                value = None if summary is None else summary[field]
+                if value is None or pd.isna(value):
+                    text = ""
+                elif isinstance(value, (float, np.floating)):
+                    text = f"{float(value):.8g}"
+                else:
+                    text = str(value)
+                item.setText(text)
+        self.mapping_table.blockSignals(False)
+
     def _invalidate_analysis(self, *_):
         if self.result is None and self.workbook is None:
             self._update_state()
@@ -605,18 +715,16 @@ class MatchingWindow(QMainWindow):
         self.wafer_summary_model.set_frame(pd.DataFrame())
         self.parameter_picker.clear()
         for plot in (self.match_plot, self.trend_plot, self.bias_plot,
-                     self.wafer_r2_plot, self.wafer_slope_plot):
+                     self.bias_percent_plot, self.wafer_r2_plot, self.wafer_slope_plot):
             plot.clear()
+        self._clear_mapping_results()
         self.result_status.setText("Settings changed. Run the analysis again.")
-        self.tabs.setCurrentWidget(self.setup_page)
         self._update_state()
+
     def _update_state(self, *_):
         has_reference = not self.reference_frame.empty
         has_raw = not self.raw_frame.empty
-        self.raw_paste_button.setEnabled(has_reference)
         self.raw_view.setEnabled(has_reference)
-        self.preview_paste_button.setEnabled(has_raw)
-        self.final_paste_button.setEnabled(has_raw)
         valid_rows = has_reference and has_raw and len(self.reference_frame) == len(self.raw_frame)
         has_mapping = False
         if valid_rows:
@@ -630,14 +738,9 @@ class MatchingWindow(QMainWindow):
         self.save_button.setEnabled(bool(valid_rows and has_mapping))
         self.export_button.setEnabled(self.result is not None)
         self.images_button.setEnabled(self.result is not None)
-        preview_ready = (
-            self.result is not None
-            and (self.match_type.currentText() != "TEM" or not self.preview_frame.empty)
-        )
-        self.preview_open_button.setEnabled(preview_ready)
-        self.final_open_button.setEnabled(
-            self.result is not None and not self.final_frame.empty
-        )
+        self.preview_open_button.setEnabled(self.result is not None)
+        self.final_open_button.setEnabled(self.result is not None)
+        self._update_mode_actions()
         input_error = self._input_sheet_errors["reference"] or self._input_sheet_errors["raw"]
         if input_error:
             message = input_error
@@ -661,7 +764,8 @@ class MatchingWindow(QMainWindow):
             mappings=self.selected_mappings(),
             match_type=self.match_type.currentText(),
             result_mode=self.result_mode.currentText().lower(),
-            bias_mode=self.bias_mode.currentText().lower(),
+            bias_mode=self._primary_bias_mode,
+            bias_views=self._selected_bias_views(),
             preview_raw=None if self.preview_frame.empty else self.preview_frame,
             final_raw=None if self.final_frame.empty else self.final_frame,
         )
@@ -677,7 +781,7 @@ class MatchingWindow(QMainWindow):
         self.workbook = self.current_workbook()
         frame = self.workbook.stage_frame(stage)
         workspace = self._wafer_window_factory()
-        title = f"{str(stage).title()} · Card Matching Workbook"
+        title = f"{str(stage).title()} · Match Workbook"
         workspace.set_table(frame, title)
         if hasattr(workspace, "setWindowTitle"):
             workspace.setWindowTitle(f"{str(stage).title()} Wafer Map / Radius")
@@ -703,6 +807,7 @@ class MatchingWindow(QMainWindow):
         self.workbook = self.current_workbook()
         self.result = self.workbook.analyze()
         self.summary_model.set_frame(self.result.summary)
+        self._show_mapping_results()
         self.parameter_picker.blockSignals(True)
         self.parameter_picker.clear()
         self.parameter_picker.addItems(list(self.result.parameter_names))
@@ -713,13 +818,16 @@ class MatchingWindow(QMainWindow):
         )
         self.result_status.setText(self._result_descriptor)
         self._draw_parameter()
-        self.tabs.setCurrentWidget(self.results_page)
+        QTimer.singleShot(
+            0, lambda: self.setup_scroll.ensureWidgetVisible(self.results_panel, 0, 24)
+        )
         self._update_state()
         return self.result
 
     def _run_analysis_clicked(self):
         try:
             self.run_analysis()
+            self._auto_run_enabled = True
         except Exception as error:
             QMessageBox.warning(self, "Cannot run analysis", str(error))
 
@@ -732,15 +840,18 @@ class MatchingWindow(QMainWindow):
         reference_all = data["Reference"].to_numpy(float)
         raw_all = data["Raw"].to_numpy(float)
         evaluated_all = data["Evaluated Value"].to_numpy(float)
-        bias_all = data["Selected Bias"].to_numpy(float)
+        bias_all = data["Bias"].to_numpy(float)
+        bias_percent_all = data["Bias %"].to_numpy(float)
         indices = extrema_sample_indices(
-            reference_all, raw_all, evaluated_all, bias_all, limit=PLOT_LIMIT
+            reference_all, raw_all, evaluated_all, bias_all, bias_percent_all,
+            limit=PLOT_LIMIT,
         )
         row = np.arange(1, len(data) + 1, dtype=float)[indices]
         reference = reference_all[indices]
         raw = raw_all[indices]
         evaluated = evaluated_all[indices]
         bias = bias_all[indices]
+        bias_percent = bias_percent_all[indices]
         display_note = ""
         if len(indices) < len(data):
             display_note = f" · display {len(indices):,}/{len(data):,}; calculations use all rows"
@@ -752,25 +863,35 @@ class MatchingWindow(QMainWindow):
         valid = np.isfinite(raw) & np.isfinite(reference)
         self.match_plot.plot(raw[valid], reference[valid], pen=None, symbol="o", symbolSize=5,
                              symbolBrush="#4f8bd6", symbolPen=None, name="Rows")
-        if self.linear_fit.isChecked() and valid.any():
+        if valid.any():
             low, high = float(np.min(raw[valid])), float(np.max(raw[valid]))
             x_line = np.array([low, high])
             self.match_plot.plot(x_line, card.slope * x_line + card.intercept,
                                  pen=pg.mkPen("#e09f3e", width=2), name="Linear fit")
-        self.match_plot.setTitle(f"{parameter} · R² {card.r_squared:.6g}{display_note}")
+        self.match_plot.setTitle(
+            f"Match · {parameter} · R² {card.r_squared:.6g}{display_note}"
+        )
 
         self.trend_plot.clear()
         self.trend_plot.addLegend(offset=(12, 12))
         self.trend_plot.plot(row, reference, pen=pg.mkPen("#8a8f98", width=1.5, style=Qt.PenStyle.DashLine), name="Reference")
         self.trend_plot.plot(row, evaluated, pen=pg.mkPen("#4f8bd6", width=1.5), name=self.workbook.result_mode.title())
-        self.trend_plot.setTitle(f"{parameter} trend{display_note}")
+        self.trend_plot.setTitle(f"Trend · {parameter}{display_note}")
 
         self.bias_plot.clear()
         self.bias_plot.plot(row, bias, pen=pg.mkPen("#4f8bd6", width=1.3))
         self.bias_plot.addLine(y=0, pen=pg.mkPen("#8a8f98", width=1, style=Qt.PenStyle.DashLine))
-        unit = "%" if self.workbook.bias_mode == "percent" else ""
-        self.bias_plot.setLabel("left", f"Bias {unit}".strip())
-        self.bias_plot.setTitle(f"{parameter} bias{display_note}")
+        self.bias_plot.setTitle(f"Bias · {parameter}{display_note}")
+
+        self.bias_percent_plot.clear()
+        self.bias_percent_plot.plot(
+            row, bias_percent, pen=pg.mkPen("#4f8bd6", width=1.3)
+        )
+        self.bias_percent_plot.addLine(
+            y=0, pen=pg.mkPen("#8a8f98", width=1, style=Qt.PenStyle.DashLine)
+        )
+        self.bias_percent_plot.setTitle(f"Bias % · {parameter}{display_note}")
+        self._update_bias_plot_visibility()
         self._draw_wafer_metrics(parameter)
 
     def _draw_wafer_metrics(self, parameter):
@@ -779,14 +900,14 @@ class MatchingWindow(QMainWindow):
             self.wafer_summary_model.set_frame(pd.DataFrame())
             self.wafer_r2_plot.clear()
             self.wafer_slope_plot.clear()
-            self.result_plots.setTabEnabled(self.wafer_tab_index, False)
+            self.single_wafer_panel.hide()
             return
         try:
             summary = self.result.wafer_summary(parameter)
         except ValueError:
             summary = pd.DataFrame()
             enabled = False
-        self.result_plots.setTabEnabled(self.wafer_tab_index, enabled)
+        self.single_wafer_panel.setVisible(enabled)
         self.wafer_summary_model.set_frame(summary)
         self.wafer_r2_plot.clear()
         self.wafer_slope_plot.clear()
@@ -862,8 +983,11 @@ class MatchingWindow(QMainWindow):
         plot_specs = [
             ("match", self.match_plot),
             ("trend", self.trend_plot),
-            ("bias", self.bias_plot),
         ]
+        if self.absolute_bias.isChecked():
+            plot_specs.append(("bias", self.bias_plot))
+        if self.percent_bias.isChecked():
+            plot_specs.append(("bias-percent", self.bias_percent_plot))
         if self.workbook.match_type in {"NOVA", "KLA"}:
             plot_specs.extend([
                 ("single-wafer-r2", self.wafer_r2_plot),
@@ -925,17 +1049,16 @@ class MatchingWindow(QMainWindow):
         self.final_model.set_frame(self.final_frame)
         self.reference_source.setText(self._source_text(Path(path).name, self.reference_frame))
         self.raw_source.setText(self._source_text(Path(path).name, self.raw_frame))
-        self.preview_source.setText(
-            "No data" if self.preview_frame.empty
-            else self._source_text(Path(path).name, self.preview_frame)
-        )
-        self.final_source.setText(
-            "No data" if self.final_frame.empty
-            else self._source_text(Path(path).name, self.final_frame)
-        )
         self.match_type.setCurrentText(workbook.match_type)
         self.result_mode.setCurrentText(workbook.result_mode.title())
-        self.bias_mode.setCurrentText(workbook.bias_mode.title())
+        self.absolute_bias.blockSignals(True)
+        self.percent_bias.blockSignals(True)
+        self._primary_bias_mode = workbook.bias_mode
+        self.absolute_bias.setChecked("absolute" in workbook.bias_views)
+        self.percent_bias.setChecked("percent" in workbook.bias_views)
+        self.absolute_bias.blockSignals(False)
+        self.percent_bias.blockSignals(False)
+        self._update_bias_plot_visibility()
         self._populate_mappings(workbook.mappings)
         self._update_state()
         self.workbook = workbook
@@ -946,12 +1069,15 @@ class MatchingWindow(QMainWindow):
         )
         self.result_status.setText(self._result_descriptor)
         self.summary_model.set_frame(self.result.summary)
+        self._show_mapping_results()
         self.parameter_picker.blockSignals(True)
         self.parameter_picker.clear()
         self.parameter_picker.addItems(list(self.result.parameter_names))
         self.parameter_picker.blockSignals(False)
         self._draw_parameter()
-        self.tabs.setCurrentWidget(self.results_page)
+        QTimer.singleShot(
+            0, lambda: self.setup_scroll.ensureWidgetVisible(self.results_panel, 0, 24)
+        )
         self._update_state()
         return workbook
 

@@ -24,17 +24,19 @@ v2 在独立的 `v2` 分支开发，`VERSION` 为 `2.0.0-dev`。v1.2.0 的提交
 当前完成的纵向切片：
 
 - Reference-first：先粘贴整理好的 Reference，再粘贴相同行数的 Raw Data；当前按行序对应。
-- Reference 与 Raw Data 复用 `SheetModel` / `SheetView` 的可编辑网格；空表也保留行列，支持单元格编辑、区域粘贴及撤销/重做。网格改动会同步回 Matching 的 DataFrame 并使旧分析失效；Preview/Final FullMap 与结果表仍使用只读的惰性 DataFrame 视图。
+- Reference 与 Raw Data 复用 `SheetModel` / `SheetView` 的可编辑网格；空表也保留行列，支持单元格编辑、区域粘贴及撤销/重做。两个网格直接用 Ctrl+V，不再提供重复的 Paste 按钮。网格改动会同步回 Matching 的 DataFrame 并使旧分析失效。
 - 一张 Reference 表支持多参数列；`<name> Reference` 自动对应 Raw Data 的 `<name>`，可在界面取消或改选。
 - 无 `Reference` 后缀的数值列也会列为候选参数，但默认不勾选，避免把 `TEM` 与 `PMISH` 之类的业务列擅自配错；Wafer ID、Die Seq 等元数据会排除。
 - Card 固定按 `Reference = slope × Raw + intercept` 拟合；Preview 应用 Card，Final 直接使用已经加 Card 的 Raw Data。
-- 同时提供绝对 Bias 和百分比 Bias；Reference 为 0 的百分比为 NaN。
+- Bias 与 Bias % 改为至少选择一个的复选框；两者可同时显示，选择状态写入 WKB，旧文件按原 `bias_mode` 恢复。Reference 为 0 的百分比为 NaN。
 - KLA/NOVA 按 Wafer ID 输出单片 SLOPE、INTERCEPT 和 R²；TEM 隐藏单片视图。
-- 结果图包括 Match、Trend、Bias，以及适用时的单片 R²/SLOPE；线性拟合图可关闭。
+- Match Workbook 使用可滚动的单页工作流：输入、Parameter mapping 和结果区位于可拖动的纵向 splitter 中；Slope、Intercept、R² 等结果合并回 mapping 行。窗口标题与模块入口统一为简洁的 `Match Workbook`。
+- Match、Trend、Bias、Bias % 不再使用 tab，而是按勾选状态同屏显示；Match 始终绘制线性拟合。KLA/NOVA 的单片 R²/SLOPE 独立显示在下一行。
+- Preview/Final 是窗口顶部的模式 tab，替代 Result 下拉框。首次手动 Run analysis 成功后，在 Raw Data 的 A1 粘贴替换表会自动重新分析。
 - `.wkb` 使用 SQLite schema 2，原子保存 Reference、匹配 Raw Data、可选 Preview/Final FullMap、映射与设置；schema 1 文件仍可打开。Excel 和逐图 PNG 只作为可选导出。
-- 工具已注册到主窗口，可同时打开多个 Matching Workbook 进行对照。
-- FullMap 与匹配数据分离：Preview 可把拟合 Card 应用到后来粘贴的 FullMap，Final 直接使用 OCD 已加 Card 的数据。
-- Preview/Final 通过 `MainWindow.set_table` 打开现有 Wafer Maps / Radius Plot 工作区，没有复制绘图实现。
+- 工具已注册到主窗口，可同时打开多个 Match Workbook 进行对照。
+- 独立 FullMap 输入页已从 UI 移除。Preview 将 Card 应用到当前 Raw Data；Final 直接使用当前已加 Card 的 Raw Data。旧 WKB 里已有的独立 stage 数据仍保持兼容。
+- 当前模式的 Open Preview/Final Wafer Map / Radius 按钮位于顶部 tab 右侧，通过 `MainWindow.set_table` 复用现有绘图工作区，没有复制绘图实现。
 
 规模目标是 100,000 行、50 参数。当前开发机随机浮点基准：全部 Card 0.16 秒，单参数派生结果 0.004 秒，WKB 保存 1.05 秒、载入 2.43 秒，文件 97.9 MB。分析结果按参数惰性展开，避免常驻 50 份完整派生表。
 

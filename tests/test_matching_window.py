@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pandas as pd
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QScrollArea, QSplitter, QTabBar
 
 from metrology_app.matching_window import MatchingWindow
 from metrology_app.module_registry import create_default_registry
@@ -71,11 +71,11 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(self.window.raw_frame.iloc[0, 1], "1.0")
 
     def test_reference_is_loaded_before_raw_data_and_enables_analysis(self):
-        self.assertFalse(self.window.raw_paste_button.isEnabled())
+        self.assertFalse(self.window.raw_view.isEnabled())
         self.assertFalse(self.window.analyze_button.isEnabled())
 
         self.window.set_reference_frame(self.reference(), "Clipboard")
-        self.assertTrue(self.window.raw_paste_button.isEnabled())
+        self.assertTrue(self.window.raw_view.isEnabled())
         self.assertFalse(self.window.analyze_button.isEnabled())
 
         self.window.set_raw_frame(self.raw(), "Clipboard")
@@ -85,7 +85,83 @@ class MatchingWindowTests(unittest.TestCase):
         result = self.window.run_analysis()
         self.assertEqual(result.parameter_names, ("CD_Bot", "SPA"))
         self.assertEqual(self.window.summary_model.rowCount(), 2)
-        self.assertEqual(self.window.tabs.currentWidget(), self.window.results_page)
+
+    def test_analysis_results_share_the_scrollable_setup_workspace(self):
+        self.assertEqual(self.window.windowTitle(), "Match Workbook")
+        self.assertEqual(self.window.title_label.text(), "Match Workbook")
+        self.assertIsInstance(self.window.mode_tabs, QTabBar)
+        self.assertEqual(self.window.mode_tabs.count(), 2)
+        self.assertEqual(self.window.mode_tabs.tabText(0), "Preview")
+        self.assertEqual(self.window.mode_tabs.tabText(1), "Final")
+        self.assertFalse(hasattr(self.window, "reference_paste_button"))
+        self.assertFalse(hasattr(self.window, "raw_paste_button"))
+        self.assertFalse(hasattr(self.window, "fullmap_page"))
+        self.assertFalse(self.window.preview_open_button.isHidden())
+        self.assertTrue(self.window.final_open_button.isHidden())
+        self.assertIsInstance(self.window.setup_scroll, QScrollArea)
+        self.assertIsInstance(self.window.setup_splitter, QSplitter)
+        self.assertEqual(
+            self.window.setup_splitter.orientation(), Qt.Orientation.Vertical
+        )
+        self.assertTrue(self.window.setup_page.isAncestorOf(self.window.primary_plot_splitter))
+        self.assertEqual(self.window.primary_plot_splitter.count(), 4)
+        self.assertIsInstance(self.window.plot_scroll, QScrollArea)
+        self.assertFalse(hasattr(self.window, "result_plots"))
+        self.assertFalse(hasattr(self.window, "linear_fit"))
+        self.assertTrue(self.window.absolute_bias.isChecked())
+        self.assertFalse(self.window.percent_bias.isChecked())
+        self.window.absolute_bias.setChecked(False)
+        self.assertTrue(self.window.absolute_bias.isChecked())
+
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.percent_bias.setChecked(True)
+        self.window.run_analysis()
+
+        headers = [
+            self.window.mapping_table.horizontalHeaderItem(column).text()
+            for column in range(self.window.mapping_table.columnCount())
+        ]
+        self.assertEqual(headers, [
+            "Use", "Parameter", "Reference column", "Raw Data column",
+            "Slope", "Intercept", "R²", "Valid pairs", "Match type", "Result mode",
+        ])
+        self.assertEqual(self.window.mapping_table.item(0, 7).text(), "3")
+        self.assertEqual(self.window.mapping_table.item(0, 8).text(), "KLA")
+        self.assertEqual(self.window.mapping_table.item(0, 9).text(), "Preview")
+        self.assertIn(
+            "Linear fit",
+            [item.name() for item in self.window.match_plot.listDataItems()],
+        )
+        self.assertFalse(self.window.bias_plot.isHidden())
+        self.assertFalse(self.window.bias_percent_plot.isHidden())
+        self.assertTrue(self.window.bias_plot.listDataItems())
+        self.assertTrue(self.window.bias_percent_plot.listDataItems())
+
+        self.window.mode_tabs.setCurrentIndex(1)
+        self.assertEqual(self.window.result_mode.currentText(), "Final")
+        self.assertTrue(self.window.preview_open_button.isHidden())
+        self.assertFalse(self.window.final_open_button.isHidden())
+
+    def test_raw_table_paste_auto_runs_after_first_manual_run(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+
+        self.window.analyze_button.click()
+        self.assertIsNotNone(self.window.result)
+
+        APP.clipboard().setText(
+            "Wafer ID\tCD_Bot\tSPA\nW1\t2\t3\nW2\t3\t4\nW3\t4\t5"
+        )
+        self.window.raw_view.setCurrentIndex(self.window.raw_model.index(0, 0))
+        self.window.raw_view.paste()
+        APP.processEvents()
+
+        self.assertIsNotNone(self.window.result)
+        self.assertEqual(
+            self.window.result.series("CD_Bot")["Raw"].tolist(),
+            [2.0, 3.0, 4.0],
+        )
 
     def test_numeric_reference_columns_without_suffix_can_be_mapped_manually(self):
         reference = pd.DataFrame({
@@ -234,12 +310,12 @@ class MatchingWindowTests(unittest.TestCase):
         self.window.match_type.setCurrentText("NOVA")
         self.window.run_analysis()
 
-        self.assertTrue(self.window.result_plots.isTabEnabled(self.window.wafer_tab_index))
+        self.assertFalse(self.window.single_wafer_panel.isHidden())
         self.assertEqual(self.window.wafer_summary_model.rowCount(), 2)
 
         self.window.match_type.setCurrentText("TEM")
         self.window.run_analysis()
-        self.assertFalse(self.window.result_plots.isTabEnabled(self.window.wafer_tab_index))
+        self.assertTrue(self.window.single_wafer_panel.isHidden())
     def test_exports_excel_and_separate_plot_images_after_analysis(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
@@ -252,6 +328,7 @@ class MatchingWindowTests(unittest.TestCase):
             "SPA": [5.0, 7.0, 9.0],
         })
         self.window.set_final_frame(final, "Final clipboard")
+        self.window.percent_bias.setChecked(True)
         self.window.run_analysis()
         with tempfile.TemporaryDirectory() as folder:
             excel_path = Path(folder) / "result.xlsx"
@@ -277,13 +354,16 @@ class MatchingWindowTests(unittest.TestCase):
             pd.testing.assert_frame_equal(final_fullmap, final, check_dtype=False)
             self.assertTrue(images)
             self.assertTrue(all(path.exists() and path.suffix == ".png" for path in images))
+            names = {path.name for path in images}
+            self.assertIn("CD_Bot-bias.png", names)
+            self.assertIn("CD_Bot-bias-percent.png", names)
     def test_default_registry_exposes_a_multi_instance_matching_tool(self):
         registry = create_default_registry()
         spec = registry.get("card_matching")
         first = registry.create("card_matching")
         second = registry.create("card_matching")
         try:
-            self.assertEqual(spec.title, "Card Matching Workbook")
+            self.assertEqual(spec.title, "Match Workbook")
             self.assertIsInstance(first, MatchingWindow)
             self.assertIsNot(first, second)
         finally:

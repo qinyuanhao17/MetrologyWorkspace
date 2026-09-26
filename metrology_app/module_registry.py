@@ -82,7 +82,7 @@ def create_default_registry():
 
     registry.register(ComponentSpec(
         "card_matching",
-        "Card Matching Workbook",
+        "Match Workbook",
         "Map Reference and Raw Data parameters, generate Cards, and review Preview or Final results.",
         "OCD matching",
         create_card_matching,

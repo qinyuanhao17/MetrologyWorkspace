@@ -211,6 +211,7 @@ class MatchWorkbookTests(unittest.TestCase):
             match_type="NOVA",
             result_mode="preview",
             bias_mode="percent",
+            bias_views=("absolute", "percent"),
             preview_raw=preview_raw,
             final_raw=final_raw,
         )
@@ -227,6 +228,7 @@ class MatchWorkbookTests(unittest.TestCase):
         self.assertEqual(restored.match_type, "NOVA")
         self.assertEqual(restored.result_mode, "preview")
         self.assertEqual(restored.bias_mode, "percent")
+        self.assertEqual(restored.bias_views, ("absolute", "percent"))
         self.assertEqual(restored.analyze().summary["Parameter"].tolist(), ["CD_Bot", "SPA"])
 
     def test_schema_one_wkb_still_opens_without_fullmap_stage_tables(self):

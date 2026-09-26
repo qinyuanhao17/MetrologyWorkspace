@@ -30,6 +30,33 @@ Feature: Build a card matching workbook
       When the engineer saves and reopens the WKB file
       Then the Reference table, Raw Data, mappings, and analysis settings are restored
 
+    Scenario: Compare absolute and percentage bias in one review
+      Given DP and EW have valid Reference and Raw Data mappings
+      And both absolute and percentage bias are selected
+      When the engineer runs a Preview match
+      Then each Card result is shown beside its parameter mapping
+      And Match, Trend, absolute bias, and percentage bias are visible together
+
+    Scenario: Reopen both selected bias views
+      Given a completed matching workbook with both bias views selected
+      When the engineer saves and reopens the WKB file
+      Then absolute and percentage bias are both restored
+
+  Rule: Repeated clipboard runs stay in one compact workspace
+
+    Scenario: Re-run automatically after the first manual analysis
+      Given Reference and Raw Data are mapped in the Preview tab
+      And the engineer has run the analysis once
+      When a replacement table is pasted into Raw Data at A1
+      Then the new Raw Data is analyzed automatically
+      And the result remains in the same scrollable workspace
+
+    Scenario: Choose Preview or Final from the top mode tabs
+      Given the Match Workbook is open
+      When the engineer selects the Final tab
+      Then Final is used as the result mode
+      And only the Final Wafer Map and Radius action is shown at the top right
+
   Rule: Match rows and FullMap rows have separate responsibilities
 
     Scenario: Apply a TEM Card to a later Preview FullMap
