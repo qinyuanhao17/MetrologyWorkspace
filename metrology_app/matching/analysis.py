@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import json
 import os
 from pathlib import Path
 import sqlite3
@@ -12,6 +13,8 @@ import tempfile
 
 import numpy as np
 import pandas as pd
+
+from ..measurements import default_identity_columns, detect_measurements
 
 
 SCHEMA_VERSION = 2
@@ -110,28 +113,29 @@ class MatchAnalysisResult:
         }, index=self._reference.index.copy())
 
     def wafer_summary(self, parameter, wafer_column=None):
-        """Fit Reference against Raw independently for each wafer, in source order."""
+        """Fit each Raw Data measurement identity independently, in source order."""
         try:
             mapping = self._mapping_by_name[parameter]
         except KeyError as error:
             raise ValueError(f"Unknown parameter: {parameter}") from error
-        source, column = _wafer_groups(self._reference, self._raw, wafer_column)
-        groups = source[column].fillna("").astype(str).to_numpy()
+        source, measurements = self._measurement_groups(wafer_column)
         reference = pd.to_numeric(self._reference[mapping.reference_column], errors="coerce").to_numpy(float)
         raw = pd.to_numeric(self._raw[mapping.raw_column], errors="coerce").to_numpy(float)
         rows = []
-        for wafer in pd.unique(groups):
-            if not wafer.strip():
-                continue
-            mask = groups == wafer
+        for measurement in measurements:
+            mask = np.zeros(len(source), dtype=bool)
+            mask[list(measurement.rows)] = True
             valid = mask & np.isfinite(raw) & np.isfinite(reference)
             if valid.sum() >= 2 and np.ptp(raw[valid]) > 0:
-                card = _fit_card(raw[valid], reference[valid], f"{parameter} / {wafer}")
+                card = _fit_card(
+                    raw[valid], reference[valid],
+                    f"{parameter} / {measurement.label}",
+                )
                 slope, intercept, r_squared = card.slope, card.intercept, card.r_squared
             else:
                 slope = intercept = r_squared = np.nan
             rows.append({
-                "Wafer": wafer,
+                "Wafer": measurement.label,
                 "Slope": slope,
                 "Intercept": intercept,
                 "R²": r_squared,
@@ -139,12 +143,44 @@ class MatchAnalysisResult:
             })
         return pd.DataFrame(rows, columns=["Wafer", "Slope", "Intercept", "R²", "Valid pairs"])
 
+    def measurement_ticks(self, wafer_column=None):
+        """Return one multi-line Raw Data identity label at each group centre."""
+        _source, measurements = self._measurement_groups(wafer_column)
+        return tuple(
+            (float(np.mean(measurement.rows)) + 1.0, measurement.label)
+            for measurement in measurements
+            if measurement.rows
+        )
+
+    def _measurement_groups(self, wafer_column=None):
+        source, column = _wafer_groups(self._reference, self._raw, wafer_column)
+        names = {_normalized(candidate): candidate for candidate in source.columns}
+        lot_column = next(
+            (names[name] for name in ("lotid", "lot", "lotno") if name in names),
+            None,
+        )
+        pad_column = next(
+            (names[name] for name in ("padname", "pad") if name in names),
+            None,
+        )
+        identity = default_identity_columns(
+            source, column, lot_column, pad_column
+        )
+        measurements = detect_measurements(
+            source,
+            column,
+            identity,
+            use_die_seq=False,
+        )
+        return source, measurements
+
 class MatchWorkbook:
     """One Reference/Raw workbook with analysis and durable `.wkb` persistence."""
 
     def __init__(self, reference, raw, mappings, match_type="KLA",
                  result_mode="preview", bias_mode="absolute",
-                 preview_raw=None, final_raw=None, bias_views=None):
+                 preview_raw=None, final_raw=None, bias_views=None,
+                 setup_splitter_sizes=None, parameter_order=None):
         self.reference = reference
         self.raw = raw
         self.preview_raw = preview_raw
@@ -158,6 +194,14 @@ class MatchWorkbook:
                 (self.bias_mode,) if bias_views is None else bias_views
             )
         )
+        self.setup_splitter_sizes = (
+            None
+            if setup_splitter_sizes is None
+            else tuple(int(size) for size in setup_splitter_sizes)
+        )
+        self.parameter_order = tuple(
+            mapping.name for mapping in self.mappings
+        ) if parameter_order is None else tuple(str(name) for name in parameter_order)
         self._validate()
 
     def _validate(self):
@@ -206,6 +250,20 @@ class MatchWorkbook:
             raise ValueError("Bias views must contain absolute, percent, or both.")
         if self.bias_mode not in self.bias_views:
             raise ValueError("The primary Bias mode must be included in Bias views.")
+        if (
+            self.setup_splitter_sizes is not None
+            and (
+                len(self.setup_splitter_sizes) != 3
+                or any(size < 0 for size in self.setup_splitter_sizes)
+            )
+        ):
+            raise ValueError("Setup splitter layout must contain three non-negative sizes.")
+        mapping_names = tuple(mapping.name for mapping in self.mappings)
+        if (
+            len(set(self.parameter_order)) != len(self.parameter_order)
+            or set(self.parameter_order) != set(mapping_names)
+        ):
+            raise ValueError("Parameter order must contain every mapped parameter once.")
 
     @staticmethod
     def _validate_stage_source(frame, label):
@@ -295,6 +353,14 @@ class MatchWorkbook:
                     "result_mode": self.result_mode,
                     "bias_mode": self.bias_mode,
                     "bias_views": ",".join(self.bias_views),
+                    "setup_splitter_sizes": (
+                        None
+                        if self.setup_splitter_sizes is None
+                        else ",".join(str(size) for size in self.setup_splitter_sizes)
+                    ),
+                    "parameter_order": json.dumps(
+                        self.parameter_order, ensure_ascii=False
+                    ),
                     "saved_utc": datetime.now(timezone.utc).isoformat(),
                 }])
                 metadata.to_sql("metadata", connection, index=False, if_exists="replace")
@@ -358,6 +424,35 @@ class MatchWorkbook:
             and str(metadata["bias_views"]).strip()
             else None
         )
+        saved_splitter_sizes = None
+        if (
+            "setup_splitter_sizes" in metadata.index
+            and pd.notna(metadata["setup_splitter_sizes"])
+            and str(metadata["setup_splitter_sizes"]).strip()
+        ):
+            try:
+                saved_splitter_sizes = tuple(
+                    int(size)
+                    for size in str(metadata["setup_splitter_sizes"]).split(",")
+                )
+            except ValueError as error:
+                raise ValueError(
+                    "This Matching Workbook has an invalid saved layout."
+                ) from error
+        saved_parameter_order = None
+        if (
+            "parameter_order" in metadata.index
+            and pd.notna(metadata["parameter_order"])
+            and str(metadata["parameter_order"]).strip()
+        ):
+            try:
+                saved_parameter_order = tuple(
+                    str(name) for name in json.loads(metadata["parameter_order"])
+                )
+            except (TypeError, ValueError, json.JSONDecodeError) as error:
+                raise ValueError(
+                    "This Matching Workbook has an invalid saved parameter order."
+                ) from error
         return cls(
             reference=reference,
             raw=raw,
@@ -368,6 +463,8 @@ class MatchWorkbook:
             bias_views=saved_bias_views,
             preview_raw=preview_raw,
             final_raw=final_raw,
+            setup_splitter_sizes=saved_splitter_sizes,
+            parameter_order=saved_parameter_order,
         )
 
 

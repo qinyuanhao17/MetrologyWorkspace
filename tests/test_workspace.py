@@ -214,6 +214,10 @@ class WorkspaceTests(unittest.TestCase):
         w.recognize()
         self.assertIn("Duplicate", w.message.text())
         self.assertFalse(w.auto_rename_button.isHidden())
+        self.assertFalse(w.warning_banner.isHidden())
+        self.assertIs(w.auto_rename_button.parentWidget(), w.warning_banner)
+        self.assertEqual(w.message.objectName(), "warningText")
+        self.assertEqual(w.auto_rename_button.objectName(), "warningAction")
         before = dict(w.model.cells)
 
         w.auto_rename_button.click()
@@ -222,6 +226,7 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(w.model.headers(), ["Wafer ID", "Value", "Value_3", "Value_2"])
         self.assertTrue(w.auto_rename_button.isHidden())
         self.assertTrue(w.message.isHidden())   # the warning banner is gone
+        self.assertTrue(w.warning_banner.isHidden())
         self.assertEqual(w._frame.shape, (2, 4))
         # Only row-1 names change: the measurement rows are byte-identical.
         self.assertEqual({key: value for key, value in w.model.cells.items() if key[0]},

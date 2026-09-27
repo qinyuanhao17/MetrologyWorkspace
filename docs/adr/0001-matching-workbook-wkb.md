@@ -9,7 +9,7 @@ Card Matching 需要保存最多 100,000 行、50 个参数的 Reference 与 Raw
 
 ## 决策
 
-`.wkb` 使用 SQLite 文件。schema 1 保存 Reference、匹配 Raw Data、映射和设置；schema 2 新增可选的 Preview FullMap 与 Final Raw Data 表。`MatchWorkbook` 是稳定 interface，负责校验行序匹配、参数映射、Card 分析、FullMap 阶段转换和 WKB 保存/载入。Qt 窗口不直接读写 SQLite。
+`.wkb` 使用 SQLite 文件。schema 1 保存 Reference、匹配 Raw Data、映射和设置；schema 2 新增可选的 Preview FullMap 与 Final Raw Data 表。metadata 还可以包含 Setup splitter 的三个尺寸与 parameter order；它们是兼容旧 schema 1/2 文件的可选 UI 设置，不存在时使用默认布局与映射顺序。`MatchWorkbook` 是稳定 interface，负责校验行序匹配、参数映射、Card 分析、FullMap 阶段转换和 WKB 保存/载入。Qt 窗口不直接读写 SQLite。
 
 WKB 只存源表、映射和分析设置；Card 与派生序列在载入后重新计算。`MatchAnalysisResult` 只保留每个参数的系数，调用 `series(parameter)` 时才展开该参数的 Card Value、Evaluated Value 和 Bias。载入器兼容 schema 1；旧文件没有 Preview/Final FullMap，按空的可选输入处理。
 

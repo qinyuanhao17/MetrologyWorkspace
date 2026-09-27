@@ -49,6 +49,22 @@ class CellEdit(QUndoCommand):
         self.model.apply(self.before)
 
 
+class TableReplace(QUndoCommand):
+    """Undoable replacement used when a user pastes a complete table at A1."""
+
+    def __init__(self, model, matrix):
+        super().__init__("Replace table")
+        self.model = model
+        self.before = model.snapshot()
+        self.after = model.state_from_matrix(matrix)
+
+    def redo(self):
+        self.model.restore(self.after)
+
+    def undo(self):
+        self.model.restore(self.before)
+
+
 class SheetModel(QAbstractTableModel):
     changed = pyqtSignal()
 
@@ -126,19 +142,44 @@ class SheetModel(QAbstractTableModel):
 
     def load_matrix(self, matrix):
         """Replace every cell with a rectangular clipboard matrix."""
+        self.restore(self.state_from_matrix(matrix), emit_changed=False)
+        self.undo.clear()
+        self.undo.setClean()
+        self.changed.emit()
+
+    def replace_matrix(self, matrix):
+        """Replace the table as one user-visible, undoable operation."""
+        command = TableReplace(self, matrix)
+        if command.before != command.after:
+            self.undo.push(command)
+
+    def snapshot(self):
+        return dict(self.cells), self.height, self.width
+
+    @staticmethod
+    def state_from_matrix(matrix):
         matrix = [list(row) for row in matrix]
         if matrix:
             width = max(len(row) for row in matrix)
             matrix = [row + [""] * (width - len(row)) for row in matrix]
         width = max((len(row) for row in matrix), default=0)
+        cells = {
+            (r, c): str(value)
+            for r, row in enumerate(matrix)
+            for c, value in enumerate(row)
+            if str(value)
+        }
+        return cells, max(100, len(matrix) + 20), max(26, width + 3)
+
+    def restore(self, state, emit_changed=True):
+        cells, height, width = state
         self.beginResetModel()
-        self.cells = {(r, c): str(v) for r, row in enumerate(matrix) for c, v in enumerate(row) if str(v)}
-        self.height = max(100, len(matrix) + 20)
-        self.width = max(26, width + 3)
+        self.cells = dict(cells)
+        self.height = height
+        self.width = width
         self.endResetModel()
-        self.undo.clear()
-        self.undo.setClean()
-        self.changed.emit()
+        if emit_changed:
+            self.changed.emit()
 
     def frame(self):
         if not self.cells:
@@ -216,7 +257,7 @@ class SheetView(QTableView):
         if replaces_table:
             # Pasting a header row plus data at A1 replaces the whole table, so no
             # stale cells from a previously pasted file survive.
-            model.load_matrix(matrix)
+            model.replace_matrix(matrix)
         else:
             model.edit({(row + r, column + c): v for r, line in enumerate(matrix) for c, v in enumerate(line)})
         if matrix and (was_empty or replaces_table):

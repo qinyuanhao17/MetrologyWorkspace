@@ -15,6 +15,11 @@ QLabel#accent { color: #2563eb; font-weight: 600; }
 QLabel#ready { color: #15803d; background: #e9f7ef; border: 1px solid #8ed0a8; border-radius: 5px; padding: 5px 9px; font-size: 10px; font-weight: 700; }
 QLabel#badge { color: #4b4b53; background: #f2f2f3; border: 1px solid #d9d9de; border-radius: 6px; padding: 8px 12px; font-size: 11px; }
 QLabel#warning { color: #8a5a00; background: #fff6e0; border: 1px solid #e8c274; border-radius: 6px; padding: 10px; }
+QFrame#warningBanner { background: #fff6e0; border: 1px solid #e8c274; border-radius: 7px; }
+QFrame#warningBanner QLabel#warningText { color: #8a5a00; background: transparent; border: none; padding: 7px 10px; }
+QFrame#warningBanner QPushButton#warningAction { color: #7a4f00; background: #ffedbd; border: 1px solid #d9ac4a; border-radius: 6px; padding: 7px 12px; font-weight: 600; }
+QFrame#warningBanner QPushButton#warningAction:hover { background: #ffe49a; border-color: #c99125; }
+QFrame#warningBanner QPushButton#warningAction:pressed { background: #f7d77c; }
 QLabel#topBrand { color: #18181b; font-size: 16px; font-weight: 650; padding: 0 8px; }
 QLabel#pageSubtitle { color: #8a8a90; font-size: 12px; }
 QLabel#navigationLabel, QLabel#sectionTitle { color: #6b6b70; font-size: 11px; font-weight: 700; }

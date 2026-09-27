@@ -27,8 +27,12 @@ Feature: Build a card matching workbook
 
     Scenario: Reopen a saved matching workbook
       Given a completed matching workbook with multiple parameters
+      And the engineer has resized the input, mapping, and result sections
+      And the engineer has reordered the parameter cards
       When the engineer saves and reopens the WKB file
       Then the Reference table, Raw Data, mappings, and analysis settings are restored
+      And the saved section layout is restored
+      And the saved parameter order is restored
 
     Scenario: Compare absolute and percentage bias in one review
       Given DP and EW have valid Reference and Raw Data mappings
@@ -36,8 +40,26 @@ Feature: Build a card matching workbook
       When the engineer runs a Preview match
       Then each Card result is shown beside its parameter mapping
       And DP and EW each have a separate plot card in vertical order
-      And Match, Trend, absolute bias, and percentage bias use an unclipped 2 by 2 grid
+      And Match, Trend, absolute bias, and percentage bias use one unclipped horizontal row
+      And Match is narrower than the Trend and bias plots
+      And each Match plot is titled by its Raw Data column and shows its fitted equation and R squared
+      And Trend labels the blue solid line PMISH and the orange solid line with the Match Type
+      And Match labels PMISH horizontally and the Match Type vertically
+      And Bias reports nanometres and percentage points without scale multipliers
       And no parameter selector is required
+
+    Scenario: Review single-wafer quality separately from parameter plots
+      Given KLA or NOVA Raw Data contains Wafer ID, Lot ID, PAD Name, and Die Seq
+      When the engineer runs the analysis
+      Then All parameter plots and Single-wafer metrics are separate result tabs
+      And single-wafer groups use the same identity rules as Wafer Map
+      And changing Lot or PAD creates a separate multi-line wafer label
+
+    Scenario: Highlight a poor fit
+      Given a completed analysis contains fitted Card metrics
+      When a Slope is outside 0.9 through 1.1 or R squared is below 0.9
+      Then the affected value is shown with a red warning treatment
+      And an explanation identifies the failed threshold
 
     Scenario: Reopen both selected bias views
       Given a completed matching workbook with both bias views selected
@@ -46,6 +68,24 @@ Feature: Build a card matching workbook
 
   Rule: Repeated clipboard runs stay in one compact workspace
 
+    Scenario: Undo a replaced input table
+      Given Reference and Raw Data have already been pasted
+      When the engineer replaces either input table and undoes the change
+      Then the previous table is restored
+      And its parameter mappings are restored with it
+
+    Scenario: Keep mappings while Raw Data is temporarily missing
+      Given Reference parameters have valid Raw Data mappings
+      When the engineer clears the Raw Data table
+      Then the Reference parameter mappings remain visible and selected
+      And the engineer is prompted to paste Raw Data and fix missing columns
+
+    Scenario: Select every Reference parameter for mapping
+      Given the Reference table contains several parameter candidates
+      When the engineer selects all mappings
+      Then every parameter candidate is selected
+      And any missing Raw Data column is clearly reported
+
     Scenario: Re-run automatically after the first manual analysis
       Given Reference and Raw Data are mapped in the Preview tab
       And the engineer has run the analysis once
@@ -53,11 +93,35 @@ Feature: Build a card matching workbook
       Then the new Raw Data is analyzed automatically
       And the result remains in the same scrollable workspace
 
+    Scenario: Re-run after changing a Raw Data mapping
+      Given the engineer has completed the first manual analysis
+      When a mapped parameter is changed to another valid Raw Data column
+      Then the analysis updates automatically
+      And the engineer's section layout and parameter order remain unchanged
+
+    Scenario: Run analysis keeps a manually resized workspace
+      Given the engineer has dragged the input, mapping, and result boundaries
+      When the engineer runs the analysis
+      Then the two upper boundaries stay at the positions chosen by the engineer
+
     Scenario: Choose Preview or Final from the top mode tabs
-      Given the Match Workbook is open
+      Given a completed Preview analysis with a resized workspace
       When the engineer selects the Final tab
       Then Final is used as the result mode
+      And the Reference, mappings, results, and section layout remain available
+      And the Raw Data input card is hidden in Final
       And only the Final Wafer Map and Radius action is shown at the top right
+
+    Scenario: Reorder parameter cards for review
+      Given several mapped parameters have been analyzed
+      When the engineer drags one parameter card above another
+      Then all parameter results follow the chosen order
+      And Reset restores Parameter mapping order
+
+    Scenario: Use the compact workbook menu
+      Given the Match Workbook is open
+      Then file actions, Match Type, and Bias choices are available from the menu bar
+      And no duplicate workbook heading or settings panel consumes the workspace
 
   Rule: Match rows and FullMap rows have separate responsibilities
 

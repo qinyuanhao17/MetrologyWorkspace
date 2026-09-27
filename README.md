@@ -1,6 +1,6 @@
 # Metrology Workspace
 
-Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配，并绘制 Wafer Map、径向图、相关性图和 Die Seq 趋势图。主窗口提供 **Wafer Map**、**Correlation and Trend** 和 **Match Workbook** 三个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例。当前 `v2` 分支为 `2.0.0-dev`；已发布且保留的稳定版本是 `v1.2.0`。
+Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配，并绘制 Wafer Map、径向图、相关性图和 Die Seq 趋势图。主窗口提供 **Wafer Map**、**Correlation and Trend** 和 **Match Workbook** 三个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例。v2 在 `main` 分支持续开发，当前开发快照为 `v2.0.0-dev.2`；已发布且保留的稳定版本是 `v1.2.0`。
 
 ## 运行
 
@@ -61,10 +61,10 @@ python -m PyInstaller --noconfirm --clean MetrologyWorkspace.spec
 
 1. 先在 Reference 网格粘贴已经整理好的表。一个表可以同时包含多列参数，例如 `CD_Bot Reference`、`SPA Reference`。
 2. 再在 Raw Data 网格粘贴原始数据。两个输入区与 Wafer Map / Correlation 的数据表操作一致：第 1 行是表头，可直接改单元格、区域粘贴，并用 `Ctrl+Z` 撤销。当前版本按从上到下的行顺序对应，两张表必须具有相同的行数。
-3. 软件会把 `<参数名> Reference` 自动匹配到 Raw Data 中同名参数。像 `TEM`、`PMISH` 这样没有 `Reference` 后缀的数值列也会出现在映射表中，但不会擅自自动选择；勾选需要的 Reference 列，再选择对应的 Raw Data 参数。Wafer ID、Die Seq 等元数据不会列为参数。一次最多选择 50 个参数，最多处理 100,000 行。
-4. 在顶部选择 **Preview** 或 **Final**，再选择 KLA、NOVA 或 TEM；`Bias` 和 `Bias %` 至少勾选一个，也可以同时勾选。
-5. 首次点击 **Run analysis** 后，Slope、Intercept、R²、Valid pairs 等结果直接显示在 Parameter mapping 的同一行。以后在 Raw Data 的 A1 粘贴新表会自动重新分析，不需要重复点击；Reference 与 Raw Data 都直接在网格中按 `Ctrl+V` 粘贴，不再保留重复的 Paste 按钮。
-6. 继续向下滚动即可查看全部已映射参数。每个参数都有独立卡片，Match、Trend、Bias、Bias % 采用宽松的 2 × 2 图格，不需要再从 Parameter 下拉框逐个切换；输入、映射和绘图区之间的分隔线可以拖动。当前模式对应的 **Open Preview/Final Wafer Map / Radius** 位于顶部右侧。
+3. 软件会把 `<参数名> Reference` 自动匹配到 Raw Data 中同名参数。像 `TEM`、`PMISH` 这样没有 `Reference` 后缀的数值列也会出现在映射表中，但不会擅自自动选择；可用 **Select all** 勾选全部候选项，再为它们选择对应的 Raw Data 参数。Wafer ID、Die Seq 等元数据不会列为参数。一次最多选择 50 个参数，最多处理 100,000 行。
+4. 在顶部选择 **Preview** 或 **Final**。文件操作、KLA/NOVA/TEM Match Type、`Bias` / `Bias %` 和 Run analysis 都位于原生菜单栏；页面不再重复显示 Workbook 标题和设置面板。`Bias` 与 `Bias %` 至少选择一个，也可以同时选择。
+5. 首次执行 **Run analysis** 后，Slope、Intercept、R²、Valid pairs 等结果直接显示在 Parameter mapping 的同一行。以后在 Raw Data 的 A1 粘贴新表或更改 Raw Data column 都会自动重新分析，不需要重复点击；Reference 与 Raw Data 都直接在网格中按 `Ctrl+V` 粘贴，整表替换、单元格编辑和 Delete 清空均可用 `Ctrl+Z` 撤销。Raw Data 暂时清空或缺少原参数列时，Reference 建立的映射仍会保留，界面会提示重新选择缺失的 Raw Data column。Slope 小于 0.9 或大于 1.1、R² 小于 0.9 时，值会以红色警示并说明阈值。
+6. 结果区分为 **All parameter plots** 和 **Single-wafer metrics** 两个 tab。全部参数按纵向卡片显示，Match、Trend、Bias、Bias % 按当前选择排在同一横行；Match 使用较紧凑的宽度，Trend 与 Bias 获得更多横向空间。拖动参数卡标题可调整顺序，右上角 **Reset** 恢复 Parameter mapping 顺序。输入、映射和结果区之间的分隔线可以拖动；运行分析及切换 Preview/Final 都不会重置这些位置。Final 隐藏 Raw Data 输入卡，但保留 Preview 的 Reference、Parameter mapping 和当前结果。当前模式对应的 **Open Preview/Final Wafer Map / Radius** 位于顶部右侧。
 
 Card 的定义为：
 
@@ -73,10 +73,10 @@ Card 的定义为：
 - **Preview** 会把新生成的 slope/intercept 应用到当前 Raw Data，得到 Card Value，再用它绘制 Trend、Bias、Wafer Map 和 Radius Plot。
 - **Final** 假定当前 Raw Data 已经由 OCD 软件应用 Card，不会重复加 Card；Trend、Bias、Wafer Map 和 Radius Plot 都直接使用输入值。
 - `Bias` 是 `Evaluated Value - Reference`；`Bias %` 是 `(Evaluated Value - Reference) / Reference × 100%`。两者可以同时显示，Reference 为 0 时百分比留空，不猜测替代值。
-- KLA/NOVA 会额外按 Wafer ID 显示单片 SLOPE、INTERCEPT 和 R²；TEM 不显示该组单片结果。
-- Match 始终显示线性拟合，不再提供重复的开关。所有参数卡片按纵向顺序排列，卡片内的 Match、Trend、Bias、Bias % 同时显示；KLA/NOVA 的单片图也跟随对应参数。分析层仍按需生成每个参数的派生数据，界面只保留经过极值采样的绘图数组，不复制 50 份完整结果表。
+- KLA/NOVA 的 Single-wafer tab 使用 Raw Data 的 Wafer ID、Lot ID 和 PAD Name，并沿用 Wafer Map 的默认身份规则；只有真正变化的 Lot/PAD 才参与分组，Die Seq 不单独拆组。多个身份字段分行显示，避免横轴文字重叠。TEM 不显示该组单片结果。
+- Match 始终显示线性拟合，不再提供重复的开关；图名使用映射的 Raw Data column，横轴是 PMISH、纵轴是当前 Match Type，右上角显示拟合公式和 R²。Trend 中 PMISH 使用蓝色实线圆点，当前 Match Type 使用橙色实线圆点，且不重复显示无意义的纵轴名。Bias 使用蓝色点线并按原始数值显示 `Bias (nm)` 和 `Bias (%)`，禁用自动 SI 缩放，不再出现 ×0.001 或百分比系数。分析层仍按需生成每个参数的派生数据，界面只保留经过极值采样的绘图数组，不复制 50 份完整结果表。
 
-**Save WKB** 保存 Reference、Raw Data、参数映射、Bias 显示选择和分析设置；旧 WKB 中已有的 Preview/Final FullMap 数据仍会保留。WKB 是 SQLite-backed 的主工作文件，可以在多个独立窗口中重新打开比较；它不依赖 Excel，也不会执行不安全的 pickle。**Export Excel** 是确认结果后的可选输出，包含 Summary、Reference、Raw Data、Preview/Final 结果，以及存在时的 FullMap 工作表。**Save images** 会把当前选择显示的每个参数图分别保存为 PNG。
+**Save WKB** 保存 Reference、Raw Data、参数映射、Bias 显示选择、分析设置、分隔栏布局和用户拖动后的参数顺序；重新打开后会恢复保存时的位置与顺序。旧 WKB 没有这些可选字段时继续使用默认布局和 Parameter mapping 顺序，已有的 Preview/Final FullMap 数据仍会保留。WKB 是 SQLite-backed 的主工作文件，可以在多个独立窗口中重新打开比较；它不依赖 Excel，也不会执行不安全的 pickle。**Export Excel** 是确认结果后的可选输出，包含 Summary、Reference、Raw Data、Preview/Final 结果，以及存在时的 FullMap 工作表。**Save images** 会把当前选择显示的每个参数图分别保存为 PNG。
 
 10 万行、50 参数的随机浮点基准中，50 个 Card 的计算约 0.16 秒，单个参数结果展开约 0.004 秒；WKB 保存约 1.05 秒、载入约 2.43 秒，文件约 97.9 MB。结果取自当前开发机的一次可重复测量，不代表所有磁盘和数据分布。 可用 python benchmarks/benchmark_matching.py 复测。
 

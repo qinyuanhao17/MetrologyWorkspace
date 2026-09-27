@@ -156,6 +156,39 @@ class MatchWorkbookTests(unittest.TestCase):
         np.testing.assert_allclose(wafers["Slope"], [2.0, 3.0])
         np.testing.assert_allclose(wafers["Intercept"], [1.0, -2.0])
         np.testing.assert_allclose(wafers["R²"], [1.0, 1.0])
+
+    def test_wafer_summary_uses_raw_data_measurement_identity(self):
+        reference = pd.DataFrame({
+            "CD Reference": [12.0, 22.0, 32.0, 42.0],
+        })
+        raw = pd.DataFrame({
+            "Wafer ID": ["W1", "W1", "W1", "W1"],
+            "Lot ID": ["L1", "L1", "L2", "L2"],
+            "PAD Name": ["P1", "P1", "P2", "P2"],
+            "Die Seq": [1, 2, 1, 2],
+            "CD": [1.0, 2.0, 3.0, 4.0],
+        })
+        workbook = MatchWorkbook(
+            reference,
+            raw,
+            [ParameterMapping("CD", "CD Reference", "CD")],
+        )
+
+        wafers = workbook.analyze().wafer_summary("CD")
+
+        self.assertEqual(
+            wafers["Wafer"].tolist(),
+            ["W1\nPAD: P1\nLot: L1", "W1\nPAD: P2\nLot: L2"],
+        )
+        self.assertEqual(wafers["Valid pairs"].tolist(), [2, 2])
+        self.assertEqual(
+            workbook.analyze().measurement_ticks(),
+            (
+                (1.5, "W1\nPAD: P1\nLot: L1"),
+                (3.5, "W1\nPAD: P2\nLot: L2"),
+            ),
+        )
+
     def test_rejects_row_order_input_with_different_lengths(self):
         with self.assertRaisesRegex(ValueError, "same number of rows"):
             MatchWorkbook(
@@ -214,6 +247,8 @@ class MatchWorkbookTests(unittest.TestCase):
             bias_views=("absolute", "percent"),
             preview_raw=preview_raw,
             final_raw=final_raw,
+            setup_splitter_sizes=(320, 480, 1600),
+            parameter_order=("SPA", "CD_Bot"),
         )
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "analysis.wkb"
@@ -229,6 +264,8 @@ class MatchWorkbookTests(unittest.TestCase):
         self.assertEqual(restored.result_mode, "preview")
         self.assertEqual(restored.bias_mode, "percent")
         self.assertEqual(restored.bias_views, ("absolute", "percent"))
+        self.assertEqual(restored.setup_splitter_sizes, (320, 480, 1600))
+        self.assertEqual(restored.parameter_order, ("SPA", "CD_Bot"))
         self.assertEqual(restored.analyze().summary["Parameter"].tolist(), ["CD_Bot", "SPA"])
 
     def test_schema_one_wkb_still_opens_without_fullmap_stage_tables(self):
@@ -242,12 +279,22 @@ class MatchWorkbookTests(unittest.TestCase):
             workbook.save(path)
             with closing(sqlite3.connect(path)) as connection, connection:
                 connection.execute("UPDATE metadata SET schema_version = 1")
+                connection.execute(
+                    """CREATE TABLE legacy_metadata AS
+                       SELECT schema_version, match_type, result_mode, bias_mode,
+                              bias_views, saved_utc
+                       FROM metadata"""
+                )
+                connection.execute("DROP TABLE metadata")
+                connection.execute("ALTER TABLE legacy_metadata RENAME TO metadata")
             restored = MatchWorkbook.load(path)
 
         pd.testing.assert_frame_equal(restored.reference, workbook.reference)
         pd.testing.assert_frame_equal(restored.raw, workbook.raw)
         self.assertIsNone(restored.preview_raw)
         self.assertIsNone(restored.final_raw)
+        self.assertIsNone(restored.setup_splitter_sizes)
+        self.assertEqual(restored.parameter_order, ("CD_Bot", "SPA"))
 
 
 if __name__ == "__main__":

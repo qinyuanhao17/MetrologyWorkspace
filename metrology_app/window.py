@@ -128,19 +128,24 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(10, 12, 10, 10)
         layout.setSpacing(10)
-        banner = QHBoxLayout()
+        self.warning_banner = QFrame(objectName="warningBanner")
+        banner = QHBoxLayout(self.warning_banner)
+        banner.setContentsMargins(4, 4, 4, 4)
         banner.setSpacing(10)
-        self.message = label("", "warning")
+        self.message = label("", "warningText")
         self.message.setWordWrap(True)
         self.message.hide()
         banner.addWidget(self.message, 1)
-        self.auto_rename_button = QPushButton("Auto rename", objectName="subtle")
+        self.auto_rename_button = QPushButton(
+            "Auto rename", objectName="warningAction"
+        )
         self.auto_rename_button.setToolTip(
             "Append 2, 3 … to repeated row-1 column names, in column order.")
         self.auto_rename_button.hide()
         self.auto_rename_button.clicked.connect(self.auto_rename_columns)
         banner.addWidget(self.auto_rename_button)
-        layout.addLayout(banner)
+        self.warning_banner.hide()
+        layout.addWidget(self.warning_banner)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
         splitter.addWidget(self.build_sheet_card())
@@ -364,6 +369,7 @@ class MainWindow(QMainWindow):
             _, counts, _ = inspect_table(frame, primary) if primary else (None, {}, metrics)
             self.measurements = detect_measurements(frame, primary, chosen_groups, use_die_seq=False)
             self._frame = frame
+            self.warning_banner.hide()
             self.message.hide()
             self.auto_rename_button.hide()
             for tree in (self.wafer_list, self.parameter_list):
@@ -398,6 +404,7 @@ class MainWindow(QMainWindow):
             if len(frame) and not chosen_groups:
                 self.message.setText("Choose one or more grouping columns on the right to identify measurement sets.")
                 self.message.show()
+                self.warning_banner.show()
         except ValueError as error:
             self._frame = pd.DataFrame()
             self.measurements = []
@@ -406,6 +413,7 @@ class MainWindow(QMainWindow):
             self.message.setText(str(error))
             self.message.show()
             self.auto_rename_button.setVisible(bool(self.model.duplicate_header_count()))
+            self.warning_banner.show()
         finally:
             self.wafer_list.blockSignals(False)
             self.parameter_list.blockSignals(False)
