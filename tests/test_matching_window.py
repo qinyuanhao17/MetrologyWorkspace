@@ -296,7 +296,7 @@ class MatchingWindowTests(unittest.TestCase):
             "Linear fit",
             [item.name() for item in cd_plots["match"].listDataItems()],
         )
-        self.assertTrue(all(plot.minimumHeight() >= 280 for plot in cd_plots.values()))
+        self.assertTrue(all(plot.minimumHeight() == 240 for plot in cd_plots.values()))
         self.assertTrue(cd_plots["bias"].listDataItems())
         self.assertTrue(cd_plots["bias-percent"].listDataItems())
         self.assertTrue(spa_plots["match"].listDataItems())
@@ -332,6 +332,33 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(self.window.result_mode.currentText(), "Final")
         self.assertTrue(self.window.preview_open_button.isHidden())
         self.assertFalse(self.window.final_open_button.isHidden())
+
+    def test_section_guidance_is_available_from_titles_not_inline_comments(self):
+        labels = self.window.findChildren(QLabel)
+        titles = {label.text(): label for label in labels}
+        expected_help = {
+            "Reference": (
+                "Paste the prepared table first.\n"
+                "Row 1 = headers · Ctrl+V paste · Ctrl+Z undo."
+            ),
+            "Raw Data": (
+                "Rows are matched to Reference from top to bottom.\n"
+                "Row 1 = headers · Ctrl+V paste · Ctrl+Z undo."
+            ),
+            "Parameter mapping": (
+                "Numeric Reference columns are listed; “Reference” suffix "
+                "columns pair by name."
+            ),
+        }
+
+        for title, help_text in expected_help.items():
+            self.assertIn(title, titles)
+            self.assertEqual(titles[title].toolTip(), help_text)
+
+        visible_text = {label.text() for label in labels}
+        for help_text in expected_help.values():
+            for line in help_text.splitlines():
+                self.assertNotIn(line, visible_text)
 
     def test_raw_table_paste_auto_runs_after_first_manual_run(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
@@ -442,6 +469,43 @@ class MatchingWindowTests(unittest.TestCase):
 
         card = self.window.plot_groups["CD_Bot"]["card"]
         self.assertLessEqual(card.geometry().top(), 4)
+
+    def test_primary_plot_height_is_fixed_for_single_and_multiple_parameters(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+        self.window.resize(1600, 900)
+        self.window.show()
+        APP.processEvents()
+        multiple_heights = {
+            plot.height()
+            for group in self.window.plot_groups.values()
+            for plot in group["plots"].values()
+        }
+
+        single = MatchingWindow()
+        try:
+            single.set_reference_frame(
+                self.reference()[["Wafer ID", "CD_Bot Reference"]], "Clipboard"
+            )
+            single.set_raw_frame(
+                self.raw()[["Wafer ID", "CD_Bot"]], "Clipboard"
+            )
+            single.run_analysis()
+            single.resize(1600, 900)
+            single.show()
+            APP.processEvents()
+            single_heights = {
+                plot.height()
+                for group in single.plot_groups.values()
+                for plot in group["plots"].values()
+            }
+        finally:
+            single.close()
+
+        self.assertEqual(multiple_heights, {240})
+        self.assertEqual(single_heights, {240})
+        self.assertEqual(self.window.plot_groups_layout.spacing(), 8)
 
     def test_match_plot_uses_raw_column_title_and_shows_fit_equation(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
@@ -626,10 +690,28 @@ class MatchingWindowTests(unittest.TestCase):
                     tuple(reopened.setup_splitter.sizes()[:2]),
                     saved_sizes[:2],
                 )
+                self.assertEqual(
+                    reopened.setup_scroll.verticalScrollBar().value(), 0
+                )
             finally:
                 reopened.close()
                 reopened.deleteLater()
                 APP.processEvents()
+
+    def test_wkb_paths_are_sent_to_the_diagnostic_log(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "diagnostic.wkb"
+            with self.assertLogs("metrology_workspace", level="INFO") as captured:
+                self.window.save_workbook(path)
+                self.window.load_workbook(path)
+
+        messages = "\n".join(captured.output)
+        self.assertIn(f"WKB saved: {path.resolve()}", messages)
+        self.assertIn(f"WKB opened: {path.resolve()}", messages)
 
     def test_parameter_plot_order_survives_run_and_wkb_until_reset(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")

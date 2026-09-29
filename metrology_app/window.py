@@ -12,15 +12,17 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtWidgets import QApplication
 
 from .data import inspect_table, read_table
+from .diagnostics import get_logger
 from .sheet import SheetModel, SheetView, clipboard_rows, column_letter
 from .plot_page import PlotPage
 from .radius_page import RadiusPage
 from .measurements import default_identity_columns, detect_measurements
-from .appearance import fit_window_to_screen
+from .appearance import fit_window_to_screen, help_title_label
 from .settings import apply_theme
 
 
 DEFAULT_UNCHECKED_PARAMETERS = {"mse", "gof", "ngof", "lbh", "regiter", "reglter", "cindex"}
+LOGGER = get_logger()
 
 
 def parameter_checked_by_default(name):
@@ -177,13 +179,20 @@ class MainWindow(QMainWindow):
         """Wafer Map starts with no measurement parameter selected."""
         return []
 
+    def is_parameter_selectable(self, column, numeric):
+        """Allow specialized workspaces to keep derived numeric fields read-only."""
+        return bool(numeric)
+
     def build_sheet_card(self):
         card = QFrame(objectName="sheetCard")
         layout = QVBoxLayout(card)
         layout.setContentsMargins(16, 15, 16, 12)
         layout.setSpacing(12)
         heading = QHBoxLayout()
-        heading.addWidget(label("Measurement table", "panelTitle"))
+        heading.addWidget(help_title_label(
+            "Measurement table",
+            "Row 1 = headers · Ctrl+V pastes cells.",
+        ))
         heading.addStretch()
         for title, handler, shortcut in (
             ("New", self.new_table, "Ctrl+N"),
@@ -226,7 +235,6 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.sheet, 1)
         footer = QHBoxLayout()
         footer.addWidget(self.file_label)
-        footer.addWidget(label("Row 1 = headers · Ctrl+V pastes cells", "hint"))
         footer.addStretch()
         self.dirty_label = label("Saved", "hint")
         footer.addWidget(self.dirty_label)
@@ -235,12 +243,11 @@ class MainWindow(QMainWindow):
 
     def card_header(self, layout, title, subtitle, tree):
         heading = QHBoxLayout()
-        heading.addWidget(label(title, "panelTitle"))
+        heading.addWidget(help_title_label(title, subtitle))
         heading.addStretch()
         heading.addWidget(button("All", lambda: self.check_all(tree, True), "link"))
         heading.addWidget(button("None", lambda: self.check_all(tree, False), "link"))
         layout.addLayout(heading)
-        tree.setToolTip(subtitle)
 
     def build_wafer_card(self):
         card = QFrame(objectName="panel")
@@ -391,7 +398,7 @@ class MainWindow(QMainWindow):
                 item.setData(0, Qt.ItemDataRole.UserRole, column)
                 item.setData(0, Qt.ItemDataRole.UserRole + 1, numeric)
                 item.setToolTip(0, column)
-                if numeric:
+                if self.is_parameter_selectable(column, numeric):
                     item.setCheckState(0, Qt.CheckState.Checked if column in chosen else Qt.CheckState.Unchecked)
                 else:
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
@@ -516,7 +523,9 @@ class MainWindow(QMainWindow):
                     if not ok:
                         return
             self.set_table(read_table(path, sheet=sheet, dtype=str), str(path))
+            LOGGER.info("Measurement table opened: %s", Path(path).resolve())
         except Exception as error:
+            LOGGER.exception("Unable to open measurement table")
             QMessageBox.warning(self, "Unable to open table", str(error))
 
     def paste_table(self):
@@ -539,7 +548,9 @@ class MainWindow(QMainWindow):
                 self.model.undo.setClean()
                 self.file_label.setText(Path(path).name)
                 self.statusBar().showMessage(f"Saved: {path}")
+                LOGGER.info("Measurement table saved: %s", Path(path).resolve())
         except Exception as error:
+            LOGGER.exception("Unable to save measurement table")
             QMessageBox.warning(self, "Unable to save table", str(error))
 
     def closeEvent(self, event):

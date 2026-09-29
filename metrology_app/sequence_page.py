@@ -117,6 +117,9 @@ class SequencePage(QWidget):
         toolbar = QHBoxLayout()
         toolbar.setSpacing(8)
         self.select_button = QPushButton("Select maps")
+        self.select_button.setToolTip(
+            "Drag to select curves · Ctrl to add / remove · Shift to extend"
+        )
         self.select_button.clicked.connect(self.show_selector)
         toolbar.addWidget(self.select_button)
         self.draw_button = QPushButton("Draw selected", objectName="primary")
@@ -142,10 +145,11 @@ class SequencePage(QWidget):
         self.columns.setFixedWidth(54)
         self.columns.currentIndexChanged.connect(self.relayout)
         options.addWidget(self.columns)
-        options.addWidget(QLabel("Scroll to zoom · drag a box to zoom · right-drag to pan",
-                                 objectName="muted"))
         self.reset_button = QPushButton("Reset views")
-        self.reset_button.setToolTip("Return every curve to its original range.")
+        self.reset_button.setToolTip(
+            "Scroll to zoom · Drag a box to zoom · Right-drag to pan.\n"
+            "Reset returns every curve to its original range."
+        )
         self.reset_button.clicked.connect(self.reset_views)
         options.addWidget(self.reset_button)
         options.addWidget(QLabel("Font", objectName="muted"))
@@ -187,8 +191,6 @@ class SequencePage(QWidget):
         box_layout = QVBoxLayout(self.selector_panel)
         box_layout.setContentsMargins(0, 0, 0, 0)
         box_bar = QHBoxLayout()
-        box_bar.addWidget(QLabel("Drag to select curves · Ctrl to add / remove · Shift to extend",
-                                 objectName="hint"))
         box_bar.addStretch()
         self.selector = MapSelector()
         for title, handler in (("All", self.selector.selectAll), ("None", self.selector.clearSelection)):

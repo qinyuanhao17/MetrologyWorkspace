@@ -1,24 +1,43 @@
 """Application shell that supervises independent analysis components."""
 
 from datetime import datetime
+import logging
+import platform
 from pathlib import Path
+import sys
+import traceback
 
 from PyQt6.QtCore import QSize, Qt, QTimer
 from PyQt6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
-    QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel, QListWidget, QMainWindow,
-    QMenu, QPushButton, QScrollArea, QSizePolicy, QToolBar, QToolButton, QVBoxLayout,
+    QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow,
+    QMenu, QPlainTextEdit, QScrollArea, QSizePolicy, QToolBar, QToolButton, QVBoxLayout,
     QWidget,
 )
 
-from .appearance import fit_window_to_screen, set_theme_palette, style_titlebar
+from .appearance import (
+    fit_window_to_screen, help_title_label, set_theme_palette, style_titlebar,
+)
 from .module_button import ModuleButton
 from .module_registry import create_default_registry
+from .diagnostics import get_logger
 from .settings import apply_theme, get_settings, load_settings
 from .settings_dialog import SettingsDialog
 
 
 APPLICATION_NAME = "Metrology Workspace"
+
+
+class _DiagnosticHandler(logging.Handler):
+    def __init__(self, callback):
+        super().__init__(logging.INFO)
+        self.callback = callback
+
+    def emit(self, record):
+        try:
+            self.callback(record.levelname, "Application", self.format(record))
+        except RuntimeError:
+            pass
 
 
 def _label(text, role):
@@ -38,6 +57,7 @@ class MainWindow(QMainWindow):
         self._instance_serial = {}
         self.module_buttons = {}
         self.close_all_buttons = {}
+        self._diagnostic_handler = None
         self.setObjectName("applicationShell")
         self.setWindowTitle(APPLICATION_NAME)
         # A modest window centred on the display: the shell only holds two
@@ -47,8 +67,12 @@ class MainWindow(QMainWindow):
         self._apply_theme()
         self._build_toolbar()
         self._build_content()
+        self._install_diagnostic_log()
         self._populate_modules()
         self.record("App", "Metrology Workspace is ready")
+        self.record("Runtime", f"Python {platform.python_version()} · {sys.executable}")
+        self.record("Runtime", f"Platform {platform.platform()}")
+        self.record("Runtime", f"Working directory: {Path.cwd()}")
         self.update_overview()
 
     @property
@@ -164,11 +188,13 @@ class MainWindow(QMainWindow):
 
     def _build_overview(self):
         page = QWidget(objectName="overviewPage")
+        page.setMinimumWidth(360)
         layout = QVBoxLayout(page)
         layout.setContentsMargins(30, 26, 30, 28)
         layout.setSpacing(10)
-        layout.addWidget(_label("Workspace", "pageTitle"))
-        layout.addWidget(_label("Open a tool in its own analysis window.", "pageSubtitle"))
+        layout.addWidget(help_title_label(
+            "Workspace", "Open a tool in its own analysis window.", "pageTitle"
+        ))
         layout.addSpacing(18)
         card = QFrame(objectName="overviewCard")
         grid = QGridLayout(card)
@@ -188,25 +214,28 @@ class MainWindow(QMainWindow):
             grid.addWidget(value, row, 1)
         grid.setColumnStretch(1, 1)
         layout.addWidget(card)
-        layout.addSpacing(16)
-        layout.addWidget(_label("AVAILABLE TOOLS", "sectionTitle"))
-        self.catalog = QVBoxLayout()
-        self.catalog.setSpacing(10)
-        layout.addLayout(self.catalog)
         layout.addStretch()
         return page
 
     def _build_activity(self):
         panel = QFrame(objectName="activityPanel")
+        panel.setMinimumWidth(360)
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(20, 24, 20, 18)
         layout.setSpacing(10)
-        layout.addWidget(_label("Activity", "panelTitle"))
-        layout.addWidget(_label("Windows and files opened in this session.", "pageSubtitle"))
-        self.activity = QListWidget(objectName="activityLog")
-        self.activity.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        layout.addWidget(self.activity, 1)
+        layout.addWidget(help_title_label(
+            "Log", "Runtime, file paths, and errors for debugging."
+        ))
+        self.log_output = QPlainTextEdit(objectName="diagnosticLog")
+        self.log_output.setReadOnly(True)
+        self.log_output.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self.log_output.document().setMaximumBlockCount(1000)
+        layout.addWidget(self.log_output, 1)
         return panel
+
+    def _install_diagnostic_log(self):
+        self._diagnostic_handler = _DiagnosticHandler(self._append_log)
+        get_logger().addHandler(self._diagnostic_handler)
 
     def _populate_modules(self):
         for spec in self.registry:
@@ -219,33 +248,13 @@ class MainWindow(QMainWindow):
             self.module_buttons[spec.component_id] = button
             self.module_layout.addWidget(button)
 
-            card = QFrame(objectName="componentCard")
-            row = QHBoxLayout(card)
-            row.setContentsMargins(18, 15, 14, 15)
-            text = QVBoxLayout()
-            text.setSpacing(4)
-            text.addWidget(_label(spec.title, "componentTitle"))
-            description = _label(spec.description, "componentDescription")
-            description.setWordWrap(True)
-            text.addWidget(description)
-            text.addWidget(_label(spec.category.upper(), "eyebrow"))
-            row.addLayout(text, 1)
-            actions = QVBoxLayout()
-            actions.setSpacing(6)
-            launch = QPushButton("Open", objectName="componentLaunch")
-            launch.clicked.connect(lambda _=False, component_id=spec.component_id: self.open_component(component_id))
-            close_all = QPushButton("Close all", objectName="componentCloseAll")
-            close_all.setEnabled(False)
-            close_all.clicked.connect(lambda _=False, component_id=spec.component_id: self.unload_component(component_id))
-            actions.addWidget(launch)
-            actions.addWidget(close_all)
-            row.addLayout(actions)
-            self.close_all_buttons[spec.component_id] = close_all
-            self.catalog.addWidget(card)
-
     def open_component(self, component_id):
         spec = self.registry.get(component_id)
-        widget = self.registry.create(component_id)
+        try:
+            widget = self.registry.create(component_id)
+        except Exception as error:
+            self.record("Error", f"Could not open {spec.title}: {error}\n{traceback.format_exc()}")
+            raise
         self._instance_serial[component_id] = self._instance_serial.get(component_id, 0) + 1
         serial = self._instance_serial[component_id]
         label = spec.title if serial == 1 else f"{spec.title} #{serial}"
@@ -350,10 +359,19 @@ class MainWindow(QMainWindow):
         self.toolbar_state.setText(state)
         self.sidebar_state.setText(f"{total} window{'s' if total != 1 else ''} open" if total else "No tools open")
 
+    def _append_log(self, level, source, message):
+        stamp = datetime.now().strftime("%H:%M:%S")
+        self.log_output.appendPlainText(f"{stamp}  [{level}]  {source}: {message}")
+        vertical = self.log_output.verticalScrollBar()
+        vertical.setValue(vertical.maximum())
+        self.log_output.horizontalScrollBar().setValue(0)
+
     def record(self, source, message):
-        self.activity.insertItem(0, f"{datetime.now():%H:%M:%S}   {source}\n{message}")
-        while self.activity.count() > 100:
-            self.activity.takeItem(self.activity.count() - 1)
+        normalized = str(source).strip().lower()
+        level = "ERROR" if normalized == "error" else (
+            "WARNING" if normalized == "warning" else "INFO"
+        )
+        self._append_log(level, source, message)
 
     def load_path(self, path):
         """Open the wafer component and forward a command-line input file to it."""
@@ -364,6 +382,9 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         if self.unload_all_components():
+            if self._diagnostic_handler is not None:
+                get_logger().removeHandler(self._diagnostic_handler)
+                self._diagnostic_handler = None
             event.accept()
         else:
             event.ignore()

@@ -1,6 +1,6 @@
 # Metrology Workspace 开发交接
 
-更新日期：2026 年 9 月 28 日
+更新日期：2026 年 9 月 30 日
 
 ## 当前状态
 
@@ -19,7 +19,7 @@ conda run -n metrology-workspace python -m unittest discover -s tests -v
 
 ## v2 Card Matching 当前状态
 
-v2 已回到 `main` 持续开发，当前开发快照标记为 `v2.0.0-dev.3`，`VERSION` 仍为 `2.0.0-dev`。原独立 `v2` 分支已删除；`v2.0.0-dev.2`、`v2.0.0-dev.1`、v1.2.0 及更早的提交、标签和 Release 均不移动。
+v2 已回到 `main` 持续开发，本轮交付目标标记为 `v2.0.0-dev.4`，`VERSION` 仍为 `2.0.0-dev`。原独立 `v2` 分支已删除；`v2.0.0-dev.3`、`v2.0.0-dev.2`、`v2.0.0-dev.1`、v1.2.0 及更早的提交、标签和 Release 均不移动。
 
 当前完成的纵向切片：
 
@@ -42,6 +42,9 @@ v2 已回到 `main` 持续开发，当前开发快照标记为 `v2.0.0-dev.3`，
 - 工具已注册到主窗口，可同时打开多个 Match Workbook 进行对照。
 - 独立 FullMap 输入页已从 UI 移除。Preview 将 Card 应用到 Preview Raw Data；Final 直接使用独立且已加 Card 的 Final Raw Data。Trend 右上角 Card 复选框只控制该趋势图显示原始值还是 Card Value，不改动已计算的 Bias/导出语义。旧 WKB 里已有的独立 stage 数据仍保持兼容。
 - 当前模式的 Open Preview/Final Wafer Map / Radius 按钮位于顶部 tab 右侧，通过 `MainWindow.set_table` 复用现有绘图工作区，没有复制绘图实现。
+- 参数图统一为 240 px 高、卡片间距 8 px，并为坐标轴保留内部边距；打开 WKB 后回到页面顶部，同时仍恢复保存的 splitter 与参数顺序。
+- 主窗口不再重复显示 Available Tools 卡片；左侧是唯一工具入口，右侧终端风格 Log 显示运行环境、窗口事件、错误与 WKB 打开/保存路径。
+- 新增 Dynamic 工具：复用 Data 编辑器和 measurement identity，自动添加 Cycle，生成 Cycle × Die Seq 透视表，在底部和柱图显示每个 Die 跨 Cycle 的样本 3σ。
 
 规模目标是 100,000 行、50 参数。当前开发机随机浮点基准：全部 Card 0.16 秒，单参数派生结果 0.004 秒，WKB 保存 1.05 秒、载入 2.43 秒，文件 97.9 MB。分析结果仍按参数惰性展开；UI 为所有参数建立图卡，但每张图只保留极值采样后的绘图数组，不常驻 50 份完整派生表。
 

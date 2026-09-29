@@ -1,6 +1,6 @@
 # Metrology Workspace
 
-Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配，并绘制 Wafer Map、径向图、相关性图和 Die Seq 趋势图。主窗口提供 **Wafer Map**、**Correlation and Trend** 和 **Match Workbook** 三个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例。v2 在 `main` 分支持续开发，当前开发快照为 `v2.0.0-dev.3`；已发布且保留的稳定版本是 `v1.2.0`。
+Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、径向图、相关性图和 Die Seq 趋势图。主窗口提供 **Wafer Map**、**Correlation and Trend**、**Match Workbook** 和 **Dynamic** 四个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例。v2 在 `main` 分支持续开发，本轮开发快照为 `v2.0.0-dev.4`；已发布且保留的稳定版本是 `v1.2.0`。
 
 ## 运行
 
@@ -16,7 +16,7 @@ python main.py
 
 主窗口通常以约 1180 × 820 的尺寸居中打开；在小屏幕或高缩放比例下，会按任务栏以上的可用空间自动缩小。分析窗口依次错开，窗口变小时仍可通过滚动条查看内容。
 
-程序启动后不会自动打开分析工具。点击左侧的 **Wafer Map**、**Correlation and Trend**、**Match Workbook**，或工具卡片上的 **Open**，即可新建一个窗口。卡片上的 **Close all** 关闭该工具的全部窗口；顶部的 **Close all windows** 关闭所有分析窗口。
+程序启动后不会自动打开分析工具。点击左侧的 **Wafer Map**、**Correlation and Trend**、**Match Workbook** 或 **Dynamic** 即可新建窗口；顶部的 **Close all windows** 关闭所有分析窗口。右侧 Log 会记录 Python 运行环境、窗口事件、错误，以及 WKB 打开和保存位置，便于调试。
 
 如果不使用 Conda，也可以在 Python 3.10+ 环境中安装依赖：
 
@@ -81,6 +81,13 @@ Card 的定义为：
 10 万行、50 参数的随机浮点基准中，50 个 Card 的计算约 0.16 秒，单个参数结果展开约 0.004 秒；WKB 保存约 1.05 秒、载入约 2.43 秒，文件约 97.9 MB。结果取自当前开发机的一次可重复测量，不代表所有磁盘和数据分布。 可用 python benchmarks/benchmark_matching.py 复测。
 
 当前 v2 已把 Preview/Final 作为顶部模式页，并将各自的 Raw Data 交给现有 Wafer Map 和 Radius Plot；独立 FullMap 输入页已移除。尚未实现的是按 Wafer ID、Slot ID、PAD Name 和坐标自动整理尚未对齐的 Reference；当前匹配数据仍按行序对应。
+
+## Dynamic
+
+Dynamic 用于同一 wafer 上若干 Die 的重复测试。导入数据后，软件优先从 `Cur SME File Path` 中的 `DYNAMIC/<run>` 识别每轮测试；如果路径没有该结构，则在有序 Die Seq 首次重复时开始下一 Cycle。Die 数量和 Cycle 数量均不固定。旧 Excel 透视表若位于第一个空白列之后，会在导入时排除，避免把报表列误当成新参数。
+
+第一个 tab 复用 Data 编辑器与 Wafer Map 的 Wafer ID / Lot ID / PAD Name measurement identity，可勾选 DP、EW、TG 等数值参数。第二个 tab 要求选择一个 measurement set，并对当前参数显示 Cycle × Die Seq 透视表。底部 `3 Sigma` 使用跨 Cycle 的样本标准差 `3 × std(ddof=1)`；下方柱图以 Die Seq 为横轴、3 Sigma 为纵轴。多个勾选参数可从顶部 Parameter 切换。相同 Cycle/Die Seq 出现多行时会直接报告歧义，不会静默取平均。
+
 ## Wafer Map
 
 基本流程如下：
@@ -161,10 +168,13 @@ sample_data/               示例量测数据
 config/                    源码版运行设置（不提交 settings.yaml）
 docs/                      开发交接文档
 metrology_app/             应用主包
-  shell.py                 主窗口、分析窗口和 Activity
+  shell.py                 主窗口、分析窗口和诊断 Log
   module_registry.py       工具注册信息和延迟创建工厂
   matching/                Card 拟合、按参数惰性结果和 WKB 存储
   matching_window.py       Reference-first 工作流、结果图和导出
+  dynamic.py               Dynamic Cycle 推断、透视表和样本 3σ
+  dynamic_window.py        Dynamic 的 Data + analysis 窗口
+  dynamic_page.py          Dynamic pivot 表和 3σ 柱图
   correlation_window.py    Correlation and Trend 窗口
   correlation_page.py      两两线性拟合、R² 排序和相关性图
   sequence_page.py         Die Seq 趋势图

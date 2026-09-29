@@ -10,7 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pandas as pd
 from PyQt6.QtCore import QPoint, Qt
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox
+from PyQt6.QtWidgets import QApplication, QFileDialog, QLabel, QMessageBox
 
 from metrology_app.appearance import configure_fonts
 from metrology_app.data import read_table
@@ -114,6 +114,25 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(len(w.selection["metrics"]), 0)
         w.check_all(w.parameter_list, True)
         self.assertEqual(len(w.selection["metrics"]), 20)
+
+    def test_section_guidance_is_available_from_titles_not_inline_comments(self):
+        labels = self.window.findChildren(QLabel)
+        titles = {label.text(): label for label in labels}
+        expected_help = {
+            "Measurement table": "Row 1 = headers · Ctrl+V pastes cells.",
+            "Wafers": "Checked metadata headers form one measurement identity.",
+            "Parameters": "Each selected parameter becomes one column.",
+        }
+
+        for title, help_text in expected_help.items():
+            self.assertIn(title, titles)
+            self.assertEqual(titles[title].toolTip(), help_text)
+
+        visible_text = {label.text() for label in labels}
+        for help_text in expected_help.values():
+            self.assertNotIn(help_text.removesuffix("."), visible_text)
+        self.assertEqual(self.window.wafer_list.toolTip(), "")
+        self.assertEqual(self.window.parameter_list.toolTip(), "")
 
     def test_filter_keeps_selection(self):
         w = self.window

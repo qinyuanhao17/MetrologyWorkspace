@@ -31,12 +31,15 @@ def main():
     window.show()
     style_titlebar(window, settings["theme"])
     if "--self-test" in sys.argv:
-        # Release smoke test: prove that both lazily imported components and all
+        # Release smoke test: prove that lazily imported components and all
         # bundled Qt/Matplotlib resources can be created by the frozen app.
         wafer = window.open_component("wafer_map")
         correlation = window.open_component("correlation_analysis")
+        matching = window.open_component("card_matching")
+        dynamic = window.open_component("dynamic_analysis")
         app.processEvents()
-        valid = wafer.tabs.count() == 3 and correlation.tabs.count() == 3
+        valid = (wafer.tabs.count() == 3 and correlation.tabs.count() == 3
+                 and matching.mode_tabs.count() == 2 and dynamic.tabs.count() == 2)
         window.unload_all_components()
         window.close()
         app.processEvents()

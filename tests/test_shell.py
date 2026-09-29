@@ -6,7 +6,7 @@ import unittest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QRect
-from PyQt6.QtWidgets import QApplication, QPushButton, QWidget
+from PyQt6.QtWidgets import QApplication, QLabel, QPlainTextEdit, QPushButton, QWidget
 
 from metrology_app.appearance import configure_fonts, fit_window_to_screen
 from metrology_app.module_registry import ComponentRegistry, ComponentSpec
@@ -29,6 +29,30 @@ class FakeScreen:
 
 
 class ShellTests(unittest.TestCase):
+    def test_section_guidance_is_available_from_titles_not_subtitle_rows(self):
+        shell = MainWindow()
+        try:
+            labels = shell.findChildren(QLabel)
+            workspace = next(label for label in labels if label.text() == "Workspace")
+            activity = next(label for label in labels if label.text() == "Log")
+            self.assertEqual(
+                workspace.toolTip(), "Open a tool in its own analysis window."
+            )
+            self.assertEqual(
+                activity.toolTip(), "Runtime, file paths, and errors for debugging."
+            )
+            self.assertFalse(any(
+                label.objectName() in {"pageSubtitle", "componentDescription"}
+                for label in labels
+            ))
+            self.assertFalse(any(label.text() == "AVAILABLE TOOLS" for label in labels))
+            self.assertFalse(shell.findChildren(QWidget, "componentCard"))
+            self.assertIsInstance(shell.log_output, QPlainTextEdit)
+        finally:
+            shell.close()
+            shell.deleteLater()
+            APP.processEvents()
+
     def test_module_card_shows_the_full_component_title(self):
         shell = MainWindow()
         try:
@@ -130,7 +154,7 @@ class ShellTests(unittest.TestCase):
         shell = MainWindow()
         try:
             self.assertEqual(shell.loaded_component_ids, ())
-            self.assertEqual(shell.available_value.text(), "3")
+            self.assertEqual(shell.available_value.text(), "4")
             first = shell.open_component("wafer_map")
             second = shell.open_component("wafer_map")
             APP.processEvents()
@@ -140,7 +164,6 @@ class ShellTests(unittest.TestCase):
             self.assertEqual(shell.instance_count("wafer_map"), 2)
             self.assertEqual(shell.loaded_value.text(), "2")
             self.assertEqual(shell.module_buttons["wafer_map"].state_label.text(), "2 OPEN")
-            self.assertTrue(shell.close_all_buttons["wafer_map"].isEnabled())
             first.close()
             APP.processEvents()
             self.assertEqual(shell.instance_count("wafer_map"), 1)
@@ -149,8 +172,31 @@ class ShellTests(unittest.TestCase):
             APP.processEvents()
             self.assertEqual(shell.loaded_component_ids, ())
             self.assertEqual(shell.module_buttons["wafer_map"].state_label.text(), "CLOSED")
-            self.assertFalse(shell.close_all_buttons["wafer_map"].isEnabled())
             self.assertIn("correlation_analysis", shell.module_buttons)
+            self.assertIn("dynamic_analysis", shell.module_buttons)
+        finally:
+            shell.close()
+            shell.deleteLater()
+            APP.processEvents()
+
+    def test_terminal_log_records_runtime_component_and_error_information(self):
+        shell = MainWindow()
+        try:
+            initial = shell.log_output.toPlainText()
+            self.assertIn("Python", initial)
+            self.assertIn("Working directory", initial)
+            self.assertEqual(shell.log_output.horizontalScrollBar().value(), 0)
+
+            component = shell.open_component("wafer_map")
+            APP.processEvents()
+            self.assertIn("Opened Wafer Map", shell.log_output.toPlainText())
+            component.close()
+            APP.processEvents()
+            self.assertIn("Closed a Wafer Map window", shell.log_output.toPlainText())
+
+            shell.record("Error", "example traceback")
+            self.assertIn("ERROR", shell.log_output.toPlainText())
+            self.assertIn("example traceback", shell.log_output.toPlainText())
         finally:
             shell.close()
             shell.deleteLater()

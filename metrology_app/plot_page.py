@@ -77,6 +77,9 @@ class PlotPage(QWidget):
         header.setSpacing(8)
         toolbar = QHBoxLayout()
         self.select_button = QPushButton("Select maps")
+        self.select_button.setToolTip(
+            "Drag to select maps · Ctrl to add / remove · Shift to extend"
+        )
         self.select_button.clicked.connect(self.show_selector)
         toolbar.addWidget(self.select_button)
         self.draw_button = QPushButton("Draw selected", objectName="primary")
@@ -230,7 +233,6 @@ class PlotPage(QWidget):
         box_layout = QVBoxLayout(self.selector_panel)
         box_layout.setContentsMargins(0, 0, 0, 0)
         box_bar = QHBoxLayout()
-        box_bar.addWidget(QLabel("Drag to select maps · Ctrl to add / remove · Shift to extend", objectName="hint"))
         box_bar.addStretch()
         self.selector = MapSelector()
         for title, handler in (("All", self.selector.selectAll), ("None", self.selector.clearSelection)):

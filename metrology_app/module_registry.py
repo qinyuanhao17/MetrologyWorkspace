@@ -87,6 +87,18 @@ def create_default_registry():
         "OCD matching",
         create_card_matching,
     ))
+
+    def create_dynamic_analysis():
+        from .dynamic_window import DynamicWindow
+        return DynamicWindow()
+
+    registry.register(ComponentSpec(
+        "dynamic_analysis",
+        "Dynamic",
+        "Review repeated die measurements by Cycle and compare per-die sample 3σ.",
+        "Repeatability analysis",
+        create_dynamic_analysis,
+    ))
     return registry
 
 

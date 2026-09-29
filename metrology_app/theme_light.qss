@@ -50,8 +50,7 @@ QPushButton#componentLaunch:hover { background: #333338; border-color: #333338; 
 QPushButton#componentCloseAll { min-width: 82px; color: #3f3f46; background: #ffffff; border-color: #d9d9de; font-weight: 600; }
 QPushButton#componentCloseAll:hover { border-color: #b8b8bf; background: #f2f2f3; }
 QPushButton#componentCloseAll:disabled { color: #b4b4b9; border-color: #e9e9ec; background: #fafafa; }
-QListWidget#activityLog { background: transparent; border: none; outline: none; color: #4b4b53; }
-QListWidget#activityLog::item { border-bottom: 1px solid #efeff1; padding: 10px 4px; }
+QPlainTextEdit#diagnosticLog { background: #18181b; color: #d4d4d8; border: 1px solid #d9d9de; border-radius: 7px; padding: 10px; font-family: Consolas, "Cascadia Mono", monospace; font-size: 12px; selection-background-color: #3b82f6; }
 QPushButton { background: #ffffff; border: 1px solid #d9d9de; border-top-color: #d2d2d7; border-radius: 7px; padding: 8px 14px; font-weight: 500; }
 QPushButton:hover { background: #f2f2f3; border-color: #b8b8bf; }
 QPushButton:pressed { background: #e8e8ea; }

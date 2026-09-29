@@ -135,6 +135,13 @@ Feature: Build a card matching workbook
       Then file actions, Match Type, and Bias choices are available from the menu bar
       And no duplicate workbook heading or settings panel consumes the workspace
 
+    Scenario: Show explanatory guidance only when requested
+      Given a workspace section has explanatory guidance
+      When the engineer views the workspace
+      Then the section title is shown without a persistent annotation row
+      And hovering the section title shows the same guidance
+      And data status, warnings, errors, and empty-state feedback remain visible
+
   Rule: Match rows and FullMap rows have separate responsibilities
 
     Scenario: Apply a TEM Card to a later Preview FullMap

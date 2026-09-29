@@ -12,7 +12,7 @@ import pyqtgraph as pg
 from PyQt6.QtCore import QPoint, QPointF, Qt
 from PyQt6.QtGui import QKeySequence, QPalette, QWheelEvent
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication, QHBoxLayout
+from PyQt6.QtWidgets import QApplication, QHBoxLayout, QLabel
 
 from metrology_app.correlation_page import fit_numeric_pair, pairwise_linear_fits
 from metrology_app.correlation_window import CorrelationWindow
@@ -93,6 +93,27 @@ class CorrelationTests(unittest.TestCase):
                             widget.minimumWidth(), widget.minimumSizeHint().width())
                         self.assertGreaterEqual(widget.geometry().width(), floor,
                                                 f"{page.objectName()} squeezed a control")
+        finally:
+            window.model.undo.setClean()
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_plot_guidance_uses_control_tooltips_not_inline_hint_rows(self):
+        window = CorrelationWindow()
+        try:
+            expectations = (
+                (window.correlation_page, "Drag to select fits"),
+                (window.sequence_page, "Drag to select curves"),
+            )
+            for page, selection_help in expectations:
+                self.assertIn(selection_help, page.select_button.toolTip())
+                self.assertIn("Scroll to zoom", page.reset_button.toolTip())
+                labels = [label.text() for label in page.findChildren(QLabel)]
+                self.assertFalse(any(
+                    text.startswith(selection_help) or text.startswith("Scroll to zoom")
+                    for text in labels
+                ))
         finally:
             window.model.undo.setClean()
             window.close()

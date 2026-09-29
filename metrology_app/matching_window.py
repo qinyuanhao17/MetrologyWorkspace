@@ -43,8 +43,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .appearance import fit_window_to_screen
+from .appearance import fit_window_to_screen, help_title_label
 from .data import inspect_table
+from .diagnostics import get_logger
 from .matching import MAX_ROWS, MatchWorkbook, ParameterMapping, extrema_sample_indices
 from .settings import apply_theme
 from .sheet import SheetModel, SheetView
@@ -52,6 +53,7 @@ from .sheet import SheetModel, SheetView
 
 PLOT_LIMIT = 20_000
 _PARAMETER_MIME = "application/x-metrology-match-parameter"
+LOGGER = get_logger()
 
 
 def _label(text, role="muted"):
@@ -571,10 +573,9 @@ class MatchingWindow(QMainWindow):
         mapping_layout = QVBoxLayout(self.mapping_card)
         mapping_layout.setContentsMargins(16, 14, 16, 12)
         heading = QHBoxLayout()
-        heading.addWidget(_label("Parameter mapping", "panelTitle"))
-        heading.addWidget(_label(
+        heading.addWidget(help_title_label(
+            "Parameter mapping",
             "Numeric Reference columns are listed; “Reference” suffix columns pair by name.",
-            "hint",
         ))
         heading.addStretch()
         self.select_all_mappings = QCheckBox("Select all")
@@ -632,8 +633,10 @@ class MatchingWindow(QMainWindow):
         layout = QVBoxLayout(card)
         layout.setContentsMargins(16, 14, 16, 12)
         heading = QHBoxLayout()
-        heading.addWidget(_label(title, "panelTitle"))
-        heading.addWidget(_label(subtitle, "hint"))
+        guidance = subtitle
+        if isinstance(model, SheetModel):
+            guidance += "\nRow 1 = headers · Ctrl+V paste · Ctrl+Z undo."
+        heading.addWidget(help_title_label(title, guidance))
         heading.addStretch()
         layout.addLayout(heading)
         if isinstance(model, SheetModel):
@@ -651,8 +654,6 @@ class MatchingWindow(QMainWindow):
         source = _label("No data", "hint")
         footer.addWidget(source)
         footer.addStretch()
-        if isinstance(model, SheetModel):
-            footer.addWidget(_label("Row 1 = headers · Ctrl+V paste · Ctrl+Z undo", "hint"))
         layout.addLayout(footer)
         return card, view, source
 
@@ -679,7 +680,7 @@ class MatchingWindow(QMainWindow):
         self.plot_groups_widget = QWidget()
         self.plot_groups_layout = QVBoxLayout(self.plot_groups_widget)
         self.plot_groups_layout.setContentsMargins(0, 0, 0, 0)
-        self.plot_groups_layout.setSpacing(16)
+        self.plot_groups_layout.setSpacing(8)
         self.plot_groups_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.plot_groups = {}
         self.empty_plots_hint = _label(
@@ -1454,6 +1455,7 @@ class MatchingWindow(QMainWindow):
         plot_grid.setContentsMargins(0, 0, 0, 0)
         plot_grid.setHorizontalSpacing(14)
         plot_grid.setVerticalSpacing(16)
+        primary_height = 240
         specs = [
             ("match", "PMISH", self.match_type.currentText()),
             ("trend", "Wafer", ""),
@@ -1466,9 +1468,11 @@ class MatchingWindow(QMainWindow):
         for index, (name, bottom, left) in enumerate(specs):
             plot_class = _TrendPlotWidget if name == "trend" else pg.PlotWidget
             plot = self._plot_widget(bottom, left, plot_class=plot_class)
-            plot.setMinimumSize(280 if name == "match" else 340, 300)
+            plot.getPlotItem().setContentsMargins(6, 4, 8, 8)
+            plot.setMinimumWidth(280 if name == "match" else 340)
+            plot.setFixedHeight(primary_height)
             plot.setSizePolicy(
-                QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding
+                QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed
             )
             plot_grid.addWidget(plot, 0, index)
             plot_grid.setColumnStretch(index, 3 if name == "match" else 5)
@@ -1487,8 +1491,7 @@ class MatchingWindow(QMainWindow):
             lambda checked, name=parameter:
             self._trend_card_toggled(name, checked)
         )
-        primary_height = 300
-        plot_container.setMinimumHeight(primary_height)
+        plot_container.setFixedHeight(primary_height)
         card_layout.addWidget(plot_container)
 
         wafer_card = QFrame(objectName="sheetCard")
@@ -1734,7 +1737,7 @@ class MatchingWindow(QMainWindow):
         wafer_total = 64
         for group in self.plot_groups.values():
             card_height = 54 + group["primary_height"]
-            group["card"].setMinimumHeight(card_height)
+            group["card"].setFixedHeight(card_height)
             total += card_height + self.plot_groups_layout.spacing()
             if not group["wafer_card"].isHidden():
                 wafer_height = 520
@@ -1843,6 +1846,7 @@ class MatchingWindow(QMainWindow):
         saved = workbook.save(path)
         self.workbook = workbook
         self._set_status(f"Saved {saved.name}")
+        LOGGER.info("WKB saved: %s", Path(saved).resolve())
         return saved
 
     def save_wkb_dialog(self):
@@ -1853,6 +1857,7 @@ class MatchingWindow(QMainWindow):
             if path:
                 self.save_workbook(path)
         except Exception as error:
+            LOGGER.exception("Cannot save WKB")
             QMessageBox.warning(self, "Cannot save WKB", str(error))
 
     def load_workbook(self, path):
@@ -1925,9 +1930,8 @@ class MatchingWindow(QMainWindow):
                 lambda sizes=workbook.setup_splitter_sizes:
                     self._restore_setup_splitter_layout(sizes),
             )
-        QTimer.singleShot(
-            0, lambda: self.setup_scroll.ensureWidgetVisible(self.results_panel, 0, 24)
-        )
+        QTimer.singleShot(0, lambda: self.setup_scroll.verticalScrollBar().setValue(0))
+        LOGGER.info("WKB opened: %s", Path(path).resolve())
         self._update_state()
         return workbook
 
@@ -1938,6 +1942,7 @@ class MatchingWindow(QMainWindow):
             if path:
                 self.load_workbook(path)
         except Exception as error:
+            LOGGER.exception("Cannot open WKB")
             QMessageBox.warning(self, "Cannot open WKB", str(error))
 
 

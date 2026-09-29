@@ -29,6 +29,14 @@ COLOR_MAP_OPTIONS = (
 )
 
 
+def help_title_label(text, tooltip, role="panelTitle"):
+    """Create a compact section title whose explanation appears on hover."""
+    label = QLabel(str(text))
+    label.setObjectName(role)
+    label.setToolTip(str(tooltip))
+    return label
+
+
 def configure_fonts(app):
     # Explicit registration also keeps offscreen renders consistent with Windows.
     for name in ("SegUIVar.ttf", "segoeui.ttf", "msyh.ttc"):

@@ -1,4 +1,4 @@
-# Card Matching executable scenario map
+# Executable scenario map
 
 `card_matching.feature` 保存业务语言；项目不额外引入 Cucumber 运行时。相同场景由现有 `unittest` 公共接口测试执行：
 
@@ -16,6 +16,7 @@
 - Match title/equation and PMISH-versus-Match-Type Trend styling → `MatchingWindowTests.test_match_plot_uses_raw_column_title_and_shows_fit_equation` and `MatchingWindowTests.test_trend_and_bias_use_visible_point_lines`
 - Preview/Final top mode tabs preserve results/layout and use independent Raw Data → `MatchingWindowTests.test_switching_preview_and_final_keeps_results_and_layout`
 - Compact menu bar replaces duplicate heading/settings controls → `MatchingWindowTests.test_analysis_results_share_the_scrollable_setup_workspace`
+- Explanatory guidance moves from persistent annotation rows to title/control tooltips across workspaces → `MatchingWindowTests.test_section_guidance_is_available_from_titles_not_inline_comments`, `WorkspaceTests.test_section_guidance_is_available_from_titles_not_inline_comments`, `ShellTests.test_section_guidance_is_available_from_titles_not_subtitle_rows`, `PlotWorkspaceTests.test_selector_guidance_uses_control_tooltips_not_inline_hint_rows`, and `CorrelationTests.test_plot_guidance_uses_control_tooltips_not_inline_hint_rows`
 - Raw Data paste auto-runs after the first manual analysis → `MatchingWindowTests.test_raw_table_paste_auto_runs_after_first_manual_run`
 - Raw Data column changes auto-run after the first manual analysis → `MatchingWindowTests.test_raw_mapping_change_auto_runs_and_preserves_layout`
 - Reference, Raw Data, and mapping edits auto-refresh without blanking results → `MatchingWindowTests.test_reference_raw_and_mapping_edits_auto_refresh_without_clearing_results`
@@ -29,3 +30,10 @@
 - Fit-quality threshold warnings → `MatchingWindowTests.test_mapping_results_flag_out_of_range_slope_and_r_squared` and `MatchingWindowTests.test_single_wafer_table_flags_the_same_quality_thresholds`
 
 场景描述保持业务语义，自动化测试通过 `MatchWorkbook` 的稳定 interface 和 `MatchingWindow` 的用户可见状态验证；WKB 兼容测试不依赖 SQLite 的内部表结构。
+
+`dynamic_analysis.feature` 对应 Dynamic 重复性分析：
+
+- Dynamic run folder 和重复 Die 顺序的 Cycle 推断 → `DynamicDataTests.test_cycle_is_inferred_from_dynamic_run_folder_and_report_tail_is_removed`、`DynamicDataTests.test_cycle_fallback_handles_variable_die_and_cycle_counts`
+- Cycle × Die Seq 透视表与样本 3σ → `DynamicDataTests.test_pivot_has_cycles_by_die_and_sample_three_sigma_bottom_row`
+- 重复 Cycle/Die Seq 拒绝静默平均 → `DynamicDataTests.test_duplicate_cycle_and_die_is_rejected_instead_of_silently_averaged`
+- 共用 Data 编辑器、参数选择与 3σ 图 → `DynamicWindowTests.test_workspace_reuses_data_editor_then_builds_selected_parameter_pivot`

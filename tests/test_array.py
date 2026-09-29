@@ -196,6 +196,18 @@ class PlotWorkspaceTests(unittest.TestCase):
         self.window.set_table(frame[frame['PAD Name'] == frame['PAD Name'].iloc[0]], "Single-measurement test fixture")
         self.select_metrics("OCD_H1", "OCD_H2", "OCD_H3")
 
+    def test_selector_guidance_uses_control_tooltips_not_inline_hint_rows(self):
+        expectations = (
+            (self.window.plot_page, "Drag to select maps"),
+            (self.window.radius_page, "Drag to select plots"),
+        )
+        for page, guidance in expectations:
+            self.assertIn(guidance, page.select_button.toolTip())
+            self.assertFalse(any(
+                label.text().startswith(guidance)
+                for label in page.findChildren(QLabel)
+            ))
+
     def select_metrics(self, *names):
         chosen = set(names)
         tree = self.window.parameter_list
