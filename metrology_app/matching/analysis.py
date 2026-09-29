@@ -17,7 +17,7 @@ import pandas as pd
 from ..measurements import default_identity_columns, detect_measurements
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 MAX_ROWS = 100_000
 MAX_PARAMETERS = 50
 _ALLOWED_MATCH_TYPES = {"TEM", "NOVA", "KLA"}
@@ -179,12 +179,14 @@ class MatchWorkbook:
 
     def __init__(self, reference, raw, mappings, match_type="KLA",
                  result_mode="preview", bias_mode="absolute",
-                 preview_raw=None, final_raw=None, bias_views=None,
+                 preview_raw=None, final_raw=None, final_match_raw=None,
+                 bias_views=None,
                  setup_splitter_sizes=None, parameter_order=None):
         self.reference = reference
         self.raw = raw
         self.preview_raw = preview_raw
         self.final_raw = final_raw
+        self.final_match_raw = final_match_raw
         self.mappings = tuple(mappings)
         self.match_type = str(match_type).upper()
         self.result_mode = str(result_mode).lower()
@@ -217,6 +219,15 @@ class MatchWorkbook:
             raise ValueError(f"{_ROW_COLUMN!r} is reserved for WKB storage.")
         self._validate_stage_source(self.preview_raw, "Preview FullMap")
         self._validate_stage_source(self.final_raw, "Final Raw Data")
+        self._validate_stage_source(self.final_match_raw, "Final Match Raw Data")
+        if (
+            self.final_match_raw is not None
+            and len(self.reference) != len(self.final_match_raw)
+        ):
+            raise ValueError(
+                "Reference and Final Raw Data must have the same number of rows "
+                "for row-order matching."
+            )
         if not self.mappings:
             raise ValueError("Select at least one Reference/Raw parameter mapping.")
         if len(self.mappings) > MAX_PARAMETERS:
@@ -231,6 +242,7 @@ class MatchWorkbook:
             for label, frame in (
                 ("Preview FullMap", self.preview_raw),
                 ("Final Raw Data", self.final_raw),
+                ("Final Match Raw Data", self.final_match_raw),
             ):
                 if frame is not None and mapping.raw_column not in frame.columns:
                     raise ValueError(
@@ -298,13 +310,18 @@ class MatchWorkbook:
         return tuple(mappings)
 
     def analyze(self):
+        analysis_raw = (
+            self.final_match_raw
+            if self.result_mode == "final" and self.final_match_raw is not None
+            else self.raw
+        )
         cards = {}
         for mapping in self.mappings:
             reference = pd.to_numeric(self.reference[mapping.reference_column], errors="coerce").to_numpy(float)
-            raw = pd.to_numeric(self.raw[mapping.raw_column], errors="coerce").to_numpy(float)
+            raw = pd.to_numeric(analysis_raw[mapping.raw_column], errors="coerce").to_numpy(float)
             cards[mapping.name] = _fit_card(raw, reference, mapping.name)
         return MatchAnalysisResult(
-            self.reference, self.raw, self.mappings, cards,
+            self.reference, analysis_raw, self.mappings, cards,
             self.result_mode, self.bias_mode, self.match_type,
         )
 
@@ -314,6 +331,8 @@ class MatchWorkbook:
         if stage not in _ALLOWED_RESULT_MODES:
             raise ValueError("Stage must be preview or final.")
         source = self.preview_raw if stage == "preview" else self.final_raw
+        if stage == "final" and source is None:
+            source = self.final_match_raw
         if source is None:
             source = self.raw
         frame = source.reset_index(drop=True).copy()
@@ -379,6 +398,12 @@ class MatchWorkbook:
                     _write_frame(connection, "preview_raw_data", self.preview_raw)
                 if self.final_raw is not None:
                     _write_frame(connection, "final_raw_data", self.final_raw)
+                if self.final_match_raw is not None:
+                    _write_frame(
+                        connection,
+                        "final_match_raw_data",
+                        self.final_match_raw,
+                    )
             os.replace(temporary, target)
         except Exception:
             temporary.unlink(missing_ok=True)
@@ -394,10 +419,10 @@ class MatchWorkbook:
             except (sqlite3.DatabaseError, IndexError, pd.errors.DatabaseError) as error:
                 raise ValueError("This file is not a valid Matching Workbook (WKB).") from error
             schema_version = int(metadata["schema_version"])
-            if schema_version not in {1, SCHEMA_VERSION}:
+            if schema_version not in {1, 2, SCHEMA_VERSION}:
                 raise ValueError(
                     f"Unsupported WKB schema {metadata['schema_version']}; "
-                    f"expected 1 or {SCHEMA_VERSION}."
+                    f"expected 1, 2, or {SCHEMA_VERSION}."
                 )
             mapping_rows = pd.read_sql_query(
                 "SELECT name, reference_column, raw_column FROM parameter_mappings ORDER BY position",
@@ -413,6 +438,12 @@ class MatchWorkbook:
             final_raw = (
                 _read_frame(connection, "final_raw_data")
                 if schema_version >= 2 and _table_exists(connection, "final_raw_data")
+                else None
+            )
+            final_match_raw = (
+                _read_frame(connection, "final_match_raw_data")
+                if schema_version >= 3
+                and _table_exists(connection, "final_match_raw_data")
                 else None
             )
         mappings = tuple(ParameterMapping(row.name, row.reference_column, row.raw_column)
@@ -463,6 +494,7 @@ class MatchWorkbook:
             bias_views=saved_bias_views,
             preview_raw=preview_raw,
             final_raw=final_raw,
+            final_match_raw=final_match_raw,
             setup_splitter_sizes=saved_splitter_sizes,
             parameter_order=saved_parameter_order,
         )

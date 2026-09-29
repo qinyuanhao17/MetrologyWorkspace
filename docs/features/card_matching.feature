@@ -89,9 +89,10 @@ Feature: Build a card matching workbook
     Scenario: Re-run automatically after the first manual analysis
       Given Reference and Raw Data are mapped in the Preview tab
       And the engineer has run the analysis once
-      When a replacement table is pasted into Raw Data at A1
-      Then the new Raw Data is analyzed automatically
+      When the engineer edits Reference, Raw Data, or a parameter mapping
+      Then the current data is analyzed automatically
       And the result remains in the same scrollable workspace
+      And the engineer's resized section layout remains unchanged
 
     Scenario: Re-run after changing a Raw Data mapping
       Given the engineer has completed the first manual analysis
@@ -109,8 +110,19 @@ Feature: Build a card matching workbook
       When the engineer selects the Final tab
       Then Final is used as the result mode
       And the Reference, mappings, results, and section layout remain available
-      And the Raw Data input card is hidden in Final
+      And Final has its own Raw Data input instead of reusing Preview Raw Data
       And only the Final Wafer Map and Radius action is shown at the top right
+
+    Scenario: Choose whether Trend displays Card-adjusted values
+      Given a completed match contains Raw Data and a fitted Card
+      When the engineer changes the Card choice on a Trend plot
+      Then PMISH changes between the original Raw Data and Card-adjusted values
+      And the Reference comparison remains visible
+
+    Scenario: Keep one parameter at the top of the result area
+      Given exactly one mapped parameter has been analyzed
+      When the engineer reviews All parameter plots
+      Then the parameter plot card starts at the top without an empty gap
 
     Scenario: Reorder parameter cards for review
       Given several mapped parameters have been analyzed

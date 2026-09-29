@@ -237,6 +237,7 @@ class MatchWorkbookTests(unittest.TestCase):
             "CD_Bot": [41.0, 51.0],
             "SPA": [11.0, 13.0],
         })
+        final_match_raw = self.raw().assign(CD_Bot=[11.0, 19.0, 31.0])
         workbook = MatchWorkbook(
             reference=self.reference(),
             raw=self.raw(),
@@ -247,6 +248,7 @@ class MatchWorkbookTests(unittest.TestCase):
             bias_views=("absolute", "percent"),
             preview_raw=preview_raw,
             final_raw=final_raw,
+            final_match_raw=final_match_raw,
             setup_splitter_sizes=(320, 480, 1600),
             parameter_order=("SPA", "CD_Bot"),
         )
@@ -259,6 +261,7 @@ class MatchWorkbookTests(unittest.TestCase):
         pd.testing.assert_frame_equal(restored.raw, workbook.raw)
         pd.testing.assert_frame_equal(restored.preview_raw, preview_raw)
         pd.testing.assert_frame_equal(restored.final_raw, final_raw)
+        pd.testing.assert_frame_equal(restored.final_match_raw, final_match_raw)
         self.assertEqual(restored.mappings, workbook.mappings)
         self.assertEqual(restored.match_type, "NOVA")
         self.assertEqual(restored.result_mode, "preview")
@@ -293,8 +296,27 @@ class MatchWorkbookTests(unittest.TestCase):
         pd.testing.assert_frame_equal(restored.raw, workbook.raw)
         self.assertIsNone(restored.preview_raw)
         self.assertIsNone(restored.final_raw)
+        self.assertIsNone(restored.final_match_raw)
         self.assertIsNone(restored.setup_splitter_sizes)
         self.assertEqual(restored.parameter_order, ("CD_Bot", "SPA"))
+
+    def test_schema_two_wkb_opens_without_independent_final_match_data(self):
+        workbook = MatchWorkbook(
+            reference=self.reference(),
+            raw=self.raw(),
+            mappings=MatchWorkbook.suggest_mappings(self.reference(), self.raw()),
+            final_match_raw=self.raw().assign(CD_Bot=[11.0, 19.0, 31.0]),
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "schema-two.wkb"
+            workbook.save(path)
+            with closing(sqlite3.connect(path)) as connection, connection:
+                connection.execute("UPDATE metadata SET schema_version = 2")
+                connection.execute("DROP TABLE final_match_raw_data")
+            restored = MatchWorkbook.load(path)
+
+        pd.testing.assert_frame_equal(restored.raw, workbook.raw)
+        self.assertIsNone(restored.final_match_raw)
 
 
 if __name__ == "__main__":

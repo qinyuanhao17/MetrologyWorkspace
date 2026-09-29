@@ -14,10 +14,13 @@
 - Editable Reference/Raw spreadsheet grids → `MatchingWindowTests.test_reference_and_raw_inputs_are_editable_spreadsheet_grids`
 - All-parameter vertical Card review with unclipped single-row plots and both Bias views → `MatchingWindowTests.test_analysis_results_share_the_scrollable_setup_workspace` and `MatchWorkbookTests.test_wkb_round_trip_preserves_source_tables_and_settings`
 - Match title/equation and PMISH-versus-Match-Type Trend styling → `MatchingWindowTests.test_match_plot_uses_raw_column_title_and_shows_fit_equation` and `MatchingWindowTests.test_trend_and_bias_use_visible_point_lines`
-- Preview/Final top mode tabs preserve results/layout while hiding Final Raw Data input → `MatchingWindowTests.test_switching_preview_and_final_keeps_results_and_layout`
+- Preview/Final top mode tabs preserve results/layout and use independent Raw Data → `MatchingWindowTests.test_switching_preview_and_final_keeps_results_and_layout`
 - Compact menu bar replaces duplicate heading/settings controls → `MatchingWindowTests.test_analysis_results_share_the_scrollable_setup_workspace`
 - Raw Data paste auto-runs after the first manual analysis → `MatchingWindowTests.test_raw_table_paste_auto_runs_after_first_manual_run`
 - Raw Data column changes auto-run after the first manual analysis → `MatchingWindowTests.test_raw_mapping_change_auto_runs_and_preserves_layout`
+- Reference, Raw Data, and mapping edits auto-refresh without blanking results → `MatchingWindowTests.test_reference_raw_and_mapping_edits_auto_refresh_without_clearing_results`
+- One parameter remains top-aligned → `MatchingWindowTests.test_a_single_parameter_plot_card_stays_at_the_top_of_results`
+- Trend Card control switches between Raw and Card Value → `MatchingWindowTests.test_trend_card_checkbox_switches_between_raw_and_carded_values`
 - Run analysis preserves manually dragged section boundaries → `MatchingWindowTests.test_run_analysis_preserves_the_dragged_setup_splitter_layout`
 - Input-table undo → `MatchingWindowTests.test_keyboard_undo_restores_replaced_reference_and_raw_tables` and `MatchingWindowTests.test_keyboard_undo_restores_deleted_reference_and_raw_tables`
 - Preserve mappings while Raw Data is missing → `MatchingWindowTests.test_clearing_raw_data_keeps_mappings_and_prompts_for_columns`

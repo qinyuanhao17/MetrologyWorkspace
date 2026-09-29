@@ -9,9 +9,13 @@ import numpy as np
 import pandas as pd
 import pyqtgraph as pg
 import pyqtgraph.exporters
-from PyQt6.QtCore import QAbstractTableModel, QMimeData, QModelIndex, Qt, QTimer
+from PyQt6.QtCore import (
+    QAbstractTableModel, QEasingCurve, QMimeData, QModelIndex, QPoint,
+    QPropertyAnimation, Qt, QTimer,
+)
 from PyQt6.QtGui import (
-    QAction, QActionGroup, QBrush, QColor, QDrag, QKeySequence, QPalette,
+    QAction, QActionGroup, QBrush, QColor, QDrag, QKeySequence, QPainter,
+    QPalette, QPixmap,
 )
 from PyQt6.QtWidgets import (
     QApplication,
@@ -19,6 +23,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QFileDialog,
     QFrame,
+    QGraphicsOpacityEffect,
     QGridLayout,
     QHBoxLayout,
     QHeaderView,
@@ -162,7 +167,24 @@ class _ParameterDragHandle(QLabel):
             mime.setData(_PARAMETER_MIME, self.parameter.encode("utf-8"))
             drag = QDrag(self)
             drag.setMimeData(mime)
+            card = self.parentWidget()
+            if card is not None:
+                preview = card.grab()
+                if preview.width() > 520:
+                    preview = preview.scaledToWidth(
+                        520, Qt.TransformationMode.SmoothTransformation
+                    )
+                ghost = QPixmap(preview.size())
+                ghost.fill(Qt.GlobalColor.transparent)
+                painter = QPainter(ghost)
+                painter.setOpacity(0.72)
+                painter.drawPixmap(0, 0, preview)
+                painter.end()
+                drag.setPixmap(ghost)
+                drag.setHotSpot(QPoint(28, 22))
             drag.exec(Qt.DropAction.MoveAction)
+            if hasattr(self.window(), "clear_parameter_drop_previews"):
+                self.window().clear_parameter_drop_previews()
             self._press_position = None
         super().mouseMoveEvent(event)
 
@@ -181,15 +203,28 @@ class _ParameterCard(QFrame):
         self.workspace = workspace
         self.setAcceptDrops(True)
         self.setProperty("parameter", parameter)
+        self._drop_indicator = QFrame(self)
+        self._drop_indicator.setObjectName("parameterDropIndicator")
+        self._drop_indicator.setFixedHeight(4)
+        self._drop_indicator.hide()
+        self._drop_effect = QGraphicsOpacityEffect(self._drop_indicator)
+        self._drop_indicator.setGraphicsEffect(self._drop_effect)
+        self._drop_animation = QPropertyAnimation(
+            self._drop_effect, b"opacity", self
+        )
+        self._drop_animation.setDuration(180)
+        self._drop_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasFormat(_PARAMETER_MIME):
+            self._show_drop_position(event.position().y() < self.height() / 2)
             event.acceptProposedAction()
         else:
             event.ignore()
 
     def dragMoveEvent(self, event):
         if event.mimeData().hasFormat(_PARAMETER_MIME):
+            self._show_drop_position(event.position().y() < self.height() / 2)
             event.acceptProposedAction()
         else:
             event.ignore()
@@ -200,8 +235,70 @@ class _ParameterCard(QFrame):
             return
         parameter = bytes(event.mimeData().data(_PARAMETER_MIME)).decode("utf-8")
         before = event.position().y() < self.height() / 2
+        self.workspace.clear_parameter_drop_previews()
         self.workspace.move_parameter(parameter, self.parameter, before=before)
         event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event):
+        self._show_drop_position(None)
+        super().dragLeaveEvent(event)
+
+    def _show_drop_position(self, before):
+        value = "" if before is None else ("before" if before else "after")
+        if self.property("dropPosition") == value:
+            return
+        self.setProperty("dropPosition", value)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
+        self._drop_animation.stop()
+        if before is None:
+            self._drop_indicator.hide()
+            return
+        self._place_drop_indicator(before)
+        self._drop_effect.setOpacity(0.2)
+        self._drop_indicator.show()
+        self._drop_indicator.raise_()
+        self._drop_animation.setStartValue(0.2)
+        self._drop_animation.setEndValue(1.0)
+        self._drop_animation.start()
+
+    def _place_drop_indicator(self, before):
+        margin = 12
+        y = 0 if before else max(0, self.height() - 4)
+        self._drop_indicator.setGeometry(
+            margin, y, max(0, self.width() - 2 * margin), 4
+        )
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        position = self.property("dropPosition")
+        if position in {"before", "after"}:
+            self._place_drop_indicator(position == "before")
+
+
+class _TrendPlotWidget(pg.PlotWidget):
+    """Trend plot with a compact Card toggle overlaid at the top-right."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.card_checkbox = QCheckBox("Card", self)
+        self.card_checkbox.setObjectName("trendCardToggle")
+        self.card_checkbox.setToolTip(
+            "Show PMISH after applying the fitted Card; clear to show Raw Data."
+        )
+        self.card_checkbox.adjustSize()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if not hasattr(self, "card_checkbox"):
+            return
+        self.card_checkbox.adjustSize()
+        self.card_checkbox.move(
+            max(8, self.width() - self.card_checkbox.width() - 12),
+            8,
+        )
+        self.card_checkbox.raise_()
 
 
 class MatchingWindow(QMainWindow):
@@ -214,6 +311,7 @@ class MatchingWindow(QMainWindow):
         apply_theme(self)
         self.reference_frame = pd.DataFrame()
         self.raw_frame = pd.DataFrame()
+        self.final_match_frame = pd.DataFrame()
         self.preview_frame = pd.DataFrame()
         self.final_frame = pd.DataFrame()
         self.workbook = None
@@ -221,13 +319,18 @@ class MatchingWindow(QMainWindow):
         self._primary_bias_mode = "absolute"
         self._auto_run_enabled = False
         self._auto_run_pending = False
+        self._pending_auto_view_state = None
         self._loading_input_sheets = False
-        self._input_sheet_errors = {"reference": "", "raw": ""}
+        self._input_sheet_errors = {"reference": "", "raw": "", "final_raw": ""}
         self._parameter_order = []
+        self._displayed_raw_mode = "preview"
+        self._raw_sources = {"preview": "No data", "final": "No data"}
+        self._trend_card_state = {}
         self._wafer_window_factory = wafer_window_factory or self._default_wafer_window_factory
         self._stage_windows = []
         self.reference_model = SheetModel()
         self.raw_model = SheetModel()
+        self.final_raw_model = SheetModel()
         self.preview_model = DataFrameModel(parent=self)
         self.final_model = DataFrameModel(parent=self)
         self.summary_model = DataFrameModel(parent=self)
@@ -236,6 +339,9 @@ class MatchingWindow(QMainWindow):
             lambda: self._input_sheet_changed("reference")
         )
         self.raw_model.changed.connect(lambda: self._input_sheet_changed("raw"))
+        self.final_raw_model.changed.connect(
+            lambda: self._input_sheet_changed("final_raw")
+        )
         self.raw_view.table_pasted.connect(self._raw_table_pasted)
         self._update_state()
 
@@ -379,6 +485,7 @@ class MatchingWindow(QMainWindow):
 
     def _result_mode_changed(self, index):
         had_result = self.result is not None
+        mapping_state = self._mapping_state()
         splitter_sizes = (
             tuple(self.setup_splitter.sizes())
             if hasattr(self, "setup_splitter")
@@ -391,8 +498,13 @@ class MatchingWindow(QMainWindow):
         )
         if index >= 0 and self.mode_tabs.currentIndex() != index:
             self.mode_tabs.setCurrentIndex(index)
-        self._update_mode_actions()
+        self._show_raw_mode(self.result_mode.currentText().lower())
+        self._populate_mappings(mapping_state)
         if had_result:
+            self._show_mapping_results()
+        self._update_mode_actions()
+        self._update_state()
+        if had_result and self.analyze_button.isEnabled():
             try:
                 self.run_analysis()
                 if splitter_sizes:
@@ -413,7 +525,17 @@ class MatchingWindow(QMainWindow):
         self.preview_open_button.setVisible(preview)
         self.final_open_button.setVisible(not preview)
         if hasattr(self, "raw_card"):
-            self.raw_card.setVisible(preview)
+            self.raw_card.show()
+
+    def _show_raw_mode(self, mode):
+        """Put the mode's independent editable Raw Data model in the shared view."""
+        mode = "final" if str(mode).lower() == "final" else "preview"
+        model = self.final_raw_model if mode == "final" else self.raw_model
+        if hasattr(self, "raw_view") and self.raw_view.model() is not model:
+            self.raw_view.setModel(model)
+        self._displayed_raw_mode = mode
+        if hasattr(self, "raw_source"):
+            self.raw_source.setText(self._raw_sources[mode])
 
     def _build_setup_page(self):
         page = QWidget()
@@ -421,7 +543,7 @@ class MatchingWindow(QMainWindow):
         layout.setContentsMargins(10, 12, 10, 10)
         layout.setSpacing(10)
 
-        self.match_type.currentTextChanged.connect(self._invalidate_analysis)
+        self.match_type.currentTextChanged.connect(self._analysis_input_changed)
         self.status = _label("Paste a Reference table to begin.", "hint")
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
@@ -540,8 +662,8 @@ class MatchingWindow(QMainWindow):
         layout.setContentsMargins(16, 14, 16, 12)
         layout.setSpacing(14)
         controls = QHBoxLayout()
-        self.result_status = _label("Run an analysis to see results.", "hint")
-        controls.addWidget(self.result_status)
+        self.result_status = _label("", "hint")
+        self.result_status.hide()
         controls.addStretch()
         self.reset_order_button = QPushButton("Reset", objectName="subtle")
         self.reset_order_button.setToolTip(
@@ -558,6 +680,7 @@ class MatchingWindow(QMainWindow):
         self.plot_groups_layout = QVBoxLayout(self.plot_groups_widget)
         self.plot_groups_layout.setContentsMargins(0, 0, 0, 0)
         self.plot_groups_layout.setSpacing(16)
+        self.plot_groups_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.plot_groups = {}
         self.empty_plots_hint = _label(
             "Run an analysis to show every mapped parameter below.", "hint"
@@ -569,6 +692,7 @@ class MatchingWindow(QMainWindow):
         self.wafer_groups_layout = QVBoxLayout(self.wafer_groups_widget)
         self.wafer_groups_layout.setContentsMargins(0, 0, 0, 0)
         self.wafer_groups_layout.setSpacing(16)
+        self.wafer_groups_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.empty_wafer_hint = _label(
             "Run a KLA or NOVA analysis to show single-wafer metrics.", "hint"
         )
@@ -618,9 +742,13 @@ class MatchingWindow(QMainWindow):
                 layout.removeWidget(widget)
                 layout.addWidget(widget)
 
+    def clear_parameter_drop_previews(self):
+        for group in self.plot_groups.values():
+            group["card"]._show_drop_position(None)
+
     @staticmethod
-    def _plot_widget(bottom, left):
-        plot = pg.PlotWidget(background=None)
+    def _plot_widget(bottom, left, plot_class=pg.PlotWidget):
+        plot = plot_class(background=None)
         plot.showGrid(x=True, y=True, alpha=0.18)
         plot.setLabel("bottom", bottom)
         plot.setLabel("left", left)
@@ -642,29 +770,38 @@ class MatchingWindow(QMainWindow):
 
     def set_reference_frame(self, frame, source="Reference"):
         self._validate_input_frame(frame, "Reference")
+        view_state = self._capture_setup_view_state()
+        mapping_state = self._mapping_state()
         self.reference_frame = frame.reset_index(drop=True)
         self._load_input_sheet(self.reference_model, self.reference_frame)
         self._input_sheet_errors["reference"] = ""
         self.reference_source.setText(self._source_text(source, self.reference_frame))
-        self.raw_frame = pd.DataFrame()
-        self._load_input_sheet(self.raw_model, self.raw_frame)
-        self._input_sheet_errors["raw"] = ""
-        self.raw_source.setText("No data")
-        self._clear_stage_frames()
-        self._populate_mappings()
-        self._invalidate_analysis()
+        self._populate_mappings(mapping_state)
+        self._analysis_input_changed(view_state=view_state)
 
     def set_raw_frame(self, frame, source="Raw Data"):
         if self.reference_frame.empty:
             raise ValueError("Paste the Reference table before Raw Data.")
-        self._validate_input_frame(frame, "Raw Data")
-        self.raw_frame = frame.reset_index(drop=True)
-        self._load_input_sheet(self.raw_model, self.raw_frame)
-        self._input_sheet_errors["raw"] = ""
-        self.raw_source.setText(self._source_text(source, self.raw_frame))
-        self._clear_stage_frames()
-        self._populate_mappings()
-        self._invalidate_analysis()
+        mode = self.result_mode.currentText().lower()
+        title = "Final Raw Data" if mode == "final" else "Raw Data"
+        self._validate_input_frame(frame, title)
+        view_state = self._capture_setup_view_state()
+        mapping_state = self._mapping_state()
+        stored = frame.reset_index(drop=True)
+        if mode == "final":
+            self.final_match_frame = stored
+            model = self.final_raw_model
+            error_key = "final_raw"
+        else:
+            self.raw_frame = stored
+            model = self.raw_model
+            error_key = "raw"
+        self._load_input_sheet(model, stored)
+        self._input_sheet_errors[error_key] = ""
+        self._raw_sources[mode] = self._source_text(source, stored)
+        self.raw_source.setText(self._raw_sources[mode])
+        self._populate_mappings(mapping_state)
+        self._analysis_input_changed(view_state=view_state)
 
     def _load_input_sheet(self, model, frame):
         self._loading_input_sheets = True
@@ -677,9 +814,17 @@ class MatchingWindow(QMainWindow):
         """Synchronize an editable grid with the matching domain frames."""
         if self._loading_input_sheets:
             return
+        view_state = self._capture_setup_view_state()
         mapping_state = self._mapping_state()
-        model = self.reference_model if name == "reference" else self.raw_model
-        title = "Reference" if name == "reference" else "Raw Data"
+        if name == "reference":
+            model = self.reference_model
+            title = "Reference"
+        elif name == "final_raw":
+            model = self.final_raw_model
+            title = "Final Raw Data"
+        else:
+            model = self.raw_model
+            title = "Raw Data"
         try:
             frame = model.frame().reset_index(drop=True)
             if not frame.empty:
@@ -692,16 +837,51 @@ class MatchingWindow(QMainWindow):
         if name == "reference":
             self.reference_frame = frame
             source = self.reference_source
+        elif name == "final_raw":
+            self.final_match_frame = frame
+            source = self.raw_source
+            self._raw_sources["final"] = (
+                "No data" if frame.empty else self._source_text("Edited", frame)
+            )
         else:
             self.raw_frame = frame
             source = self.raw_source
+            self._raw_sources["preview"] = (
+                "No data" if frame.empty else self._source_text("Edited", frame)
+            )
         source.setText(
             f"Fix table · {error}" if error
             else ("No data" if frame.empty else self._source_text("Edited", frame))
         )
-        self._clear_stage_frames()
         self._populate_mappings(mapping_state)
-        self._invalidate_analysis()
+        self._analysis_input_changed(view_state=view_state)
+
+    def _active_raw_frame(self):
+        return (
+            self.final_match_frame
+            if self.result_mode.currentText().lower() == "final"
+            else self.raw_frame
+        )
+
+    def _capture_setup_view_state(self):
+        if not hasattr(self, "setup_splitter"):
+            return None
+        return (
+            tuple(self.setup_splitter.sizes()),
+            self.setup_scroll.verticalScrollBar().value(),
+        )
+
+    def _analysis_input_changed(self, *_, view_state=None):
+        """Refresh valid post-run edits without blanking plots or layout first."""
+        if self._auto_run_enabled:
+            if self._pending_auto_view_state is None:
+                self._pending_auto_view_state = (
+                    view_state or self._capture_setup_view_state()
+                )
+            self._update_state()
+            self._queue_auto_analysis()
+        else:
+            self._invalidate_analysis()
 
     def _raw_table_pasted(self):
         """Re-run a valid workbook after the user has opted in by running once."""
@@ -716,10 +896,23 @@ class MatchingWindow(QMainWindow):
 
     def _run_paste_analysis(self):
         self._auto_run_pending = False
+        view_state = self._pending_auto_view_state
+        self._pending_auto_view_state = None
         if not self._auto_run_enabled or not self.analyze_button.isEnabled():
+            if view_state is not None:
+                sizes, scroll_value = view_state
+                self._restore_setup_view_state(sizes, scroll_value)
             return
         try:
             self.run_analysis()
+            if view_state is not None:
+                sizes, scroll_value = view_state
+                self._restore_setup_splitter_layout(sizes)
+                QTimer.singleShot(
+                    0,
+                    lambda saved_sizes=sizes, saved_scroll=scroll_value:
+                    self._restore_setup_view_state(saved_sizes, saved_scroll),
+                )
         except Exception as error:
             self._set_status(
                 f"Automatic analysis could not run: {error}", warning=True
@@ -798,7 +991,8 @@ class MatchingWindow(QMainWindow):
                 }
                 for mapping in selected
             }
-        suggestions = MatchWorkbook.suggest_mappings(self.reference_frame, self.raw_frame)
+        raw_frame = self._active_raw_frame()
+        suggestions = MatchWorkbook.suggest_mappings(self.reference_frame, raw_frame)
         suggestion_by_reference = {mapping.reference_column: mapping for mapping in suggestions}
         numeric_columns = set(inspect_table(self.reference_frame)[2])
         reference_columns = [
@@ -854,10 +1048,10 @@ class MatchingWindow(QMainWindow):
             self.mapping_table.setItem(row, 2, reference_item)
             raw_picker = QComboBox()
             raw_picker.addItem("")
-            raw_picker.addItems([str(column) for column in self.raw_frame.columns])
+            raw_picker.addItems([str(column) for column in raw_frame.columns])
             requested_raw = mapping_state["raw_column"]
             raw_picker.setProperty("requestedRawColumn", requested_raw)
-            if requested_raw in self.raw_frame.columns:
+            if requested_raw in raw_frame.columns:
                 raw_picker.setCurrentText(requested_raw)
             raw_picker.setToolTip(
                 "Choose a Raw Data column for this Reference parameter."
@@ -879,16 +1073,12 @@ class MatchingWindow(QMainWindow):
 
     def _raw_mapping_changed(self, picker, text):
         picker.setProperty("requestedRawColumn", text)
-        if self._auto_run_enabled:
-            self._update_state()
-            self._queue_auto_analysis()
-        else:
-            self._invalidate_analysis()
+        self._analysis_input_changed()
 
     def _mapping_item_changed(self, item):
         if item is not None and item.column() == 0:
             self._sync_select_all_mappings()
-        self._invalidate_analysis()
+        self._analysis_input_changed()
 
     def _set_all_mappings_checked(self, checked):
         state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
@@ -901,7 +1091,7 @@ class MatchingWindow(QMainWindow):
         finally:
             self.mapping_table.blockSignals(False)
         self._sync_select_all_mappings()
-        self._invalidate_analysis()
+        self._analysis_input_changed()
 
     def _sync_select_all_mappings(self):
         row_count = self.mapping_table.rowCount()
@@ -917,6 +1107,7 @@ class MatchingWindow(QMainWindow):
         self.select_all_mappings.blockSignals(False)
 
     def selected_mappings(self):
+        raw_frame = self._active_raw_frame()
         mappings = []
         for row in range(self.mapping_table.rowCount()):
             use = self.mapping_table.item(row, 0)
@@ -925,7 +1116,7 @@ class MatchingWindow(QMainWindow):
             name = self.mapping_table.item(row, 1).text().strip()
             reference_column = self.mapping_table.item(row, 2).text()
             raw_column = self.mapping_table.cellWidget(row, 3).currentText()
-            if not raw_column or raw_column not in self.raw_frame.columns:
+            if not raw_column or raw_column not in raw_frame.columns:
                 raise ValueError(f"Choose a Raw Data column for {reference_column}.")
             mappings.append(ParameterMapping(name, reference_column, raw_column))
         if not mappings:
@@ -1052,9 +1243,10 @@ class MatchingWindow(QMainWindow):
 
     def _update_state(self, *_):
         has_reference = not self.reference_frame.empty
-        has_raw = not self.raw_frame.empty
+        raw_frame = self._active_raw_frame()
+        has_raw = not raw_frame.empty
         self.raw_view.setEnabled(has_reference)
-        valid_rows = has_reference and has_raw and len(self.reference_frame) == len(self.raw_frame)
+        valid_rows = has_reference and has_raw and len(self.reference_frame) == len(raw_frame)
         has_mapping = False
         missing_mapping_columns = []
         if valid_rows:
@@ -1062,7 +1254,7 @@ class MatchingWindow(QMainWindow):
                 item = self.mapping_table.item(row, 0)
                 picker = self.mapping_table.cellWidget(row, 3)
                 if item and item.checkState() == Qt.CheckState.Checked:
-                    if picker and picker.currentText() in self.raw_frame.columns:
+                    if picker and picker.currentText() in raw_frame.columns:
                         has_mapping = True
                     else:
                         reference = self.mapping_table.item(row, 2)
@@ -1078,7 +1270,15 @@ class MatchingWindow(QMainWindow):
         self.reset_order_button.setEnabled(self.result is not None)
         self.reset_order_action.setEnabled(self.result is not None)
         self._update_mode_actions()
-        input_error = self._input_sheet_errors["reference"] or self._input_sheet_errors["raw"]
+        raw_error_key = (
+            "final_raw"
+            if self.result_mode.currentText().lower() == "final"
+            else "raw"
+        )
+        input_error = (
+            self._input_sheet_errors["reference"]
+            or self._input_sheet_errors[raw_error_key]
+        )
         warning = False
         if input_error:
             message = input_error
@@ -1086,15 +1286,16 @@ class MatchingWindow(QMainWindow):
         elif not has_reference:
             message = "Paste a Reference table to begin."
         elif not has_raw:
+            prefix = "Final Raw Data" if raw_error_key == "final_raw" else "Raw Data"
             message = (
-                "Raw Data is empty. Parameter mappings were kept. "
-                "Paste the row-aligned Raw Data, then choose a Raw Data column "
+                f"{prefix} is empty. Parameter mappings were kept. "
+                f"Paste the row-aligned {prefix}, then choose a Raw Data column "
                 "for each selected parameter."
             )
             warning = True
-        elif len(self.reference_frame) != len(self.raw_frame):
+        elif len(self.reference_frame) != len(raw_frame):
             message = (f"Row count differs: Reference {len(self.reference_frame):,}; "
-                       f"Raw Data {len(self.raw_frame):,}.")
+                       f"Raw Data {len(raw_frame):,}.")
             warning = True
         elif missing_mapping_columns:
             message = (
@@ -1121,12 +1322,16 @@ class MatchingWindow(QMainWindow):
 
     def current_workbook(self):
         mappings = self.selected_mappings()
+        active_raw = self._active_raw_frame()
+        if self.result_mode.currentText().lower() == "final" and active_raw.empty:
+            raise ValueError("Paste Final Raw Data before running Final analysis.")
+        preview_raw = self.raw_frame if not self.raw_frame.empty else active_raw
         parameter_order = self._reconciled_parameter_order(
             mapping.name for mapping in mappings
         )
         return MatchWorkbook(
             reference=self.reference_frame,
-            raw=self.raw_frame,
+            raw=preview_raw,
             mappings=mappings,
             match_type=self.match_type.currentText(),
             result_mode=self.result_mode.currentText().lower(),
@@ -1134,6 +1339,9 @@ class MatchingWindow(QMainWindow):
             bias_views=self._selected_bias_views(),
             preview_raw=None if self.preview_frame.empty else self.preview_frame,
             final_raw=None if self.final_frame.empty else self.final_frame,
+            final_match_raw=(
+                None if self.final_match_frame.empty else self.final_match_frame
+            ),
             setup_splitter_sizes=tuple(self.setup_splitter.sizes()),
             parameter_order=parameter_order,
         )
@@ -1172,8 +1380,10 @@ class MatchingWindow(QMainWindow):
             QMessageBox.warning(self, f"Cannot open {stage.title()}", str(error))
 
     def run_analysis(self):
+        scroll_value = self.setup_scroll.verticalScrollBar().value()
         self.workbook = self.current_workbook()
         self.result = self.workbook.analyze()
+        self._auto_run_enabled = True
         self._parameter_order = list(self.workbook.parameter_order)
         self.summary_model.set_frame(self.result.summary)
         self._show_mapping_results()
@@ -1184,6 +1394,11 @@ class MatchingWindow(QMainWindow):
         self.result_status.setText(self._result_descriptor)
         self._draw_all_parameters()
         self._update_state()
+        QTimer.singleShot(
+            0,
+            lambda value=scroll_value:
+            self.setup_scroll.verticalScrollBar().setValue(value),
+        )
         return self.result
 
     def _run_analysis_clicked(self):
@@ -1249,7 +1464,8 @@ class MatchingWindow(QMainWindow):
             specs.append(("bias-percent", "Wafer", "Bias (%)"))
         plots = {}
         for index, (name, bottom, left) in enumerate(specs):
-            plot = self._plot_widget(bottom, left)
+            plot_class = _TrendPlotWidget if name == "trend" else pg.PlotWidget
+            plot = self._plot_widget(bottom, left, plot_class=plot_class)
             plot.setMinimumSize(280 if name == "match" else 340, 300)
             plot.setSizePolicy(
                 QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding
@@ -1259,6 +1475,18 @@ class MatchingWindow(QMainWindow):
             if name in {"bias", "bias-percent"}:
                 plot.getAxis("left").enableAutoSIPrefix(False)
             plots[name] = plot
+        mode = self.result_mode.currentText().lower()
+        trend_card_key = (mode, parameter)
+        trend_card_enabled = self._trend_card_state.get(
+            trend_card_key, mode == "preview"
+        )
+        self._trend_card_state[trend_card_key] = trend_card_enabled
+        trend_checkbox = plots["trend"].card_checkbox
+        trend_checkbox.setChecked(trend_card_enabled)
+        trend_checkbox.toggled.connect(
+            lambda checked, name=parameter:
+            self._trend_card_toggled(name, checked)
+        )
         primary_height = 300
         plot_container.setMinimumHeight(primary_height)
         card_layout.addWidget(plot_container)
@@ -1305,6 +1533,7 @@ class MatchingWindow(QMainWindow):
             "wafer_model": wafer_model,
             "wafer_r2": wafer_r2,
             "wafer_slope": wafer_slope,
+            "trend_card_key": trend_card_key,
         }
         return group
 
@@ -1323,16 +1552,19 @@ class MatchingWindow(QMainWindow):
         reference_all = data["Reference"].to_numpy(float)
         raw_all = data["Raw"].to_numpy(float)
         evaluated_all = data["Evaluated Value"].to_numpy(float)
+        card_value_all = data["Card Value"].to_numpy(float)
         bias_all = data["Bias"].to_numpy(float)
         bias_percent_all = data["Bias %"].to_numpy(float)
         indices = extrema_sample_indices(
-            reference_all, raw_all, evaluated_all, bias_all, bias_percent_all,
+            reference_all, raw_all, evaluated_all, card_value_all,
+            bias_all, bias_percent_all,
             limit=PLOT_LIMIT,
         )
         row = np.arange(1, len(data) + 1, dtype=float)[indices]
         reference = reference_all[indices]
         raw = raw_all[indices]
         evaluated = evaluated_all[indices]
+        card_value = card_value_all[indices]
         bias = bias_all[indices]
         bias_percent = bias_percent_all[indices]
         display_note = ""
@@ -1390,29 +1622,8 @@ class MatchingWindow(QMainWindow):
             )
         match_plot.setTitle(raw_column)
 
-        trend_plot = plots["trend"]
-        trend_plot.addLegend(offset=(12, 12))
-        trend_plot.plot(
-            row,
-            evaluated,
-            pen=pg.mkPen("#5b9bd5", width=2.2),
-            symbol="o",
-            symbolSize=5,
-            symbolBrush="#5b9bd5",
-            symbolPen=None,
-            name="PMISH",
-        )
-        trend_plot.plot(
-            row,
-            reference,
-            pen=pg.mkPen("#ed7d31", width=2.2),
-            symbol="o",
-            symbolSize=5,
-            symbolBrush="#ed7d31",
-            symbolPen=None,
-            name=self.workbook.match_type,
-        )
-        trend_plot.setTitle("Trend")
+        group["trend_data"] = (row, reference, raw, card_value)
+        self._draw_trend_plot(parameter, group)
 
         bias_plot = plots.get("bias")
         if bias_plot is not None:
@@ -1444,6 +1655,46 @@ class MatchingWindow(QMainWindow):
             )
             bias_percent_plot.setTitle("Bias %")
         self._draw_wafer_metrics(parameter, group)
+
+    def _trend_card_toggled(self, parameter, checked):
+        group = self.plot_groups.get(parameter)
+        if group is None:
+            return
+        self._trend_card_state[group["trend_card_key"]] = bool(checked)
+        self._draw_trend_plot(parameter, group)
+
+    def _draw_trend_plot(self, parameter, group):
+        """Redraw only Trend so its Card control feels immediate and stable."""
+        if "trend_data" not in group:
+            return
+        trend_plot = group["plots"]["trend"]
+        for item in tuple(trend_plot.listDataItems()):
+            trend_plot.removeItem(item)
+        if trend_plot.getPlotItem().legend is None:
+            trend_plot.addLegend(offset=(12, 12))
+        row, reference, raw, card_value = group["trend_data"]
+        pmish = card_value if trend_plot.card_checkbox.isChecked() else raw
+        trend_plot.plot(
+            row,
+            pmish,
+            pen=pg.mkPen("#5b9bd5", width=2.2),
+            symbol="o",
+            symbolSize=5,
+            symbolBrush="#5b9bd5",
+            symbolPen=None,
+            name="PMISH",
+        )
+        trend_plot.plot(
+            row,
+            reference,
+            pen=pg.mkPen("#ed7d31", width=2.2),
+            symbol="o",
+            symbolSize=5,
+            symbolBrush="#ed7d31",
+            symbolPen=None,
+            name=self.workbook.match_type,
+        )
+        trend_plot.setTitle("Trend")
 
     def _draw_wafer_metrics(self, parameter, group):
         enabled = self.workbook.match_type in {"NOVA", "KLA"}
@@ -1504,6 +1755,13 @@ class MatchingWindow(QMainWindow):
         available_for_results = current_total - first - second
         third = max(third, self.results_panel.minimumHeight(), available_for_results)
         self.setup_splitter.setSizes([first, second, third])
+        self.setup_splitter.moveSplitter(first, 1)
+        second_handle = first + self.setup_splitter.handleWidth() + second
+        self.setup_splitter.moveSplitter(second_handle, 2)
+
+    def _restore_setup_view_state(self, sizes, scroll_value):
+        self._restore_setup_splitter_layout(sizes)
+        self.setup_scroll.verticalScrollBar().setValue(scroll_value)
 
     def export_excel(self, path):
         """Export an optional human-readable workbook; WKB remains the primary store."""
@@ -1601,6 +1859,18 @@ class MatchingWindow(QMainWindow):
         workbook = MatchWorkbook.load(path)
         self.reference_frame = workbook.reference
         self.raw_frame = workbook.raw
+        self.final_match_frame = (
+            pd.DataFrame()
+            if workbook.final_match_raw is None
+            else workbook.final_match_raw
+        )
+        if (
+            self.final_match_frame.empty
+            and workbook.result_mode == "final"
+        ):
+            # Schema 1/2 workbooks used the same Raw Data for both modes.
+            # Copy it once into the new independent Final input on migration.
+            self.final_match_frame = workbook.raw.copy()
         self.preview_frame = (
             pd.DataFrame() if workbook.preview_raw is None else workbook.preview_raw
         )
@@ -1609,13 +1879,24 @@ class MatchingWindow(QMainWindow):
         )
         self._load_input_sheet(self.reference_model, self.reference_frame)
         self._load_input_sheet(self.raw_model, self.raw_frame)
-        self._input_sheet_errors = {"reference": "", "raw": ""}
+        self._load_input_sheet(self.final_raw_model, self.final_match_frame)
+        self._input_sheet_errors = {
+            "reference": "", "raw": "", "final_raw": "",
+        }
         self.preview_model.set_frame(self.preview_frame)
         self.final_model.set_frame(self.final_frame)
         self.reference_source.setText(self._source_text(Path(path).name, self.reference_frame))
-        self.raw_source.setText(self._source_text(Path(path).name, self.raw_frame))
+        self._raw_sources = {
+            "preview": self._source_text(Path(path).name, self.raw_frame),
+            "final": (
+                "No data"
+                if self.final_match_frame.empty
+                else self._source_text(Path(path).name, self.final_match_frame)
+            ),
+        }
         self.match_type.setCurrentText(workbook.match_type)
         self.result_mode.setCurrentText(workbook.result_mode.title())
+        self._show_raw_mode(workbook.result_mode)
         self.absolute_bias.blockSignals(True)
         self.percent_bias.blockSignals(True)
         self._primary_bias_mode = workbook.bias_mode
@@ -1626,10 +1907,11 @@ class MatchingWindow(QMainWindow):
         self._populate_mappings(workbook.mappings)
         self._parameter_order = list(workbook.parameter_order)
         self._update_state()
-        self.workbook = workbook
-        self.result = workbook.analyze()
+        self.workbook = self.current_workbook()
+        self.result = self.workbook.analyze()
+        self._auto_run_enabled = True
         self._result_descriptor = (
-            f"{workbook.match_type} · {workbook.result_mode.title()} · "
+            f"{self.workbook.match_type} · {self.workbook.result_mode.title()} · "
             f"{len(self.result.parameter_names)} parameters"
         )
         self.result_status.setText(self._result_descriptor)

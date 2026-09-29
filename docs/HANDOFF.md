@@ -19,7 +19,7 @@ conda run -n metrology-workspace python -m unittest discover -s tests -v
 
 ## v2 Card Matching 当前状态
 
-v2 已回到 `main` 持续开发，当前开发快照标记为 `v2.0.0-dev.2`，`VERSION` 仍为 `2.0.0-dev`。原独立 `v2` 分支已删除；`v2.0.0-dev.1`、v1.2.0 及更早的提交、标签和 Release 均不移动。
+v2 已回到 `main` 持续开发，当前开发快照标记为 `v2.0.0-dev.3`，`VERSION` 仍为 `2.0.0-dev`。原独立 `v2` 分支已删除；`v2.0.0-dev.2`、`v2.0.0-dev.1`、v1.2.0 及更早的提交、标签和 Release 均不移动。
 
 当前完成的纵向切片：
 
@@ -34,13 +34,13 @@ v2 已回到 `main` 持续开发，当前开发快照标记为 `v2.0.0-dev.2`，
 - KLA/NOVA 的 Single-wafer metrics 读取 Raw Data，并复用 Wafer Map 的 Wafer ID/Lot ID/PAD Name 默认身份规则；多个身份字段用多行标签显示，Die Seq 不单独拆组。TEM 隐藏单片结果。
 - Match Workbook 使用可滚动的单页工作流：输入、Parameter mapping 和结果区位于可拖动的纵向 splitter 中；Slope、Intercept、R² 等结果合并回 mapping 行。页面内不再重复显示 `Match Workbook` 标题或设置卡，Open/Save/Export/Save images、Run analysis、Match Type 和 Bias 选择位于原生菜单栏。
 - 结果区不再使用 Parameter 下拉框，并拆为 All parameter plots / Single-wafer metrics 两个 tab。所有映射参数按纵向顺序生成独立卡片；卡片内 Match、Trend 及勾选的 Bias/Bias % 使用单行横向图格，列宽比例为 Match 3、其他主图各 5，并保留安全最小宽度，避免标题、坐标轴和相邻图互相遮挡。Match 图标题取 Raw Data column，X/Y 分别标 PMISH/Match Type，右上角显示拟合公式与 R²。Trend 的 PMISH 是蓝色实线圆点，当前 Match Type 是橙色实线圆点；Trend/Bias 横轴使用 Raw Data 测量身份。Bias 直接显示 nm 和 %，不使用自动 SI 系数。
-- 参数卡标题可拖动排序，Reset 恢复 Parameter mapping 顺序；Run Analysis、Raw Data column 自动重算和 Preview/Final 切换都会保留 splitter、滚动位置和参数顺序。顺序写入 WKB。
+- 参数卡标题可拖动排序，拖动时显示半透明卡片和 180 ms 淡入插入线，Reset 恢复 Parameter mapping 顺序；自动重算和 Preview/Final 切换都会保留 splitter、滚动位置和参数顺序。顺序写入 WKB。
 - Slope 超出 0.9–1.1 或 R² 低于 0.9 时，Parameter mapping 与 Single-wafer 表格使用主题适配的红色警示和阈值说明。
-- Preview/Final 是窗口顶部的模式 tab，替代 Result 下拉框。切换模式会直接重算而不先清空输出；Final 隐藏 Raw Data 输入卡但继续使用并保留 Preview 的 Reference、映射和现有数据。首次手动 Run analysis 成功后，在 Raw Data 的 A1 粘贴替换表或更改 Raw Data column 会自动重新分析。
-- `.wkb` 使用 SQLite schema 2，原子保存 Reference、匹配 Raw Data、可选 Preview/Final FullMap、映射、设置、Setup splitter 尺寸与 parameter order；重新打开后恢复用户拖动的边界和卡片顺序。新增 metadata 均为可选字段，旧 schema 1/2 文件缺失时继续使用默认值。Excel 和逐图 PNG 只作为可选导出。
+- Preview/Final 是窗口顶部的模式 tab，替代 Result 下拉框。两种模式各自保留独立 Raw Data；切换模式不会先清空输出。首次 Run analysis 成功后，编辑 Reference、当前模式 Raw Data、映射选择、参数名或 Raw Data column 都会自动重新分析；无效的临时输入只显示警告并保留上一个有效结果。
+- `.wkb` 使用 SQLite schema 3，原子保存 Reference、Preview Raw Data、独立 Final 匹配 Raw Data、可选 Preview/Final FullMap、映射、设置、Setup splitter 尺寸与 parameter order；重新打开后恢复用户拖动的边界和卡片顺序。旧 schema 1/2 文件继续读取；旧 Final 工作簿会把原共享 Raw Data 迁移复制到独立 Final 输入。Excel 和逐图 PNG 只作为可选导出。
 - Run Analysis 重建参数图前会记住 splitter 尺寸；结果区需要增加高度时只扩展底部内容，不移动用户已拖动的上方两个边界。
 - 工具已注册到主窗口，可同时打开多个 Match Workbook 进行对照。
-- 独立 FullMap 输入页已从 UI 移除。Preview 将 Card 应用到当前 Raw Data；Final 直接使用当前已加 Card 的 Raw Data。旧 WKB 里已有的独立 stage 数据仍保持兼容。
+- 独立 FullMap 输入页已从 UI 移除。Preview 将 Card 应用到 Preview Raw Data；Final 直接使用独立且已加 Card 的 Final Raw Data。Trend 右上角 Card 复选框只控制该趋势图显示原始值还是 Card Value，不改动已计算的 Bias/导出语义。旧 WKB 里已有的独立 stage 数据仍保持兼容。
 - 当前模式的 Open Preview/Final Wafer Map / Radius 按钮位于顶部 tab 右侧，通过 `MainWindow.set_table` 复用现有绘图工作区，没有复制绘图实现。
 
 规模目标是 100,000 行、50 参数。当前开发机随机浮点基准：全部 Card 0.16 秒，单参数派生结果 0.004 秒，WKB 保存 1.05 秒、载入 2.43 秒，文件 97.9 MB。分析结果仍按参数惰性展开；UI 为所有参数建立图卡，但每张图只保留极值采样后的绘图数组，不常驻 50 份完整派生表。

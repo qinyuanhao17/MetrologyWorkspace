@@ -75,6 +75,9 @@ QTabBar::tab { color: #6b6b70; background: #f2f2f3; border: 1px solid #e4e4e7; b
 QTabBar::tab:selected { color: #18181b; background: #ffffff; border-color: #c4c4cb; }
 QTabBar::tab:hover:!selected { color: #18181b; background: #ececee; }
 QFrame#sheetCard, QFrame#panel { background: #ffffff; border: 1px solid #e4e4e7; border-top-color: #d9d9de; border-radius: 10px; }
+QFrame#sheetCard[dropPosition="before"] { border-top: 4px solid #2563eb; }
+QFrame#sheetCard[dropPosition="after"] { border-bottom: 4px solid #2563eb; }
+QFrame#parameterDropIndicator { background: #2563eb; border: none; border-radius: 2px; }
 QLineEdit, QComboBox, QDoubleSpinBox { background: #ffffff; color: #18181b; border: 1px solid #d9d9de; border-radius: 5px; padding: 6px 8px; min-height: 20px; selection-background-color: #2563eb; selection-color: #ffffff; }
 QLineEdit:focus, QComboBox:focus { border-color: #2563eb; }
 QLineEdit:read-only { color: #4b4b53; background: #f7f7f8; }

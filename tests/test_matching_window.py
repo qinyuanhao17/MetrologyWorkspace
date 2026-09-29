@@ -12,7 +12,7 @@ import pyqtgraph as pg
 from PyQt6.QtCore import Qt
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import (
-    QApplication, QLabel, QScrollArea, QSplitter, QTabBar, QTabWidget,
+    QApplication, QCheckBox, QLabel, QScrollArea, QSplitter, QTabBar, QTabWidget,
 )
 
 from metrology_app.matching_window import DataFrameModel, MatchingWindow
@@ -374,6 +374,41 @@ class MatchingWindowTests(unittest.TestCase):
         )
         self.assertEqual(tuple(self.window.setup_splitter.sizes()[:2]), sizes)
 
+    def test_reference_raw_and_mapping_edits_auto_refresh_without_clearing_results(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window._run_analysis_clicked()
+        self.window.resize(1600, 900)
+        self.window.show()
+        APP.processEvents()
+        self.window.setup_splitter.setSizes([510, 250, 900])
+        APP.processEvents()
+        sizes = tuple(self.window.setup_splitter.sizes()[:2])
+
+        self.window.reference_model.setData(
+            self.window.reference_model.index(1, 1), "14"
+        )
+        self.assertIsNotNone(self.window.result)
+        APP.processEvents()
+        self.assertEqual(
+            self.window.result.series("CD_Bot")["Reference"].iloc[0], 14.0
+        )
+
+        self.window.raw_model.setData(self.window.raw_model.index(1, 1), "1.5")
+        self.assertIsNotNone(self.window.result)
+        APP.processEvents()
+        self.assertEqual(
+            self.window.result.series("CD_Bot")["Raw"].iloc[0], 1.5
+        )
+
+        self.window.mapping_table.item(0, 0).setCheckState(Qt.CheckState.Unchecked)
+        self.assertIsNotNone(self.window.result)
+        APP.processEvents()
+        QTest.qWait(1)
+        APP.processEvents()
+        self.assertEqual(self.window.result.parameter_names, ("SPA",))
+        self.assertEqual(tuple(self.window.setup_splitter.sizes()[:2]), sizes)
+
     def test_selected_primary_plots_share_one_horizontal_row(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
@@ -392,6 +427,21 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertLess(plots["trend"].geometry().right(), plots["bias"].geometry().left())
         self.assertLess(plots["match"].width(), plots["trend"].width())
         self.assertLess(plots["match"].width(), plots["bias"].width())
+
+    def test_a_single_parameter_plot_card_stays_at_the_top_of_results(self):
+        self.window.set_reference_frame(
+            self.reference()[["Wafer ID", "CD_Bot Reference"]], "Clipboard"
+        )
+        self.window.set_raw_frame(
+            self.raw()[["Wafer ID", "CD_Bot"]], "Clipboard"
+        )
+        self.window.run_analysis()
+        self.window.resize(1600, 900)
+        self.window.show()
+        APP.processEvents()
+
+        card = self.window.plot_groups["CD_Bot"]["card"]
+        self.assertLessEqual(card.geometry().top(), 4)
 
     def test_match_plot_uses_raw_column_title_and_shows_fit_equation(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
@@ -494,6 +544,30 @@ class MatchingWindowTests(unittest.TestCase):
             plots["trend"].getAxis("bottom")._tickLevels,
             [[(1.0, "W1"), (2.0, "W2"), (3.0, "W3")]],
         )
+
+    def test_trend_card_checkbox_switches_between_raw_and_carded_values(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+
+        group = self.window.plot_groups["CD_Bot"]
+        checkbox = group["plots"]["trend"].findChild(
+            QCheckBox, "trendCardToggle"
+        )
+        self.assertIsNotNone(checkbox)
+        self.assertTrue(checkbox.isChecked())
+        pmish = {
+            item.name(): item for item in group["plots"]["trend"].listDataItems()
+        }["PMISH"]
+        self.assertEqual(pmish.yData.tolist(), [12.0, 22.0, 32.0])
+
+        checkbox.setChecked(False)
+        APP.processEvents()
+
+        pmish = {
+            item.name(): item for item in group["plots"]["trend"].listDataItems()
+        }["PMISH"]
+        self.assertEqual(pmish.yData.tolist(), [1.0, 2.0, 3.0])
 
     def test_run_analysis_preserves_the_setup_scroll_position(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
@@ -633,6 +707,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.window.set_reference_frame(reference, "Clipboard")
         self.window.set_raw_frame(raw, "Clipboard")
         self.window.result_mode.setCurrentText("Final")
+        self.window.set_raw_frame(raw, "Final clipboard")
 
         result = self.window.run_analysis()
 
@@ -698,19 +773,17 @@ class MatchingWindowTests(unittest.TestCase):
             self.window.plot_groups["SPA"]["plots"]["trend"].listDataItems()
         )
 
-    def test_replacing_reference_requires_fresh_raw_data(self):
+    def test_replacing_reference_keeps_raw_data_and_refreshes_mappings(self):
         self.window.set_reference_frame(self.reference(), "First Reference")
         self.window.set_raw_frame(self.raw(), "First Raw")
         self.assertTrue(self.window.analyze_button.isEnabled())
 
-        replacement = self.reference().rename(columns={"CD_Bot Reference": "CD_Top Reference"})
+        replacement = self.reference().assign(**{"CD_Bot Reference": [13.0, 23.0, 33.0]})
         self.window.set_reference_frame(replacement, "Replacement Reference")
 
-        self.assertTrue(self.window.raw_frame.empty)
-        self.assertFalse(self.window.raw_model.cells)
-        self.assertGreaterEqual(self.window.raw_model.rowCount(), 100)
-        self.assertFalse(self.window.analyze_button.isEnabled())
-        self.assertIn("Paste the row-aligned Raw Data", self.window.status.text())
+        pd.testing.assert_frame_equal(self.window.raw_frame, self.raw())
+        self.assertTrue(self.window.raw_model.cells)
+        self.assertTrue(self.window.analyze_button.isEnabled())
 
     def test_switching_preview_and_final_keeps_results_and_layout(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
@@ -728,13 +801,24 @@ class MatchingWindowTests(unittest.TestCase):
         APP.processEvents()
 
         self.assertIsNotNone(self.window.result)
-        self.assertEqual(self.window.result.result_mode, "final")
+        # The last valid Preview stays visible until independent Final data arrives.
+        self.assertEqual(self.window.result.result_mode, "preview")
         self.assertTrue(self.window.export_button.isEnabled())
         self.assertEqual(self.window.summary_model.rowCount(), 2)
         self.assertEqual(tuple(self.window.setup_splitter.sizes()[:2]), sizes)
         self.assertFalse(self.window.reference_card.isHidden())
-        self.assertTrue(self.window.raw_card.isHidden())
+        self.assertFalse(self.window.raw_card.isHidden())
+        self.assertFalse(self.window.raw_view.model().cells)
         self.assertFalse(self.window.mapping_card.isHidden())
+
+        final_raw = self.raw().assign(CD_Bot=[11.0, 19.0, 31.0])
+        self.window.set_raw_frame(final_raw, "Final clipboard")
+        APP.processEvents()
+        self.assertEqual(self.window.result.result_mode, "final")
+        self.assertEqual(
+            self.window.result.series("CD_Bot")["Raw"].tolist(),
+            [11.0, 19.0, 31.0],
+        )
 
         self.window.result_mode.setCurrentText("Preview")
         APP.processEvents()
@@ -742,6 +826,51 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertIsNotNone(self.window.result)
         self.assertEqual(self.window.result.result_mode, "preview")
         self.assertFalse(self.window.raw_card.isHidden())
+        self.assertEqual(
+            self.window.raw_model.frame()["CD_Bot"].astype(float).tolist(),
+            [1.0, 2.0, 3.0],
+        )
+
+        self.window.result_mode.setCurrentText("Final")
+        APP.processEvents()
+        self.assertEqual(
+            self.window.final_raw_model.frame()["CD_Bot"].astype(float).tolist(),
+            [11.0, 19.0, 31.0],
+        )
+
+    def test_results_panel_omits_the_mode_parameter_status_line(self):
+        self.assertTrue(self.window.result_status.isHidden())
+
+    def test_wkb_restores_independent_preview_and_final_raw_data(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Preview clipboard")
+        self.window.result_mode.setCurrentText("Final")
+        final_raw = self.raw().assign(CD_Bot=[11.0, 19.0, 31.0])
+        self.window.set_raw_frame(final_raw, "Final clipboard")
+        self.window.run_analysis()
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "independent-modes.wkb"
+            self.window.save_workbook(path)
+            reopened = MatchingWindow()
+            try:
+                reopened.load_workbook(path)
+                self.assertEqual(reopened.result_mode.currentText(), "Final")
+                self.assertEqual(
+                    reopened.raw_view.model().frame()["CD_Bot"].astype(float).tolist(),
+                    [11.0, 19.0, 31.0],
+                )
+                reopened.result_mode.setCurrentText("Preview")
+                APP.processEvents()
+                self.assertEqual(
+                    reopened.raw_view.model().frame()["CD_Bot"].astype(float).tolist(),
+                    [1.0, 2.0, 3.0],
+                )
+            finally:
+                reopened.close()
+                reopened.deleteLater()
+                APP.processEvents()
+
     def test_nova_shows_single_wafer_slope_and_r_squared_but_tem_does_not(self):
         reference = pd.DataFrame({
             "Wafer ID": ["W1"] * 3 + ["W2"] * 3,
