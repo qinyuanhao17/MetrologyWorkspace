@@ -33,18 +33,18 @@ v2 已回到 `main` 持续开发，本轮交付目标标记为 `v2.0.0-dev.4`，
 - Bias 与 Bias % 改为至少选择一个的复选框；两者可同时显示，选择状态写入 WKB，旧文件按原 `bias_mode` 恢复。Reference 为 0 的百分比为 NaN。
 - KLA/NOVA 的 Single-wafer metrics 读取 Raw Data，并复用 Wafer Map 的 Wafer ID/Lot ID/PAD Name 默认身份规则；多个身份字段用多行标签显示，Die Seq 不单独拆组。TEM 隐藏单片结果。
 - Match Workbook 使用可滚动的单页工作流：输入、Parameter mapping 和结果区位于可拖动的纵向 splitter 中；Slope、Intercept、R² 等结果合并回 mapping 行。页面内不再重复显示 `Match Workbook` 标题或设置卡，Open/Save/Export/Save images、Run analysis、Match Type 和 Bias 选择位于原生菜单栏。
-- 结果区不再使用 Parameter 下拉框，并拆为 All parameter plots / Single-wafer metrics 两个 tab。所有映射参数按纵向顺序生成独立卡片；卡片内 Match、Trend 及勾选的 Bias/Bias % 使用单行横向图格，列宽比例为 Match 3、其他主图各 5，并保留安全最小宽度，避免标题、坐标轴和相邻图互相遮挡。Match 图标题取 Raw Data column，X/Y 分别标 PMISH/Match Type，右上角显示拟合公式与 R²。Trend 的 PMISH 是蓝色实线圆点，当前 Match Type 是橙色实线圆点；Trend/Bias 横轴使用 Raw Data 测量身份。Bias 直接显示 nm 和 %，不使用自动 SI 系数。
+- 结果区不再使用 Parameter 下拉框，并拆为 All parameter plots / Single-wafer metrics 两个 tab。所有映射参数按纵向顺序生成独立卡片；卡片内 Match、Trend 及勾选的 Bias/Bias % 使用单行横向图格。Match 固定为 510 × 330 px，其他主图高 330 px、最小宽 560 px；不足空间由外层横向滚动承接，避免相邻图遮挡。Match 图标题取 Raw Data column，X/Y 分别标 PMISH/Match Type，拟合公式与 R² 位于标题右侧，不覆盖曲线或数据点。Trend 的 PMISH 是蓝色实线圆点，当前 Match Type 是橙色实线圆点；Trend/Bias 横轴使用 Raw Data 测量身份。Bias 直接显示 nm 和 %，不使用自动 SI 系数。
 - 参数卡标题可拖动排序，拖动时显示半透明卡片和 180 ms 淡入插入线，Reset 恢复 Parameter mapping 顺序；自动重算和 Preview/Final 切换都会保留 splitter、滚动位置和参数顺序。顺序写入 WKB。
 - Slope 超出 0.9–1.1 或 R² 低于 0.9 时，Parameter mapping 与 Single-wafer 表格使用主题适配的红色警示和阈值说明。
 - Preview/Final 是窗口顶部的模式 tab，替代 Result 下拉框。两种模式各自保留独立 Raw Data；切换模式不会先清空输出。首次 Run analysis 成功后，编辑 Reference、当前模式 Raw Data、映射选择、参数名或 Raw Data column 都会自动重新分析；无效的临时输入只显示警告并保留上一个有效结果。
-- `.wkb` 使用 SQLite schema 3，原子保存 Reference、Preview Raw Data、独立 Final 匹配 Raw Data、可选 Preview/Final FullMap、映射、设置、Setup splitter 尺寸与 parameter order；重新打开后恢复用户拖动的边界和卡片顺序。旧 schema 1/2 文件继续读取；旧 Final 工作簿会把原共享 Raw Data 迁移复制到独立 Final 输入。Excel 和逐图 PNG 只作为可选导出。
+- `.wkb` 使用 SQLite schema 3，原子保存 Reference、Preview Raw Data、独立 Final 匹配 Raw Data、可选 Preview/Final FullMap、映射、设置、Setup splitter 尺寸与 parameter order；重新打开后恢复用户拖动的边界和卡片顺序。首次保存选择路径，保存或打开后 `Ctrl+S` 直接覆盖当前文件；`Save WKB As…` / `Ctrl+Shift+S` 选择新文件并将其设为后续保存目标。旧 schema 1/2 文件继续读取；旧 Final 工作簿会把原共享 Raw Data 迁移复制到独立 Final 输入。Excel 和逐图 PNG 只作为可选导出。
 - Run Analysis 重建参数图前会记住 splitter 尺寸；结果区需要增加高度时只扩展底部内容，不移动用户已拖动的上方两个边界。
 - 工具已注册到主窗口，可同时打开多个 Match Workbook 进行对照。
 - 独立 FullMap 输入页已从 UI 移除。Preview 将 Card 应用到 Preview Raw Data；Final 直接使用独立且已加 Card 的 Final Raw Data。Trend 右上角 Card 复选框只控制该趋势图显示原始值还是 Card Value，不改动已计算的 Bias/导出语义。旧 WKB 里已有的独立 stage 数据仍保持兼容。
 - 当前模式的 Open Preview/Final Wafer Map / Radius 按钮位于顶部 tab 右侧，通过 `MainWindow.set_table` 复用现有绘图工作区，没有复制绘图实现。
-- 参数图统一为 240 px 高、卡片间距 8 px，并为坐标轴保留内部边距；打开 WKB 后回到页面顶部，同时仍恢复保存的 splitter 与参数顺序。
-- 主窗口不再重复显示 Available Tools 卡片；左侧是唯一工具入口，右侧终端风格 Log 显示运行环境、窗口事件、错误与 WKB 打开/保存路径。
-- 新增 Dynamic 工具：复用 Data 编辑器和 measurement identity，自动添加 Cycle，生成 Cycle × Die Seq 透视表，在底部和柱图显示每个 Die 跨 Cycle 的样本 3σ。
+- 参数图统一为 330 px 高、卡片间距 8 px，并为坐标轴保留内部边距；打开 WKB 后回到页面顶部，同时仍恢复保存的 splitter 与参数顺序。
+- 主窗口不再重复显示 Available Tools 卡片；左侧是唯一工具入口，右侧恢复 Activity，底部终端风格 Log 横跨窗口并显示运行环境、错误与 WKB 打开/保存路径。Log 使用优先 Cascadia Mono、回退 Consolas 的系统等宽字体，背景与现有内容会随 Light/Dark 主题同步切换，INFO/WARNING/ERROR 标签具有高对比语义颜色。
+- 新增 Dynamic 工具：复用 Data 编辑器和 measurement identity，自动添加 Cycle，并在同一张 Cycle × Die Seq 透视表中按参数分组显示已勾选数据。绘图区没有参数下拉框；两个参数生成一张不同颜色、点形和图例的分组对比图及两张单参数图，每张固定 510 × 330 px，并支持横向滚动。表格末行和柱图均显示每个 Die 跨 Cycle 的样本 3σ。
 
 规模目标是 100,000 行、50 参数。当前开发机随机浮点基准：全部 Card 0.16 秒，单参数派生结果 0.004 秒，WKB 保存 1.05 秒、载入 2.43 秒，文件 97.9 MB。分析结果仍按参数惰性展开；UI 为所有参数建立图卡，但每张图只保留极值采样后的绘图数组，不常驻 50 份完整派生表。
 

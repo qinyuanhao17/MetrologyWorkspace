@@ -8,11 +8,14 @@ import sys
 import traceback
 
 from PyQt6.QtCore import QSize, Qt, QTimer
-from PyQt6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
+from PyQt6.QtGui import (
+    QAction, QColor, QFont, QFontDatabase, QIcon, QPainter, QPen, QPixmap,
+    QTextCharFormat, QTextCursor,
+)
 from PyQt6.QtWidgets import (
-    QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow,
-    QMenu, QPlainTextEdit, QScrollArea, QSizePolicy, QToolBar, QToolButton, QVBoxLayout,
-    QWidget,
+    QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel, QListWidget,
+    QMainWindow, QMenu, QPlainTextEdit, QScrollArea, QSizePolicy, QSplitter,
+    QToolBar, QToolButton, QVBoxLayout, QWidget,
 )
 
 from .appearance import (
@@ -26,6 +29,40 @@ from .settings_dialog import SettingsDialog
 
 
 APPLICATION_NAME = "Metrology Workspace"
+TERMINAL_FONT_FAMILIES = (
+    "Cascadia Mono", "Cascadia Code", "JetBrains Mono", "Consolas",
+)
+LOG_COLOURS = {
+    "light": {
+        "timestamp": "#6b6b70",
+        "INFO": "#1d5fbf",
+        "WARNING": "#8a5a00",
+        "ERROR": "#b42318",
+        "source": "#6941c6",
+        "message": "#24212a",
+    },
+    "dark": {
+        "timestamp": "#93869f",
+        "INFO": "#79b8ff",
+        "WARNING": "#f5b942",
+        "ERROR": "#ff7b86",
+        "source": "#d6b5ff",
+        "message": "#e7e0eb",
+    },
+}
+
+
+def _terminal_font():
+    available = set(QFontDatabase.families())
+    fallback = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+    family = next(
+        (candidate for candidate in TERMINAL_FONT_FAMILIES if candidate in available),
+        fallback.family(),
+    )
+    font = QFont(family, 10)
+    font.setStyleHint(QFont.StyleHint.Monospace)
+    font.setFixedPitch(True)
+    return font
 
 
 class _DiagnosticHandler(logging.Handler):
@@ -58,6 +95,8 @@ class MainWindow(QMainWindow):
         self.module_buttons = {}
         self.close_all_buttons = {}
         self._diagnostic_handler = None
+        self._log_entries = []
+        self._log_theme = get_settings()["theme"]
         self.setObjectName("applicationShell")
         self.setWindowTitle(APPLICATION_NAME)
         # A modest window centred on the display: the shell only holds two
@@ -70,9 +109,9 @@ class MainWindow(QMainWindow):
         self._install_diagnostic_log()
         self._populate_modules()
         self.record("App", "Metrology Workspace is ready")
-        self.record("Runtime", f"Python {platform.python_version()} · {sys.executable}")
-        self.record("Runtime", f"Platform {platform.platform()}")
-        self.record("Runtime", f"Working directory: {Path.cwd()}")
+        self._append_log("INFO", "Runtime", f"Python {platform.python_version()} · {sys.executable}")
+        self._append_log("INFO", "Runtime", f"Platform {platform.platform()}")
+        self._append_log("INFO", "Runtime", f"Working directory: {Path.cwd()}")
         self.update_overview()
 
     @property
@@ -145,8 +184,8 @@ class MainWindow(QMainWindow):
         self.menu_button.setIcon(QIcon(pixmap))
 
     def _build_content(self):
-        root = QWidget(objectName="shellRoot")
-        layout = QHBoxLayout(root)
+        upper = QWidget(objectName="shellRoot")
+        layout = QHBoxLayout(upper)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(self._build_sidebar(), 23)
@@ -157,9 +196,19 @@ class MainWindow(QMainWindow):
         scroll = QScrollArea(objectName="shellScroll")
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setWidget(root)
+        scroll.setWidget(upper)
         self.shell_scroll = scroll
-        self.setCentralWidget(scroll)
+
+        splitter = QSplitter(Qt.Orientation.Vertical, objectName="shellSplitter")
+        splitter.setChildrenCollapsible(False)
+        splitter.setHandleWidth(6)
+        splitter.addWidget(scroll)
+        splitter.addWidget(self._build_log())
+        splitter.setStretchFactor(0, 4)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([590, 190])
+        self.shell_splitter = splitter
+        self.setCentralWidget(splitter)
 
     def _build_sidebar(self):
         panel = QFrame(objectName="sidebar")
@@ -224,9 +273,24 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(20, 24, 20, 18)
         layout.setSpacing(10)
         layout.addWidget(help_title_label(
+            "Activity", "Windows and files opened in this session."
+        ))
+        self.activity = QListWidget(objectName="activityLog")
+        self.activity.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        layout.addWidget(self.activity, 1)
+        return panel
+
+    def _build_log(self):
+        panel = QFrame(objectName="diagnosticPanel")
+        panel.setMinimumHeight(150)
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(18, 10, 18, 14)
+        layout.setSpacing(8)
+        layout.addWidget(help_title_label(
             "Log", "Runtime, file paths, and errors for debugging."
         ))
         self.log_output = QPlainTextEdit(objectName="diagnosticLog")
+        self.log_output.setFont(_terminal_font())
         self.log_output.setReadOnly(True)
         self.log_output.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.log_output.document().setMaximumBlockCount(1000)
@@ -308,6 +372,7 @@ class MainWindow(QMainWindow):
         set_theme_palette(theme)
         style_titlebar(self, theme)
         self._update_menu_icon(theme)
+        self._refresh_log_output(theme)
         for instances in self.loaded_components.values():
             for widget in instances:
                 apply_theme(widget, theme)
@@ -361,7 +426,50 @@ class MainWindow(QMainWindow):
 
     def _append_log(self, level, source, message):
         stamp = datetime.now().strftime("%H:%M:%S")
-        self.log_output.appendPlainText(f"{stamp}  [{level}]  {source}: {message}")
+        entry = (stamp, str(level).upper(), str(source), str(message))
+        self._log_entries.append(entry)
+        del self._log_entries[:-1000]
+        self._render_log_entry(entry)
+        self._scroll_log_to_end()
+
+    @staticmethod
+    def _log_text_format(colour, emphasized=False):
+        text_format = QTextCharFormat()
+        text_format.setForeground(QColor(colour))
+        if emphasized:
+            text_format.setFontWeight(int(QFont.Weight.DemiBold))
+        return text_format
+
+    def _render_log_entry(self, entry):
+        stamp, level, source, message = entry
+        colours = LOG_COLOURS.get(self._log_theme, LOG_COLOURS["dark"])
+        cursor = self.log_output.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        if not self.log_output.document().isEmpty():
+            cursor.insertBlock()
+        cursor.insertText(
+            f"{stamp}  ", self._log_text_format(colours["timestamp"])
+        )
+        cursor.insertText(
+            f"[{level}]",
+            self._log_text_format(colours.get(level, colours["INFO"]), True),
+        )
+        cursor.insertText("  ", self._log_text_format(colours["message"]))
+        cursor.insertText(
+            f"{source}:", self._log_text_format(colours["source"], True)
+        )
+        cursor.insertText(
+            f" {message}", self._log_text_format(colours["message"])
+        )
+
+    def _refresh_log_output(self, theme):
+        self._log_theme = theme if theme in LOG_COLOURS else "dark"
+        self.log_output.clear()
+        for entry in self._log_entries:
+            self._render_log_entry(entry)
+        self._scroll_log_to_end()
+
+    def _scroll_log_to_end(self):
         vertical = self.log_output.verticalScrollBar()
         vertical.setValue(vertical.maximum())
         self.log_output.horizontalScrollBar().setValue(0)
@@ -371,6 +479,12 @@ class MainWindow(QMainWindow):
         level = "ERROR" if normalized == "error" else (
             "WARNING" if normalized == "warning" else "INFO"
         )
+        summary = str(message).splitlines()[0]
+        self.activity.insertItem(
+            0, f"{datetime.now():%H:%M:%S}   {source}\n{summary}"
+        )
+        while self.activity.count() > 100:
+            self.activity.takeItem(self.activity.count() - 1)
         self._append_log(level, source, message)
 
     def load_path(self, path):

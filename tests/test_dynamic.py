@@ -7,8 +7,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 import pandas as pd
+import pyqtgraph as pg
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QComboBox, QScrollArea
 
 from metrology_app.dynamic import dynamic_pivot, prepare_dynamic_frame
 from metrology_app.dynamic_window import DynamicWindow
@@ -108,7 +109,7 @@ class DynamicWindowTests(unittest.TestCase):
                 })
         return pd.DataFrame(rows)
 
-    def test_workspace_reuses_data_editor_then_builds_selected_parameter_pivot(self):
+    def test_selected_parameters_render_comparison_and_individual_fixed_plots(self):
         self.window.set_table(self.frame(), "dynamic.csv")
         self.assertEqual(
             [self.window.tabs.tabText(i) for i in range(self.window.tabs.count())],
@@ -130,22 +131,54 @@ class DynamicWindowTests(unittest.TestCase):
                 item.setCheckState(0, Qt.CheckState.Checked)
         APP.processEvents()
 
+        page = self.window.dynamic_page
         self.assertEqual(
-            [self.window.dynamic_page.parameter.itemText(i)
-             for i in range(self.window.dynamic_page.parameter.count())],
-            ["DP", "EW"],
+            page.findChildren(QComboBox, "dynamicParameter"), []
         )
         self.assertEqual(
-            self.window.dynamic_page.pivot_model.frame.index.tolist(),
+            page.pivot_model.frame.index.tolist(),
             [1, 2, 3, "3 Sigma"],
         )
-        self.assertIsNotNone(self.window.dynamic_page.bars)
-        self.assertEqual(len(self.window.dynamic_page.bars.opts["height"]), 4)
-        sigma_axis = self.window.dynamic_page.plot.getAxis("left")
-        self.assertEqual(sigma_axis.labelText, "3 Sigma (nm)")
-        self.assertFalse(sigma_axis.autoSIPrefix)
         self.assertEqual(
-            self.window.dynamic_page.table.verticalHeader().defaultSectionSize(), 28
+            page.pivot_model.frame.columns.tolist(),
+            [
+                ("DP", "1"), ("DP", "2"), ("DP", "3"), ("DP", "4"),
+                ("EW", "1"), ("EW", "2"), ("EW", "3"), ("EW", "4"),
+            ],
+        )
+        self.assertEqual(
+            [plot.getPlotItem().titleLabel.text for plot in page.plots],
+            ["DP + EW", "DP", "EW"],
+        )
+        self.assertEqual(
+            [(plot.width(), plot.height()) for plot in page.plots],
+            [(510, 330), (510, 330), (510, 330)],
+        )
+        combined_bars = [
+            item for item in page.plots[0].getPlotItem().items
+            if isinstance(item, pg.BarGraphItem)
+        ]
+        self.assertEqual(len(combined_bars), 2)
+        self.assertNotEqual(
+            combined_bars[0].opts["brush"].color().name(),
+            combined_bars[1].opts["brush"].color().name(),
+        )
+        legend_labels = [
+            label.text for _sample, label in page.plots[0].getPlotItem().legend.items
+        ]
+        self.assertEqual(legend_labels, ["DP", "EW"])
+        for plot in page.plots:
+            sigma_axis = plot.getAxis("left")
+            self.assertEqual(sigma_axis.labelText, "3 Sigma (nm)")
+            self.assertFalse(sigma_axis.autoSIPrefix)
+        self.window.tabs.setCurrentIndex(1)
+        self.window.resize(1100, 800)
+        self.window.show()
+        APP.processEvents()
+        self.assertIsInstance(page.plot_scroll, QScrollArea)
+        self.assertGreater(page.plot_scroll.horizontalScrollBar().maximum(), 0)
+        self.assertEqual(
+            page.table.verticalHeader().defaultSectionSize(), 28
         )
 
     def test_new_table_does_not_require_die_seq_before_data_is_pasted(self):

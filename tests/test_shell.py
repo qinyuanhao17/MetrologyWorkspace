@@ -2,11 +2,15 @@
 
 import os
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QRect
-from PyQt6.QtWidgets import QApplication, QLabel, QPlainTextEdit, QPushButton, QWidget
+from PyQt6.QtCore import QPoint, QRect
+from PyQt6.QtGui import QPalette
+from PyQt6.QtWidgets import (
+    QApplication, QLabel, QListWidget, QPlainTextEdit, QPushButton, QWidget,
+)
 
 from metrology_app.appearance import configure_fonts, fit_window_to_screen
 from metrology_app.module_registry import ComponentRegistry, ComponentSpec
@@ -34,12 +38,16 @@ class ShellTests(unittest.TestCase):
         try:
             labels = shell.findChildren(QLabel)
             workspace = next(label for label in labels if label.text() == "Workspace")
-            activity = next(label for label in labels if label.text() == "Log")
+            activity = next(label for label in labels if label.text() == "Activity")
+            log = next(label for label in labels if label.text() == "Log")
             self.assertEqual(
                 workspace.toolTip(), "Open a tool in its own analysis window."
             )
             self.assertEqual(
-                activity.toolTip(), "Runtime, file paths, and errors for debugging."
+                activity.toolTip(), "Windows and files opened in this session."
+            )
+            self.assertEqual(
+                log.toolTip(), "Runtime, file paths, and errors for debugging."
             )
             self.assertFalse(any(
                 label.objectName() in {"pageSubtitle", "componentDescription"}
@@ -47,6 +55,7 @@ class ShellTests(unittest.TestCase):
             ))
             self.assertFalse(any(label.text() == "AVAILABLE TOOLS" for label in labels))
             self.assertFalse(shell.findChildren(QWidget, "componentCard"))
+            self.assertIsInstance(shell.activity, QListWidget)
             self.assertIsInstance(shell.log_output, QPlainTextEdit)
         finally:
             shell.close()
@@ -190,13 +199,95 @@ class ShellTests(unittest.TestCase):
             component = shell.open_component("wafer_map")
             APP.processEvents()
             self.assertIn("Opened Wafer Map", shell.log_output.toPlainText())
+            self.assertIn("Opened Wafer Map", shell.activity.item(0).text())
             component.close()
             APP.processEvents()
             self.assertIn("Closed a Wafer Map window", shell.log_output.toPlainText())
+            self.assertIn("Closed a Wafer Map window", shell.activity.item(0).text())
 
             shell.record("Error", "example traceback")
             self.assertIn("ERROR", shell.log_output.toPlainText())
             self.assertIn("example traceback", shell.log_output.toPlainText())
+        finally:
+            shell.close()
+            shell.deleteLater()
+            APP.processEvents()
+
+    def test_log_spans_the_bottom_below_the_restored_activity_panel(self):
+        shell = MainWindow()
+        try:
+            shell.resize(1180, 820)
+            shell.show()
+            APP.processEvents()
+
+            activity_bottom = shell.activity.mapTo(
+                shell, QPoint(0, shell.activity.height())
+            ).y()
+            log_top = shell.log_output.mapTo(shell, QPoint(0, 0)).y()
+            self.assertGreaterEqual(log_top, activity_bottom)
+            self.assertGreater(shell.log_output.width(), shell.activity.width())
+        finally:
+            shell.close()
+            shell.deleteLater()
+            APP.processEvents()
+
+    def test_light_theme_uses_a_light_fixed_width_terminal_log(self):
+        shell = MainWindow()
+        try:
+            with patch("metrology_app.shell.get_settings", return_value={"theme": "light"}):
+                shell.apply_settings()
+            shell.show()
+            APP.processEvents()
+
+            palette = shell.log_output.palette()
+            self.assertEqual(
+                palette.color(QPalette.ColorRole.Base).name(), "#fbfbfc"
+            )
+            self.assertEqual(
+                palette.color(QPalette.ColorRole.Text).name(), "#24212a"
+            )
+            self.assertIn(
+                shell.log_output.font().family(),
+                {"Cascadia Mono", "Cascadia Code", "JetBrains Mono", "Consolas", "Courier New"},
+            )
+        finally:
+            shell.close()
+            shell.deleteLater()
+            APP.processEvents()
+
+    def test_terminal_log_colours_level_labels_after_theme_switch(self):
+        shell = MainWindow()
+        try:
+            shell.record("App", "analysis completed")
+            shell.record("Warning", "column needs attention")
+            shell.record("Error", "analysis failed")
+            with patch("metrology_app.shell.get_settings", return_value={"theme": "light"}):
+                shell.apply_settings()
+            APP.processEvents()
+
+            colours = {}
+            block = shell.log_output.document().begin()
+            while block.isValid():
+                iterator = block.begin()
+                while not iterator.atEnd():
+                    fragment = iterator.fragment()
+                    for level in ("INFO", "WARNING", "ERROR"):
+                        if fragment.text() == f"[{level}]":
+                            colours[level] = (
+                                fragment.charFormat().foreground().color().name()
+                            )
+                    iterator += 1
+                block = block.next()
+
+            self.assertEqual(colours, {
+                "INFO": "#1d5fbf",
+                "WARNING": "#8a5a00",
+                "ERROR": "#b42318",
+            })
+            text = shell.log_output.toPlainText()
+            self.assertIn("[INFO]", text)
+            self.assertIn("[WARNING]", text)
+            self.assertIn("[ERROR]", text)
         finally:
             shell.close()
             shell.deleteLater()

@@ -317,6 +317,7 @@ class MatchingWindow(QMainWindow):
         self.preview_frame = pd.DataFrame()
         self.final_frame = pd.DataFrame()
         self.workbook = None
+        self.workbook_path = None
         self.result = None
         self._primary_bias_mode = "absolute"
         self._auto_run_enabled = False
@@ -411,7 +412,10 @@ class MatchingWindow(QMainWindow):
         self.open_action.triggered.connect(self.open_wkb_dialog)
         self.save_action = QAction("Save WKB", self)
         self.save_action.setShortcut(QKeySequence("Ctrl+S"))
-        self.save_action.triggered.connect(self.save_wkb_dialog)
+        self.save_action.triggered.connect(self.save_wkb)
+        self.save_as_action = QAction("Save WKB As…", self)
+        self.save_as_action.setShortcut(QKeySequence("Ctrl+Shift+S"))
+        self.save_as_action.triggered.connect(self.save_wkb_dialog)
         self.export_action = QAction("Export Excel", self)
         self.export_action.triggered.connect(self.export_excel_dialog)
         self.images_action = QAction("Save images", self)
@@ -419,6 +423,7 @@ class MatchingWindow(QMainWindow):
         for action in (
             self.open_action,
             self.save_action,
+            self.save_as_action,
             self.export_action,
             self.images_action,
         ):
@@ -466,13 +471,15 @@ class MatchingWindow(QMainWindow):
         # Compatibility aliases for callers that previously enabled toolbar buttons.
         self.open_button = self.open_action
         self.save_button = self.save_action
+        self.save_as_button = self.save_as_action
         self.export_button = self.export_action
         self.images_button = self.images_action
 
     def _install_shortcuts(self):
         for title, shortcut, handler in (
             ("Open WKB", "Ctrl+O", self.open_wkb_dialog),
-            ("Save WKB", "Ctrl+S", self.save_wkb_dialog),
+            ("Save WKB", "Ctrl+S", self.save_wkb),
+            ("Save WKB As…", "Ctrl+Shift+S", self.save_wkb_dialog),
             ("Run analysis", "Ctrl+Return", self._run_analysis_clicked),
         ):
             action = QAction(title, self)
@@ -1455,7 +1462,7 @@ class MatchingWindow(QMainWindow):
         plot_grid.setContentsMargins(0, 0, 0, 0)
         plot_grid.setHorizontalSpacing(14)
         plot_grid.setVerticalSpacing(16)
-        primary_height = 240
+        primary_height = 330
         specs = [
             ("match", "PMISH", self.match_type.currentText()),
             ("trend", "Wafer", ""),
@@ -1469,16 +1476,30 @@ class MatchingWindow(QMainWindow):
             plot_class = _TrendPlotWidget if name == "trend" else pg.PlotWidget
             plot = self._plot_widget(bottom, left, plot_class=plot_class)
             plot.getPlotItem().setContentsMargins(6, 4, 8, 8)
-            plot.setMinimumWidth(280 if name == "match" else 340)
+            if name == "match":
+                plot.setFixedWidth(510)
+                horizontal_policy = QSizePolicy.Policy.Fixed
+                plot_grid.setColumnMinimumWidth(index, 510)
+            else:
+                plot.setMinimumWidth(560)
+                horizontal_policy = QSizePolicy.Policy.MinimumExpanding
+                plot_grid.setColumnMinimumWidth(index, 560)
             plot.setFixedHeight(primary_height)
             plot.setSizePolicy(
-                QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed
+                horizontal_policy, QSizePolicy.Policy.Fixed
             )
             plot_grid.addWidget(plot, 0, index)
-            plot_grid.setColumnStretch(index, 3 if name == "match" else 5)
+            plot_grid.setColumnStretch(index, 0 if name == "match" else 5)
             if name in {"bias", "bias-percent"}:
                 plot.getAxis("left").enableAutoSIPrefix(False)
             plots[name] = plot
+        primary_width = 510 + max(0, len(specs) - 1) * 560
+        primary_width += max(0, len(specs) - 1) * plot_grid.horizontalSpacing()
+        plot_container.setMinimumWidth(primary_width)
+        match_item = plots["match"].getPlotItem()
+        match_formula = pg.LabelItem("", justify="right", size="9pt")
+        match_item.layout.addItem(match_formula, 0, 2)
+        match_item.layout.setColumnStretchFactor(2, 0)
         mode = self.result_mode.currentText().lower()
         trend_card_key = (mode, parameter)
         trend_card_enabled = self._trend_card_state.get(
@@ -1531,7 +1552,9 @@ class MatchingWindow(QMainWindow):
             "card": card,
             "note": note,
             "plots": plots,
+            "match_formula": match_formula,
             "primary_height": primary_height,
+            "primary_width": primary_width,
             "wafer_card": wafer_card,
             "wafer_model": wafer_model,
             "wafer_r2": wafer_r2,
@@ -1610,18 +1633,12 @@ class MatchingWindow(QMainWindow):
             intercept_sign = "+" if card.intercept >= 0 else "-"
             fit_text = (
                 f"y = {card.slope:.6g}x {intercept_sign} "
-                f"{abs(card.intercept):.6g}\nR² = {card.r_squared:.6g}"
+                f"{abs(card.intercept):.6g}<br>R² = {card.r_squared:.6g}"
             )
-            annotation = pg.TextItem(
-                text=fit_text,
+            group["match_formula"].setText(
+                fit_text,
                 color=match_plot.palette().color(match_plot.foregroundRole()),
-                anchor=(1, 0),
-            )
-            annotation.setZValue(20)
-            match_plot.addItem(annotation, ignoreBounds=True)
-            annotation.setPos(
-                high,
-                float(max(np.max(reference[valid]), np.max(y_line))),
+                size="9pt",
             )
         match_plot.setTitle(raw_column)
 
@@ -1734,11 +1751,13 @@ class MatchingWindow(QMainWindow):
 
     def _resize_results_for_plot_groups(self):
         total = 64
+        widest = 0
         wafer_total = 64
         for group in self.plot_groups.values():
             card_height = 54 + group["primary_height"]
             group["card"].setFixedHeight(card_height)
             total += card_height + self.plot_groups_layout.spacing()
+            widest = max(widest, group.get("primary_width", 0))
             if not group["wafer_card"].isHidden():
                 wafer_height = 520
                 group["wafer_card"].setMinimumHeight(wafer_height)
@@ -1746,6 +1765,10 @@ class MatchingWindow(QMainWindow):
         result_height = max(total, wafer_total)
         self.results_panel.setMinimumHeight(max(520, result_height))
         self.setup_splitter.setMinimumHeight(max(1120, 650 + result_height))
+        if widest:
+            # The outer setup scroll owns horizontal overflow. Give it the real
+            # row width so fixed-size charts never intrude into neighbours.
+            self.setup_splitter.setMinimumWidth(widest + 92)
 
     def _restore_setup_splitter_layout(self, sizes):
         """Keep the two user-positioned upper boundaries while results expand."""
@@ -1845,23 +1868,42 @@ class MatchingWindow(QMainWindow):
         workbook = self.current_workbook()
         saved = workbook.save(path)
         self.workbook = workbook
+        self.workbook_path = Path(saved).resolve()
         self._set_status(f"Saved {saved.name}")
         LOGGER.info("WKB saved: %s", Path(saved).resolve())
         return saved
 
+    def save_wkb(self):
+        if self.workbook_path is None:
+            return self.save_wkb_dialog()
+        try:
+            return self.save_workbook(self.workbook_path)
+        except Exception as error:
+            LOGGER.exception("Cannot save WKB")
+            QMessageBox.warning(self, "Cannot save WKB", str(error))
+
     def save_wkb_dialog(self):
         try:
-            default = str(Path.home() / "matching-analysis.wkb")
-            path, _ = QFileDialog.getSaveFileName(self, "Save Matching Workbook", default,
-                                                  "Matching Workbook (*.wkb)")
+            default = str(
+                self.workbook_path
+                if self.workbook_path is not None
+                else Path.home() / "matching-analysis.wkb"
+            )
+            path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Save Matching Workbook As",
+                default,
+                "Matching Workbook (*.wkb)",
+            )
             if path:
-                self.save_workbook(path)
+                return self.save_workbook(path)
         except Exception as error:
             LOGGER.exception("Cannot save WKB")
             QMessageBox.warning(self, "Cannot save WKB", str(error))
 
     def load_workbook(self, path):
         workbook = MatchWorkbook.load(path)
+        self.workbook_path = Path(path).resolve()
         self.reference_frame = workbook.reference
         self.raw_frame = workbook.raw
         self.final_match_frame = (

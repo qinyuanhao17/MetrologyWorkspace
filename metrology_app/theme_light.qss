@@ -41,6 +41,7 @@ QFrame#sidebar { background: #f2f2f3; border: none; border-right: 1px solid #e4e
 QWidget#overviewPage { background: #f7f7f8; }
 QFrame#overviewCard, QFrame#componentCard, QFrame#activityPanel { background: #ffffff; border: 1px solid #e4e4e7; border-top-color: #d9d9de; border-radius: 10px; }
 QFrame#activityPanel { border-radius: 0; border-top: none; border-bottom: none; border-right: none; }
+QFrame#diagnosticPanel { background: #f7f7f8; border-top: 1px solid #d9d9de; }
 QPushButton#moduleButton { background: #ffffff; border: 1px solid #e4e4e7; border-radius: 9px; padding: 0; text-align: left; }
 QPushButton#moduleButton:hover { background: #f2f2f3; border-color: #b8b8bf; }
 QLabel#moduleStateBadge { color: #6b6b70; background: #f2f2f3; border: 1px solid #d9d9de; border-radius: 5px; font-size: 9px; font-weight: 700; }
@@ -50,7 +51,9 @@ QPushButton#componentLaunch:hover { background: #333338; border-color: #333338; 
 QPushButton#componentCloseAll { min-width: 82px; color: #3f3f46; background: #ffffff; border-color: #d9d9de; font-weight: 600; }
 QPushButton#componentCloseAll:hover { border-color: #b8b8bf; background: #f2f2f3; }
 QPushButton#componentCloseAll:disabled { color: #b4b4b9; border-color: #e9e9ec; background: #fafafa; }
-QPlainTextEdit#diagnosticLog { background: #18181b; color: #d4d4d8; border: 1px solid #d9d9de; border-radius: 7px; padding: 10px; font-family: Consolas, "Cascadia Mono", monospace; font-size: 12px; selection-background-color: #3b82f6; }
+QPlainTextEdit#diagnosticLog { background: #fbfbfc; color: #24212a; border: 1px solid #d9d9de; border-radius: 7px; padding: 10px; font-family: "Cascadia Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace; font-size: 12px; selection-background-color: #bfdbfe; selection-color: #172033; }
+QListWidget#activityLog { background: transparent; border: none; outline: none; color: #4b4b53; }
+QListWidget#activityLog::item { border-bottom: 1px solid #efeff1; padding: 10px 4px; }
 QPushButton { background: #ffffff; border: 1px solid #d9d9de; border-top-color: #d2d2d7; border-radius: 7px; padding: 8px 14px; font-weight: 500; }
 QPushButton:hover { background: #f2f2f3; border-color: #b8b8bf; }
 QPushButton:pressed { background: #e8e8ea; }

@@ -34,6 +34,12 @@ Feature: Build a card matching workbook
       And the saved section layout is restored
       And the saved parameter order is restored
 
+    Scenario: Keep saving to the current workbook path
+      Given the engineer has saved or opened a Match Workbook
+      When the engineer saves the workbook again
+      Then the current WKB file is replaced without asking for another path
+      And Save As can choose a different WKB file for later saves
+
     Scenario: Compare absolute and percentage bias in one review
       Given DP and EW have valid Reference and Raw Data mappings
       And both absolute and percentage bias are selected
@@ -42,7 +48,10 @@ Feature: Build a card matching workbook
       And DP and EW each have a separate plot card in vertical order
       And Match, Trend, absolute bias, and percentage bias use one unclipped horizontal row
       And Match is narrower than the Trend and bias plots
-      And each Match plot is titled by its Raw Data column and shows its fitted equation and R squared
+      And each Match plot is 510 pixels wide
+      And every primary plot is 330 pixels high
+      And each Match plot is titled by its Raw Data column and shows its fitted equation and R squared to the right of the title
+      And the fitted equation and R squared do not cover the Match curve or data points
       And Trend labels the blue solid line PMISH and the orange solid line with the Match Type
       And Match labels PMISH horizontally and the Match Type vertically
       And Bias reports nanometres and percentage points without scale multipliers

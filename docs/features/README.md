@@ -13,7 +13,9 @@
 - Reference-first state → `MatchingWindowTests.test_reference_is_loaded_before_raw_data_and_enables_analysis`
 - Editable Reference/Raw spreadsheet grids → `MatchingWindowTests.test_reference_and_raw_inputs_are_editable_spreadsheet_grids`
 - All-parameter vertical Card review with unclipped single-row plots and both Bias views → `MatchingWindowTests.test_analysis_results_share_the_scrollable_setup_workspace` and `MatchWorkbookTests.test_wkb_round_trip_preserves_source_tables_and_settings`
-- Match title/equation and PMISH-versus-Match-Type Trend styling → `MatchingWindowTests.test_match_plot_uses_raw_column_title_and_shows_fit_equation` and `MatchingWindowTests.test_trend_and_bias_use_visible_point_lines`
+- Match equation/R² positioned to the right of its title and PMISH-versus-Match-Type Trend styling → `MatchingWindowTests.test_match_plot_shows_fit_equation_to_the_right_of_its_title` and `MatchingWindowTests.test_trend_and_bias_use_visible_point_lines`
+- Fixed Match width and uniform primary-plot height without overlap → `MatchingWindowTests.test_analysis_results_share_the_scrollable_setup_workspace`, `MatchingWindowTests.test_primary_plot_height_is_fixed_for_single_and_multiple_parameters`, and `MatchingWindowTests.test_selected_primary_plots_share_one_horizontal_row`
+- Activity restored at right and theme-aware coloured terminal Log placed below the main workspace → `ShellTests.test_log_spans_the_bottom_below_the_restored_activity_panel`, `ShellTests.test_terminal_log_records_runtime_component_and_error_information`, `ShellTests.test_light_theme_uses_a_light_fixed_width_terminal_log`, and `ShellTests.test_terminal_log_colours_level_labels_after_theme_switch`
 - Preview/Final top mode tabs preserve results/layout and use independent Raw Data → `MatchingWindowTests.test_switching_preview_and_final_keeps_results_and_layout`
 - Compact menu bar replaces duplicate heading/settings controls → `MatchingWindowTests.test_analysis_results_share_the_scrollable_setup_workspace`
 - Explanatory guidance moves from persistent annotation rows to title/control tooltips across workspaces → `MatchingWindowTests.test_section_guidance_is_available_from_titles_not_inline_comments`, `WorkspaceTests.test_section_guidance_is_available_from_titles_not_inline_comments`, `ShellTests.test_section_guidance_is_available_from_titles_not_subtitle_rows`, `PlotWorkspaceTests.test_selector_guidance_uses_control_tooltips_not_inline_hint_rows`, and `CorrelationTests.test_plot_guidance_uses_control_tooltips_not_inline_hint_rows`
@@ -36,4 +38,4 @@
 - Dynamic run folder 和重复 Die 顺序的 Cycle 推断 → `DynamicDataTests.test_cycle_is_inferred_from_dynamic_run_folder_and_report_tail_is_removed`、`DynamicDataTests.test_cycle_fallback_handles_variable_die_and_cycle_counts`
 - Cycle × Die Seq 透视表与样本 3σ → `DynamicDataTests.test_pivot_has_cycles_by_die_and_sample_three_sigma_bottom_row`
 - 重复 Cycle/Die Seq 拒绝静默平均 → `DynamicDataTests.test_duplicate_cycle_and_die_is_rejected_instead_of_silently_averaged`
-- 共用 Data 编辑器、参数选择与 3σ 图 → `DynamicWindowTests.test_workspace_reuses_data_editor_then_builds_selected_parameter_pivot`
+- 共用 Data 编辑器、多参数透视表、对比与单参数 3σ 图 → `DynamicWindowTests.test_selected_parameters_render_comparison_and_individual_fixed_plots`

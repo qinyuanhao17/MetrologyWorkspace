@@ -16,7 +16,7 @@ python main.py
 
 主窗口通常以约 1180 × 820 的尺寸居中打开；在小屏幕或高缩放比例下，会按任务栏以上的可用空间自动缩小。分析窗口依次错开，窗口变小时仍可通过滚动条查看内容。
 
-程序启动后不会自动打开分析工具。点击左侧的 **Wafer Map**、**Correlation and Trend**、**Match Workbook** 或 **Dynamic** 即可新建窗口；顶部的 **Close all windows** 关闭所有分析窗口。右侧 Log 会记录 Python 运行环境、窗口事件、错误，以及 WKB 打开和保存位置，便于调试。
+程序启动后不会自动打开分析工具。点击左侧的 **Wafer Map**、**Correlation and Trend**、**Match Workbook** 或 **Dynamic** 即可新建窗口；顶部的 **Close all windows** 关闭所有分析窗口。右侧 Activity 保留本次会话的窗口与文件事件，横跨主窗口底部的 Log 会记录 Python 运行环境、错误，以及 WKB 打开和保存位置，便于调试；上下区域可拖动调整。Log 使用 Cascadia Mono、Consolas 等系统等宽字体，随 Light/Dark 主题切换背景，并以蓝色、琥珀色和红色区分 INFO、WARNING、ERROR 标签。
 
 如果不使用 Conda，也可以在 Python 3.10+ 环境中安装依赖：
 
@@ -64,7 +64,7 @@ python -m PyInstaller --noconfirm --clean MetrologyWorkspace.spec
 3. 软件会把 `<参数名> Reference` 自动匹配到 Raw Data 中同名参数。像 `TEM`、`PMISH` 这样没有 `Reference` 后缀的数值列也会出现在映射表中，但不会擅自自动选择；可用 **Select all** 勾选全部候选项，再为它们选择对应的 Raw Data 参数。Wafer ID、Die Seq 等元数据不会列为参数。一次最多选择 50 个参数，最多处理 100,000 行。
 4. 在顶部选择 **Preview** 或 **Final**。文件操作、KLA/NOVA/TEM Match Type、`Bias` / `Bias %` 和 Run analysis 都位于原生菜单栏；页面不再重复显示 Workbook 标题和设置面板。`Bias` 与 `Bias %` 至少选择一个，也可以同时选择。
 5. 首次执行 **Run analysis** 后，Slope、Intercept、R²、Valid pairs 等结果直接显示在 Parameter mapping 的同一行。以后在 Raw Data 的 A1 粘贴新表或更改 Raw Data column 都会自动重新分析，不需要重复点击；Reference 与 Raw Data 都直接在网格中按 `Ctrl+V` 粘贴，整表替换、单元格编辑和 Delete 清空均可用 `Ctrl+Z` 撤销。Raw Data 暂时清空或缺少原参数列时，Reference 建立的映射仍会保留，界面会提示重新选择缺失的 Raw Data column。Slope 小于 0.9 或大于 1.1、R² 小于 0.9 时，值会以红色警示并说明阈值。
-6. 结果区分为 **All parameter plots** 和 **Single-wafer metrics** 两个 tab。全部参数按纵向卡片显示，只有一个参数时也从结果区顶部开始；Match、Trend、Bias、Bias % 按当前选择排在同一横行，Match 使用较紧凑的宽度，Trend 与 Bias 获得更多横向空间。Trend 右上角的 **Card** 可在原始 PMISH 与加 Card 后的 PMISH 间切换。拖动参数卡标题时会显示半透明预览和淡入的插入位置；右上角 **Reset** 恢复 Parameter mapping 顺序。输入、映射和结果区之间的分隔线可以拖动；首次运行成功后，修改 Reference、当前模式的 Raw Data 或 Parameter mapping 会自动原位刷新，并保持分隔栏、滚动位置和参数顺序。Preview 与 Final 各自保留独立 Raw Data，切换模式不会清空另一侧数据或已有结果。当前模式对应的 **Open Preview/Final Wafer Map / Radius** 位于顶部右侧。
+6. 结果区分为 **All parameter plots** 和 **Single-wafer metrics** 两个 tab。全部参数按纵向卡片显示，只有一个参数时也从结果区顶部开始；Match、Trend、Bias、Bias % 按当前选择排在同一横行。Match 固定为 510 × 330 px，Trend、Bias 和 Bias % 统一为 330 px 高且保持比 Match 更宽；窗口不足时由工作区横向滚动承接，不允许图形重叠。Trend 右上角的 **Card** 可在原始 PMISH 与加 Card 后的 PMISH 间切换。拖动参数卡标题时会显示半透明预览和淡入的插入位置；右上角 **Reset** 恢复 Parameter mapping 顺序。输入、映射和结果区之间的分隔线可以拖动；首次运行成功后，修改 Reference、当前模式的 Raw Data 或 Parameter mapping 会自动原位刷新，并保持分隔栏、滚动位置和参数顺序。Preview 与 Final 各自保留独立 Raw Data，切换模式不会清空另一侧数据或已有结果。当前模式对应的 **Open Preview/Final Wafer Map / Radius** 位于顶部右侧。
 
 Card 的定义为：
 
@@ -74,9 +74,9 @@ Card 的定义为：
 - **Final** 使用自己的 Raw Data，假定这些值已经由 OCD 软件应用 Card，不会复用 Preview Raw Data，也不会重复加 Card；Trend、Bias、Wafer Map 和 Radius Plot 都直接使用 Final 输入值。
 - `Bias` 是 `Evaluated Value - Reference`；`Bias %` 是 `(Evaluated Value - Reference) / Reference × 100%`。两者可以同时显示，Reference 为 0 时百分比留空，不猜测替代值。
 - KLA/NOVA 的 Single-wafer tab 使用 Raw Data 的 Wafer ID、Lot ID 和 PAD Name，并沿用 Wafer Map 的默认身份规则；只有真正变化的 Lot/PAD 才参与分组，Die Seq 不单独拆组。多个身份字段分行显示，避免横轴文字重叠。TEM 不显示该组单片结果。
-- Match 始终显示线性拟合，不再提供重复的开关；图名使用映射的 Raw Data column，横轴是 PMISH、纵轴是当前 Match Type，右上角显示拟合公式和 R²。Trend 中 PMISH 使用蓝色实线圆点，当前 Match Type 使用橙色实线圆点，且不重复显示无意义的纵轴名。Bias 使用蓝色点线并按原始数值显示 `Bias (nm)` 和 `Bias (%)`，禁用自动 SI 缩放，不再出现 ×0.001 或百分比系数。分析层仍按需生成每个参数的派生数据，界面只保留经过极值采样的绘图数组，不复制 50 份完整结果表。
+- Match 始终显示线性拟合，不再提供重复的开关；图名使用映射的 Raw Data column，横轴是 PMISH、纵轴是当前 Match Type，拟合公式和 R² 位于标题右侧，不覆盖曲线或数据点。Trend 中 PMISH 使用蓝色实线圆点，当前 Match Type 使用橙色实线圆点，且不重复显示无意义的纵轴名。Bias 使用蓝色点线并按原始数值显示 `Bias (nm)` 和 `Bias (%)`，禁用自动 SI 缩放，不再出现 ×0.001 或百分比系数。分析层仍按需生成每个参数的派生数据，界面只保留经过极值采样的绘图数组，不复制 50 份完整结果表。
 
-**Save WKB** 保存 Reference、Preview/Final 独立 Raw Data、参数映射、Bias 显示选择、分析设置、分隔栏布局和用户拖动后的参数顺序；重新打开后会恢复保存时的位置与顺序。旧 WKB 没有独立 Final 匹配表时继续兼容：旧 Final 工作簿会在打开时把原共享 Raw Data 复制到新的 Final 输入一次，后续两边独立编辑。已有的 Preview/Final FullMap 数据仍会保留。WKB 是 SQLite-backed 的主工作文件，可以在多个独立窗口中重新打开比较；它不依赖 Excel，也不会执行不安全的 pickle。**Export Excel** 是确认结果后的可选输出，包含 Summary、Reference、Raw Data、Preview/Final 结果，以及存在时的 FullMap 工作表。**Save images** 会把当前选择显示的每个参数图分别保存为 PNG。
+**Save WKB** 保存 Reference、Preview/Final 独立 Raw Data、参数映射、Bias 显示选择、分析设置、分隔栏布局和用户拖动后的参数顺序；第一次保存会选择路径，保存或打开以后按 `Ctrl+S` 会直接覆盖当前 WKB。**Save WKB As…**（`Ctrl+Shift+S`）用于另存为，新路径会成为后续保存目标。重新打开后会恢复保存时的位置与顺序。旧 WKB 没有独立 Final 匹配表时继续兼容：旧 Final 工作簿会在打开时把原共享 Raw Data 复制到新的 Final 输入一次，后续两边独立编辑。已有的 Preview/Final FullMap 数据仍会保留。WKB 是 SQLite-backed 的主工作文件，可以在多个独立窗口中重新打开比较；它不依赖 Excel，也不会执行不安全的 pickle。**Export Excel** 是确认结果后的可选输出，包含 Summary、Reference、Raw Data、Preview/Final 结果，以及存在时的 FullMap 工作表。**Save images** 会把当前选择显示的每个参数图分别保存为 PNG。
 
 10 万行、50 参数的随机浮点基准中，50 个 Card 的计算约 0.16 秒，单个参数结果展开约 0.004 秒；WKB 保存约 1.05 秒、载入约 2.43 秒，文件约 97.9 MB。结果取自当前开发机的一次可重复测量，不代表所有磁盘和数据分布。 可用 python benchmarks/benchmark_matching.py 复测。
 
@@ -86,7 +86,7 @@ Card 的定义为：
 
 Dynamic 用于同一 wafer 上若干 Die 的重复测试。导入数据后，软件优先从 `Cur SME File Path` 中的 `DYNAMIC/<run>` 识别每轮测试；如果路径没有该结构，则在有序 Die Seq 首次重复时开始下一 Cycle。Die 数量和 Cycle 数量均不固定。旧 Excel 透视表若位于第一个空白列之后，会在导入时排除，避免把报表列误当成新参数。
 
-第一个 tab 复用 Data 编辑器与 Wafer Map 的 Wafer ID / Lot ID / PAD Name measurement identity，可勾选 DP、EW、TG 等数值参数。第二个 tab 要求选择一个 measurement set，并对当前参数显示 Cycle × Die Seq 透视表。底部 `3 Sigma` 使用跨 Cycle 的样本标准差 `3 × std(ddof=1)`；下方柱图以 Die Seq 为横轴、3 Sigma 为纵轴。多个勾选参数可从顶部 Parameter 切换。相同 Cycle/Die Seq 出现多行时会直接报告歧义，不会静默取平均。
+第一个 tab 复用 Data 编辑器与 Wafer Map 的 Wafer ID / Lot ID / PAD Name measurement identity，可勾选 DP、EW、TG 等数值参数。第二个 tab 要求选择一个 measurement set，并在同一张 Cycle × Die Seq 透视表中按参数分组显示所有已勾选数值。底部 `3 Sigma` 使用跨 Cycle 的样本标准差 `3 × std(ddof=1)`；下方柱图以 Die Seq 为横轴、3 Sigma 为纵轴，不再提供参数下拉框。选择两个参数时自动生成一张双色分组对比图和两张单参数图，共三张；每张固定为 510 × 330 px，绘图区不足时可横向滚动。颜色同时配合不同点形和图例，避免只靠颜色识别。相同 Cycle/Die Seq 出现多行时会直接报告歧义，不会静默取平均。
 
 ## Wafer Map
 

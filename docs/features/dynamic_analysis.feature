@@ -15,12 +15,16 @@ Feature: Review Dynamic repeatability by cycle and die
     Then a new Cycle begins whenever a Die Seq repeats
     And the number of dies and cycles is not fixed to 13 by 10
 
-  Scenario: Compare sample three sigma by die
-    Given one measurement set and DP are selected in Data
+  Scenario: Compare selected parameters and inspect each separately
+    Given one measurement set and DP and EW are selected in Data
     When the engineer opens the Dynamic tab
-    Then the pivot rows are Cycle and the columns are Die Seq
+    Then no second parameter picker is shown
+    And the pivot rows are Cycle and the columns group Die Seq by parameter
     And the last row is three times the sample standard deviation across cycles
-    And a bar chart uses Die Seq horizontally and 3 Sigma vertically
+    And one grouped bar chart compares DP and EW using distinct colours, markers, and a legend
+    And one separate bar chart is shown for DP and one for EW
+    And every chart is 510 pixels wide and 330 pixels high
+    And the chart area scrolls horizontally when the charts exceed the viewport
 
   Scenario: Do not silently average ambiguous rows
     Given a measurement set contains the same Cycle and Die Seq more than once

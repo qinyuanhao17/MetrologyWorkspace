@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -12,9 +13,11 @@ import pyqtgraph as pg
 from PyQt6.QtCore import Qt
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import (
-    QApplication, QCheckBox, QLabel, QScrollArea, QSplitter, QTabBar, QTabWidget,
+    QApplication, QCheckBox, QFileDialog, QLabel, QScrollArea, QSplitter,
+    QTabBar, QTabWidget,
 )
 
+from metrology_app.matching import MatchWorkbook
 from metrology_app.matching_window import DataFrameModel, MatchingWindow
 from metrology_app.module_registry import create_default_registry
 from metrology_app.sheet import SheetModel, SheetView
@@ -167,6 +170,97 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(result.parameter_names, ("CD_Bot", "SPA"))
         self.assertEqual(self.window.summary_model.rowCount(), 2)
 
+    def test_save_again_overwrites_current_wkb_without_asking_for_a_path(self):
+        self.assertEqual(self.window.save_action.shortcut().toString(), "Ctrl+S")
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "current.wkb"
+            with patch.object(
+                QFileDialog,
+                "getSaveFileName",
+                return_value=(str(path), "Matching Workbook (*.wkb)"),
+            ) as first_prompt:
+                self.window.save_action.trigger()
+
+            first_prompt.assert_called_once()
+            self.assertEqual(self.window.workbook_path, path.resolve())
+
+            self.window.match_type.setCurrentText("TEM")
+            with patch.object(
+                QFileDialog,
+                "getSaveFileName",
+                side_effect=AssertionError("Save again must not ask for a path"),
+            ) as repeated_prompt:
+                self.window.save_action.trigger()
+
+            repeated_prompt.assert_not_called()
+            self.assertEqual(MatchWorkbook.load(path).match_type, "TEM")
+
+    def test_opened_wkb_becomes_the_target_for_save(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "opened.wkb"
+            self.window.save_workbook(path)
+
+            reopened = MatchingWindow()
+            self.addCleanup(reopened.deleteLater)
+            reopened.load_workbook(path)
+            reopened.match_type.setCurrentText("TEM")
+            with patch.object(
+                QFileDialog,
+                "getSaveFileName",
+                side_effect=AssertionError("An opened WKB already has a path"),
+            ) as prompt:
+                reopened.save_action.trigger()
+
+            prompt.assert_not_called()
+            self.assertEqual(reopened.workbook_path, path.resolve())
+            self.assertEqual(MatchWorkbook.load(path).match_type, "TEM")
+            reopened.close()
+
+    def test_save_as_selects_a_new_current_wkb_for_later_saves(self):
+        self.assertEqual(
+            self.window.save_as_action.shortcut().toString(),
+            "Ctrl+Shift+S",
+        )
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+
+        with tempfile.TemporaryDirectory() as folder:
+            original = Path(folder) / "original.wkb"
+            renamed = Path(folder) / "renamed.wkb"
+            self.window.save_workbook(original)
+
+            self.window.match_type.setCurrentText("TEM")
+            with patch.object(
+                QFileDialog,
+                "getSaveFileName",
+                return_value=(str(renamed), "Matching Workbook (*.wkb)"),
+            ):
+                self.window.save_as_action.trigger()
+
+            self.assertEqual(self.window.workbook_path, renamed.resolve())
+            self.assertEqual(MatchWorkbook.load(original).match_type, "KLA")
+            self.assertEqual(MatchWorkbook.load(renamed).match_type, "TEM")
+
+            self.window.match_type.setCurrentText("NOVA")
+            with patch.object(
+                QFileDialog,
+                "getSaveFileName",
+                side_effect=AssertionError("Save must reuse the Save As path"),
+            ) as repeated_prompt:
+                self.window.save_action.trigger()
+
+            repeated_prompt.assert_not_called()
+            self.assertEqual(MatchWorkbook.load(renamed).match_type, "NOVA")
+
     def test_select_all_mappings_checks_every_candidate(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
 
@@ -236,7 +330,13 @@ class MatchingWindowTests(unittest.TestCase):
         )
         self.assertEqual(
             [action.text() for action in self.window.file_menu.actions()],
-            ["Open WKB", "Save WKB", "Export Excel", "Save images"],
+            [
+                "Open WKB",
+                "Save WKB",
+                "Save WKB As…",
+                "Export Excel",
+                "Save images",
+            ],
         )
         self.assertEqual(
             [action.text() for action in self.window.match_type_menu.actions()],
@@ -296,7 +396,9 @@ class MatchingWindowTests(unittest.TestCase):
             "Linear fit",
             [item.name() for item in cd_plots["match"].listDataItems()],
         )
-        self.assertTrue(all(plot.minimumHeight() == 240 for plot in cd_plots.values()))
+        self.assertTrue(all(plot.minimumHeight() == 330 for plot in cd_plots.values()))
+        self.assertEqual(cd_plots["match"].minimumWidth(), 510)
+        self.assertEqual(cd_plots["match"].maximumWidth(), 510)
         self.assertTrue(cd_plots["bias"].listDataItems())
         self.assertTrue(cd_plots["bias-percent"].listDataItems())
         self.assertTrue(spa_plots["match"].listDataItems())
@@ -503,22 +605,30 @@ class MatchingWindowTests(unittest.TestCase):
         finally:
             single.close()
 
-        self.assertEqual(multiple_heights, {240})
-        self.assertEqual(single_heights, {240})
+        self.assertEqual(multiple_heights, {330})
+        self.assertEqual(single_heights, {330})
+        self.assertEqual(
+            self.window.plot_groups["CD_Bot"]["plots"]["match"].width(), 510
+        )
         self.assertEqual(self.window.plot_groups_layout.spacing(), 8)
 
-    def test_match_plot_uses_raw_column_title_and_shows_fit_equation(self):
+    def test_match_plot_shows_fit_equation_to_the_right_of_its_title(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
         self.window.run_analysis()
 
-        match = self.window.plot_groups["CD_Bot"]["plots"]["match"].getPlotItem()
+        group = self.window.plot_groups["CD_Bot"]
+        match = group["plots"]["match"].getPlotItem()
         self.assertEqual(match.titleLabel.text, "CD_Bot")
         annotations = [item for item in match.items if isinstance(item, pg.TextItem)]
-        self.assertEqual(len(annotations), 1)
-        self.assertEqual(
-            annotations[0].toPlainText(),
-            "y = 10x + 2\nR² = 1",
+        self.assertEqual(annotations, [])
+        self.assertEqual(group["match_formula"].text, "y = 10x + 2<br>R² = 1")
+        self.window.resize(1600, 900)
+        self.window.show()
+        APP.processEvents()
+        self.assertGreaterEqual(
+            group["match_formula"].sceneBoundingRect().left(),
+            match.titleLabel.sceneBoundingRect().right(),
         )
 
     def test_mapping_results_flag_out_of_range_slope_and_r_squared(self):

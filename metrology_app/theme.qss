@@ -42,6 +42,7 @@ QFrame#sidebar { background: #0b0711; border: none; border-right: 1px solid #241
 QWidget#overviewPage { background: #07040b; }
 QFrame#overviewCard, QFrame#componentCard, QFrame#activityPanel { background: #0d0814; border: 1px solid #2b2133; border-top-color: #3a2e43; border-radius: 10px; }
 QFrame#activityPanel { border-radius: 0; border-top: none; border-bottom: none; border-right: none; }
+QFrame#diagnosticPanel { background: #07040b; border-top: 1px solid #3a2e43; }
 QPushButton#moduleButton { background: #110b18; border: 1px solid #302538; border-radius: 9px; padding: 0; text-align: left; }
 QPushButton#moduleButton:hover { background: #191022; border-color: #8050b2; }
 QPushButton#moduleButton:checked { background: #1b1125; border-color: #8e5bbb; }
@@ -51,7 +52,9 @@ QPushButton#componentLaunch { min-width: 82px; color: #f4f0f7; background: #6f3f
 QPushButton#componentCloseAll { min-width: 82px; color: #c9bfd1; background: #160e21; border-color: #302538; font-weight: 600; }
 QPushButton#componentCloseAll:hover { border-color: #8050b2; background: #21152f; }
 QPushButton#componentCloseAll:disabled { color: #685e73; border-color: #211827; background: #100a17; }
-QPlainTextEdit#diagnosticLog { background: #08070a; color: #d8d1dc; border: 1px solid #3a2e43; border-radius: 7px; padding: 10px; font-family: Consolas, "Cascadia Mono", monospace; font-size: 12px; selection-background-color: #6d28d9; }
+QPlainTextEdit#diagnosticLog { background: #08070a; color: #d8d1dc; border: 1px solid #3a2e43; border-radius: 7px; padding: 10px; font-family: "Cascadia Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace; font-size: 12px; selection-background-color: #6d28d9; }
+QListWidget#activityLog { background: transparent; border: none; outline: none; color: #b8acbf; }
+QListWidget#activityLog::item { border-bottom: 1px solid #211829; padding: 10px 4px; }
 QPushButton { background: #160e21; border: 1px solid #302538; border-top-color: #3a2e43; border-radius: 7px; padding: 8px 14px; font-weight: 500; }
 QPushButton:hover { background: #21152f; border-color: #8050b2; }
 QPushButton:pressed { background: #39204f; }
