@@ -3,6 +3,7 @@
 import os
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -16,7 +17,9 @@ from PyQt6.QtWidgets import QApplication, QHBoxLayout, QLabel
 
 from metrology_app.correlation_page import fit_numeric_pair, pairwise_linear_fits
 from metrology_app.correlation_window import CorrelationWindow
+from metrology_app.matching import ParameterMapping
 from metrology_app.appearance import MAX_COPY_PIXELS, configure_fonts
+from metrology_app import settings as settings_module
 from metrology_app.settings import get_settings
 from metrology_app.window import MainWindow as WaferMapWindow
 
@@ -27,6 +30,16 @@ configure_fonts(APP)  # same font registration the launcher installs
 
 
 class CorrelationTests(unittest.TestCase):
+    def setUp(self):
+        self._saved_overlay = get_settings().get("trend_overlay", {})
+        settings_module._current["trend_overlay"] = {}
+        self._settings_patch = patch("metrology_app.sequence_page.save_settings")
+        self._settings_patch.start()
+
+    def tearDown(self):
+        self._settings_patch.stop()
+        settings_module._current["trend_overlay"] = self._saved_overlay
+
     @staticmethod
     def linear_frame(size=12):
         x = np.linspace(-2, 2, size)
@@ -61,13 +74,171 @@ class CorrelationTests(unittest.TestCase):
         collect(page.layout())
         return rows
 
+    def test_workbook_sources_use_the_standard_tool_and_match_colours(self):
+        reference = pd.DataFrame({
+            "Wafer ID": ["Reference"] * 5,
+            "PAD Name": ["Reference PAD"] * 5,
+            "Die Seq": [101, 102, 103, 104, 105],
+            "DP Ref": [10.0, 11.0, 12.0, 13.0, 14.0],
+            "EW Ref": [20.0, 22.0, 24.0, 26.0, 28.0],
+        })
+        raw = pd.DataFrame({
+            "Wafer ID": ["W1"] * 5,
+            "PAD Name": ["P1"] * 5,
+            "Die Seq": [1, 2, 3, 4, 5],
+            "DP Raw": [9.0, 10.0, 11.0, 12.0, 13.0],
+            "EW Raw": [19.0, 20.0, 23.0, 25.0, 27.0],
+            "Raw only": [100, 101, 102, 103, 104],
+        })
+        mappings = (
+            ParameterMapping("DP", "DP Ref", "DP Raw"),
+            ParameterMapping("EW", "EW Ref", "EW Raw"),
+        )
+        window = CorrelationWindow()
+        try:
+            window.set_sources(reference, raw, mappings, "Preview")
+
+            self.assertEqual(
+                [window.tabs.tabText(index) for index in range(window.tabs.count())],
+                ["1. Ref Data", "2. Raw Data", "3. Correlation", "4. Trend"],
+            )
+            self.assertEqual(tuple(window.raw_model.frame()), tuple(raw))
+            self.assertEqual(
+                window.reference_model.frame()["Wafer ID"].tolist(),
+                raw["Wafer ID"].astype(str).tolist(),
+            )
+            self.assertEqual(
+                window.reference_model.frame()["PAD Name"].tolist(),
+                raw["PAD Name"].astype(str).tolist(),
+            )
+            self.assertEqual(
+                window.reference_model.frame()["Die Seq"].tolist(),
+                raw["Die Seq"].astype(str).tolist(),
+            )
+            self.assertEqual(window.selection["metrics"], ["DP", "EW"])
+            self.assertEqual(len(window.selection["wafers"]), 2)
+
+            window.correlation_page.selector.selectAll()
+            window.correlation_page.draw_plot()
+            self.assertEqual(len(window.correlation_page.plot_widgets), 2)
+            reference_items = {
+                item.name(): item
+                for item in window.correlation_page.plot_widgets[0]
+                .getPlotItem().listDataItems()
+            }
+            raw_items = {
+                item.name(): item
+                for item in window.correlation_page.plot_widgets[1]
+                .getPlotItem().listDataItems()
+            }
+            self.assertEqual(
+                reference_items["Reference fit"].opts["pen"].color().name(),
+                "#ed7d31",
+            )
+            self.assertEqual(
+                raw_items["Raw Data fit"].opts["pen"].color().name(),
+                "#5b9bd5",
+            )
+
+            window.sequence_page.selector.selectAll()
+            window.sequence_page.draw_plot()
+            self.assertEqual(len(window.sequence_page.plot_widgets), 4)
+            self.assertEqual(
+                window.sequence_page.plot_widgets[0]
+                .getPlotItem().getAxis("bottom").labelText,
+                "Die Seq",
+            )
+            trend_items = {
+                item.name(): item
+                for item in window.sequence_page.plot_widgets[0]
+                .getPlotItem().listDataItems()
+            }
+            self.assertEqual(
+                trend_items["Reference"].opts["pen"].color().name(),
+                "#ed7d31",
+            )
+            raw_trend_items = {
+                item.name(): item
+                for item in window.sequence_page.plot_widgets[2]
+                .getPlotItem().listDataItems()
+            }
+            self.assertEqual(
+                raw_trend_items["Raw Data"].opts["pen"].color().name(),
+                "#5b9bd5",
+            )
+        finally:
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_loading_a_regular_table_leaves_workbook_source_mode(self):
+        reference = pd.DataFrame({
+            "DP Ref": [1.0, 2.0, 3.0],
+            "EW Ref": [2.0, 4.0, 6.0],
+        })
+        raw = pd.DataFrame({
+            "DP Raw": [1.1, 2.1, 3.1],
+            "EW Raw": [2.2, 4.2, 6.2],
+        })
+        mappings = (
+            ParameterMapping("DP", "DP Ref", "DP Raw"),
+            ParameterMapping("EW", "EW Ref", "EW Raw"),
+        )
+        window = CorrelationWindow()
+        try:
+            window.set_sources(reference, raw, mappings, "Preview")
+            window.set_table(self.linear_frame(), "standalone.csv")
+
+            self.assertNotIn("sources", window.selection)
+            self.assertNotIn("Source", window.model.frame().columns)
+        finally:
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_standalone_ref_and_raw_tabs_build_row_aligned_source_plots(self):
+        reference = pd.DataFrame({
+            "Wafer ID": ["wrong"] * 3,
+            "PAD Name": ["wrong"] * 3,
+            "Die Seq": [90, 91, 92],
+            "DP": [1.0, 2.0, 3.0],
+            "EW": [2.0, 4.0, 6.0],
+        })
+        raw = pd.DataFrame({
+            "Wafer ID": ["W1"] * 3,
+            "PAD Name": ["P1", "P2", "P3"],
+            "Die Seq": [1, 2, 3],
+            "DP": [1.1, 2.1, 3.1],
+            "EW": [2.2, 4.2, 6.2],
+            "Raw only": [7, 8, 9],
+        })
+        window = CorrelationWindow()
+        try:
+            window.set_reference_table(reference, "reference.csv")
+            window.set_table(raw, "raw.csv")
+            self.assertIn("Raw only", window.raw_model.frame().columns)
+            aligned = window.reference_model.frame()
+            self.assertEqual(aligned["Wafer ID"].tolist(), ["W1"] * 3)
+            self.assertEqual(aligned["PAD Name"].tolist(), ["P1", "P2", "P3"])
+            self.assertEqual(aligned["Die Seq"].astype(str).tolist(), ["1", "2", "3"])
+            self.assertEqual([source["name"] for source in window.selection["sources"]],
+                             ["Reference", "Raw Data"])
+            window.tabs.setCurrentIndex(2)
+            window.correlation_page.selector.selectAll()
+            window.correlation_page.draw_plot()
+            self.assertEqual(len(window.correlation_page.plot_widgets), 4)
+        finally:
+            window.raw_model.undo.setClean()
+            window.reference_model.undo.setClean()
+            window.close()
+
     def test_toolbars_fit_the_smallest_window(self):
         """No toolbar control may be overlapped or clipped at the 1180 x 760 minimum."""
         window = CorrelationWindow()
         try:
             window.show()
             window.resize(1180, 760)
-            for index in (1, 2):
+            for index in (2, 3):
                 window.tabs.setCurrentIndex(index)
                 APP.processEvents()
                 page = window.tabs.widget(index)
@@ -108,10 +279,11 @@ class CorrelationTests(unittest.TestCase):
             )
             for page, selection_help in expectations:
                 self.assertIn(selection_help, page.select_button.toolTip())
-                self.assertIn("Scroll to zoom", page.reset_button.toolTip())
+                self.assertIn("Ctrl+scroll to zoom", page.reset_button.toolTip())
+                self.assertIn("Ordinary scrolling moves the page", page.reset_button.toolTip())
                 labels = [label.text() for label in page.findChildren(QLabel)]
                 self.assertFalse(any(
-                    text.startswith(selection_help) or text.startswith("Scroll to zoom")
+                    text.startswith(selection_help) or text.startswith("Ctrl+scroll to zoom")
                     for text in labels
                 ))
         finally:
@@ -134,7 +306,7 @@ class CorrelationTests(unittest.TestCase):
             window.set_table(frame, "Clipboard")
             window.update_plan()
 
-            window.tabs.setCurrentIndex(1)
+            window.tabs.setCurrentIndex(2)
             page = window.correlation_page
             page.min_rsq.setValue(0.0)
             page.draw_plot()
@@ -145,7 +317,7 @@ class CorrelationTests(unittest.TestCase):
                 background = host.palette().color(QPalette.ColorRole.Window)
                 self.assertGreater(background.lightness(), 200)
 
-            window.tabs.setCurrentIndex(2)
+            window.tabs.setCurrentIndex(3)
             page = window.sequence_page
             page.columns.setCurrentText("2")
             page.draw_plot()
@@ -161,36 +333,57 @@ class CorrelationTests(unittest.TestCase):
             APP.processEvents()
 
     def test_interactive_grid_zooms_one_plot_and_resets(self):
-        """Each pairwise plot zooms on its own; Reset views restores the drawn range."""
+        """Page scrolling wins unless Ctrl explicitly requests plot zoom."""
         window = CorrelationWindow()
         try:
+            window.resize(760, 520)
+            window.show()
             window.set_table(self.linear_frame(), "Clipboard")
             window.update_plan()
-            window.tabs.setCurrentIndex(1)
+            window.tabs.setCurrentIndex(2)
             page = window.correlation_page
             page.draw_plot()
             APP.processEvents()
             self.assertTrue(page.ready, page.status.text())
             self.assertEqual(len(page.plot_widgets), 3)
             self.assertEqual(len(page.home_views), 3)
+            page.plot_host.setMinimumHeight(900)
+            APP.processEvents()
 
             first, second = page.plot_widgets[0], page.plot_widgets[1]
             view = first.getPlotItem().getViewBox()
             drawn = view.viewRange()
             other = second.getPlotItem().getViewBox().viewRange()
-            scroll = page.interactive_scroll.verticalScrollBar().value()
+            scroll_bar = page.interactive_scroll.verticalScrollBar()
+            self.assertGreater(scroll_bar.maximum(), 0)
+            scroll_bar.setValue(0)
             center = first.rect().center()
             QTest.mouseMove(first.viewport(), center)
             APP.processEvents()
-            wheel = QWheelEvent(QPointF(center), QPointF(first.mapToGlobal(center)),
-                                QPoint(0, 0), QPoint(0, 120), Qt.MouseButton.NoButton,
-                                Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
-            APP.sendEvent(first.viewport(), wheel)
+            page_wheel = QWheelEvent(
+                QPointF(center), QPointF(first.mapToGlobal(center)),
+                QPoint(0, 0), QPoint(0, -120), Qt.MouseButton.NoButton,
+                Qt.KeyboardModifier.NoModifier,
+                Qt.ScrollPhase.NoScrollPhase, False,
+            )
+            APP.sendEvent(first.viewport(), page_wheel)
             APP.processEvents()
-            self.assertTrue(wheel.isAccepted())
+            self.assertEqual(view.viewRange(), drawn)
+            self.assertGreater(scroll_bar.value(), 0)
+
+            scroll = scroll_bar.value()
+            zoom_wheel = QWheelEvent(
+                QPointF(center), QPointF(first.mapToGlobal(center)),
+                QPoint(0, 0), QPoint(0, 120), Qt.MouseButton.NoButton,
+                Qt.KeyboardModifier.ControlModifier,
+                Qt.ScrollPhase.NoScrollPhase, False,
+            )
+            APP.sendEvent(first.viewport(), zoom_wheel)
+            APP.processEvents()
+            self.assertTrue(zoom_wheel.isAccepted())
             self.assertNotEqual(view.viewRange(), drawn)
             self.assertEqual(second.getPlotItem().getViewBox().viewRange(), other)
-            self.assertEqual(page.interactive_scroll.verticalScrollBar().value(), scroll)
+            self.assertEqual(scroll_bar.value(), scroll)
 
             page.reset_views()
             APP.processEvents()
@@ -221,7 +414,7 @@ class CorrelationTests(unittest.TestCase):
                                   "B": 2 * x + 1, "C": 3 * x - 1, "D": -x + 2})
             window.set_table(frame, "Clipboard")
             window.update_plan()
-            window.tabs.setCurrentIndex(1)
+            window.tabs.setCurrentIndex(2)
             page = window.correlation_page
             boxes = page.selector
             self.assertEqual((boxes.rowCount(), boxes.columnCount()), (2, 4))
@@ -274,7 +467,7 @@ class CorrelationTests(unittest.TestCase):
             window.check_all(window.parameter_list, True)
             window.check_all(window.wafer_list, True)
             window.update_plan()
-            window.tabs.setCurrentIndex(2)
+            window.tabs.setCurrentIndex(3)
             page = window.sequence_page
             page.selector.selectAll()
             page.draw_plot()
@@ -309,7 +502,7 @@ class CorrelationTests(unittest.TestCase):
             self.select_parameters(window, {"OCD_H1", "OCD_H2"})
             window.check_all(window.wafer_list, True)
             window.update_plan()
-            window.tabs.setCurrentIndex(2)
+            window.tabs.setCurrentIndex(3)
             page = window.sequence_page
             boxes = page.selector
             self.assertEqual((boxes.rowCount(), boxes.columnCount()), (6, 2))
@@ -371,7 +564,7 @@ class CorrelationTests(unittest.TestCase):
                                   "C": 3 * x - 1, "D": -x + 2})
             window.set_table(frame, "Clipboard")
             window.update_plan()
-            window.tabs.setCurrentIndex(1)
+            window.tabs.setCurrentIndex(2)
             page = window.correlation_page
             page.min_rsq.setValue(.5)
             page.draw_plot()
@@ -403,7 +596,7 @@ class CorrelationTests(unittest.TestCase):
                                   "C": 3 * x - 1, "D": -x + 2})
             window.set_table(frame, "Clipboard")
             window.update_plan()
-            window.tabs.setCurrentIndex(1)
+            window.tabs.setCurrentIndex(2)
             page = window.correlation_page
             page.min_rsq.setValue(.5)
             page.draw_plot()
@@ -470,7 +663,7 @@ class CorrelationTests(unittest.TestCase):
         try:
             window.load_path(ROOT / "sample_data" / "OCD_measurement_data.csv")
             self.select_parameters(window, {"OCD_H1", "OCD_H2"})
-            window.tabs.setCurrentIndex(2)
+            window.tabs.setCurrentIndex(3)
             page = window.sequence_page
             page.draw_plot()
             page.ensure_export_figure()   # the export mirror is built on demand
@@ -500,7 +693,8 @@ class CorrelationTests(unittest.TestCase):
             APP.processEvents()
             wheel = QWheelEvent(QPointF(center), QPointF(first.mapToGlobal(center)),
                                 QPoint(0, 0), QPoint(0, 120), Qt.MouseButton.NoButton,
-                                Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
+                                Qt.KeyboardModifier.ControlModifier,
+                                Qt.ScrollPhase.NoScrollPhase, False)
             APP.sendEvent(first.viewport(), wheel)
             APP.processEvents()
             self.assertNotEqual(view.viewRange(), drawn)
@@ -524,7 +718,7 @@ class CorrelationTests(unittest.TestCase):
             window.resize(1180, 760)
             window.load_path(ROOT / "sample_data" / "OCD_measurement_data.csv")
             self.select_parameters(window, {"OCD_H1"})
-            window.tabs.setCurrentIndex(2)
+            window.tabs.setCurrentIndex(3)
             page = window.sequence_page
             page.draw_plot()
             APP.processEvents()
@@ -644,7 +838,7 @@ class CorrelationTests(unittest.TestCase):
         try:
             window.set_table(frame, "Clipboard")
             self.assertEqual(len(window.selection["metrics"]), 17)
-            window.tabs.setCurrentIndex(1)
+            window.tabs.setCurrentIndex(2)
             page = window.correlation_page
             page.draw_plot()
             page.ensure_export_figure()   # the export mirror is built on demand
@@ -661,10 +855,11 @@ class CorrelationTests(unittest.TestCase):
         window = CorrelationWindow()
         try:
             window.load_path(ROOT / "sample_data" / "OCD_measurement_data.csv")
-            self.assertEqual(window.tabs.count(), 3)
-            self.assertEqual(window.tabs.tabText(0), "1. Data")
-            self.assertEqual(window.tabs.tabText(1), "2. Correlation")
-            self.assertEqual(window.tabs.tabText(2), "3. Trend")
+            self.assertEqual(window.tabs.count(), 4)
+            self.assertEqual(window.tabs.tabText(0), "1. Ref Data")
+            self.assertEqual(window.tabs.tabText(1), "2. Raw Data")
+            self.assertEqual(window.tabs.tabText(2), "3. Correlation")
+            self.assertEqual(window.tabs.tabText(3), "4. Trend")
             self.assertGreater(window.sheet.model().rowCount(), 0)
             self.assertEqual(len(window.selection["metrics"]), 15)
             tree = window.parameter_list
@@ -676,7 +871,7 @@ class CorrelationTests(unittest.TestCase):
                                        {"OCD_H1", "OCD_H2", "OCD_H3"} else Qt.CheckState.Unchecked)
             tree.blockSignals(False)
             window.update_plan()
-            window.tabs.setCurrentIndex(1)
+            window.tabs.setCurrentIndex(2)
             page = window.correlation_page
             page.draw_plot()
             page.ensure_export_figure()   # the export mirror is built on demand
@@ -708,7 +903,7 @@ class CorrelationTests(unittest.TestCase):
             page.copy_png()
             self.assertFalse(APP.clipboard().image().isNull())
 
-            window.tabs.setCurrentIndex(2)
+            window.tabs.setCurrentIndex(3)
             sequence = window.sequence_page
             sequence.draw_plot()
             sequence.ensure_export_figure()   # the export mirror is built on demand
@@ -727,6 +922,106 @@ class CorrelationTests(unittest.TestCase):
             window.close()
             window.deleteLater()
             APP.processEvents()
+
+    def _overlay_page(self, metrics=("DP [nm]", "EW [V]")):
+        frame = pd.DataFrame({
+            "Wafer ID": ["W1"] * 4 + ["W2"] * 4,
+            "Die Seq": [1, 2, 3, 4] * 2,
+            "DP [nm]": [1.0, 2.0, np.nan, 4.0, 5.0, 6.0, 7.0, 8.0],
+            "EW [V]": [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0],
+            "TG [nm]": [2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+        })
+        window = CorrelationWindow()
+        window.set_table(frame, "Overlay fixture")
+        self.select_parameters(window, set(metrics))
+        window.tabs.setCurrentIndex(3)
+        page = window.sequence_page
+        page.overlay = {}
+        page.selector.selectAll()
+        page.draw_plot()
+        APP.processEvents()
+        return window, page
+
+    def test_trend_context_menu_offers_overlay_for_checked_parameters(self):
+        window, page = self._overlay_page()
+        try:
+            menu = page.build_panel_menu(page.plot_widgets[0], "DP [nm]")
+            actions = {action.text(): action for action in menu.actions()}
+            self.assertIn("叠加对比…", actions)
+            self.assertTrue(actions["叠加对比…"].isEnabled())
+            self.assertIn("解除对比", actions)
+            self.assertFalse(actions["解除对比"].isEnabled())
+        finally:
+            window.model.undo.setClean()
+            window.close()
+
+    def test_overlay_merges_two_panels_into_one_widget_with_two_axes(self):
+        window, page = self._overlay_page()
+        try:
+            self.assertTrue(page.set_overlay("DP [nm]", "EW [V]"))
+            self.assertEqual(len(page.plot_widgets), 1)
+            self.assertEqual(len(page.plot_widgets[0].secondary_views), 1)
+            heading = page.panel_hosts[0].findChild(QLabel)
+            self.assertIn("DP [nm] + EW [V]", heading.text())
+        finally:
+            window.model.undo.setClean()
+            window.close()
+
+    def test_overlay_uses_the_same_measurement_sets_for_both_parameters(self):
+        window, page = self._overlay_page()
+        try:
+            page.set_overlay("DP [nm]", "EW [V]")
+            widget = page.plot_widgets[0]
+            primary_x = widget.getPlotItem().listDataItems()[0].getData()[0]
+            secondary_x = widget.secondary_views[0].addedItems[0].getData()[0]
+            np.testing.assert_array_equal(primary_x, secondary_x)
+        finally:
+            window.model.undo.setClean()
+            window.close()
+
+    def test_unlink_overlay_restores_one_panel_per_parameter(self):
+        window, page = self._overlay_page()
+        try:
+            page.set_overlay("DP [nm]", "EW [V]")
+            page.unlink_overlay("DP [nm]")
+            self.assertEqual(len(page.plot_widgets), 2)
+            self.assertFalse(page.overlay)
+        finally:
+            window.model.undo.setClean()
+            window.close()
+
+    def test_third_parameter_overlay_is_rejected(self):
+        window, page = self._overlay_page(("DP [nm]", "EW [V]", "TG [nm]"))
+        try:
+            self.assertTrue(page.set_overlay("DP [nm]", "EW [V]"))
+            self.assertFalse(page.set_overlay("DP [nm]", "TG [nm]"))
+            self.assertIn("仅支持两个参数", page.status.text())
+        finally:
+            window.model.undo.setClean()
+            window.close()
+
+    def test_separate_panel_mode_still_renders_one_widget_per_parameter(self):
+        window, page = self._overlay_page()
+        try:
+            self.assertEqual(len(page.plot_widgets), 2)
+            self.assertFalse(page.overlay)
+        finally:
+            window.model.undo.setClean()
+            window.close()
+
+    def test_export_figure_mirrors_the_overlay_and_keeps_wafer_labels(self):
+        window, page = self._overlay_page()
+        try:
+            page.set_overlay("DP [nm]", "EW [V]")
+            page.ensure_export_figure()
+            self.assertEqual(len(page.figure.axes), 2)
+            for axis in page.figure.axes:
+                self.assertTrue(axis._die_sequence_values)
+                self.assertTrue(axis._wafer_ids)
+                self.assertTrue(hasattr(axis, "_wafer_group_labels"))
+        finally:
+            window.model.undo.setClean()
+            window.close()
 
 
 if __name__ == "__main__":

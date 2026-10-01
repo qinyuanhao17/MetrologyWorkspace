@@ -47,15 +47,24 @@ Feature: Build a card matching workbook
       Then each Card result is shown beside its parameter mapping
       And DP and EW each have a separate plot card in vertical order
       And Match, Trend, absolute bias, and percentage bias use one unclipped horizontal row
-      And Match is narrower than the Trend and bias plots
+      And all four plots fit the visible workbook without horizontal scrolling
       And each Match plot is 510 pixels wide
+      And Trend and bias plots share the remaining width evenly
       And every primary plot is 330 pixels high
-      And each Match plot is titled by its Raw Data column and shows its fitted equation and R squared to the right of the title
-      And the fitted equation and R squared do not cover the Match curve or data points
+      And each Match plot has a reserved heading with its Raw Data column and fitted equation with R squared to the right
+      And the reserved heading ends above the Match curve and data points
       And Trend labels the blue solid line PMISH and the orange solid line with the Match Type
       And Match labels PMISH horizontally and the Match Type vertically
+      And Trend and Bias omit the redundant Wafer axis title
+      And the three plot frames align with equal-weight edges
       And Bias reports nanometres and percentage points without scale multipliers
       And no parameter selector is required
+
+    Scenario: Inspect a smaller region of a result plot
+      Given a completed Match Workbook analysis has visible result plots
+      When the engineer drags a selection box inside one plot
+      Then that plot zooms to the selected region
+      And every plot keeps a complete four-sided axis frame
 
     Scenario: Review single-wafer quality separately from parameter plots
       Given KLA or NOVA Raw Data contains Wafer ID, Lot ID, PAD Name, and Die Seq
@@ -120,7 +129,7 @@ Feature: Build a card matching workbook
       Then Final is used as the result mode
       And the Reference, mappings, results, and section layout remain available
       And Final has its own Raw Data input instead of reusing Preview Raw Data
-      And only the Final Wafer Map and Radius action is shown at the top right
+      And only the Final Wafer Map, Radius, and Dynamic actions are shown at the top right
 
     Scenario: Choose whether Trend displays Card-adjusted values
       Given a completed match contains Raw Data and a fitted Card
@@ -137,12 +146,34 @@ Feature: Build a card matching workbook
       Given several mapped parameters have been analyzed
       When the engineer drags one parameter card above another
       Then all parameter results follow the chosen order
-      And Reset restores Parameter mapping order
+      And the chosen order is kept when the workbook is reopened
 
     Scenario: Use the compact workbook menu
       Given the Match Workbook is open
       Then file actions, Match Type, and Bias choices are available from the menu bar
       And no duplicate workbook heading or settings panel consumes the workspace
+
+    Scenario: Reopen a recently used workbook
+      Given matching-analysis.wkb was opened successfully
+      When the engineer returns to Match Workbook later
+      Then matching-analysis.wkb is available from the recent workbook list
+      And choosing it opens that workbook directly
+
+    Scenario: Locate the current workbook on disk
+      Given matching-analysis.wkb is the current saved workbook
+      When the engineer asks to reveal the workbook
+      Then the operating system opens its folder with matching-analysis.wkb selected
+
+    Scenario: Compare workbook Reference and Raw Data correlations
+      Given a Match Workbook has mapped Reference and Raw Data parameters
+      When the engineer opens Correlation and Trend from the active mode
+      Then the standard Correlation and Trend workspace opens with separate Ref Data and Raw Data tabs
+      And Raw Data keeps all original columns
+      And Reference measurement identity is aligned row by row from Raw Data
+      And correlations are fitted only within their own source table
+      And all Reference plots precede all Raw Data plots
+      And Reference plots are orange while Raw Data plots are blue
+      And Trend uses the same Reference-first source order and colours
 
     Scenario: Show explanatory guidance only when requested
       Given a workspace section has explanatory guidance
@@ -153,6 +184,18 @@ Feature: Build a card matching workbook
 
   Rule: Match rows and FullMap rows have separate responsibilities
 
+    Scenario: Reopen an edited KLA or NOVA map from the workbook
+      Given a KLA or NOVA workbook whose Map starts from matching Raw Data
+      When the engineer edits the Map table and saves the WKB file
+      Then reopening the WKB restores the edited Map table exactly
+      And no separate Map file is required
+
+    Scenario: Keep TEM Map data separate from matching Raw Data
+      Given a TEM workbook has matching Raw Data but no Map table
+      When the engineer opens the wafer workspace
+      Then the Map table is empty instead of copying matching Raw Data
+      And Map data entered later is restored from the saved WKB file
+
     Scenario: Apply a TEM Card to a later Preview FullMap
       Given a Card fitted from a small TEM match
       And a separate Preview FullMap with wafer coordinates
@@ -160,11 +203,45 @@ Feature: Build a card matching workbook
       Then the fitted Card is applied to every mapped FullMap parameter
       And the wafer identifiers and coordinates are preserved
 
+    Scenario: Restore Map and Dynamic choices after restarting the workbook
+      Given Preview Map has only CD_Bot selected
+      And Preview Dynamic has only SPA selected
+      When the Matching Workbook is saved, closed, and reopened
+      Then Preview Map still has only CD_Bot selected
+      And Preview Dynamic still has only SPA selected
+
     Scenario: Open Final FullMap without applying Card again
       Given Final Raw Data already produced by the OCD software with a Card
       When the engineer opens the Final wafer workspace
       Then the Final parameter values are used directly
       And the existing Wafer Map and Radius Plot workspace is reused
+
+    Scenario: Reopen Preview and Final Dynamic data independently
+      Given Preview and Final have different Dynamic tables
+      When the engineer saves and reopens the WKB file
+      Then the Preview Dynamic table is restored exactly
+      And the Final Dynamic table is restored exactly
+
+    Scenario: Reopen a stage workspace without selecting parameters again
+      Given parameters are selected in a Preview Dynamic or Wafer Map workspace
+      When the engineer closes and reopens that Preview workspace
+      Then parameters still present in its data remain selected
+      And the corresponding analysis refreshes immediately
+
+    Scenario: Close a workbook-managed workspace without discarding edits
+      Given a Wafer Map or Dynamic workspace was opened from a saved Match Workbook
+      And its table has been edited
+      When the engineer closes that workspace
+      Then no discard-edits confirmation is shown
+      And the edited table is saved into the current WKB file
+      But an independently opened workspace still confirms before discarding edits
+
+    Scenario: Close a Match Workbook with its analysis workspaces
+      Given Wafer Map, Dynamic, and Correlation are open from a saved Match Workbook
+      And the Map and Dynamic tables contain current edits
+      When the engineer closes the Match Workbook
+      Then the current Map and Dynamic tables are saved into that WKB file
+      And all three analysis workspaces close with the Match Workbook
 
   Rule: Approved results can leave the workbook
 

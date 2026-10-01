@@ -1,6 +1,5 @@
 """Prepare row-by-wafer arrays; keep numerical work independent of Qt."""
 from dataclasses import dataclass
-from textwrap import wrap
 
 import numpy as np
 import pandas as pd
@@ -139,12 +138,6 @@ def prepare_array(frame, selection, options, progress=lambda *_: None, cancelled
             "geometry": geometry, "selected_count": len(selected), "size_summary": size_summary}
 
 
-def edge_note(settings):
-    """Describe what the area outside the measured sample hull contains."""
-    return ("mirrored edge extension" if settings.fill_edge
-            else "outside sample hull = no data")
-
-
 def drawn_axes(wafers, metrics, cells):
     """Keep only the array rows and columns that contain at least one drawn cell.
 
@@ -174,16 +167,9 @@ def draw_array(figure, result, font_size=10):
     base_width, base_height = columns * 460, rows * 420 + 30
     grow = max(0, font_size - 10)
     left, right = 58 + 9 * grow, 78 + 6 * grow
-    # Bottom margin holds the tick labels, the axis label and the footer note;
-    # it has to grow with the font or the bottom row prints over the footer.
-    top, bottom = 70 + 9 * grow, 58 + 11 * grow
-    note = f"RBF inside sample hull; {edge_note(settings)}; {result['size_summary']}"
-    footer_size = max(5, font_size - 2)
-    # Narrow boards (one column, one row) are now common, so wrap the footnote
-    # instead of letting Matplotlib clip it at the canvas edge.
-    per_line = max(24, int((base_width / 100) / (0.5 * footer_size / 72)))
-    lines = wrap(note, per_line) or [note]
-    bottom += (len(lines) - 1) * (footer_size + 8)
+    # Bottom margin only needs to hold ticks and the X-axis label. Interpolation
+    # details remain internal metadata rather than consuming plot space.
+    top, bottom = 70 + 9 * grow, 42 + 9 * grow
     figure.subplots_adjust(left=left / base_width, right=1 - right / base_width,
                            top=1 - top / base_height, bottom=bottom / base_height,
                            # The row titles sit above their axes, so larger fonts
@@ -206,5 +192,4 @@ def draw_array(figure, result, font_size=10):
                   (settings.x, settings.y), axes=ax, prepared=scene["surface"], compact=True,
                   size_note=scene["size_note"], font_size=font_size)
         artists.append((plot, scene))
-    figure.supxlabel("\n".join(lines), fontsize=footer_size, color="#666666")
     return artists

@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -11,12 +12,14 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pandas as pd
 import pyqtgraph as pg
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QImage
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import (
-    QApplication, QCheckBox, QFileDialog, QLabel, QScrollArea, QSplitter,
+    QApplication, QCheckBox, QFileDialog, QLabel, QMessageBox, QScrollArea, QSplitter,
     QTabBar, QTabWidget,
 )
 
+from metrology_app.correlation_window import CorrelationWindow
 from metrology_app.matching import MatchWorkbook
 from metrology_app.matching_window import DataFrameModel, MatchingWindow
 from metrology_app.module_registry import create_default_registry
@@ -28,12 +31,30 @@ APP = QApplication.instance() or QApplication([])
 
 class MatchingWindowTests(unittest.TestCase):
     def setUp(self):
+        self._recent_patchers = (
+            patch(
+                "metrology_app.matching_window.recent_wkb_paths",
+                return_value=(),
+            ),
+            patch(
+                "metrology_app.matching_window.remember_recent_wkb",
+                side_effect=lambda path: (Path(path).resolve(),),
+            ),
+            patch(
+                "metrology_app.matching_window.forget_recent_wkb",
+                return_value=(),
+            ),
+        )
+        for patcher in self._recent_patchers:
+            patcher.start()
         self.window = MatchingWindow()
 
     def tearDown(self):
         self.window.close()
         self.window.deleteLater()
         APP.processEvents()
+        for patcher in reversed(self._recent_patchers):
+            patcher.stop()
 
     def reference(self):
         return pd.DataFrame({
@@ -76,6 +97,73 @@ class MatchingWindowTests(unittest.TestCase):
 
         self.window.raw_model.undo.undo()
         self.assertEqual(self.window.raw_frame.iloc[0, 1], "1.0")
+
+    def test_correlation_button_opens_active_reference_and_raw_sources(self):
+        class FakeCorrelationWorkspace:
+            def __init__(self):
+                self.inputs = None
+                self.shown = False
+                self.title = ""
+
+            def set_sources(self, reference, raw, mappings, mode):
+                self.inputs = (
+                    reference.copy(), raw.copy(), tuple(mappings), mode
+                )
+
+            def setWindowTitle(self, title):
+                self.title = title
+
+            def show(self):
+                self.shown = True
+
+        opened = []
+        self.window.close()
+        self.window.deleteLater()
+        APP.processEvents()
+        self.window = MatchingWindow(
+            correlation_window_factory=lambda: opened.append(
+                FakeCorrelationWorkspace()
+            ) or opened[-1]
+        )
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+
+        workspace = self.window.open_correlation_workspace()
+
+        self.assertFalse(self.window.correlation_button.isHidden())
+        self.assertTrue(self.window.correlation_button.isEnabled())
+        self.assertTrue(workspace.shown)
+        restored_reference, restored_raw, mappings, mode = workspace.inputs
+        pd.testing.assert_frame_equal(restored_reference, self.reference())
+        pd.testing.assert_frame_equal(restored_raw, self.raw())
+        self.assertEqual(
+            [mapping.name for mapping in mappings], ["CD_Bot", "SPA"]
+        )
+        self.assertEqual(mode, "Preview")
+        self.assertIn("Preview", workspace.title)
+
+    def test_default_correlation_button_reuses_the_standard_tool(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+
+        workspace = self.window.open_correlation_workspace()
+        try:
+            self.assertIsInstance(workspace, CorrelationWindow)
+            self.assertEqual(
+                [
+                    workspace.tabs.tabText(index)
+                    for index in range(workspace.tabs.count())
+                ],
+                ["1. Ref Data", "2. Raw Data", "3. Correlation", "4. Trend"],
+            )
+            self.assertEqual(list(workspace.raw_model.frame().columns),
+                             list(self.raw().columns))
+            self.assertEqual(workspace.reference_model.frame()["Wafer ID"].tolist(),
+                             self.raw()["Wafer ID"].tolist())
+        finally:
+            workspace.close()
+            workspace.deleteLater()
+            APP.processEvents()
 
     def test_keyboard_undo_restores_replaced_reference_and_raw_tables(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
@@ -326,18 +414,21 @@ class MatchingWindowTests(unittest.TestCase):
         ))
         self.assertEqual(
             [action.text() for action in self.window.menuBar().actions()],
-            ["File", "Analysis", "View"],
+            ["File", "Analysis"],
         )
         self.assertEqual(
             [action.text() for action in self.window.file_menu.actions()],
             [
                 "Open WKB",
+                "Open Recent WKB",
+                "Reveal WKB in Folder",
                 "Save WKB",
                 "Save WKB As…",
                 "Export Excel",
                 "Save images",
             ],
         )
+        self.assertFalse(self.window.reveal_wkb_action.isEnabled())
         self.assertEqual(
             [action.text() for action in self.window.match_type_menu.actions()],
             ["KLA", "NOVA", "TEM"],
@@ -355,6 +446,14 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertFalse(hasattr(self.window, "fullmap_page"))
         self.assertFalse(self.window.preview_open_button.isHidden())
         self.assertTrue(self.window.final_open_button.isHidden())
+        self.assertFalse(self.window.preview_dynamic_button.isHidden())
+        self.assertTrue(self.window.final_dynamic_button.isHidden())
+        self.assertNotIn(
+            "Paste a Reference table to begin.",
+            [label.text() for label in self.window.findChildren(QLabel)],
+        )
+        self.assertTrue(self.window.status.isHidden())
+        self.assertFalse(hasattr(self.window, "reset_order_button"))
         self.assertIsInstance(self.window.setup_scroll, QScrollArea)
         self.assertIsInstance(self.window.setup_splitter, QSplitter)
         self.assertEqual(
@@ -434,6 +533,8 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(self.window.result_mode.currentText(), "Final")
         self.assertTrue(self.window.preview_open_button.isHidden())
         self.assertFalse(self.window.final_open_button.isHidden())
+        self.assertTrue(self.window.preview_dynamic_button.isHidden())
+        self.assertFalse(self.window.final_dynamic_button.isHidden())
 
     def test_section_guidance_is_available_from_titles_not_inline_comments(self):
         labels = self.window.findChildren(QLabel)
@@ -554,8 +655,39 @@ class MatchingWindowTests(unittest.TestCase):
         )
         self.assertLess(plots["match"].geometry().right(), plots["trend"].geometry().left())
         self.assertLess(plots["trend"].geometry().right(), plots["bias"].geometry().left())
-        self.assertLess(plots["match"].width(), plots["trend"].width())
-        self.assertLess(plots["match"].width(), plots["bias"].width())
+        self.assertEqual(plots["match"].width(), 510)
+        self.assertAlmostEqual(
+            plots["trend"].width(), plots["bias"].width(), delta=1
+        )
+
+    def test_four_primary_plots_fit_without_horizontal_scrolling(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.percent_bias.setChecked(True)
+        self.window.run_analysis()
+        self.window.resize(1600, 900)
+        self.window.show()
+        APP.processEvents()
+
+        plots = self.window.plot_groups["CD_Bot"]["plots"]
+        self.assertEqual(
+            tuple(plots), ("match", "trend", "bias", "bias-percent")
+        )
+        self.assertEqual(
+            self.window.setup_scroll.horizontalScrollBar().maximum(), 0
+        )
+        self.assertEqual(
+            {plot.geometry().top() for plot in plots.values()},
+            {plots["match"].geometry().top()},
+        )
+        flexible_widths = [
+            plots[name].width() for name in ("trend", "bias", "bias-percent")
+        ]
+        self.assertLessEqual(max(flexible_widths) - min(flexible_widths), 1)
+        plot_container = plots["match"].parentWidget().contentsRect()
+        self.assertTrue(all(
+            plot_container.contains(plot.geometry()) for plot in plots.values()
+        ))
 
     def test_a_single_parameter_plot_card_stays_at_the_top_of_results(self):
         self.window.set_reference_frame(
@@ -618,18 +750,70 @@ class MatchingWindowTests(unittest.TestCase):
         self.window.run_analysis()
 
         group = self.window.plot_groups["CD_Bot"]
-        match = group["plots"]["match"].getPlotItem()
-        self.assertEqual(match.titleLabel.text, "CD_Bot")
+        match_widget = group["plots"]["match"]
+        match = match_widget.getPlotItem()
         annotations = [item for item in match.items if isinstance(item, pg.TextItem)]
         self.assertEqual(annotations, [])
-        self.assertEqual(group["match_formula"].text, "y = 10x + 2<br>R² = 1")
+        self.assertEqual(group["match_title"].text(), "CD_Bot")
+        self.assertEqual(group["match_formula"].text(), "y = 10x + 2\nR² = 1")
         self.window.resize(1600, 900)
         self.window.show()
         APP.processEvents()
-        self.assertGreaterEqual(
-            group["match_formula"].sceneBoundingRect().left(),
-            match.titleLabel.sceneBoundingRect().right(),
-        )
+        title_rect = group["match_title"].geometry()
+        formula_rect = group["match_formula"].geometry()
+        self.assertLessEqual(title_rect.right(), formula_rect.left())
+        self.assertLessEqual(formula_rect.right(), match_widget.width())
+        view_top = match_widget.mapFromScene(
+            match.getViewBox().sceneBoundingRect().topLeft()
+        ).y()
+        self.assertLessEqual(formula_rect.bottom(), view_top)
+
+    def test_result_plots_show_four_sided_frames_and_use_box_zoom_mode(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+        self.window.resize(1600, 900)
+        self.window.show()
+        APP.processEvents()
+
+        plots = self.window.plot_groups["CD_Bot"]["plots"]
+        for plot_widget in plots.values():
+            plot = plot_widget.getPlotItem()
+            view = plot.getViewBox()
+            self.assertEqual(view.state["mouseMode"], pg.ViewBox.RectMode)
+            self.assertEqual(view.border.style(), Qt.PenStyle.NoPen)
+            widths = []
+            for axis_name in ("top", "right", "bottom", "left"):
+                axis = plot.getAxis(axis_name)
+                self.assertTrue(axis.isVisible())
+                widths.append(axis.pen().widthF())
+            self.assertEqual(len(set(widths)), 1)
+            self.assertGreater(plot.getAxis("top").geometry().height(), 0)
+            self.assertGreater(plot.getAxis("right").geometry().width(), 0)
+
+    def test_primary_plot_frames_align_and_omit_the_wafer_axis_title(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+        self.window.resize(1600, 900)
+        self.window.show()
+        APP.processEvents()
+
+        plots = self.window.plot_groups["CD_Bot"]["plots"]
+        view_rects = []
+        for widget in plots.values():
+            scene_rect = widget.getPlotItem().getViewBox().sceneBoundingRect()
+            top_left = widget.mapFromScene(scene_rect.topLeft())
+            bottom_right = widget.mapFromScene(scene_rect.bottomRight())
+            view_rects.append((top_left.y(), bottom_right.y()))
+        self.assertLessEqual(max(top for top, _ in view_rects) - min(
+            top for top, _ in view_rects
+        ), 1)
+        self.assertLessEqual(max(bottom for _, bottom in view_rects) - min(
+            bottom for _, bottom in view_rects
+        ), 1)
+        for name in ("trend", "bias"):
+            self.assertEqual(plots[name].getAxis("bottom").labelText.strip(), "")
 
     def test_mapping_results_flag_out_of_range_slope_and_r_squared(self):
         reference = pd.DataFrame({
@@ -823,7 +1007,107 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertIn(f"WKB saved: {path.resolve()}", messages)
         self.assertIn(f"WKB opened: {path.resolve()}", messages)
 
-    def test_parameter_plot_order_survives_run_and_wkb_until_reset(self):
+    def test_recent_wkb_menu_reopens_a_persisted_workbook(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "recent-analysis.wkb"
+            self.window.save_workbook(path)
+            with (
+                patch(
+                    "metrology_app.matching_window.recent_wkb_paths",
+                    create=True,
+                    return_value=(path.resolve(),),
+                ),
+                patch(
+                    "metrology_app.matching_window.remember_recent_wkb",
+                    create=True,
+                    return_value=(path.resolve(),),
+                ),
+            ):
+                reopened = MatchingWindow()
+                try:
+                    recent_action = reopened.open_recent_menu.actions()[0]
+                    self.assertIn(path.name, recent_action.text())
+                    self.assertEqual(recent_action.toolTip(), str(path.resolve()))
+
+                    recent_action.trigger()
+
+                    self.assertEqual(reopened.workbook_path, path.resolve())
+                finally:
+                    reopened.close()
+                    reopened.deleteLater()
+                    APP.processEvents()
+
+    def test_opening_a_wkb_remembers_it_in_the_recent_menu(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "remember-opened.wkb"
+            self.window.save_workbook(path)
+            with (
+                patch.object(
+                    QFileDialog,
+                    "getOpenFileName",
+                    return_value=(str(path), "Matching Workbook (*.wkb)"),
+                ),
+                patch(
+                    "metrology_app.matching_window.remember_recent_wkb",
+                    return_value=(path.resolve(),),
+                ) as remember,
+            ):
+                self.window.open_wkb_dialog()
+
+            remember.assert_called_once_with(path.resolve())
+            self.assertEqual(
+                self.window.open_recent_menu.actions()[0].toolTip(),
+                str(path.resolve()),
+            )
+
+    def test_unavailable_recent_settings_do_not_fail_wkb_save(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "still-saved.wkb"
+            self.window.save_workbook(path)
+            with (
+                patch(
+                    "metrology_app.matching_window.remember_recent_wkb",
+                    side_effect=PermissionError("settings unavailable"),
+                ),
+                patch.object(QMessageBox, "warning") as warning,
+            ):
+                saved = self.window.save_wkb()
+
+            self.assertEqual(saved, path.resolve())
+            self.assertTrue(path.is_file())
+            warning.assert_not_called()
+
+    def test_reveal_wkb_action_selects_the_current_workbook(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "locate-this.wkb"
+            self.window.save_workbook(path)
+            self.assertTrue(self.window.reveal_wkb_action.isEnabled())
+
+            with patch(
+                "metrology_app.matching_window.reveal_path_in_folder",
+                create=True,
+            ) as reveal:
+                self.window.reveal_wkb_action.trigger()
+
+            reveal.assert_called_once_with(path.resolve())
+
+    def test_parameter_plot_order_survives_run_and_wkb(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
         self.window.run_analysis()
@@ -844,11 +1128,7 @@ class MatchingWindowTests(unittest.TestCase):
             try:
                 reopened.load_workbook(path)
                 self.assertEqual(reopened.parameter_order(), ("SPA", "CD_Bot"))
-                reopened.reset_order_button.click()
-                self.assertEqual(
-                    reopened.parameter_order(),
-                    ("CD_Bot", "SPA"),
-                )
+                self.assertFalse(hasattr(reopened, "reset_order_button"))
             finally:
                 reopened.close()
                 reopened.deleteLater()
@@ -946,6 +1226,550 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertIn("Final", final_workspace.source)
         self.assertEqual(preview_workspace.frame["CD_Bot"].tolist(), [42.0, 52.0])
         pd.testing.assert_frame_equal(final_workspace.frame, final)
+
+    def test_kla_map_edits_are_saved_in_wkb_and_not_regenerated(self):
+        opened = []
+
+        class FakeWaferWorkspace:
+            def __init__(self):
+                self.model = SheetModel()
+
+            def set_table(self, frame, source):
+                self.source = source
+                self.model.load(frame)
+
+            def show(self):
+                opened.append(self)
+
+        self.window.close()
+        self.window.deleteLater()
+        self.window = MatchingWindow(wafer_window_factory=FakeWaferWorkspace)
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+
+        workspace = self.window.open_stage_workspace("preview")
+        generated = workspace.model.frame()
+        self.assertEqual(generated["CD_Bot"].astype(float).tolist(), [12.0, 22.0, 32.0])
+        edited = generated.copy()
+        edited.loc[0, "CD_Bot"] = 999.0
+        workspace.model.load(edited)
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "edited-map.wkb"
+            self.window.save_workbook(path)
+            reopened = MatchingWindow(wafer_window_factory=FakeWaferWorkspace)
+            try:
+                reopened.load_workbook(path)
+                restored_workspace = reopened.open_stage_workspace("preview")
+                restored = restored_workspace.model.frame()
+                self.assertEqual(float(restored.loc[0, "CD_Bot"]), 999.0)
+            finally:
+                reopened.close()
+                reopened.deleteLater()
+                APP.processEvents()
+
+    def test_preview_and_final_dynamic_edits_are_saved_independently_in_wkb(self):
+        opened = []
+
+        class FakeDynamicWorkspace:
+            def __init__(self):
+                self.model = SheetModel()
+
+            def set_table(self, frame, source):
+                self.source = source
+                self.model.load(frame)
+
+            def setWindowTitle(self, title):
+                self.title = title
+
+            def show(self):
+                opened.append(self)
+
+        self.window.close()
+        self.window.deleteLater()
+        self.window = MatchingWindow(
+            dynamic_window_factory=FakeDynamicWorkspace
+        )
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+
+        preview_workspace = self.window.open_dynamic_workspace("preview")
+        final_workspace = self.window.open_dynamic_workspace("final")
+        preview_dynamic = pd.DataFrame({
+            "Wafer ID": ["P1", "P1"],
+            "Die Seq": [1, 2],
+            "Cycle": [1, 1],
+            "CD_Bot": [12.1, 12.2],
+        })
+        final_dynamic = pd.DataFrame({
+            "Wafer ID": ["F1", "F1"],
+            "Die Seq": [1, 2],
+            "Cycle": [1, 1],
+            "CD_Bot": [11.8, 11.9],
+        })
+        preview_workspace.model.load(preview_dynamic)
+        final_workspace.model.load(final_dynamic)
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "dynamic-edits.wkb"
+            self.window.save_workbook(path)
+            reopened = MatchingWindow(
+                dynamic_window_factory=FakeDynamicWorkspace
+            )
+            try:
+                reopened.load_workbook(path)
+                restored_preview = reopened.open_dynamic_workspace(
+                    "preview"
+                ).model.frame()
+                restored_final = reopened.open_dynamic_workspace(
+                    "final"
+                ).model.frame()
+                pd.testing.assert_frame_equal(
+                    restored_preview.astype(str), preview_dynamic.astype(str)
+                )
+                pd.testing.assert_frame_equal(
+                    restored_final.astype(str), final_dynamic.astype(str)
+                )
+            finally:
+                reopened.close()
+                reopened.deleteLater()
+                APP.processEvents()
+
+    def test_closing_managed_wafer_map_saves_without_discard_prompt(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "managed-map.wkb"
+            self.window.save_workbook(path)
+            workspace = self.window.open_stage_workspace("preview")
+            try:
+                column = workspace.model.frame().columns.get_loc("CD_Bot")
+                workspace.model.edit({(1, column): "999"})
+                with patch.object(
+                    QMessageBox,
+                    "question",
+                    return_value=QMessageBox.StandardButton.Cancel,
+                ) as discard_prompt:
+                    closed = workspace.close()
+
+                self.assertTrue(closed)
+                discard_prompt.assert_not_called()
+                saved = MatchWorkbook.load(path)
+                self.assertEqual(float(saved.preview_map.loc[0, "CD_Bot"]), 999.0)
+            finally:
+                workspace.model.undo.setClean()
+                workspace.close()
+                workspace.deleteLater()
+                APP.processEvents()
+
+    def test_closing_managed_dynamic_saves_without_discard_prompt(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+        self.window.preview_dynamic_frame = pd.DataFrame({
+            "Wafer ID": ["W1", "W1", "W1", "W1"],
+            "Die Seq": [1, 2, 1, 2],
+            "Cycle": [1, 1, 2, 2],
+            "CD_Bot": [10.0, 20.0, 11.0, 22.0],
+        })
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "managed-dynamic.wkb"
+            self.window.save_workbook(path)
+            workspace = self.window.open_dynamic_workspace("preview")
+            try:
+                column = workspace.model.frame().columns.get_loc("CD_Bot")
+                workspace.model.edit({(1, column): "777"})
+                with patch.object(
+                    QMessageBox,
+                    "question",
+                    return_value=QMessageBox.StandardButton.Cancel,
+                ) as discard_prompt:
+                    closed = workspace.close()
+
+                self.assertTrue(closed)
+                discard_prompt.assert_not_called()
+                saved = MatchWorkbook.load(path)
+                self.assertEqual(
+                    float(saved.preview_dynamic.loc[0, "CD_Bot"]), 777.0
+                )
+            finally:
+                workspace.model.undo.setClean()
+                workspace.close()
+                workspace.deleteLater()
+                APP.processEvents()
+
+    def test_closing_match_workbook_saves_and_closes_all_analysis_workspaces(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+        self.window.preview_dynamic_frame = pd.DataFrame({
+            "Wafer ID": ["W1", "W1", "W1", "W1"],
+            "Die Seq": [1, 2, 1, 2],
+            "Cycle": [1, 1, 2, 2],
+            "CD_Bot": [10.0, 20.0, 11.0, 22.0],
+        })
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "close-with-analysis-windows.wkb"
+            self.window.save_workbook(path)
+            map_workspace = self.window.open_stage_workspace("preview")
+            dynamic_workspace = self.window.open_dynamic_workspace("preview")
+            correlation_workspace = self.window.open_correlation_workspace()
+            try:
+                map_column = map_workspace.model.frame().columns.get_loc("CD_Bot")
+                dynamic_column = (
+                    dynamic_workspace.model.frame().columns.get_loc("CD_Bot")
+                )
+                map_workspace.model.edit({(1, map_column): "999"})
+                dynamic_workspace.model.edit({(1, dynamic_column): "777"})
+                APP.processEvents()
+
+                with patch.object(QMessageBox, "warning") as warning:
+                    self.assertTrue(self.window.close())
+                    APP.processEvents()
+
+                warning.assert_not_called()
+                for workspace in (
+                    map_workspace, dynamic_workspace, correlation_workspace
+                ):
+                    try:
+                        visible = workspace.isVisible()
+                    except RuntimeError as error:
+                        self.assertIn("has been deleted", str(error))
+                        visible = False
+                    self.assertFalse(visible)
+                saved = MatchWorkbook.load(path)
+                self.assertEqual(float(saved.preview_map.loc[0, "CD_Bot"]), 999.0)
+                self.assertEqual(
+                    float(saved.preview_dynamic.loc[0, "CD_Bot"]), 777.0
+                )
+            finally:
+                for workspace in (
+                    map_workspace, dynamic_workspace, correlation_workspace
+                ):
+                    try:
+                        workspace.close()
+                        workspace.deleteLater()
+                    except RuntimeError as error:
+                        self.assertIn("has been deleted", str(error))
+                APP.processEvents()
+
+    def test_reopening_preview_dynamic_restores_its_parameter_selection(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+        self.window.preview_dynamic_frame = pd.DataFrame({
+            "Wafer ID": ["W1"] * 6,
+            "Die Seq": [1, 2, 1, 2, 1, 2],
+            "Cycle": [1, 1, 2, 2, 3, 3],
+            "CD_Bot": [10.0, 20.0, 11.0, 22.0, 12.0, 24.0],
+            "SPA": [5.0, 7.0, 6.0, 9.0, 7.0, 11.0],
+        })
+
+        first = self.window.open_dynamic_workspace("preview")
+        for index in range(first.parameter_list.topLevelItemCount()):
+            item = first.parameter_list.topLevelItem(index)
+            if item.text(0) in {"CD_Bot", "SPA"}:
+                item.setCheckState(0, Qt.CheckState.Checked)
+        self.assertEqual(first.selection["metrics"], ["CD_Bot", "SPA"])
+        first.close()
+        first.deleteLater()
+        APP.processEvents()
+
+        second = self.window.open_dynamic_workspace("preview")
+        try:
+            self.assertEqual(second.selection["metrics"], ["CD_Bot", "SPA"])
+            self.assertEqual(
+                list(second.dynamic_page.parameter_models), ["CD_Bot", "SPA"]
+            )
+        finally:
+            second.close()
+            second.deleteLater()
+            APP.processEvents()
+
+    def test_reopening_preview_wafer_map_restores_its_parameter_selection(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+
+        first = self.window.open_stage_workspace("preview")
+        parameter = next(
+            first.parameter_list.topLevelItem(index)
+            for index in range(first.parameter_list.topLevelItemCount())
+            if first.parameter_list.topLevelItem(index).text(0) == "CD_Bot"
+        )
+        parameter.setCheckState(0, Qt.CheckState.Checked)
+        self.assertEqual(first.selection["metrics"], ["CD_Bot"])
+        first.close()
+        first.deleteLater()
+        APP.processEvents()
+
+        second = self.window.open_stage_workspace("preview")
+        try:
+            self.assertEqual(second.selection["metrics"], ["CD_Bot"])
+            self.assertEqual(second.plot_page.selection["metrics"], ["CD_Bot"])
+        finally:
+            second.close()
+            second.deleteLater()
+            APP.processEvents()
+
+    def test_drawn_wafer_map_auto_restores_after_window_and_wkb_reopen(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+        self.window.preview_map_frame = pd.DataFrame({
+            "Wafer ID": ["W1"] * 4,
+            "FIELD X": [0, 1, 0, 1],
+            "FIELD Y": [0, 0, 1, 1],
+            "CD_Bot": [10.0, 11.0, 12.0, 13.0],
+        })
+
+        def wait_for_plot(workspace):
+            deadline = time.monotonic() + 25
+            page = workspace.plot_page
+            while time.monotonic() < deadline:
+                QTest.qWait(20)
+                if (
+                    page.worker is None
+                    and not page.input_refresh_timer.isActive()
+                    and page.result is not None
+                ):
+                    return
+            self.fail(f"Wafer Map did not render: {page.status.text()}")
+
+        first = self.window.open_stage_workspace("preview")
+        parameter = next(
+            first.parameter_list.topLevelItem(index)
+            for index in range(first.parameter_list.topLevelItemCount())
+            if first.parameter_list.topLevelItem(index).text(0) == "CD_Bot"
+        )
+        parameter.setCheckState(0, Qt.CheckState.Checked)
+        selected_cell = (first.plot_page.selector.wafers[0], "CD_Bot")
+        first.plot_page.selector.set_selected_cells({selected_cell})
+        first.plot_page.draw_maps()
+        wait_for_plot(first)
+        first.close()
+        first.deleteLater()
+        APP.processEvents()
+
+        second = self.window.open_stage_workspace("preview")
+        try:
+            wait_for_plot(second)
+            self.assertEqual(second.plot_page.drawn_cells, {selected_cell})
+        finally:
+            second.close()
+            second.deleteLater()
+            APP.processEvents()
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "drawn-map-state.wkb"
+            self.window.save_workbook(path)
+            reopened = MatchingWindow()
+            try:
+                reopened.load_workbook(path)
+                restored = reopened.open_stage_workspace("preview")
+                wait_for_plot(restored)
+                self.assertEqual(
+                    restored.plot_page.drawn_cells, {selected_cell}
+                )
+                restored.close()
+                restored.deleteLater()
+                APP.processEvents()
+            finally:
+                reopened.close()
+                reopened.deleteLater()
+                APP.processEvents()
+
+    def test_drawn_radius_plot_auto_restores_after_window_and_wkb_reopen(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+        self.window.preview_map_frame = pd.DataFrame({
+            "Wafer ID": ["W1"] * 4,
+            "FIELD X": [0, 1, 0, 1],
+            "FIELD Y": [0, 0, 1, 1],
+            "CD_Bot": [10.0, 11.0, 12.0, 13.0],
+        })
+
+        def wait_for_radius(workspace):
+            deadline = time.monotonic() + 5
+            page = workspace.radius_page
+            while time.monotonic() < deadline:
+                QTest.qWait(20)
+                if not page.input_refresh_timer.isActive() and page.ready:
+                    return
+            self.fail(f"Radius Plot did not render: {page.status.text()}")
+
+        first = self.window.open_stage_workspace("preview")
+        parameter = next(
+            first.parameter_list.topLevelItem(index)
+            for index in range(first.parameter_list.topLevelItemCount())
+            if first.parameter_list.topLevelItem(index).text(0) == "CD_Bot"
+        )
+        parameter.setCheckState(0, Qt.CheckState.Checked)
+        selected_cell = (first.radius_page.selector.wafers[0], "CD_Bot")
+        first.radius_page.selector.set_selected_cells({selected_cell})
+        first.radius_page.draw_plot()
+        self.assertTrue(first.radius_page.ready, first.radius_page.status.text())
+        first.close()
+        first.deleteLater()
+        APP.processEvents()
+
+        second = self.window.open_stage_workspace("preview")
+        try:
+            wait_for_radius(second)
+            self.assertEqual(second.radius_page.drawn_cells, {selected_cell})
+        finally:
+            second.close()
+            second.deleteLater()
+            APP.processEvents()
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "drawn-radius-state.wkb"
+            self.window.save_workbook(path)
+            reopened = MatchingWindow()
+            try:
+                reopened.load_workbook(path)
+                restored = reopened.open_stage_workspace("preview")
+                wait_for_radius(restored)
+                self.assertEqual(
+                    restored.radius_page.drawn_cells, {selected_cell}
+                )
+                restored.close()
+                restored.deleteLater()
+                APP.processEvents()
+            finally:
+                reopened.close()
+                reopened.deleteLater()
+                APP.processEvents()
+
+    def test_reopened_wkb_restores_map_and_dynamic_sidebar_selections(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+        self.window.preview_dynamic_frame = pd.DataFrame({
+            "Wafer ID": ["W1"] * 4 + ["W2"] * 4,
+            "Die Seq": [1, 2, 1, 2] * 2,
+            "Cycle": [1, 1, 2, 2] * 2,
+            "CD_Bot": [10, 20, 11, 22, 30, 40, 31, 42],
+            "SPA": [5, 7, 6, 9, 15, 17, 16, 19],
+        })
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "sidebar-selections.wkb"
+            self.window.save_workbook(path)
+            map_workspace = self.window.open_stage_workspace("preview")
+            dynamic_workspace = self.window.open_dynamic_workspace("preview")
+
+            for index in range(map_workspace.wafer_list.topLevelItemCount()):
+                item = map_workspace.wafer_list.topLevelItem(index)
+                item.setCheckState(
+                    0,
+                    Qt.CheckState.Checked if "W2" in item.text(0)
+                    else Qt.CheckState.Unchecked,
+                )
+            for index in range(map_workspace.parameter_list.topLevelItemCount()):
+                item = map_workspace.parameter_list.topLevelItem(index)
+                if item.flags() & Qt.ItemFlag.ItemIsUserCheckable:
+                    item.setCheckState(
+                        0,
+                        Qt.CheckState.Checked
+                        if item.text(0) == "CD_Bot"
+                        else Qt.CheckState.Unchecked,
+                    )
+
+            for index in range(dynamic_workspace.wafer_list.topLevelItemCount()):
+                item = dynamic_workspace.wafer_list.topLevelItem(index)
+                item.setCheckState(
+                    0,
+                    Qt.CheckState.Checked if "W2" in item.text(0)
+                    else Qt.CheckState.Unchecked,
+                )
+            for index in range(
+                dynamic_workspace.parameter_list.topLevelItemCount()
+            ):
+                item = dynamic_workspace.parameter_list.topLevelItem(index)
+                if item.flags() & Qt.ItemFlag.ItemIsUserCheckable:
+                    item.setCheckState(
+                        0,
+                        Qt.CheckState.Checked
+                        if item.text(0) == "SPA"
+                        else Qt.CheckState.Unchecked,
+                    )
+            APP.processEvents()
+
+            self.assertTrue(map_workspace.close())
+            self.assertTrue(dynamic_workspace.close())
+            map_workspace.deleteLater()
+            dynamic_workspace.deleteLater()
+            APP.processEvents()
+
+            reopened = MatchingWindow()
+            try:
+                reopened.load_workbook(path)
+                restored_map = reopened.open_stage_workspace("preview")
+                restored_dynamic = reopened.open_dynamic_workspace("preview")
+
+                self.assertEqual(restored_map.selection["metrics"], ["CD_Bot"])
+                self.assertEqual(len(restored_map.selection["wafers"]), 1)
+                self.assertIn("W2", restored_map.selection["wafers"][0])
+                self.assertEqual(restored_dynamic.selection["metrics"], ["SPA"])
+                self.assertEqual(len(restored_dynamic.selection["wafers"]), 1)
+                self.assertIn("W2", restored_dynamic.selection["wafers"][0])
+            finally:
+                reopened.close()
+                reopened.deleteLater()
+                APP.processEvents()
+
+    def test_tem_map_starts_empty_and_saved_map_is_restored(self):
+        class FakeWaferWorkspace:
+            def __init__(self):
+                self.model = SheetModel()
+
+            def set_table(self, frame, source):
+                self.model.load(frame)
+
+            def show(self):
+                pass
+
+        self.window.close()
+        self.window.deleteLater()
+        self.window = MatchingWindow(wafer_window_factory=FakeWaferWorkspace)
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.match_type.setCurrentText("TEM")
+        self.window.run_analysis()
+
+        workspace = self.window.open_stage_workspace("preview")
+        self.assertTrue(workspace.model.frame().empty)
+        tem_map = pd.DataFrame({
+            "Wafer ID": ["TEM-MAP", "TEM-MAP"],
+            "FIELD X": [-1, 1],
+            "FIELD Y": [0, 0],
+            "CD_Bot": [201.0, 202.0],
+            "SPA": [31.0, 32.0],
+        })
+        workspace.model.load(tem_map)
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "tem-map.wkb"
+            self.window.save_workbook(path)
+            reopened = MatchingWindow(wafer_window_factory=FakeWaferWorkspace)
+            try:
+                reopened.load_workbook(path)
+                restored = reopened.open_stage_workspace("preview").model.frame()
+                pd.testing.assert_frame_equal(
+                    restored.astype(str), tem_map.astype(str)
+                )
+            finally:
+                reopened.close()
+                reopened.deleteLater()
+                APP.processEvents()
 
     def test_pasting_fullmap_after_analysis_keeps_match_results_interactive(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
@@ -1129,6 +1953,24 @@ class MatchingWindowTests(unittest.TestCase):
             names = {path.name for path in images}
             self.assertIn("CD_Bot-bias.png", names)
             self.assertIn("CD_Bot-bias-percent.png", names)
+
+    def test_match_image_export_captures_the_complete_widget_header(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+        self.window.show()
+        APP.processEvents()
+        match_plot = self.window.plot_groups["CD_Bot"]["plots"]["match"]
+
+        with tempfile.TemporaryDirectory() as folder:
+            images = self.window.save_plot_images(folder)
+            match_image = QImage(str(next(
+                path for path in images if path.name == "CD_Bot-match.png"
+            )))
+
+        self.assertFalse(match_image.isNull())
+        self.assertEqual(match_image.size(), match_plot.size())
+
     def test_default_registry_exposes_a_multi_instance_matching_tool(self):
         registry = create_default_registry()
         spec = registry.get("card_matching")

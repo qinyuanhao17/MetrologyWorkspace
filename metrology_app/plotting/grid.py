@@ -3,14 +3,14 @@
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import (
-    QSizePolicy, QSplitter, QSplitterHandle, QVBoxLayout, QWidget,
+    QHBoxLayout, QSizePolicy, QSplitter, QSplitterHandle, QVBoxLayout, QWidget,
 )
 
 
 class PlotPanel(QWidget):
     """Keep a light title area and plot together as one resizable panel."""
 
-    def __init__(self, heading, plot_widget, parent=None):
+    def __init__(self, heading, plot_widget, parent=None, heading_extra=None):
         super().__init__(parent)
         self.setObjectName("plotPanel")
         self.setAutoFillBackground(True)
@@ -25,7 +25,16 @@ class PlotPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
-        layout.addWidget(heading)
+        if heading_extra is None:
+            layout.addWidget(heading)
+        else:
+            header = QWidget()
+            header_layout = QHBoxLayout(header)
+            header_layout.setContentsMargins(0, 0, 0, 0)
+            header_layout.setSpacing(6)
+            header_layout.addWidget(heading, 1)
+            header_layout.addWidget(heading_extra)
+            layout.addWidget(header)
         layout.addWidget(plot_widget, 1)
 
 

@@ -73,6 +73,12 @@ class WorkspaceTests(unittest.TestCase):
             self.assertEqual(w.group_columns(), ["Wafer ID"])
             self.assertEqual(len(w.measurements), 2)
             self.assertEqual(w._frame.shape, (2, 4))
+            value_item = next(
+                w.parameter_list.topLevelItem(index)
+                for index in range(w.parameter_list.topLevelItemCount())
+                if w.parameter_list.topLevelItem(index).text(0) == "Value"
+            )
+            value_item.setCheckState(0, Qt.CheckState.Checked)
 
             w.sheet.setCurrentIndex(w.model.index(0, 0))
             APP.clipboard().setText(
@@ -85,6 +91,8 @@ class WorkspaceTests(unittest.TestCase):
             self.assertEqual(len(w.measurements), 4)
             self.assertEqual(w._frame.shape, (4, 3))
             self.assertNotIn("Stale", w._frame.columns)
+            self.assertEqual(w.selection["metrics"], ["Value"])
+            self.assertEqual(w.plot_page.selection["metrics"], ["Value"])
         finally:
             w.model.undo.setClean()
             w.close()
@@ -141,6 +149,41 @@ class WorkspaceTests(unittest.TestCase):
                    if not w.parameter_list.topLevelItem(i).isHidden()]
         self.assertEqual(len(visible), 3)
         self.assertEqual((len(w.selection["wafers"]), len(w.selection["metrics"])), (6, 0))
+
+    def test_replacing_table_keeps_available_wafer_and_parameter_selections(self):
+        w = self.window
+        w.check_all(w.wafer_list, False)
+        chosen_wafer = w.wafer_list.topLevelItem(0)
+        chosen_wafer.setCheckState(0, Qt.CheckState.Checked)
+        chosen_key = chosen_wafer.data(0, Qt.ItemDataRole.UserRole)
+        chosen_parameter = next(
+            w.parameter_list.topLevelItem(index)
+            for index in range(w.parameter_list.topLevelItemCount())
+            if w.parameter_list.topLevelItem(index).text(0) == "OCD_H1"
+        )
+        chosen_parameter.setCheckState(0, Qt.CheckState.Checked)
+
+        replacement = w._frame.copy()
+        replacement["OCD_H1"] = "999"
+        w.set_table(replacement, "Replacement clipboard")
+
+        self.assertEqual(w.selection["wafers"], [chosen_key])
+        self.assertEqual(w.selection["metrics"], ["OCD_H1"])
+        self.assertEqual(w.plot_page.selection["metrics"], ["OCD_H1"])
+        self.assertEqual(set(w._frame["OCD_H1"]), {"999"})
+
+    def test_standalone_dirty_workspace_still_confirms_before_closing(self):
+        w = self.window
+        w.model.edit({(1, 1): "changed"})
+        with patch.object(
+            QMessageBox,
+            "question",
+            return_value=QMessageBox.StandardButton.Cancel,
+        ) as discard_prompt:
+            closed = w.close()
+
+        self.assertFalse(closed)
+        discard_prompt.assert_called_once()
 
     def test_clicking_anywhere_on_a_row_toggles_it(self):
         w = self.window

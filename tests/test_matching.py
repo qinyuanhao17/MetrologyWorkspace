@@ -99,6 +99,35 @@ class MatchWorkbookTests(unittest.TestCase):
         np.testing.assert_allclose(stage["CD_Bot"], [42.0, 52.0, 62.0, 72.0])
         np.testing.assert_allclose(stage["SPA"], [11.0, 13.0, 15.0, 17.0])
 
+    def test_tem_map_does_not_fall_back_to_matching_raw_data(self):
+        workbook = MatchWorkbook(
+            reference=self.reference(),
+            raw=self.raw(),
+            mappings=MatchWorkbook.suggest_mappings(self.reference(), self.raw()),
+            match_type="TEM",
+            final_match_raw=self.raw().assign(CD_Bot=[11.0, 19.0, 31.0]),
+        )
+
+        self.assertTrue(workbook.stage_frame("preview").empty)
+        self.assertTrue(workbook.stage_frame("final").empty)
+
+    def test_kla_and_nova_maps_default_to_matching_data(self):
+        for match_type in ("KLA", "NOVA"):
+            with self.subTest(match_type=match_type):
+                workbook = MatchWorkbook(
+                    reference=self.reference(),
+                    raw=self.raw(),
+                    mappings=MatchWorkbook.suggest_mappings(
+                        self.reference(), self.raw()
+                    ),
+                    match_type=match_type,
+                )
+
+                stage = workbook.stage_frame("preview")
+                self.assertEqual(
+                    stage["CD_Bot"].tolist(), [12.0, 22.0, 32.0]
+                )
+
     def test_final_stage_uses_separate_already_carded_fullmap_without_reapplying_card(self):
         final_raw = pd.DataFrame({
             "Wafer ID": ["FINAL-01", "FINAL-01"],
@@ -271,6 +300,112 @@ class MatchWorkbookTests(unittest.TestCase):
         self.assertEqual(restored.parameter_order, ("SPA", "CD_Bot"))
         self.assertEqual(restored.analyze().summary["Parameter"].tolist(), ["CD_Bot", "SPA"])
 
+    def test_wkb_round_trip_preserves_exact_map_tables(self):
+        preview_map = pd.DataFrame({
+            "Wafer ID": ["MAP-1", "MAP-1"],
+            "FIELD X": [-1, 1],
+            "FIELD Y": [0, 0],
+            "CD_Bot": [101.5, 102.5],
+        })
+        final_map = pd.DataFrame()
+        workbook = MatchWorkbook(
+            reference=self.reference(),
+            raw=self.raw(),
+            mappings=MatchWorkbook.suggest_mappings(self.reference(), self.raw()),
+            preview_map=preview_map,
+            final_map=final_map,
+        )
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "map-snapshot.wkb"
+            workbook.save(path)
+            restored = MatchWorkbook.load(path)
+
+        pd.testing.assert_frame_equal(restored.preview_map, preview_map)
+        self.assertTrue(restored.final_map.empty)
+        self.assertEqual(list(restored.final_map.columns), [])
+        pd.testing.assert_frame_equal(restored.stage_frame("preview"), preview_map)
+        self.assertTrue(restored.stage_frame("final").empty)
+
+    def test_wkb_round_trip_preserves_independent_dynamic_tables(self):
+        preview_dynamic = pd.DataFrame({
+            "Wafer ID": ["P1", "P1"],
+            "Die Seq": [1, 2],
+            "Cycle": [1, 1],
+            "CD_Bot": [12.1, 12.2],
+        })
+        final_dynamic = pd.DataFrame({
+            "Wafer ID": ["F1", "F1"],
+            "Die Seq": [1, 2],
+            "Cycle": [1, 1],
+            "CD_Bot": [11.8, 11.9],
+        })
+        workbook = MatchWorkbook(
+            reference=self.reference(),
+            raw=self.raw(),
+            mappings=MatchWorkbook.suggest_mappings(self.reference(), self.raw()),
+            preview_dynamic=preview_dynamic,
+            final_dynamic=final_dynamic,
+        )
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "dynamic-snapshots.wkb"
+            workbook.save(path)
+            restored = MatchWorkbook.load(path)
+
+        pd.testing.assert_frame_equal(restored.preview_dynamic, preview_dynamic)
+        pd.testing.assert_frame_equal(restored.final_dynamic, final_dynamic)
+        pd.testing.assert_frame_equal(
+            restored.dynamic_frame("preview"), preview_dynamic
+        )
+        pd.testing.assert_frame_equal(
+            restored.dynamic_frame("final"), final_dynamic
+        )
+
+    def test_wkb_round_trip_preserves_workspace_selections(self):
+        workspace_selections = {
+            "map": {
+                "preview": {
+                    "wafers": ("Preview wafer",),
+                    "metrics": ("CD_Bot",),
+                    "map_draw": {
+                        "enabled": True,
+                        "cells": (("Preview wafer", "CD_Bot"),),
+                    },
+                    "radius_draw": {
+                        "enabled": True,
+                        "cells": (("Preview wafer", "CD_Bot"),),
+                    },
+                },
+                "final": {
+                    "wafers": ("Final wafer",),
+                    "metrics": ("SPA",),
+                },
+            },
+            "dynamic": {
+                "preview": {
+                    "wafers": ("Dynamic wafer",),
+                    "metrics": ("CD_Bot", "SPA"),
+                },
+                "final": None,
+            },
+        }
+        workbook = MatchWorkbook(
+            reference=self.reference(),
+            raw=self.raw(),
+            mappings=MatchWorkbook.suggest_mappings(
+                self.reference(), self.raw()
+            ),
+            workspace_selections=workspace_selections,
+        )
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "workspace-selections.wkb"
+            workbook.save(path)
+            restored = MatchWorkbook.load(path)
+
+        self.assertEqual(restored.workspace_selections, workspace_selections)
+
     def test_schema_one_wkb_still_opens_without_fullmap_stage_tables(self):
         workbook = MatchWorkbook(
             reference=self.reference(),
@@ -317,6 +452,148 @@ class MatchWorkbookTests(unittest.TestCase):
 
         pd.testing.assert_frame_equal(restored.raw, workbook.raw)
         self.assertIsNone(restored.final_match_raw)
+
+    def test_schema_three_wkb_opens_without_exact_map_snapshots(self):
+        workbook = MatchWorkbook(
+            reference=self.reference(),
+            raw=self.raw(),
+            mappings=MatchWorkbook.suggest_mappings(self.reference(), self.raw()),
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "schema-three.wkb"
+            workbook.save(path)
+            with closing(sqlite3.connect(path)) as connection, connection:
+                connection.execute("UPDATE metadata SET schema_version = 3")
+            restored = MatchWorkbook.load(path)
+
+        self.assertIsNone(restored.preview_map)
+        self.assertIsNone(restored.final_map)
+        self.assertEqual(
+            restored.stage_frame("preview")["CD_Bot"].tolist(),
+            [12.0, 22.0, 32.0],
+        )
+
+    def test_schema_four_wkb_opens_without_dynamic_snapshots(self):
+        workbook = MatchWorkbook(
+            reference=self.reference(),
+            raw=self.raw(),
+            mappings=MatchWorkbook.suggest_mappings(self.reference(), self.raw()),
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "schema-four.wkb"
+            workbook.save(path)
+            with closing(sqlite3.connect(path)) as connection, connection:
+                connection.execute("UPDATE metadata SET schema_version = 4")
+            restored = MatchWorkbook.load(path)
+
+        self.assertIsNone(restored.preview_dynamic)
+        self.assertIsNone(restored.final_dynamic)
+        self.assertEqual(
+            restored.dynamic_frame("preview")["CD_Bot"].tolist(),
+            [12.0, 22.0, 32.0],
+        )
+
+    def test_schema_five_wkb_opens_without_workspace_selections(self):
+        workbook = MatchWorkbook(
+            reference=self.reference(),
+            raw=self.raw(),
+            mappings=MatchWorkbook.suggest_mappings(
+                self.reference(), self.raw()
+            ),
+            workspace_selections={
+                "map": {
+                    "preview": {
+                        "wafers": ("W1",),
+                        "metrics": ("CD_Bot",),
+                    }
+                }
+            },
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "schema-five.wkb"
+            workbook.save(path)
+            with closing(sqlite3.connect(path)) as connection, connection:
+                connection.execute("UPDATE metadata SET schema_version = 5")
+                connection.execute(
+                    """CREATE TABLE legacy_metadata AS
+                       SELECT schema_version, match_type, result_mode,
+                              bias_mode, bias_views, setup_splitter_sizes,
+                              parameter_order, saved_utc
+                       FROM metadata"""
+                )
+                connection.execute("DROP TABLE metadata")
+                connection.execute(
+                    "ALTER TABLE legacy_metadata RENAME TO metadata"
+                )
+            restored = MatchWorkbook.load(path)
+
+        self.assertEqual(
+            restored.workspace_selections,
+            {
+                "map": {"preview": None, "final": None},
+                "dynamic": {"preview": None, "final": None},
+            },
+        )
+
+    def test_schema_six_workspace_selections_open_without_map_draw_state(self):
+        selections = {
+            "map": {
+                "preview": {
+                    "wafers": ("W1",),
+                    "metrics": ("CD_Bot",),
+                },
+                "final": None,
+            },
+            "dynamic": {"preview": None, "final": None},
+        }
+        workbook = MatchWorkbook(
+            reference=self.reference(),
+            raw=self.raw(),
+            mappings=MatchWorkbook.suggest_mappings(
+                self.reference(), self.raw()
+            ),
+            workspace_selections=selections,
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "schema-six.wkb"
+            workbook.save(path)
+            with closing(sqlite3.connect(path)) as connection, connection:
+                connection.execute("UPDATE metadata SET schema_version = 6")
+            restored = MatchWorkbook.load(path)
+
+        self.assertEqual(restored.workspace_selections, selections)
+
+    def test_schema_seven_workspace_selections_open_without_radius_draw_state(self):
+        selections = {
+            "map": {
+                "preview": {
+                    "wafers": ("W1",),
+                    "metrics": ("CD_Bot",),
+                    "map_draw": {
+                        "enabled": True,
+                        "cells": (("W1", "CD_Bot"),),
+                    },
+                },
+                "final": None,
+            },
+            "dynamic": {"preview": None, "final": None},
+        }
+        workbook = MatchWorkbook(
+            reference=self.reference(),
+            raw=self.raw(),
+            mappings=MatchWorkbook.suggest_mappings(
+                self.reference(), self.raw()
+            ),
+            workspace_selections=selections,
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "schema-seven.wkb"
+            workbook.save(path)
+            with closing(sqlite3.connect(path)) as connection, connection:
+                connection.execute("UPDATE metadata SET schema_version = 7")
+            restored = MatchWorkbook.load(path)
+
+        self.assertEqual(restored.workspace_selections, selections)
 
 
 if __name__ == "__main__":

@@ -51,6 +51,24 @@ class LinearFit:
     rsquared: float
 
 
+@dataclass(slots=True)
+class SourceFit:
+    name: str
+    color: str
+    fit: LinearFit
+
+
+@dataclass(slots=True)
+class SourcePairFit:
+    x_name: str
+    y_name: str
+    sources: tuple[SourceFit, ...]
+
+    @property
+    def rsquared(self):
+        return max(source.fit.rsquared for source in self.sources)
+
+
 def fit_numeric_pair(frame, x_name, y_name):
     """Fit y = slope*x + intercept with lmfit after paired numeric cleanup."""
     x = number(frame[x_name]).to_numpy(float)
@@ -112,6 +130,46 @@ def pairwise_linear_fits(frame, metrics, groups=None, cells=None):
             errors.append((x_name, y_name, str(error)))
     fits.sort(key=lambda fit: fit.rsquared if np.isfinite(fit.rsquared) else -np.inf, reverse=True)
     return fits, errors
+
+
+def source_pairwise_linear_fits(frame, metrics, sources, groups, cells):
+    """Fit parameter pairs as source-ordered panels.
+
+    Keeping one source per panel makes the Reference-first/Raw-second contract
+    explicit and avoids visually implying that the two populations share one
+    regression model.
+    """
+    numeric = {name: number(frame[name]).to_numpy(float) for name in metrics}
+    model = LinearModel()
+    panels, errors = [], []
+    for source in sources:
+        source_panels = []
+        for x_name, y_name in combinations(metrics, 2):
+            selected_rows = {
+                row
+                for key, rows in groups.items()
+                if (key, x_name) in cells and (key, y_name) in cells
+                for row in rows
+            }
+            positions = np.asarray(
+                [row for row in source["rows"] if row in selected_rows],
+                dtype=int,
+            )
+            try:
+                fit = _fit_numeric_values(
+                    numeric[x_name][positions], numeric[y_name][positions],
+                    x_name, y_name, model,
+                )
+            except ValueError as error:
+                errors.append((source["name"], x_name, y_name, str(error)))
+                continue
+            source_panels.append(SourcePairFit(
+                x_name, y_name,
+                (SourceFit(source["name"], source["color"], fit),),
+            ))
+        source_panels.sort(key=lambda panel: panel.rsquared, reverse=True)
+        panels.extend(source_panels)
+    return panels, errors
 
 
 class CorrelationPage(QWidget):
@@ -180,7 +238,8 @@ class CorrelationPage(QWidget):
         options.addWidget(self.columns)
         self.reset_button = QPushButton("Reset views")
         self.reset_button.setToolTip(
-            "Scroll to zoom · Drag a box to zoom · Right-drag to pan.\n"
+            "Ctrl+scroll to zoom · Drag a box to zoom · Right-drag to pan.\n"
+            "Ordinary scrolling moves the page.\n"
             "Reset returns every plot to its original range."
         )
         self.reset_button.clicked.connect(self.reset_views)
@@ -328,7 +387,15 @@ class CorrelationPage(QWidget):
             pair_count = len(drawn_metrics) * (len(drawn_metrics) - 1) // 2
             self.status.setText(f"Fitting {pair_count} parameter pairs…")
             QApplication.processEvents()
-            self.all_fits, errors = pairwise_linear_fits(self.frame, drawn_metrics, groups, cells)
+            sources = self.selection.get("sources")
+            if sources:
+                self.all_fits, errors = source_pairwise_linear_fits(
+                    self.frame, drawn_metrics, sources, groups, cells
+                )
+            else:
+                self.all_fits, errors = pairwise_linear_fits(
+                    self.frame, drawn_metrics, groups, cells
+                )
             self.skipped_count = len(errors)
             if not self.all_fits:
                 raise ValueError("No selected pair has enough varying numeric data for a linear fit.")
@@ -416,13 +483,37 @@ class CorrelationPage(QWidget):
         base = int(self.font_size.currentText())
         label_size, tick_size = max(6, base - 1), max(5, base - 2)
         for rank, (ax, fit) in enumerate(zip(axes.flat, visible_fits), start=1):
-            ax.scatter(fit.x, fit.y, s=15, alpha=.58, color="#356d91",
-                       edgecolors="white", linewidths=.25, rasterized=True)
-            order = np.argsort(fit.x)
-            ax.plot(fit.x[order], fit.predicted[order], color="#d1495b", linewidth=1.5)
-            equation = f"y = {fit.slope:.5g}x {fit.intercept:+.5g}"
-            stats = f"R² {fit.rsquared:.5f}   n {len(fit.x)}   rank {rank}"
-            set_panel_title(ax, f"{fit.y_name} vs {fit.x_name}", equation, stats, base)
+            if isinstance(fit, SourcePairFit):
+                details = []
+                for source in fit.sources:
+                    values = source.fit
+                    ax.scatter(
+                        values.x, values.y, s=15, alpha=.58,
+                        color=source.color, edgecolors="white", linewidths=.25,
+                        rasterized=True,
+                    )
+                    order = np.argsort(values.x)
+                    ax.plot(
+                        values.x[order], values.predicted[order],
+                        color=source.color, linewidth=1.5, label=source.name,
+                    )
+                    details.append(
+                        f"{source.name}: y={values.slope:.4g}x "
+                        f"{values.intercept:+.4g}, R² {values.rsquared:.4f}"
+                    )
+                set_panel_title(
+                    ax, f"{fit.y_name} vs {fit.x_name}",
+                    "   ".join(details), f"rank {rank}", base,
+                )
+                ax.legend(fontsize=max(6, base - 2), frameon=False)
+            else:
+                ax.scatter(fit.x, fit.y, s=15, alpha=.58, color="#356d91",
+                           edgecolors="white", linewidths=.25, rasterized=True)
+                order = np.argsort(fit.x)
+                ax.plot(fit.x[order], fit.predicted[order], color="#d1495b", linewidth=1.5)
+                equation = f"y = {fit.slope:.5g}x {fit.intercept:+.5g}"
+                stats = f"R² {fit.rsquared:.5f}   n {len(fit.x)}   rank {rank}"
+                set_panel_title(ax, f"{fit.y_name} vs {fit.x_name}", equation, stats, base)
             ax.set_xlabel(fit.x_name, fontsize=label_size)
             ax.set_ylabel(fit.y_name, fontsize=label_size)
             ax.tick_params(direction="out", top=True, right=True, labelsize=tick_size, length=3)
@@ -469,28 +560,60 @@ class CorrelationPage(QWidget):
         for rank, fit in enumerate(visible_fits, start=1):
             widget = InteractivePlotWidget(background="w", frame_tick_length=3)
             widget.setMinimumSize(180, 310)
-            widget.setToolTip("Scroll to zoom · Drag a box to zoom · Right-drag to pan · "
+            widget.setToolTip("Ctrl+scroll to zoom · Drag a box to zoom · Right-drag to pan · "
+                              "Ordinary scrolling moves the page · "
                               "Double-click to fit this plot · Reset views restores all plots")
             plot = widget.getPlotItem()
             plot.setTitle(None)   # the QLabel above the plot owns the heading
             plot.showGrid(x=True, y=True, alpha=.18)
             plot.setLabel("bottom", fit.x_name, color="#30343b", size=f"{max(7, base - 1)}pt")
             plot.setLabel("left", fit.y_name, color="#30343b", size=f"{max(7, base - 1)}pt")
-            equation = f"y = {fit.slope:.5g}x {fit.intercept:+.5g}"
-            details = f"{equation}   R² {fit.rsquared:.5f}   n {len(fit.x)}   rank {rank}"
+            if isinstance(fit, SourcePairFit):
+                lines = []
+                for source in fit.sources:
+                    values = source.fit
+                    lines.append(
+                        f"{source.name}: y = {values.slope:.5g}x "
+                        f"{values.intercept:+.5g}   R² {values.rsquared:.5f}   "
+                        f"n {len(values.x)}"
+                    )
+                details = "<br>".join(escape(line) for line in lines)
+            else:
+                equation = f"y = {fit.slope:.5g}x {fit.intercept:+.5g}"
+                details = escape(
+                    f"{equation}   R² {fit.rsquared:.5f}   "
+                    f"n {len(fit.x)}   rank {rank}"
+                )
             heading = panel_title_label(
                 f"<b>{escape(fit.y_name)} vs {escape(fit.x_name)}</b><br>"
-                f"<span style='font-size:{max(7, base - 1)}pt'>{escape(details)}</span>",
+                f"<span style='font-size:{max(7, base - 1)}pt'>{details}</span>",
                 base + 1)
             # A QLabel keeps every title line in its own space; pyqtgraph's own
             # title reserves one line and printed the second over the plot.
             container = PlotPanel(heading, widget)
-            plot.addItem(pg.ScatterPlotItem(fit.x, fit.y, size=6.5,
-                                            pen=pg.mkPen("#ffffff", width=.5),
-                                            brush=pg.mkBrush(53, 109, 145, 165)))
-            order = np.argsort(fit.x)
-            plot.addItem(pg.PlotDataItem(fit.x[order], fit.predicted[order],
-                                         pen=pg.mkPen("#d1495b", width=2)))
+            if isinstance(fit, SourcePairFit):
+                plot.addLegend(offset=(10, 8))
+                for source in fit.sources:
+                    values = source.fit
+                    plot.plot(
+                        values.x, values.y, pen=None, symbol="o", symbolSize=6,
+                        symbolPen=pg.mkPen("#ffffff", width=.5),
+                        symbolBrush=pg.mkBrush(source.color),
+                        name=f"{source.name} points",
+                    )
+                    order = np.argsort(values.x)
+                    plot.plot(
+                        values.x[order], values.predicted[order],
+                        pen=pg.mkPen(source.color, width=2),
+                        name=f"{source.name} fit",
+                    )
+            else:
+                plot.addItem(pg.ScatterPlotItem(fit.x, fit.y, size=6.5,
+                                                pen=pg.mkPen("#ffffff", width=.5),
+                                                brush=pg.mkBrush(53, 109, 145, 165)))
+                order = np.argsort(fit.x)
+                plot.addItem(pg.PlotDataItem(fit.x[order], fit.predicted[order],
+                                             pen=pg.mkPen("#d1495b", width=2)))
             view = plot.getViewBox()
             # Left drag selects a region to zoom into; right drag pans.
             view.setMouseMode(pg.ViewBox.RectMode)

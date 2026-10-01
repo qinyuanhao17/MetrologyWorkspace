@@ -2,7 +2,7 @@
 from pathlib import Path
 
 import pandas as pd
-from PyQt6.QtCore import Qt, QTimer, QSize
+from PyQt6.QtCore import Qt, QTimer, QSize, pyqtSignal
 from PyQt6.QtGui import QAction, QKeySequence
 from PyQt6.QtWidgets import (
     QCheckBox, QFileDialog, QFrame, QHBoxLayout, QHeaderView,
@@ -90,6 +90,8 @@ class CheckMenu(QMenu):
 
 
 class MainWindow(QMainWindow):
+    selection_changed = pyqtSignal(dict)
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Wafer Insight")
@@ -101,6 +103,8 @@ class MainWindow(QMainWindow):
         self._frame = pd.DataFrame()
         self.measurements = []
         self._reset_selection = True
+        self._pending_selection_state = None
+        self._managed_close_handler = None
         self.source_path = ""
         self.refresh_timer = QTimer(self, interval=250, singleShot=True)
         self.refresh_timer.timeout.connect(self.recognize)
@@ -113,8 +117,14 @@ class MainWindow(QMainWindow):
         self.tabs.setCornerWidget(self.data_badge, Qt.Corner.TopRightCorner)
         self.tabs.addTab(self.build_data_page(), "1. Data")
         self.plot_page = PlotPage()
+        self.plot_page.draw_state_changed.connect(
+            lambda _state: self.selection_changed.emit(self.selection_state())
+        )
         self.tabs.addTab(self.plot_page, "2. Wafer Maps")
         self.radius_page = RadiusPage()
+        self.radius_page.draw_state_changed.connect(
+            lambda _state: self.selection_changed.emit(self.selection_state())
+        )
         self.tabs.addTab(self.radius_page, "3. Radius Plot")
         self.tabs.currentChanged.connect(self.change_tab)
         outer.addWidget(self.tabs, 1)
@@ -299,7 +309,11 @@ class MainWindow(QMainWindow):
         if index in (1, 2):
             if self.refresh_timer.isActive():
                 self.recognize()
-            if index == 1 and self.plot_page.dirty:
+            if (
+                index == 1
+                and self.plot_page.dirty
+                and not self.plot_page.has_drawn_once
+            ):
                 self.plot_page.show_selector()
 
     @staticmethod
@@ -307,6 +321,58 @@ class MainWindow(QMainWindow):
         return [tree.topLevelItem(i).data(0, Qt.ItemDataRole.UserRole)
                 for i in range(tree.topLevelItemCount())
                 if tree.topLevelItem(i).checkState(0) == Qt.CheckState.Checked]
+
+    def selection_state(self):
+        """Return the user choices that remain meaningful across table reloads."""
+        return {
+            "wafers": tuple(self.selected(self.wafer_list)),
+            "metrics": tuple(self.selected(self.parameter_list)),
+            "map_draw": self.plot_page.draw_state(),
+            "radius_draw": self.radius_page.draw_state(),
+        }
+
+    @staticmethod
+    def _set_checked_values(tree, values, *, keep_current_if_missing=False):
+        desired = set(values)
+        available = {
+            tree.topLevelItem(index).data(0, Qt.ItemDataRole.UserRole)
+            for index in range(tree.topLevelItemCount())
+        }
+        matched = desired & available
+        if desired and not matched and keep_current_if_missing:
+            return
+        tree.blockSignals(True)
+        for index in range(tree.topLevelItemCount()):
+            item = tree.topLevelItem(index)
+            if item.flags() & Qt.ItemFlag.ItemIsUserCheckable:
+                value = item.data(0, Qt.ItemDataRole.UserRole)
+                item.setCheckState(
+                    0,
+                    Qt.CheckState.Checked
+                    if value in matched else Qt.CheckState.Unchecked,
+                )
+        tree.blockSignals(False)
+
+    def _apply_selection_state(self, state):
+        if not isinstance(state, dict):
+            return
+        self._set_checked_values(
+            self.wafer_list,
+            state.get("wafers", ()),
+            keep_current_if_missing=True,
+        )
+        self._set_checked_values(
+            self.parameter_list,
+            state.get("metrics", ()),
+        )
+
+    def restore_selection(self, state):
+        """Restore surviving wafer/parameter choices and refresh every plot page."""
+        self._apply_selection_state(state)
+        self.update_plan()
+        if isinstance(state, dict):
+            self.plot_page.restore_draw_state(state.get("map_draw"))
+            self.radius_page.restore_draw_state(state.get("radius_draw"))
 
     def check_all(self, tree, checked):
         tree.blockSignals(True)
@@ -424,6 +490,10 @@ class MainWindow(QMainWindow):
         finally:
             self.wafer_list.blockSignals(False)
             self.parameter_list.blockSignals(False)
+        pending_selection = self._pending_selection_state
+        self._pending_selection_state = None
+        if pending_selection is not None:
+            self._apply_selection_state(pending_selection)
         self.filter_parameters()
         if reset:
             for i in range(self.parameter_list.topLevelItemCount()):
@@ -460,6 +530,7 @@ class MainWindow(QMainWindow):
         self.plot_page.set_input(self._frame, self.selection)
         self.radius_page.set_input(self._frame, self.selection)
         self.statusBar().showMessage(f"{len(wafers)} measurement sets selected    ·    {len(metrics)} parameters selected")
+        self.selection_changed.emit(self.selection_state())
 
     def current_cell(self, index, *_args):
         if index.isValid():
@@ -481,11 +552,21 @@ class MainWindow(QMainWindow):
                                     QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
                                     QMessageBox.StandardButton.Cancel) == QMessageBox.StandardButton.Discard
 
+    def set_managed_close_handler(self, handler):
+        """Let an owning workbook persist this table before the window closes."""
+        self._managed_close_handler = handler
+
     def mark_table_pasted(self):
         """Treat the first paste into an empty sheet as a brand-new table."""
+        if self._frame.empty:
+            self._pending_selection_state = None
+        else:
+            self._pending_selection_state = self.selection_state()
         self._reset_selection = True
 
     def set_table(self, frame, source):
+        previous_selection = self.selection_state()
+        had_table = not self._frame.empty
         self.source_path = str(source)
         self.file_label.setText(Path(source).name or "Untitled")
         self.file_label.setToolTip(str(source))
@@ -497,9 +578,10 @@ class MainWindow(QMainWindow):
         self.sheet.setCurrentIndex(self.model.index(0, 0))
         self.tabs.setCurrentIndex(0)
         self.recognize()
-        # A newly opened or pasted table is a new analysis context: include every
-        # detected measurement set regardless of selections from the prior table.
-        self.check_all(self.wafer_list, True)
+        if had_table:
+            self.restore_selection(previous_selection)
+        else:
+            self.check_all(self.wafer_list, True)
 
     def new_table(self):
         if self.allow_replace():
@@ -554,8 +636,26 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Unable to save table", str(error))
 
     def closeEvent(self, event):
+        if self._managed_close_handler is not None:
+            try:
+                self._managed_close_handler(self.model.frame())
+            except Exception as error:
+                LOGGER.exception("Unable to save managed workspace on close")
+                QMessageBox.warning(
+                    self,
+                    "Cannot close workspace",
+                    f"The table could not be saved to the Match Workbook.\n\n{error}",
+                )
+                event.ignore()
+                return
+            self.model.undo.setClean()
+            self.plot_page.stop()
+            self.radius_page.stop()
+            event.accept()
+            return
         if self.allow_replace():
             self.plot_page.stop()
+            self.radius_page.stop()
             event.accept()
         else:
             event.ignore()

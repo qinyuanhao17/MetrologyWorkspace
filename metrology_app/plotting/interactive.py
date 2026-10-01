@@ -1,6 +1,9 @@
 """PyQtGraph navigation and frame rules shared by interactive plots."""
 
 import pyqtgraph as pg
+from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtGui import QWheelEvent
+from PyQt6.QtWidgets import QAbstractScrollArea, QApplication
 
 
 class _PlotViewBox(pg.ViewBox):
@@ -37,8 +40,38 @@ class InteractivePlotWidget(pg.PlotWidget):
     def __init__(self, *, auto_x_range=None, frame_tick_length=0, **kwargs):
         view_box = _PlotViewBox(auto_x_range=auto_x_range)
         super().__init__(viewBox=view_box, **kwargs)
-        self.view_box.setBorder(pg.mkPen("#30343b"))
+        self.secondary_views = []
+        # AxisItems own the four frame lines. A second ViewBox border would
+        # overlap them and make some edges appear heavier than others.
+        self.view_box.setBorder(None)
         self._frame_axes(frame_tick_length)
+
+    def add_secondary_axis(self, label, color):
+        """Add one X-linked Y view while preserving the fixed Auto-X rules."""
+        if self.secondary_views:
+            raise ValueError("Only one secondary Y axis is supported.")
+        plot = self.getPlotItem()
+        axis = plot.getAxis("right")
+        axis.setStyle(showValues=True, tickLength=-5, autoExpandTextSpace=True)
+        axis.setWidth(70)
+        axis.setPen(pg.mkPen(color))
+        axis.setTextPen(pg.mkPen(color))
+        axis.setLabel(label, color=color)
+        plot.showAxis("right")
+        view = _PlotViewBox(auto_x_range=self.view_box._fixed_auto_x_range)
+        view.setBorder(None)
+        plot.scene().addItem(view)
+        axis.linkToView(view)
+        view.setXLink(self.view_box)
+        self.secondary_views.append(view)
+
+        def sync_geometry():
+            view.setGeometry(self.view_box.sceneBoundingRect())
+            view.linkedViewChanged(self.view_box, view.XAxis)
+
+        self.view_box.sigResized.connect(sync_geometry)
+        sync_geometry()
+        return view
 
     @property
     def view_box(self):
@@ -46,6 +79,31 @@ class InteractivePlotWidget(pg.PlotWidget):
 
     def set_auto_x_range(self, x_range):
         self.view_box.set_auto_x_range(x_range)
+
+    def wheelEvent(self, event):
+        """Leave ordinary wheel navigation to the enclosing page."""
+        if not event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            parent = self.parentWidget()
+            while parent is not None and not isinstance(
+                parent, QAbstractScrollArea
+            ):
+                parent = parent.parentWidget()
+            if parent is None:
+                event.ignore()
+                return
+            viewport = parent.viewport()
+            local_position = viewport.mapFromGlobal(
+                event.globalPosition().toPoint()
+            )
+            forwarded = QWheelEvent(
+                QPointF(local_position), event.globalPosition(),
+                event.pixelDelta(), event.angleDelta(), event.buttons(),
+                event.modifiers(), event.phase(), event.inverted(),
+            )
+            QApplication.sendEvent(viewport, forwarded)
+            event.setAccepted(forwarded.isAccepted())
+            return
+        super().wheelEvent(event)
 
     def _frame_axes(self, tick_length):
         """Reserve enough layout space for the top and right frame lines."""

@@ -24,7 +24,7 @@ from .appearance import (
 from .module_button import ModuleButton
 from .module_registry import create_default_registry
 from .diagnostics import get_logger
-from .settings import apply_theme, get_settings, load_settings
+from .settings import apply_theme, get_settings, load_settings, save_settings
 from .settings_dialog import SettingsDialog
 
 
@@ -93,7 +93,6 @@ class MainWindow(QMainWindow):
         self.loaded_components = {}
         self._instance_serial = {}
         self.module_buttons = {}
-        self.close_all_buttons = {}
         self._diagnostic_handler = None
         self._log_entries = []
         self._log_theme = get_settings()["theme"]
@@ -154,19 +153,6 @@ class MainWindow(QMainWindow):
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         toolbar.addWidget(spacer)
-        unload = QAction("Close all windows", self)
-        unload.triggered.connect(self.unload_all_components)
-        toolbar.addAction(unload)
-        state = QWidget()
-        row = QHBoxLayout(state)
-        row.setContentsMargins(12, 0, 12, 0)
-        row.setSpacing(8)
-        dot = QFrame(objectName="readyDot")
-        dot.setFixedSize(9, 9)
-        self.toolbar_state = _label("Ready", "toolbarState")
-        row.addWidget(dot)
-        row.addWidget(self.toolbar_state)
-        toolbar.addWidget(state)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
 
     def _update_menu_icon(self, theme):
@@ -208,7 +194,28 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(1, 1)
         splitter.setSizes([590, 190])
         self.shell_splitter = splitter
+        self._shell_splitter_moved = False
+        splitter.splitterMoved.connect(self._shell_splitter_was_moved)
         self.setCentralWidget(splitter)
+        saved_sizes = get_settings().get("shell_splitter_sizes")
+        self._restore_shell_splitter(saved_sizes)
+        if saved_sizes is not None:
+            QTimer.singleShot(
+                0, lambda sizes=tuple(saved_sizes):
+                self._restore_shell_splitter(sizes)
+            )
+
+    def _shell_splitter_was_moved(self, *_args):
+        self._shell_splitter_moved = True
+
+    def _restore_shell_splitter(self, sizes):
+        if (
+            isinstance(sizes, (list, tuple))
+            and len(sizes) == 2
+            and all(isinstance(size, (int, float)) and size >= 0 for size in sizes)
+            and sum(sizes) > 0
+        ):
+            self.shell_splitter.setSizes([int(size) for size in sizes])
 
     def _build_sidebar(self):
         panel = QFrame(objectName="sidebar")
@@ -222,17 +229,6 @@ class MainWindow(QMainWindow):
         self.module_layout.setSpacing(9)
         layout.addLayout(self.module_layout)
         layout.addStretch()
-        line = QFrame(objectName="sectionSeparator")
-        line.setFrameShape(QFrame.Shape.HLine)
-        layout.addWidget(line)
-        footer = QHBoxLayout()
-        dot = QFrame(objectName="readyDot")
-        dot.setFixedSize(9, 9)
-        self.sidebar_state = _label("No tools open", "sidebarState")
-        footer.addWidget(dot)
-        footer.addWidget(self.sidebar_state)
-        footer.addStretch()
-        layout.addLayout(footer)
         return panel
 
     def _build_overview(self):
@@ -412,17 +408,11 @@ class MainWindow(QMainWindow):
         button = self.module_buttons.get(component_id)
         if button is not None:
             button.set_content(self.registry.get(component_id).title, count)
-        close_all = self.close_all_buttons.get(component_id)
-        if close_all is not None:
-            close_all.setEnabled(count > 0)
 
     def update_overview(self):
         total = sum(len(instances) for instances in self.loaded_components.values())
         self.available_value.setText(str(len(self.registry)))
         self.loaded_value.setText(str(total))
-        state = f"{total} open" if total else "Ready"
-        self.toolbar_state.setText(state)
-        self.sidebar_state.setText(f"{total} window{'s' if total != 1 else ''} open" if total else "No tools open")
 
     def _append_log(self, level, source, message):
         stamp = datetime.now().strftime("%H:%M:%S")
@@ -496,6 +486,13 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         if self.unload_all_components():
+            if self._shell_splitter_moved:
+                try:
+                    save_settings({
+                        "shell_splitter_sizes": self.shell_splitter.sizes(),
+                    })
+                except OSError as error:
+                    self.record("Warning", f"Could not save Log layout: {error}")
             if self._diagnostic_handler is not None:
                 get_logger().removeHandler(self._diagnostic_handler)
                 self._diagnostic_handler = None

@@ -21,6 +21,39 @@ class MapSelector(QTableWidget):
     def selected_cells(self):
         return {(self.wafers[index.row()], self.metrics[index.column()]) for index in self.selectedIndexes()}
 
+    def set_selected_cells(self, cells, *, notify=True):
+        """Select an exact set of wafer/metric boxes after an array rebuild."""
+        cells = set(cells)
+        self.blockSignals(True)
+        self.clearSelection()
+        for row, wafer in enumerate(self.wafers):
+            for column, metric in enumerate(self.metrics):
+                if (wafer, metric) in cells:
+                    self.item(row, column).setSelected(True)
+        self.blockSignals(False)
+        if notify:
+            self.changed.emit()
+
+    def reconciled_cells(self, previous):
+        """Keep exact boxes when possible, otherwise carry metrics to new wafers."""
+        previous = set(previous)
+        available = {
+            (wafer, metric)
+            for wafer in self.wafers
+            for metric in self.metrics
+        }
+        exact = previous & available
+        if exact:
+            return exact
+        metrics = {
+            metric for _wafer, metric in previous if metric in self.metrics
+        }
+        return {
+            (wafer, metric)
+            for wafer in self.wafers
+            for metric in metrics
+        }
+
     def set_array(self, wafers, metrics, labels=None):
         labels = labels or {}
         if wafers == self.wafers and metrics == self.metrics and labels == self.labels:

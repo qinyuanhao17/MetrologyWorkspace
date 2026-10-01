@@ -48,6 +48,8 @@ class SurfaceJob(QThread):
 
 
 class PlotPage(QWidget):
+    draw_state_changed = pyqtSignal(dict)
+
     def __init__(self):
         super().__init__(objectName="plotPage")
         prefs = get_settings()
@@ -58,6 +60,10 @@ class PlotPage(QWidget):
         self.revision = 0
         self.worker = None
         self.pending_fill_refresh = False
+        self.pending_input_refresh = False
+        self.has_drawn_once = False
+        self.drawn_cells = set()
+        self.pending_cells = set()
         self.result = None
         self.artists = []
         self._background = None
@@ -70,6 +76,8 @@ class PlotPage(QWidget):
         self.overlay_timer.timeout.connect(self.apply_overlay_visibility)
         self.settings_timer = QTimer(self, interval=350, singleShot=True)
         self.settings_timer.timeout.connect(self.persist_color_preferences)
+        self.input_refresh_timer = QTimer(self, interval=120, singleShot=True)
+        self.input_refresh_timer.timeout.connect(self.refresh_previous_selection)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 12, 10, 10)
         layout.setSpacing(10)
@@ -248,9 +256,37 @@ class PlotPage(QWidget):
         layout.addWidget(self.status)
         self.x_column.currentIndexChanged.connect(self.invalidate)
         self.y_column.currentIndexChanged.connect(self.invalidate)
-        self.selector.changed.connect(self.invalidate)
+        self.selector.changed.connect(self.selector_changed)
         self.diameter.currentTextChanged.connect(self.invalidate)
         self.invalidate()
+
+    def draw_state(self):
+        """Return the successful map selection that can be restored later."""
+        return {
+            "enabled": self.has_drawn_once,
+            "cells": tuple(sorted(self.drawn_cells)),
+        }
+
+    def restore_draw_state(self, state):
+        """Resume automatic drawing from a previously successful selection."""
+        if not isinstance(state, dict) or state.get("enabled") is not True:
+            return
+        try:
+            cells = {
+                (str(wafer), str(metric))
+                for wafer, metric in state.get("cells", ())
+            }
+        except (TypeError, ValueError):
+            return
+        cells = self.selector.reconciled_cells(cells)
+        if not cells:
+            return
+        self.has_drawn_once = True
+        self.drawn_cells = set(cells)
+        self.selector.set_selected_cells(cells, notify=False)
+        self.invalidate()
+        self.draw_state_changed.emit(self.draw_state())
+        self.queue_input_refresh()
 
     @staticmethod
     def populate(combo, entries, previous=None):
@@ -276,9 +312,17 @@ class PlotPage(QWidget):
                 default = previous if previous in frame else next((names[a] for a in aliases if a in names), None)
                 self.populate(combo, entries, default)
         self.selector.set_array(selection["wafers"], selection["metrics"], selection.get("labels"))
+        if self.has_drawn_once:
+            self.selector.set_selected_cells(
+                self.selector.reconciled_cells(self.drawn_cells), notify=False
+            )
         self.invalidate()
+        if self.has_drawn_once:
+            self.queue_input_refresh()
 
     def show_selector(self):
+        self.pending_input_refresh = False
+        self.input_refresh_timer.stop()
         if self.worker is not None:
             self.invalidate()
         available = bool(self.selector.rowCount() and self.selector.columnCount())
@@ -330,6 +374,12 @@ class PlotPage(QWidget):
         self.summary.setText(f"{count} / {nr * nc} selected  ·  {nr} × {nc}")
         self.status.setText("Drag across the maps you want, then click Draw selected.")
 
+    def selector_changed(self):
+        """After the first draw, a changed box selection redraws by itself."""
+        self.invalidate()
+        if self.has_drawn_once:
+            self.queue_input_refresh()
+
     def refresh_fill_edge(self, *_):
         """Recompute edge continuation while leaving the current plot visible."""
         if self.result is None or self.stack.currentWidget() is not self.scroll:
@@ -346,6 +396,29 @@ class PlotPage(QWidget):
         self._start_surface_job(preserve_canvas=True)
 
     def draw_maps(self, *_):
+        self.pending_input_refresh = False
+        self.input_refresh_timer.stop()
+        self._start_surface_job(preserve_canvas=False)
+
+    def queue_input_refresh(self):
+        """Redraw a previously drawn array after Data changes, without prompting."""
+        if not self.selector.selected_cells():
+            self.pending_input_refresh = False
+            self.input_refresh_timer.stop()
+            return
+        self.pending_input_refresh = True
+        if self.worker is not None:
+            self.worker.requestInterruption()
+            return
+        self.input_refresh_timer.start()
+
+    def refresh_previous_selection(self):
+        if not self.pending_input_refresh:
+            return
+        if self.worker is not None:
+            self.worker.requestInterruption()
+            return
+        self.pending_input_refresh = False
         self._start_surface_job(preserve_canvas=False)
 
     def _start_surface_job(self, preserve_canvas=False):
@@ -372,6 +445,7 @@ class PlotPage(QWidget):
             cells = self.selector.selected_cells()
             if not cells:
                 raise ValueError("Select at least one map box before drawing.")
+            self.pending_cells = set(cells)
             # Lay out only the rows and columns that actually contain a drawn
             # box: the canvas then scales with the number of maps instead of
             # reserving blank space for every combination of the Data selection.
@@ -436,6 +510,9 @@ class PlotPage(QWidget):
         self.worker.deleteLater()
         self.worker = None
         self.draw_button.setText("Draw selected")
+        if self.pending_input_refresh:
+            self.input_refresh_timer.start()
+            return
         if (self.pending_fill_refresh and self.result is not None
                 and self.stack.currentWidget() is self.scroll):
             self.pending_fill_refresh = False
@@ -450,6 +527,9 @@ class PlotPage(QWidget):
             self.result = result
             self.artists = draw_array(self.figure, result, int(self.font_size.currentText()))
             self.dirty = False
+            self.has_drawn_once = True
+            self.drawn_cells = set(self.pending_cells)
+            self.draw_state_changed.emit(self.draw_state())
             self.stack.setCurrentIndex(1)
             self.refresh_canvas()
             if saved_view is not None:
@@ -850,6 +930,8 @@ class PlotPage(QWidget):
             QApplication.restoreOverrideCursor()
 
     def stop(self):
+        self.pending_input_refresh = False
+        self.input_refresh_timer.stop()
         if self.settings_timer.isActive():
             self.settings_timer.stop()
             self.persist_color_preferences()

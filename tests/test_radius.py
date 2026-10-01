@@ -1,5 +1,6 @@
 """Signed-radius page behavior."""
 import os
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -7,8 +8,10 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
+import pandas as pd
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QKeySequence
+from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
 from metrology_app.radius_page import signed_radius
@@ -159,6 +162,105 @@ class RadiusTests(unittest.TestCase):
             window.model.undo.setClean()
             window.close()
             window.deleteLater()
+            APP.processEvents()
+
+    def test_replacing_data_after_first_draw_refreshes_radius_without_selector(self):
+        window = MainWindow()
+        try:
+            window.load_path(ROOT / "sample_data" / "OCD_measurement_data.csv")
+            self.select_parameters(window, {"OCD_H1", "OCD_H2"})
+            page = window.radius_page
+            page.selector.clearSelection()
+            page.selector.item(1, 1).setSelected(True)
+            page.draw_plot()
+            self.assertTrue(page.ready, page.status.text())
+            first_values = page.figure.axes[0].collections[0].get_offsets()[:, 1].copy()
+            selected_cells = page.selector.selected_cells()
+
+            replacement = window._frame.copy()
+            replacement["OCD_H2"] = (
+                pd.to_numeric(replacement["OCD_H2"]) + 100
+            )
+            window.set_table(replacement, "replacement.csv")
+
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline and not page.ready:
+                QTest.qWait(20)
+            window.tabs.setCurrentIndex(2)
+            APP.processEvents()
+
+            self.assertTrue(page.ready, page.status.text())
+            self.assertEqual(page.selector.selected_cells(), selected_cells)
+            self.assertIs(page.stack.currentWidget(), page.scroll)
+            refreshed = page.figure.axes[0].collections[0].get_offsets()[:, 1]
+            np.testing.assert_allclose(refreshed, first_values + 100)
+            self.assertNotIn("select the plots", page.status.text().lower())
+        finally:
+            window.model.undo.setClean()
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_changing_radius_boxes_after_first_draw_refreshes_without_draw_click(self):
+        window = MainWindow()
+        try:
+            window.load_path(ROOT / "sample_data" / "OCD_measurement_data.csv")
+            self.select_parameters(window, {"OCD_H1", "OCD_H2"})
+            page = window.radius_page
+            first_cell = (page.selector.wafers[0], page.selector.metrics[0])
+            page.selector.set_selected_cells({first_cell})
+            page.draw_plot()
+            self.assertTrue(page.ready, page.status.text())
+            replacement_cell = (
+                page.selector.wafers[1], page.selector.metrics[1]
+            )
+
+            page.selector.set_selected_cells({replacement_cell})
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline and (
+                not page.ready or page.drawn_cells != {replacement_cell}
+            ):
+                QTest.qWait(20)
+
+            self.assertTrue(page.ready, page.status.text())
+            self.assertEqual(page.drawn_cells, {replacement_cell})
+            self.assertIs(page.stack.currentWidget(), page.scroll)
+            self.assertNotIn("click Draw selected", page.status.text())
+        finally:
+            window.model.undo.setClean()
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_restored_radius_draw_state_redraws_without_draw_click(self):
+        window = MainWindow()
+        reopened = MainWindow()
+        try:
+            window.load_path(ROOT / "sample_data" / "OCD_measurement_data.csv")
+            self.select_parameters(window, {"OCD_H1", "OCD_H2"})
+            page = window.radius_page
+            selected_cell = (page.selector.wafers[0], page.selector.metrics[0])
+            page.selector.set_selected_cells({selected_cell})
+            page.draw_plot()
+            self.assertTrue(page.ready, page.status.text())
+            saved_state = window.selection_state()
+
+            reopened.set_table(window._frame.copy(), "reopened.wkb")
+            reopened.restore_selection(saved_state)
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline and not reopened.radius_page.ready:
+                QTest.qWait(20)
+
+            restored = reopened.radius_page
+            self.assertTrue(restored.has_drawn_once)
+            self.assertEqual(restored.drawn_cells, {selected_cell})
+            self.assertIs(restored.stack.currentWidget(), restored.scroll)
+            self.assertNotIn("click Draw selected", restored.status.text())
+        finally:
+            for workspace in (window, reopened):
+                workspace.model.undo.setClean()
+                workspace.close()
+                workspace.deleteLater()
             APP.processEvents()
 
 

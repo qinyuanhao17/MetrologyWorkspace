@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
-from PyQt6.QtCore import QEvent, QPointF, Qt, QTimer
+from PyQt6.QtCore import QEvent, QPointF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QImage, QKeySequence, QPainter, QShortcut
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QFrame, QGraphicsScene, QGraphicsView,
@@ -28,6 +28,8 @@ def signed_radius(x, y):
 
 
 class RadiusPage(QWidget):
+    draw_state_changed = pyqtSignal(dict)
+
     def __init__(self):
         super().__init__(objectName="radiusPage")
         settings = get_settings()
@@ -35,7 +37,12 @@ class RadiusPage(QWidget):
         self.selection = {}
         self.signature = None
         self.ready = False
+        self.has_drawn_once = False
+        self.pending_input_refresh = False
+        self.drawn_cells = set()
         self.base_size = (800, 600)
+        self.input_refresh_timer = QTimer(self, interval=120, singleShot=True)
+        self.input_refresh_timer.timeout.connect(self.refresh_previous_selection)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 12, 10, 10)
         layout.setSpacing(10)
@@ -131,7 +138,35 @@ class RadiusPage(QWidget):
         layout.addWidget(self.status)
         self.x_column.currentIndexChanged.connect(self.invalidate)
         self.y_column.currentIndexChanged.connect(self.invalidate)
-        self.selector.changed.connect(self.invalidate)
+        self.selector.changed.connect(self.selector_changed)
+
+    def draw_state(self):
+        """Return the successful radius selection that can be restored later."""
+        return {
+            "enabled": self.has_drawn_once,
+            "cells": tuple(sorted(self.drawn_cells)),
+        }
+
+    def restore_draw_state(self, state):
+        """Resume automatic drawing from a previously successful selection."""
+        if not isinstance(state, dict) or state.get("enabled") is not True:
+            return
+        try:
+            cells = {
+                (str(wafer), str(metric))
+                for wafer, metric in state.get("cells", ())
+            }
+        except (TypeError, ValueError):
+            return
+        cells = self.selector.reconciled_cells(cells)
+        if not cells:
+            return
+        self.has_drawn_once = True
+        self.drawn_cells = set(cells)
+        self.selector.set_selected_cells(cells, notify=False)
+        self.invalidate()
+        self.draw_state_changed.emit(self.draw_state())
+        self.queue_input_refresh()
 
     @staticmethod
     def populate(combo, entries, selected):
@@ -156,7 +191,13 @@ class RadiusPage(QWidget):
                 selected = next((names[a] for a in aliases if a in names), None)
                 self.populate(combo, entries, selected)
         self.selector.set_array(selection["wafers"], selection["metrics"], selection.get("labels"))
+        if self.has_drawn_once:
+            self.selector.set_selected_cells(
+                self.selector.reconciled_cells(self.drawn_cells), notify=False
+            )
         self.invalidate()
+        if self.has_drawn_once:
+            self.queue_input_refresh()
 
     def invalidate(self, *_):
         self.ready = False
@@ -172,7 +213,23 @@ class RadiusPage(QWidget):
         count = len(self.selector.selected_cells())
         self.status.setText(f"{count} / {rows * columns} selected  ·  {rows} × {columns}")
 
+    def selector_changed(self):
+        """After the first draw, a changed box selection redraws by itself."""
+        self.invalidate()
+        if self.has_drawn_once:
+            self.queue_input_refresh()
+
+    def queue_input_refresh(self):
+        if not self.selector.selected_cells():
+            self.pending_input_refresh = False
+            self.input_refresh_timer.stop()
+            return
+        self.pending_input_refresh = True
+        self.input_refresh_timer.start()
+
     def show_selector(self):
+        self.pending_input_refresh = False
+        self.input_refresh_timer.stop()
         available = bool(self.selector.rowCount() and self.selector.columnCount())
         if not available:
             self.empty.setText("Select measurement sets and parameters in the Data tab.")
@@ -187,6 +244,8 @@ class RadiusPage(QWidget):
         return {key: self.frame[ids == key] for key in wafers}
 
     def draw_plot(self):
+        self.pending_input_refresh = False
+        self.input_refresh_timer.stop()
         try:
             if self.frame is None or self.frame.empty:
                 raise ValueError("Load or paste a table in Data first.")
@@ -249,6 +308,9 @@ class RadiusPage(QWidget):
                                         wspace=.32 + .02 * grow, hspace=.48 + .055 * grow)
             self.base_size = width, height
             self.ready = True
+            self.has_drawn_once = True
+            self.drawn_cells = set(cells)
+            self.draw_state_changed.emit(self.draw_state())
             self.refresh_canvas()
             self.export_button.setEnabled(True)
             self.copy_button.setEnabled(True)
@@ -260,6 +322,15 @@ class RadiusPage(QWidget):
             self.export_button.setEnabled(False)
             self.copy_button.setEnabled(False)
             self.status.setText(str(error))
+
+    def refresh_previous_selection(self):
+        if not self.pending_input_refresh:
+            return
+        self.draw_plot()
+
+    def stop(self):
+        self.pending_input_refresh = False
+        self.input_refresh_timer.stop()
 
     def redraw(self, *_):
         if self.ready:

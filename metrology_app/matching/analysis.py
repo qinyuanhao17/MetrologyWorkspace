@@ -17,13 +17,108 @@ import pandas as pd
 from ..measurements import default_identity_columns, detect_measurements
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 8
 MAX_ROWS = 100_000
 MAX_PARAMETERS = 50
 _ALLOWED_MATCH_TYPES = {"TEM", "NOVA", "KLA"}
 _ALLOWED_RESULT_MODES = {"preview", "final"}
 _ALLOWED_BIAS_MODES = {"absolute", "percent"}
 _ROW_COLUMN = "__wkb_row__"
+_WORKSPACE_KINDS = ("map", "dynamic")
+_WORKSPACE_STAGES = ("preview", "final")
+
+
+def _normalized_workspace_selections(selections):
+    """Return the durable Map/Dynamic selection shape used by WKB files."""
+    normalized = {
+        kind: {stage: None for stage in _WORKSPACE_STAGES}
+        for kind in _WORKSPACE_KINDS
+    }
+    if selections is None:
+        return normalized
+    if not isinstance(selections, dict):
+        raise TypeError("Workspace selections must be a mapping.")
+    unknown_kinds = set(selections) - set(_WORKSPACE_KINDS)
+    if unknown_kinds:
+        raise ValueError("Unknown workspace selection kind.")
+    for kind, stages in selections.items():
+        if stages is None:
+            continue
+        if not isinstance(stages, dict):
+            raise TypeError("Workspace selection stages must be a mapping.")
+        unknown_stages = set(stages) - set(_WORKSPACE_STAGES)
+        if unknown_stages:
+            raise ValueError("Unknown workspace selection stage.")
+        for stage, state in stages.items():
+            if state is None:
+                continue
+            if not isinstance(state, dict):
+                raise TypeError("Each workspace selection must be a mapping.")
+            saved = {}
+            for field in ("wafers", "metrics"):
+                values = state.get(field, ())
+                if isinstance(values, (str, bytes)):
+                    raise TypeError(
+                        f"Workspace selection {field} must be a sequence."
+                    )
+                try:
+                    values = tuple(str(value) for value in values)
+                except TypeError as error:
+                    raise TypeError(
+                        f"Workspace selection {field} must be a sequence."
+                    ) from error
+                if any(not value.strip() for value in values):
+                    raise ValueError(
+                        f"Workspace selection {field} cannot contain blanks."
+                    )
+                if len(set(values)) != len(values):
+                    raise ValueError(
+                        f"Workspace selection {field} cannot contain duplicates."
+                    )
+                saved[field] = values
+            if kind == "map":
+                for field, label in (
+                    ("map_draw", "Wafer Map"),
+                    ("radius_draw", "Radius Plot"),
+                ):
+                    if field not in state:
+                        continue
+                    draw_state = state[field]
+                    if not isinstance(draw_state, dict):
+                        raise TypeError(f"{label} draw state must be a mapping.")
+                    enabled = draw_state.get("enabled", False)
+                    if not isinstance(enabled, bool):
+                        raise TypeError(
+                            f"{label} draw state enabled must be boolean."
+                        )
+                    raw_cells = draw_state.get("cells", ())
+                    if isinstance(raw_cells, (str, bytes)):
+                        raise TypeError(
+                            f"{label} draw cells must be a sequence."
+                        )
+                    cells = []
+                    try:
+                        for cell in raw_cells:
+                            if isinstance(cell, (str, bytes)) or len(cell) != 2:
+                                raise TypeError
+                            wafer, metric = (str(value) for value in cell)
+                            if not wafer.strip() or not metric.strip():
+                                raise ValueError
+                            cells.append((wafer, metric))
+                    except (TypeError, ValueError) as error:
+                        raise ValueError(
+                            f"{label} draw cells must contain non-blank pairs."
+                        ) from error
+                    if len(set(cells)) != len(cells):
+                        raise ValueError(
+                            f"{label} draw cells cannot contain duplicates."
+                        )
+                    saved[field] = {
+                        "enabled": enabled,
+                        "cells": tuple(cells),
+                    }
+            normalized[kind][stage] = saved
+    return normalized
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,12 +276,22 @@ class MatchWorkbook:
                  result_mode="preview", bias_mode="absolute",
                  preview_raw=None, final_raw=None, final_match_raw=None,
                  bias_views=None,
-                 setup_splitter_sizes=None, parameter_order=None):
+                 setup_splitter_sizes=None, parameter_order=None,
+                 preview_map=None, final_map=None,
+                 preview_dynamic=None, final_dynamic=None,
+                 workspace_selections=None):
         self.reference = reference
         self.raw = raw
         self.preview_raw = preview_raw
         self.final_raw = final_raw
         self.final_match_raw = final_match_raw
+        self.preview_map = preview_map
+        self.final_map = final_map
+        self.preview_dynamic = preview_dynamic
+        self.final_dynamic = final_dynamic
+        self.workspace_selections = _normalized_workspace_selections(
+            workspace_selections
+        )
         self.mappings = tuple(mappings)
         self.match_type = str(match_type).upper()
         self.result_mode = str(result_mode).lower()
@@ -220,6 +325,10 @@ class MatchWorkbook:
         self._validate_stage_source(self.preview_raw, "Preview FullMap")
         self._validate_stage_source(self.final_raw, "Final Raw Data")
         self._validate_stage_source(self.final_match_raw, "Final Match Raw Data")
+        self._validate_workspace_snapshot(self.preview_map, "Preview Map")
+        self._validate_workspace_snapshot(self.final_map, "Final Map")
+        self._validate_workspace_snapshot(self.preview_dynamic, "Preview Dynamic")
+        self._validate_workspace_snapshot(self.final_dynamic, "Final Dynamic")
         if (
             self.final_match_raw is not None
             and len(self.reference) != len(self.final_match_raw)
@@ -293,6 +402,19 @@ class MatchWorkbook:
             raise ValueError(f"{_ROW_COLUMN!r} is reserved for WKB storage.")
 
     @staticmethod
+    def _validate_workspace_snapshot(frame, label):
+        if frame is None:
+            return
+        if not isinstance(frame, pd.DataFrame):
+            raise TypeError(f"{label} must be a pandas DataFrame.")
+        if len(frame) > MAX_ROWS:
+            raise ValueError(f"{label} supports at most {MAX_ROWS:,} rows.")
+        if not frame.columns.is_unique:
+            raise ValueError(f"{label} column names must be unique.")
+        if _ROW_COLUMN in frame.columns:
+            raise ValueError(f"{_ROW_COLUMN!r} is reserved for WKB storage.")
+
+    @staticmethod
     def suggest_mappings(reference, raw):
         """Match `<name> Reference` columns to Raw Data columns by normalized name."""
         raw_names = {}
@@ -330,11 +452,18 @@ class MatchWorkbook:
         stage = str(stage).lower()
         if stage not in _ALLOWED_RESULT_MODES:
             raise ValueError("Stage must be preview or final.")
+        snapshot = self.preview_map if stage == "preview" else self.final_map
+        if snapshot is not None:
+            return snapshot.reset_index(drop=True).copy()
         source = self.preview_raw if stage == "preview" else self.final_raw
-        if stage == "final" and source is None:
-            source = self.final_match_raw
         if source is None:
-            source = self.raw
+            if self.match_type == "TEM":
+                return pd.DataFrame()
+            source = (
+                self.final_match_raw
+                if stage == "final" and self.final_match_raw is not None
+                else self.raw
+            )
         frame = source.reset_index(drop=True).copy()
         result = self.analyze() if stage == "preview" else None
         for mapping in self.mappings:
@@ -351,6 +480,18 @@ class MatchWorkbook:
             if mapping.name != mapping.raw_column:
                 frame.drop(columns=[mapping.raw_column], inplace=True)
         return frame
+
+    def dynamic_frame(self, stage):
+        """Return the stage's saved Dynamic table or its stage-data default."""
+        stage = str(stage).lower()
+        if stage not in _ALLOWED_RESULT_MODES:
+            raise ValueError("Stage must be preview or final.")
+        snapshot = (
+            self.preview_dynamic if stage == "preview" else self.final_dynamic
+        )
+        if snapshot is not None:
+            return snapshot.reset_index(drop=True).copy()
+        return self.stage_frame(stage)
 
     def save(self, path):
         """Atomically save source tables and settings in a SQLite-backed WKB file."""
@@ -380,6 +521,9 @@ class MatchWorkbook:
                     "parameter_order": json.dumps(
                         self.parameter_order, ensure_ascii=False
                     ),
+                    "workspace_selections": json.dumps(
+                        self.workspace_selections, ensure_ascii=False
+                    ),
                     "saved_utc": datetime.now(timezone.utc).isoformat(),
                 }])
                 metadata.to_sql("metadata", connection, index=False, if_exists="replace")
@@ -404,6 +548,18 @@ class MatchWorkbook:
                         "final_match_raw_data",
                         self.final_match_raw,
                     )
+                if self.preview_map is not None:
+                    _write_frame(connection, "preview_map_data", self.preview_map)
+                if self.final_map is not None:
+                    _write_frame(connection, "final_map_data", self.final_map)
+                if self.preview_dynamic is not None:
+                    _write_frame(
+                        connection, "preview_dynamic_data", self.preview_dynamic
+                    )
+                if self.final_dynamic is not None:
+                    _write_frame(
+                        connection, "final_dynamic_data", self.final_dynamic
+                    )
             os.replace(temporary, target)
         except Exception:
             temporary.unlink(missing_ok=True)
@@ -419,10 +575,10 @@ class MatchWorkbook:
             except (sqlite3.DatabaseError, IndexError, pd.errors.DatabaseError) as error:
                 raise ValueError("This file is not a valid Matching Workbook (WKB).") from error
             schema_version = int(metadata["schema_version"])
-            if schema_version not in {1, 2, SCHEMA_VERSION}:
+            if schema_version not in set(range(1, SCHEMA_VERSION + 1)):
                 raise ValueError(
                     f"Unsupported WKB schema {metadata['schema_version']}; "
-                    f"expected 1, 2, or {SCHEMA_VERSION}."
+                    f"expected 1 through {SCHEMA_VERSION}."
                 )
             mapping_rows = pd.read_sql_query(
                 "SELECT name, reference_column, raw_column FROM parameter_mappings ORDER BY position",
@@ -444,6 +600,28 @@ class MatchWorkbook:
                 _read_frame(connection, "final_match_raw_data")
                 if schema_version >= 3
                 and _table_exists(connection, "final_match_raw_data")
+                else None
+            )
+            preview_map = (
+                _read_frame(connection, "preview_map_data")
+                if schema_version >= 4 and _table_exists(connection, "preview_map_data")
+                else None
+            )
+            final_map = (
+                _read_frame(connection, "final_map_data")
+                if schema_version >= 4 and _table_exists(connection, "final_map_data")
+                else None
+            )
+            preview_dynamic = (
+                _read_frame(connection, "preview_dynamic_data")
+                if schema_version >= 5
+                and _table_exists(connection, "preview_dynamic_data")
+                else None
+            )
+            final_dynamic = (
+                _read_frame(connection, "final_dynamic_data")
+                if schema_version >= 5
+                and _table_exists(connection, "final_dynamic_data")
                 else None
             )
         mappings = tuple(ParameterMapping(row.name, row.reference_column, row.raw_column)
@@ -484,6 +662,21 @@ class MatchWorkbook:
                 raise ValueError(
                     "This Matching Workbook has an invalid saved parameter order."
                 ) from error
+        saved_workspace_selections = None
+        if (
+            schema_version >= 6
+            and "workspace_selections" in metadata.index
+            and pd.notna(metadata["workspace_selections"])
+            and str(metadata["workspace_selections"]).strip()
+        ):
+            try:
+                saved_workspace_selections = json.loads(
+                    metadata["workspace_selections"]
+                )
+            except (TypeError, ValueError, json.JSONDecodeError) as error:
+                raise ValueError(
+                    "This Matching Workbook has invalid workspace selections."
+                ) from error
         return cls(
             reference=reference,
             raw=raw,
@@ -495,8 +688,13 @@ class MatchWorkbook:
             preview_raw=preview_raw,
             final_raw=final_raw,
             final_match_raw=final_match_raw,
+            preview_map=preview_map,
+            final_map=final_map,
+            preview_dynamic=preview_dynamic,
+            final_dynamic=final_dynamic,
             setup_splitter_sizes=saved_splitter_sizes,
             parameter_order=saved_parameter_order,
+            workspace_selections=saved_workspace_selections,
         )
 
 

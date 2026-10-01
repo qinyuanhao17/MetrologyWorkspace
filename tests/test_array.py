@@ -95,6 +95,15 @@ class ArrayTests(unittest.TestCase):
                         + [text.get_window_extent(renderer).y1 for text in ax._wafer_title_details])
         self.assertLessEqual(title_top, height)
 
+    def test_map_array_omits_interpolation_footer(self):
+        selection = {"wafer_column": "Wafer", "wafers": ["001"], "metrics": ["H"]}
+        result = prepare_array(self.frame, selection, ArrayOptions("X", "Y"))
+        figure = Figure(figsize=(5, 4))
+
+        draw_array(figure, result, 10)
+
+        self.assertIsNone(figure._supxlabel)
+
     def test_manual_colour_scale_limits(self):
         selection = {"wafer_column": "Wafer", "wafers": ["001"], "metrics": ["H"]}
         result = prepare_array(self.frame, selection, ArrayOptions("X", "Y", limits=(3.0, None)))
@@ -186,7 +195,11 @@ class PlotWorkspaceTests(unittest.TestCase):
     def wait_render(self):
         page = self.window.plot_page
         start = time.monotonic()
-        while page.worker is not None and time.monotonic() - start < 25:
+        while (
+            page.worker is not None
+            or page.input_refresh_timer.isActive()
+            or page.pending_input_refresh
+        ) and time.monotonic() - start < 25:
             QTest.qWait(20)
         self.assertIsNone(page.worker, "Background render did not complete")
 
@@ -275,6 +288,7 @@ class PlotWorkspaceTests(unittest.TestCase):
                 APP.processEvents()
                 page.font_size.setCurrentText(size)
                 QTest.qWait(250)
+                self.wait_render()
                 page.selector.selectAll()
                 page.draw_maps()
                 self.wait_render()
@@ -613,7 +627,7 @@ class PlotWorkspaceTests(unittest.TestCase):
             page.deleteLater()
             APP.processEvents()
 
-    def test_changed_selection_discards_running_job(self):
+    def test_changed_selection_discards_first_stale_job_then_refreshes_last_draw(self):
         self.unique_fixture()
         w, page = self.window, self.window.plot_page
         w.tabs.setCurrentIndex(1)
@@ -627,8 +641,108 @@ class PlotWorkspaceTests(unittest.TestCase):
         self.assertEqual(page.result["shape"], (2, 3))
         w.model.edit({(1, 10): "1.234"})
         w.recognize()
-        self.assertIsNone(page.result)
-        self.assertFalse(page.export_button.isEnabled())
+        self.wait_render()
+        self.assertIsNotNone(page.result)
+        self.assertFalse(page.dirty)
+        self.assertTrue(page.export_button.isEnabled())
+
+    def test_replacing_data_after_first_draw_refreshes_maps_without_selector(self):
+        self.unique_fixture()
+        w, page = self.window, self.window.plot_page
+        w.tabs.setCurrentIndex(1)
+        page.selector.clearSelection()
+        page.selector.item(0, 0).setSelected(True)
+        page.draw_maps()
+        self.wait_render()
+        first_result = page.result
+        selected_cells = page.selector.selected_cells()
+
+        replacement = w._frame.copy()
+        replacement["OCD_H1"] = (
+            pd.to_numeric(replacement["OCD_H1"]) + 100
+        )
+        w.set_table(replacement, "replacement.csv")
+
+        deadline = time.monotonic() + 25
+        while time.monotonic() < deadline:
+            QTest.qWait(20)
+            if (
+                page.worker is None
+                and page.result is not None
+                and page.result is not first_result
+            ):
+                break
+        w.tabs.setCurrentIndex(1)
+        APP.processEvents()
+
+        self.assertIsNot(page.result, first_result)
+        self.assertFalse(page.dirty)
+        self.assertEqual(page.selector.selected_cells(), selected_cells)
+        self.assertIs(page.stack.currentWidget(), page.scroll)
+        self.assertNotIn("Select the maps", page.status.text())
+
+    def test_changing_map_boxes_after_first_draw_refreshes_without_draw_click(self):
+        self.unique_fixture()
+        page = self.window.plot_page
+        self.window.tabs.setCurrentIndex(1)
+        page.selector.set_selected_cells({
+            (page.selector.wafers[0], page.selector.metrics[0])
+        })
+        page.draw_maps()
+        self.wait_render()
+        first_result = page.result
+        replacement_cell = (
+            page.selector.wafers[1], page.selector.metrics[1]
+        )
+
+        page.selector.set_selected_cells({replacement_cell})
+        self.wait_render()
+
+        self.assertIsNot(page.result, first_result)
+        self.assertEqual(page.drawn_cells, {replacement_cell})
+        self.assertIs(page.stack.currentWidget(), page.scroll)
+        self.assertNotIn("click Draw selected", page.status.text())
+
+    def test_restored_map_draw_state_redraws_without_draw_click(self):
+        self.unique_fixture()
+        page = self.window.plot_page
+        self.window.tabs.setCurrentIndex(1)
+        selected_cell = (page.selector.wafers[0], page.selector.metrics[0])
+        page.selector.set_selected_cells({selected_cell})
+        page.draw_maps()
+        self.wait_render()
+        saved_state = self.window.selection_state()
+
+        reopened = MainWindow()
+        reopened.show()
+        try:
+            reopened.set_table(self.window._frame.copy(), "reopened.wkb")
+            reopened.restore_selection(saved_state)
+            deadline = time.monotonic() + 25
+            while time.monotonic() < deadline:
+                QTest.qWait(20)
+                restored_page = reopened.plot_page
+                if (
+                    restored_page.worker is None
+                    and not restored_page.input_refresh_timer.isActive()
+                    and restored_page.result is not None
+                ):
+                    break
+
+            self.assertTrue(reopened.plot_page.has_drawn_once)
+            self.assertEqual(reopened.plot_page.drawn_cells, {selected_cell})
+            self.assertIs(
+                reopened.plot_page.stack.currentWidget(),
+                reopened.plot_page.scroll,
+            )
+            self.assertNotIn(
+                "click Draw selected", reopened.plot_page.status.text()
+            )
+        finally:
+            reopened.model.undo.setClean()
+            reopened.close()
+            reopened.deleteLater()
+            APP.processEvents()
 
     def test_map_array_click_drag_and_ctrl_selection(self):
         w, page = self.window, self.window.plot_page

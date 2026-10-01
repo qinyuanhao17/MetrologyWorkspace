@@ -9,13 +9,14 @@ Card Matching 的 Preview 和 Final 都需要绘制 Wafer Map 与 Radius Plot。
 
 ## 决策
 
-`MatchWorkbook.stage_frame(stage)` 是阶段边界：
+`MatchWorkbook.stage_frame(stage)` 是阶段边界，优先级如下：
 
-- Preview 使用独立 FullMap（未提供时回退到匹配 Raw Data），对每个映射参数应用拟合 Card。
-- Final 使用独立 Final Raw Data，参数值直接进入绘图，不再次应用 Card。
+- 已保存的 Preview/Final Map 精确快照直接恢复，不再次转换。
+- Preview 使用独立 FullMap，对每个映射参数应用拟合 Card；Final 使用独立 Final Raw Data，参数值直接进入绘图，不再次应用 Card。
+- KLA/NOVA 没有快照或独立 FullMap 时回退到相应匹配 Raw Data；TEM 没有独立 Map 数据时返回空表，不复制匹配 Raw Data。
 - 两种阶段都保留 Wafer ID、坐标、PAD 等非参数列。
 
-Matching 窗口只通过 `MainWindow.set_table(frame, source)` 把处理后的表交给现有 Wafer 工作区。该工作区仍负责参数识别、Wafer Map、Radius Plot 和导出。
+Matching 窗口只通过 `MainWindow.set_table(frame, source)` 把处理后的表交给现有 Wafer 工作区，并监听该工作区的数据表改动，把实际 Map 表作为 WKB 快照交回 `MatchWorkbook`。该工作区仍负责参数识别、Wafer Map、Radius Plot 和导出。
 
 ## 结果
 

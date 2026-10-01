@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from io import StringIO
 from pathlib import Path
+import subprocess
+import sys
 
 import numpy as np
 import pandas as pd
@@ -29,6 +31,7 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -47,13 +50,30 @@ from .appearance import fit_window_to_screen, help_title_label
 from .data import inspect_table
 from .diagnostics import get_logger
 from .matching import MAX_ROWS, MatchWorkbook, ParameterMapping, extrema_sample_indices
-from .settings import apply_theme
+from .plotting import InteractivePlotWidget
+from .settings import (
+    apply_theme, forget_recent_wkb, recent_wkb_paths, remember_recent_wkb,
+)
 from .sheet import SheetModel, SheetView
 
 
 PLOT_LIMIT = 20_000
 _PARAMETER_MIME = "application/x-metrology-match-parameter"
 LOGGER = get_logger()
+
+
+def reveal_path_in_folder(path):
+    """Open the platform file manager and reveal one existing file."""
+    path = Path(path).resolve()
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    if sys.platform.startswith("win"):
+        subprocess.Popen(["explorer.exe", "/select,", str(path)])
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", "-R", str(path)])
+    else:
+        subprocess.Popen(["xdg-open", str(path.parent)])
+    return path
 
 
 def _label(text, role="muted"):
@@ -279,7 +299,44 @@ class _ParameterCard(QFrame):
             self._place_drop_indicator(position == "before")
 
 
-class _TrendPlotWidget(pg.PlotWidget):
+class _MatchPlotWidget(InteractivePlotWidget):
+    """Match plot with a reserved title-and-fit row above the data area."""
+
+    HEADER_HEIGHT = 46
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        plot = self.getPlotItem()
+        plot.setTitle(None)
+        plot.layout.setRowFixedHeight(0, self.HEADER_HEIGHT)
+
+        self.heading = QWidget(self)
+        self.heading.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        heading_layout = QHBoxLayout(self.heading)
+        heading_layout.setContentsMargins(42, 0, 8, 0)
+        heading_layout.setSpacing(8)
+        self.title_label = QLabel(objectName="matchPlotTitle")
+        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.formula_label = QLabel(objectName="matchPlotFormula")
+        self.formula_label.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
+        heading_layout.addWidget(self.title_label, 3)
+        heading_layout.addWidget(self.formula_label, 2)
+
+    def set_match_heading(self, title, formula):
+        self.title_label.setText(str(title))
+        self.formula_label.setText(str(formula))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if not hasattr(self, "heading"):
+            return
+        self.heading.setGeometry(0, 0, self.width(), self.HEADER_HEIGHT)
+        self.heading.raise_()
+
+
+class _TrendPlotWidget(InteractivePlotWidget):
     """Trend plot with a compact Card toggle overlaid at the top-right."""
 
     def __init__(self, *args, **kwargs):
@@ -306,7 +363,8 @@ class _TrendPlotWidget(pg.PlotWidget):
 class MatchingWindow(QMainWindow):
     """Build Preview or Final results from one row-aligned matching workbook."""
 
-    def __init__(self, wafer_window_factory=None):
+    def __init__(self, wafer_window_factory=None, dynamic_window_factory=None,
+                 correlation_window_factory=None):
         super().__init__()
         self.setWindowTitle("Match Workbook")
         fit_window_to_screen(self, (1520, 930), minimum=(1050, 700))
@@ -316,6 +374,10 @@ class MatchingWindow(QMainWindow):
         self.final_match_frame = pd.DataFrame()
         self.preview_frame = pd.DataFrame()
         self.final_frame = pd.DataFrame()
+        self.preview_map_frame = None
+        self.final_map_frame = None
+        self.preview_dynamic_frame = None
+        self.final_dynamic_frame = None
         self.workbook = None
         self.workbook_path = None
         self.result = None
@@ -330,7 +392,17 @@ class MatchingWindow(QMainWindow):
         self._raw_sources = {"preview": "No data", "final": "No data"}
         self._trend_card_state = {}
         self._wafer_window_factory = wafer_window_factory or self._default_wafer_window_factory
+        self._dynamic_window_factory = (
+            dynamic_window_factory or self._default_dynamic_window_factory
+        )
+        self._correlation_window_factory = (
+            correlation_window_factory or self._default_correlation_window_factory
+        )
+        self._map_selection_states = {"preview": None, "final": None}
+        self._dynamic_selection_states = {"preview": None, "final": None}
         self._stage_windows = []
+        self._stage_window_context = {}
+        self._recent_wkb_paths = list(recent_wkb_paths())
         self.reference_model = SheetModel()
         self.raw_model = SheetModel()
         self.final_raw_model = SheetModel()
@@ -376,6 +448,15 @@ class MatchingWindow(QMainWindow):
         self.mode_tabs.addTab("Final")
         mode_row.addWidget(self.mode_tabs)
         mode_row.addStretch()
+        self.correlation_button = QPushButton(
+            "Open Correlation and Trend", objectName="primary"
+        )
+        self.correlation_button.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
+        self.correlation_button.clicked.connect(
+            self._open_correlation_clicked
+        )
         self.preview_open_button = QPushButton(
             "Open Preview Wafer Map / Radius", objectName="primary"
         )
@@ -394,6 +475,27 @@ class MatchingWindow(QMainWindow):
         self.final_open_button.clicked.connect(
             lambda: self._open_stage_clicked("final")
         )
+        self.preview_dynamic_button = QPushButton(
+            "Open Preview Dynamic", objectName="primary"
+        )
+        self.preview_dynamic_button.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
+        self.preview_dynamic_button.clicked.connect(
+            lambda: self._open_dynamic_clicked("preview")
+        )
+        self.final_dynamic_button = QPushButton(
+            "Open Final Dynamic", objectName="primary"
+        )
+        self.final_dynamic_button.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
+        self.final_dynamic_button.clicked.connect(
+            lambda: self._open_dynamic_clicked("final")
+        )
+        mode_row.addWidget(self.correlation_button)
+        mode_row.addWidget(self.preview_dynamic_button)
+        mode_row.addWidget(self.final_dynamic_button)
         mode_row.addWidget(self.preview_open_button)
         mode_row.addWidget(self.final_open_button)
         layout.addLayout(mode_row)
@@ -410,6 +512,10 @@ class MatchingWindow(QMainWindow):
         self.open_action = QAction("Open WKB", self)
         self.open_action.setShortcut(QKeySequence("Ctrl+O"))
         self.open_action.triggered.connect(self.open_wkb_dialog)
+        self.open_recent_menu = QMenu("Open Recent WKB", self.file_menu)
+        self.reveal_wkb_action = QAction("Reveal WKB in Folder", self)
+        self.reveal_wkb_action.setEnabled(False)
+        self.reveal_wkb_action.triggered.connect(self.reveal_wkb_in_folder)
         self.save_action = QAction("Save WKB", self)
         self.save_action.setShortcut(QKeySequence("Ctrl+S"))
         self.save_action.triggered.connect(self.save_wkb)
@@ -422,12 +528,15 @@ class MatchingWindow(QMainWindow):
         self.images_action.triggered.connect(self.save_images_dialog)
         for action in (
             self.open_action,
+            self.open_recent_menu.menuAction(),
+            self.reveal_wkb_action,
             self.save_action,
             self.save_as_action,
             self.export_action,
             self.images_action,
         ):
             self.file_menu.addAction(action)
+        self._refresh_recent_wkb_menu()
 
         self.analysis_menu = self.menuBar().addMenu("Analysis")
         self.run_action = QAction("Run analysis", self)
@@ -462,11 +571,6 @@ class MatchingWindow(QMainWindow):
         self.percent_bias.toggled.connect(self.percent_bias_action.setChecked)
         self.bias_menu.addAction(self.absolute_bias_action)
         self.bias_menu.addAction(self.percent_bias_action)
-
-        self.view_menu = self.menuBar().addMenu("View")
-        self.reset_order_action = QAction("Reset parameter order", self)
-        self.reset_order_action.setEnabled(False)
-        self.view_menu.addAction(self.reset_order_action)
 
         # Compatibility aliases for callers that previously enabled toolbar buttons.
         self.open_button = self.open_action
@@ -533,6 +637,8 @@ class MatchingWindow(QMainWindow):
         preview = self.result_mode.currentText().lower() == "preview"
         self.preview_open_button.setVisible(preview)
         self.final_open_button.setVisible(not preview)
+        self.preview_dynamic_button.setVisible(preview)
+        self.final_dynamic_button.setVisible(not preview)
         if hasattr(self, "raw_card"):
             self.raw_card.show()
 
@@ -553,8 +659,9 @@ class MatchingWindow(QMainWindow):
         layout.setSpacing(10)
 
         self.match_type.currentTextChanged.connect(self._analysis_input_changed)
-        self.status = _label("Paste a Reference table to begin.", "hint")
+        self.status = _label("", "hint")
         self.status.setWordWrap(True)
+        self.status.hide()
         layout.addWidget(self.status)
 
         inputs = QSplitter(Qt.Orientation.Horizontal)
@@ -669,19 +776,8 @@ class MatchingWindow(QMainWindow):
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(16, 14, 16, 12)
         layout.setSpacing(14)
-        controls = QHBoxLayout()
         self.result_status = _label("", "hint")
         self.result_status.hide()
-        controls.addStretch()
-        self.reset_order_button = QPushButton("Reset", objectName="subtle")
-        self.reset_order_button.setToolTip(
-            "Restore the parameter order from Parameter mapping."
-        )
-        self.reset_order_button.setEnabled(False)
-        self.reset_order_button.clicked.connect(self._reset_parameter_order)
-        self.reset_order_action.triggered.connect(self._reset_parameter_order)
-        controls.addWidget(self.reset_order_button)
-        layout.addLayout(controls)
 
         self.results_tabs = QTabWidget()
         self.plot_groups_widget = QWidget()
@@ -709,12 +805,6 @@ class MatchingWindow(QMainWindow):
         layout.addWidget(self.results_tabs, 1)
         panel.setMinimumHeight(520)
         return panel
-
-    def _reset_parameter_order(self):
-        if self.result is None:
-            return
-        self._parameter_order = list(self.result.parameter_names)
-        self._draw_all_parameters()
 
     def parameter_order(self):
         """Return the user-visible parameter card order."""
@@ -755,13 +845,26 @@ class MatchingWindow(QMainWindow):
             group["card"]._show_drop_position(None)
 
     @staticmethod
-    def _plot_widget(bottom, left, plot_class=pg.PlotWidget):
-        plot = plot_class(background=None)
+    def _plot_widget(bottom, left, plot_class=InteractivePlotWidget):
+        plot = plot_class(background=None, frame_tick_length=3)
         plot.showGrid(x=True, y=True, alpha=0.18)
         plot.setLabel("bottom", bottom)
         plot.setLabel("left", left)
-        plot.getPlotItem().showAxis("right")
-        plot.getPlotItem().getAxis("right").setStyle(showValues=False)
+        plot.setToolTip(
+            "Ctrl+scroll to zoom · Drag a box to zoom · Right-drag to pan · "
+            "Ordinary scrolling moves the page · "
+            "Double-click to fit this plot"
+        )
+        plot_item = plot.getPlotItem()
+        plot_item.layout.setRowFixedHeight(0, _MatchPlotWidget.HEADER_HEIGHT)
+        view = plot_item.getViewBox()
+        view.setMouseMode(pg.ViewBox.RectMode)
+        frame_pen = pg.mkPen(plot.palette().color(plot.foregroundRole()))
+        view.setBorder(None)
+        for axis_name in ("top", "right", "bottom", "left"):
+            axis = plot_item.getAxis(axis_name)
+            axis.setPen(frame_pen)
+            axis.setTextPen(frame_pen)
         return plot
 
     def paste_reference(self):
@@ -962,6 +1065,7 @@ class MatchingWindow(QMainWindow):
             raise ValueError("Paste the matching Raw Data before Preview FullMap.")
         self._validate_input_frame(frame, "Preview FullMap")
         self.preview_frame = frame.reset_index(drop=True)
+        self.preview_map_frame = None
         self.preview_model.set_frame(self.preview_frame)
         self._update_state()
 
@@ -970,6 +1074,7 @@ class MatchingWindow(QMainWindow):
             raise ValueError("Paste the matching Raw Data before Final Raw Data.")
         self._validate_input_frame(frame, "Final Raw Data")
         self.final_frame = frame.reset_index(drop=True)
+        self.final_map_frame = None
         self.final_model.set_frame(self.final_frame)
         self._update_state()
 
@@ -1275,8 +1380,9 @@ class MatchingWindow(QMainWindow):
         self.images_button.setEnabled(self.result is not None)
         self.preview_open_button.setEnabled(self.result is not None)
         self.final_open_button.setEnabled(self.result is not None)
-        self.reset_order_button.setEnabled(self.result is not None)
-        self.reset_order_action.setEnabled(self.result is not None)
+        self.preview_dynamic_button.setEnabled(self.result is not None)
+        self.final_dynamic_button.setEnabled(self.result is not None)
+        self.correlation_button.setEnabled(bool(valid_rows and has_mapping))
         self._update_mode_actions()
         raw_error_key = (
             "final_raw"
@@ -1326,7 +1432,8 @@ class MatchingWindow(QMainWindow):
             self.status.setObjectName(role)
             self.status.style().unpolish(self.status)
             self.status.style().polish(self.status)
-        self.status.setText(message)
+        self.status.setText(message if warning else "")
+        self.status.setVisible(bool(warning and message))
 
     def current_workbook(self):
         mappings = self.selected_mappings()
@@ -1350,6 +1457,14 @@ class MatchingWindow(QMainWindow):
             final_match_raw=(
                 None if self.final_match_frame.empty else self.final_match_frame
             ),
+            preview_map=self.preview_map_frame,
+            final_map=self.final_map_frame,
+            preview_dynamic=self.preview_dynamic_frame,
+            final_dynamic=self.final_dynamic_frame,
+            workspace_selections={
+                "map": self._map_selection_states,
+                "dynamic": self._dynamic_selection_states,
+            },
             setup_splitter_sizes=tuple(self.setup_splitter.sizes()),
             parameter_order=parameter_order,
         )
@@ -1359,6 +1474,41 @@ class MatchingWindow(QMainWindow):
         from .window import MainWindow
         return MainWindow()
 
+    @staticmethod
+    def _default_dynamic_window_factory():
+        from .dynamic_window import DynamicWindow
+        return DynamicWindow()
+
+    @staticmethod
+    def _default_correlation_window_factory():
+        from .correlation_window import CorrelationWindow
+        return CorrelationWindow()
+
+    def open_correlation_workspace(self):
+        """Open the active WKB sources without combining or renaming tables."""
+        mappings = self.selected_mappings()
+        raw = self._active_raw_frame()
+        if self.reference_frame.empty or raw.empty:
+            raise ValueError("Paste Reference and Raw Data before opening Correlation and Trend.")
+        if not mappings:
+            raise ValueError("Select at least one valid parameter mapping first.")
+        mode = self.result_mode.currentText()
+        workspace = self._correlation_window_factory()
+        workspace.set_sources(self.reference_frame, raw, mappings, mode)
+        if hasattr(workspace, "setWindowTitle"):
+            workspace.setWindowTitle(f"{mode} Correlation and Trend")
+        self._register_stage_workspace(workspace)
+        workspace.show()
+        return workspace
+
+    def _open_correlation_clicked(self):
+        try:
+            self.open_correlation_workspace()
+        except Exception as error:
+            QMessageBox.warning(
+                self, "Cannot open Correlation and Trend", str(error)
+            )
+
     def open_stage_workspace(self, stage):
         if self.result is None:
             self.run_analysis()
@@ -1367,25 +1517,272 @@ class MatchingWindow(QMainWindow):
         workspace = self._wafer_window_factory()
         title = f"{str(stage).title()} · Match Workbook"
         workspace.set_table(frame, title)
+        self._bind_workspace_selection(workspace, "map", stage)
+        self._capture_stage_map(stage, frame)
+        model = getattr(workspace, "model", None)
+        if model is not None and hasattr(model, "changed"):
+            model.changed.connect(
+                lambda stage_name=stage, stage_model=model:
+                self._capture_stage_model(stage_name, stage_model)
+            )
+        self._configure_managed_close(workspace, "map", stage)
         if hasattr(workspace, "setWindowTitle"):
             workspace.setWindowTitle(f"{str(stage).title()} Wafer Map / Radius")
-        self._stage_windows.append(workspace)
-        if hasattr(workspace, "destroyed"):
-            workspace.destroyed.connect(
-                lambda *_args, window=workspace: self._forget_stage_workspace(window)
-            )
+        self._register_stage_workspace(workspace, "map", stage)
         workspace.show()
         return workspace
+
+    def _capture_stage_map(self, stage, frame):
+        snapshot = frame.reset_index(drop=True).copy()
+        if str(stage).lower() == "preview":
+            self.preview_map_frame = snapshot
+        else:
+            self.final_map_frame = snapshot
+
+    def _capture_stage_model(self, stage, model):
+        try:
+            frame = model.frame()
+        except ValueError:
+            return
+        self._capture_stage_map(stage, frame)
+
+    def _register_stage_workspace(self, workspace, kind=None, stage=None):
+        """Track a child window and the WKB snapshot it owns, when applicable."""
+        self._stage_windows.append(workspace)
+        if kind is not None:
+            self._stage_window_context[workspace] = (
+                str(kind).lower(), str(stage).lower()
+            )
+        if hasattr(workspace, "destroyed"):
+            workspace.destroyed.connect(
+                lambda *_args, window=workspace:
+                self._forget_stage_workspace(window)
+            )
 
     def _forget_stage_workspace(self, workspace):
         if workspace in self._stage_windows:
             self._stage_windows.remove(workspace)
+        self._stage_window_context.pop(workspace, None)
+
+    def _capture_workspace_selection(self, kind, stage, state):
+        if not isinstance(state, dict):
+            return
+        states = (
+            self._map_selection_states
+            if kind == "map"
+            else self._dynamic_selection_states
+        )
+        saved = {
+            "wafers": tuple(state.get("wafers", ())),
+            "metrics": tuple(state.get("metrics", ())),
+        }
+        if kind == "map":
+            for field in ("map_draw", "radius_draw"):
+                if not isinstance(state.get(field), dict):
+                    continue
+                draw_state = state[field]
+                saved[field] = {
+                    "enabled": draw_state.get("enabled") is True,
+                    "cells": tuple(
+                        tuple(cell) for cell in draw_state.get("cells", ())
+                    ),
+                }
+        states[str(stage).lower()] = saved
+
+    def _bind_workspace_selection(self, workspace, kind, stage):
+        """Keep a stage workspace's surviving choices across close/reopen."""
+        stage = str(stage).lower()
+        states = (
+            self._map_selection_states
+            if kind == "map"
+            else self._dynamic_selection_states
+        )
+        signal = getattr(workspace, "selection_changed", None)
+        if signal is not None and hasattr(signal, "connect"):
+            signal.connect(
+                lambda state, workspace_kind=kind, stage_name=stage:
+                self._capture_workspace_selection(
+                    workspace_kind, stage_name, state
+                )
+            )
+        saved = states.get(stage)
+        restore = getattr(workspace, "restore_selection", None)
+        if saved is not None and callable(restore):
+            restore(saved)
+        current = getattr(workspace, "selection_state", None)
+        if callable(current):
+            self._capture_workspace_selection(kind, stage, current())
+
+    def _configure_managed_close(self, workspace, kind, stage):
+        setter = getattr(workspace, "set_managed_close_handler", None)
+        if not callable(setter):
+            return
+        setter(
+            lambda frame, workspace_kind=kind, stage_name=stage:
+            self._save_managed_workspace_on_close(
+                workspace_kind, stage_name, frame
+            )
+        )
+
+    def _save_managed_workspace_on_close(self, kind, stage, frame):
+        if kind == "map":
+            self._capture_stage_map(stage, frame)
+        else:
+            self._capture_stage_dynamic(stage, frame)
+        self.workbook = self.current_workbook()
+        if self.workbook_path is not None:
+            self.save_workbook(self.workbook_path)
+
+    def _capture_managed_stage_workspace(self, workspace):
+        """Copy a managed child's live state before either window is destroyed."""
+        context = self._stage_window_context.get(workspace)
+        if context is None:
+            return
+        kind, stage = context
+        model = getattr(workspace, "model", None)
+        frame_getter = getattr(model, "frame", None)
+        if callable(frame_getter):
+            frame = frame_getter()
+            if kind == "map":
+                self._capture_stage_map(stage, frame)
+            else:
+                self._capture_stage_dynamic(stage, frame)
+        selection_getter = getattr(workspace, "selection_state", None)
+        if callable(selection_getter):
+            self._capture_workspace_selection(
+                kind, stage, selection_getter()
+            )
+
+    @staticmethod
+    def _deleted_qt_object(error):
+        return (
+            isinstance(error, RuntimeError)
+            and "has been deleted" in str(error)
+        )
+
+    def _save_stage_workspaces_before_close(self, workspaces):
+        for workspace in workspaces:
+            try:
+                self._capture_managed_stage_workspace(workspace)
+            except RuntimeError as error:
+                if not self._deleted_qt_object(error):
+                    raise
+                self._forget_stage_workspace(workspace)
+        if self.workbook_path is not None:
+            self.save_workbook(self.workbook_path)
+            return
+        # An unsaved Match window has no WKB target. Keep the in-memory
+        # workbook coherent and allow its owned children to close with it.
+        self.workbook = self.current_workbook()
+        for workspace in workspaces:
+            model = getattr(workspace, "model", None)
+            undo = getattr(model, "undo", None)
+            if undo is not None:
+                undo.setClean()
+
+    def _close_stage_workspaces(self, workspaces):
+        for workspace in workspaces:
+            context = self._stage_window_context.get(workspace)
+            if context is not None:
+                setter = getattr(workspace, "set_managed_close_handler", None)
+                if callable(setter):
+                    setter(None)
+            close = getattr(workspace, "close", None)
+            if not callable(close):
+                self._forget_stage_workspace(workspace)
+                continue
+            try:
+                closed = close()
+            except RuntimeError as error:
+                if not self._deleted_qt_object(error):
+                    raise
+                self._forget_stage_workspace(workspace)
+                continue
+            if closed is False:
+                if context is not None:
+                    self._configure_managed_close(
+                        workspace, context[0], context[1]
+                    )
+                raise RuntimeError("An analysis workspace refused to close.")
+            delete_later = getattr(workspace, "deleteLater", None)
+            if callable(delete_later):
+                delete_later()
+            self._forget_stage_workspace(workspace)
+
+    def closeEvent(self, event):
+        """Persist and close every analysis child before Qt deletes this WKB."""
+        workspaces = tuple(self._stage_windows)
+        if not workspaces:
+            event.accept()
+            return
+        try:
+            self._save_stage_workspaces_before_close(workspaces)
+            self._close_stage_workspaces(workspaces)
+        except Exception as error:
+            LOGGER.exception("Cannot close Match Workbook and its workspaces")
+            QMessageBox.warning(
+                self,
+                "Cannot close Match Workbook",
+                "The open analysis workspaces could not be saved and closed "
+                f"with this Match Workbook.\n\n{error}",
+            )
+            event.ignore()
+            return
+        event.accept()
 
     def _open_stage_clicked(self, stage):
         try:
             self.open_stage_workspace(stage)
         except Exception as error:
             QMessageBox.warning(self, f"Cannot open {stage.title()}", str(error))
+
+    def open_dynamic_workspace(self, stage):
+        if self.result is None:
+            self.run_analysis()
+        self.workbook = self.current_workbook()
+        frame = self.workbook.dynamic_frame(stage)
+        workspace = self._dynamic_window_factory()
+        title = f"{str(stage).title()} Dynamic · Match Workbook"
+        workspace.set_table(frame, title)
+        self._bind_workspace_selection(workspace, "dynamic", stage)
+        model = getattr(workspace, "model", None)
+        if model is not None:
+            self._capture_dynamic_model(stage, model)
+            if hasattr(model, "changed"):
+                model.changed.connect(
+                    lambda stage_name=stage, stage_model=model:
+                    self._capture_dynamic_model(stage_name, stage_model)
+                )
+        else:
+            self._capture_stage_dynamic(stage, frame)
+        self._configure_managed_close(workspace, "dynamic", stage)
+        if hasattr(workspace, "setWindowTitle"):
+            workspace.setWindowTitle(f"{str(stage).title()} Dynamic")
+        self._register_stage_workspace(workspace, "dynamic", stage)
+        workspace.show()
+        return workspace
+
+    def _capture_stage_dynamic(self, stage, frame):
+        snapshot = frame.reset_index(drop=True).copy()
+        if str(stage).lower() == "preview":
+            self.preview_dynamic_frame = snapshot
+        else:
+            self.final_dynamic_frame = snapshot
+
+    def _capture_dynamic_model(self, stage, model):
+        try:
+            frame = model.frame()
+        except ValueError:
+            return
+        self._capture_stage_dynamic(stage, frame)
+
+    def _open_dynamic_clicked(self, stage):
+        try:
+            self.open_dynamic_workspace(stage)
+        except Exception as error:
+            QMessageBox.warning(
+                self, f"Cannot open {stage.title()} Dynamic", str(error)
+            )
 
     def run_analysis(self):
         scroll_value = self.setup_scroll.verticalScrollBar().value()
@@ -1465,15 +1862,20 @@ class MatchingWindow(QMainWindow):
         primary_height = 330
         specs = [
             ("match", "PMISH", self.match_type.currentText()),
-            ("trend", "Wafer", ""),
+            ("trend", " ", ""),
         ]
         if self.absolute_bias.isChecked():
-            specs.append(("bias", "Wafer", "Bias (nm)"))
+            specs.append(("bias", " ", "Bias (nm)"))
         if self.percent_bias.isChecked():
-            specs.append(("bias-percent", "Wafer", "Bias (%)"))
+            specs.append(("bias-percent", " ", "Bias (%)"))
         plots = {}
         for index, (name, bottom, left) in enumerate(specs):
-            plot_class = _TrendPlotWidget if name == "trend" else pg.PlotWidget
+            if name == "match":
+                plot_class = _MatchPlotWidget
+            elif name == "trend":
+                plot_class = _TrendPlotWidget
+            else:
+                plot_class = InteractivePlotWidget
             plot = self._plot_widget(bottom, left, plot_class=plot_class)
             plot.getPlotItem().setContentsMargins(6, 4, 8, 8)
             if name == "match":
@@ -1481,9 +1883,12 @@ class MatchingWindow(QMainWindow):
                 horizontal_policy = QSizePolicy.Policy.Fixed
                 plot_grid.setColumnMinimumWidth(index, 510)
             else:
-                plot.setMinimumWidth(560)
-                horizontal_policy = QSizePolicy.Policy.MinimumExpanding
-                plot_grid.setColumnMinimumWidth(index, 560)
+                # Trend and bias plots share the space left after the fixed
+                # Match plot. Their graphics remain interactive at narrower
+                # widths, so do not force the workbook to scroll sideways.
+                plot.setMinimumWidth(0)
+                horizontal_policy = QSizePolicy.Policy.Ignored
+                plot_grid.setColumnMinimumWidth(index, 0)
             plot.setFixedHeight(primary_height)
             plot.setSizePolicy(
                 horizontal_policy, QSizePolicy.Policy.Fixed
@@ -1493,13 +1898,10 @@ class MatchingWindow(QMainWindow):
             if name in {"bias", "bias-percent"}:
                 plot.getAxis("left").enableAutoSIPrefix(False)
             plots[name] = plot
-        primary_width = 510 + max(0, len(specs) - 1) * 560
-        primary_width += max(0, len(specs) - 1) * plot_grid.horizontalSpacing()
-        plot_container.setMinimumWidth(primary_width)
-        match_item = plots["match"].getPlotItem()
-        match_formula = pg.LabelItem("", justify="right", size="9pt")
-        match_item.layout.addItem(match_formula, 0, 2)
-        match_item.layout.setColumnStretchFactor(2, 0)
+        primary_width = 510
+        plot_container.setMinimumWidth(0)
+        match_title = plots["match"].title_label
+        match_formula = plots["match"].formula_label
         mode = self.result_mode.currentText().lower()
         trend_card_key = (mode, parameter)
         trend_card_enabled = self._trend_card_state.get(
@@ -1552,6 +1954,7 @@ class MatchingWindow(QMainWindow):
             "card": card,
             "note": note,
             "plots": plots,
+            "match_title": match_title,
             "match_formula": match_formula,
             "primary_height": primary_height,
             "primary_width": primary_width,
@@ -1607,17 +2010,20 @@ class MatchingWindow(QMainWindow):
         if measurement_ticks:
             tick_levels = [measurement_ticks]
             max_lines = max(label.count("\n") + 1 for _, label in measurement_ticks)
+            axis_height = 42 + 16 * max_lines
+            for plot in plots.values():
+                plot.getAxis("bottom").setHeight(axis_height)
             for name in ("trend", "bias", "bias-percent"):
                 plot = plots.get(name)
                 if plot is None:
                     continue
                 axis = plot.getAxis("bottom")
                 axis.setTicks(tick_levels)
-                axis.setHeight(42 + 16 * max_lines)
 
         match_plot = plots["match"]
         match_plot.addLegend(offset=(12, 12))
         valid = np.isfinite(raw) & np.isfinite(reference)
+        fit_text = ""
         match_plot.plot(raw[valid], reference[valid], pen=None, symbol="o", symbolSize=5,
                         symbolBrush="#4f8bd6", symbolPen=None, name="Rows")
         if valid.any():
@@ -1633,14 +2039,9 @@ class MatchingWindow(QMainWindow):
             intercept_sign = "+" if card.intercept >= 0 else "-"
             fit_text = (
                 f"y = {card.slope:.6g}x {intercept_sign} "
-                f"{abs(card.intercept):.6g}<br>R² = {card.r_squared:.6g}"
+                f"{abs(card.intercept):.6g}\nR² = {card.r_squared:.6g}"
             )
-            group["match_formula"].setText(
-                fit_text,
-                color=match_plot.palette().color(match_plot.foregroundRole()),
-                size="9pt",
-            )
-        match_plot.setTitle(raw_column)
+        match_plot.set_match_heading(raw_column, fit_text)
 
         group["trend_data"] = (row, reference, raw, card_value)
         self._draw_trend_plot(parameter, group)
@@ -1674,6 +2075,10 @@ class MatchingWindow(QMainWindow):
                 y=0, pen=pg.mkPen("#8a8f98", width=1, style=Qt.PenStyle.DashLine)
             )
             bias_percent_plot.setTitle("Bias %")
+        for primary_plot in plots.values():
+            primary_plot.getPlotItem().layout.setRowFixedHeight(
+                0, _MatchPlotWidget.HEADER_HEIGHT
+            )
         self._draw_wafer_metrics(parameter, group)
 
     def _trend_card_toggled(self, parameter, checked):
@@ -1715,6 +2120,9 @@ class MatchingWindow(QMainWindow):
             name=self.workbook.match_type,
         )
         trend_plot.setTitle("Trend")
+        trend_plot.getPlotItem().layout.setRowFixedHeight(
+            0, _MatchPlotWidget.HEADER_HEIGHT
+        )
 
     def _draw_wafer_metrics(self, parameter, group):
         enabled = self.workbook.match_type in {"NOVA", "KLA"}
@@ -1751,13 +2159,15 @@ class MatchingWindow(QMainWindow):
 
     def _resize_results_for_plot_groups(self):
         total = 64
-        widest = 0
         wafer_total = 64
+        # Older fixed-width layouts could leave this splitter wider than its
+        # viewport after a re-run. Clear that constraint every time results
+        # are rebuilt so four plots fit the visible workbook.
+        self.setup_splitter.setMinimumWidth(0)
         for group in self.plot_groups.values():
             card_height = 54 + group["primary_height"]
             group["card"].setFixedHeight(card_height)
             total += card_height + self.plot_groups_layout.spacing()
-            widest = max(widest, group.get("primary_width", 0))
             if not group["wafer_card"].isHidden():
                 wafer_height = 520
                 group["wafer_card"].setMinimumHeight(wafer_height)
@@ -1765,10 +2175,6 @@ class MatchingWindow(QMainWindow):
         result_height = max(total, wafer_total)
         self.results_panel.setMinimumHeight(max(520, result_height))
         self.setup_splitter.setMinimumHeight(max(1120, 650 + result_height))
-        if widest:
-            # The outer setup scroll owns horizontal overflow. Give it the real
-            # row width so fixed-size charts never intrude into neighbours.
-            self.setup_splitter.setMinimumWidth(widest + 92)
 
     def _restore_setup_splitter_layout(self, sizes):
         """Keep the two user-positioned upper boundaries while results expand."""
@@ -1809,11 +2215,17 @@ class MatchingWindow(QMainWindow):
             self.reference_frame.to_excel(writer, sheet_name="Reference", index=False)
             self.raw_frame.to_excel(writer, sheet_name="Raw Data", index=False)
             result_frame.to_excel(writer, sheet_name=self.workbook.result_mode.title(), index=False)
-            if self.workbook.preview_raw is not None:
+            if (
+                self.workbook.preview_map is not None
+                or self.workbook.preview_raw is not None
+            ):
                 self.workbook.stage_frame("preview").to_excel(
                     writer, sheet_name="Preview FullMap", index=False
                 )
-            if self.workbook.final_raw is not None:
+            if (
+                self.workbook.final_map is not None
+                or self.workbook.final_raw is not None
+            ):
                 self.workbook.stage_frame("final").to_excel(
                     writer, sheet_name="Final FullMap", index=False
                 )
@@ -1850,9 +2262,16 @@ class MatchingWindow(QMainWindow):
             safe_parameter = _safe_filename(parameter)
             for suffix, widget in plot_specs:
                 output = target / f"{safe_parameter}-{suffix}.png"
-                exporter = pg.exporters.ImageExporter(widget.getPlotItem())
-                exporter.parameters()["width"] = 1600
-                exporter.export(str(output))
+                if isinstance(widget, _MatchPlotWidget):
+                    # The fit equation lives in the reserved QWidget heading,
+                    # outside pyqtgraph's GraphicsScene. Capture the complete
+                    # widget so the saved Match image matches the screen.
+                    if not widget.grab().save(str(output), "PNG"):
+                        raise OSError(f"Could not save {output}")
+                else:
+                    exporter = pg.exporters.ImageExporter(widget.getPlotItem())
+                    exporter.parameters()["width"] = 1600
+                    exporter.export(str(output))
                 saved.append(output)
         self.result_status.setText(f"Saved {len(saved)} plot images")
         return tuple(saved)
@@ -1869,15 +2288,100 @@ class MatchingWindow(QMainWindow):
         saved = workbook.save(path)
         self.workbook = workbook
         self.workbook_path = Path(saved).resolve()
+        self.reveal_wkb_action.setEnabled(True)
+        for workspace in self._stage_windows:
+            model = getattr(workspace, "model", None)
+            if model is not None and hasattr(model, "undo"):
+                model.undo.setClean()
         self._set_status(f"Saved {saved.name}")
         LOGGER.info("WKB saved: %s", Path(saved).resolve())
         return saved
+
+    def _refresh_recent_wkb_menu(self):
+        self.open_recent_menu.clear()
+        if not self._recent_wkb_paths:
+            empty_action = self.open_recent_menu.addAction("No Recent WKB")
+            empty_action.setEnabled(False)
+            return
+        for index, path in enumerate(self._recent_wkb_paths, start=1):
+            action = self.open_recent_menu.addAction(f"{index}. {Path(path).name}")
+            action.setToolTip(str(path))
+            action.triggered.connect(
+                lambda _checked=False, recent_path=Path(path):
+                self._open_recent_wkb(recent_path)
+            )
+
+    def _remember_recent_wkb(self, path):
+        path = Path(path).resolve()
+        fallback = [path] + [
+            Path(item).resolve()
+            for item in self._recent_wkb_paths
+            if Path(item).resolve() != path
+        ]
+        try:
+            self._recent_wkb_paths = list(remember_recent_wkb(path))
+        except OSError as error:
+            self._recent_wkb_paths = fallback[:10]
+            LOGGER.warning("Recent WKB list could not be saved: %s", error)
+        self._refresh_recent_wkb_menu()
+
+    def _forget_recent_wkb(self, path):
+        path = Path(path).resolve()
+        fallback = [
+            Path(item).resolve()
+            for item in self._recent_wkb_paths
+            if Path(item).resolve() != path
+        ]
+        try:
+            self._recent_wkb_paths = list(forget_recent_wkb(path))
+        except OSError as error:
+            self._recent_wkb_paths = fallback
+            LOGGER.warning("Recent WKB list could not be updated: %s", error)
+        self._refresh_recent_wkb_menu()
+
+    def _open_recent_wkb(self, path):
+        path = Path(path).resolve()
+        if not path.is_file():
+            self._forget_recent_wkb(path)
+            QMessageBox.warning(
+                self,
+                "Recent WKB not found",
+                f"This workbook is no longer available:\n\n{path}",
+            )
+            return
+        try:
+            workbook = self.load_workbook(path)
+            self._remember_recent_wkb(path)
+            return workbook
+        except Exception as error:
+            LOGGER.exception("Cannot open recent WKB")
+            QMessageBox.warning(self, "Cannot open WKB", str(error))
+
+    def reveal_wkb_in_folder(self):
+        path = self.workbook_path
+        if path is None:
+            return
+        try:
+            reveal_path_in_folder(path)
+        except FileNotFoundError:
+            self.reveal_wkb_action.setEnabled(False)
+            self._forget_recent_wkb(path)
+            QMessageBox.warning(
+                self,
+                "WKB not found",
+                f"This workbook is no longer available:\n\n{path}",
+            )
+        except OSError as error:
+            LOGGER.exception("Cannot reveal WKB")
+            QMessageBox.warning(self, "Cannot reveal WKB", str(error))
 
     def save_wkb(self):
         if self.workbook_path is None:
             return self.save_wkb_dialog()
         try:
-            return self.save_workbook(self.workbook_path)
+            saved = self.save_workbook(self.workbook_path)
+            self._remember_recent_wkb(saved)
+            return saved
         except Exception as error:
             LOGGER.exception("Cannot save WKB")
             QMessageBox.warning(self, "Cannot save WKB", str(error))
@@ -1896,7 +2400,9 @@ class MatchingWindow(QMainWindow):
                 "Matching Workbook (*.wkb)",
             )
             if path:
-                return self.save_workbook(path)
+                saved = self.save_workbook(path)
+                self._remember_recent_wkb(saved)
+                return saved
         except Exception as error:
             LOGGER.exception("Cannot save WKB")
             QMessageBox.warning(self, "Cannot save WKB", str(error))
@@ -1904,6 +2410,15 @@ class MatchingWindow(QMainWindow):
     def load_workbook(self, path):
         workbook = MatchWorkbook.load(path)
         self.workbook_path = Path(path).resolve()
+        self.reveal_wkb_action.setEnabled(True)
+        self._map_selection_states = {
+            stage: workbook.workspace_selections["map"][stage]
+            for stage in ("preview", "final")
+        }
+        self._dynamic_selection_states = {
+            stage: workbook.workspace_selections["dynamic"][stage]
+            for stage in ("preview", "final")
+        }
         self.reference_frame = workbook.reference
         self.raw_frame = workbook.raw
         self.final_match_frame = (
@@ -1923,6 +2438,22 @@ class MatchingWindow(QMainWindow):
         )
         self.final_frame = (
             pd.DataFrame() if workbook.final_raw is None else workbook.final_raw
+        )
+        self.preview_map_frame = (
+            None if workbook.preview_map is None else workbook.preview_map.copy()
+        )
+        self.final_map_frame = (
+            None if workbook.final_map is None else workbook.final_map.copy()
+        )
+        self.preview_dynamic_frame = (
+            None
+            if workbook.preview_dynamic is None
+            else workbook.preview_dynamic.copy()
+        )
+        self.final_dynamic_frame = (
+            None
+            if workbook.final_dynamic is None
+            else workbook.final_dynamic.copy()
         )
         self._load_input_sheet(self.reference_model, self.reference_frame)
         self._load_input_sheet(self.raw_model, self.raw_frame)
@@ -1983,6 +2514,7 @@ class MatchingWindow(QMainWindow):
                                                   "Matching Workbook (*.wkb)")
             if path:
                 self.load_workbook(path)
+                self._remember_recent_wkb(path)
         except Exception as error:
             LOGGER.exception("Cannot open WKB")
             QMessageBox.warning(self, "Cannot open WKB", str(error))

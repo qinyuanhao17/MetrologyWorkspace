@@ -1,6 +1,7 @@
 """Persistent application settings loaded from and saved to a YAML file."""
 
 from pathlib import Path
+import os
 import sys
 
 import yaml
@@ -9,6 +10,7 @@ import yaml
 APP_DIRECTORY = (Path(sys.executable).resolve().parent if getattr(sys, "frozen", False)
                  else Path(__file__).resolve().parent.parent / "config")
 SETTINGS_PATH = APP_DIRECTORY / "settings.yaml"
+MAX_RECENT_WKBS = 10
 
 DEFAULTS = {
     "theme": "dark",
@@ -27,6 +29,9 @@ DEFAULTS = {
     "smoothing": 0.06,
     "opacity": 100,
     "min_rsq": 0.50,
+    "shell_splitter_sizes": None,
+    "recent_wkbs": [],
+    "trend_overlay": {},
 }
 
 _current = dict(DEFAULTS)
@@ -63,6 +68,55 @@ def get_settings():
     return dict(_current)
 
 
+def _normalized_recent_wkbs(values, limit=MAX_RECENT_WKBS):
+    """Return unique absolute WKB paths while preserving recency order."""
+    paths = []
+    seen = set()
+    for value in values or ():
+        if not isinstance(value, (str, os.PathLike)) or not str(value).strip():
+            continue
+        path = Path(value).expanduser().resolve()
+        key = os.path.normcase(str(path))
+        if key in seen:
+            continue
+        seen.add(key)
+        paths.append(path)
+        if len(paths) >= limit:
+            break
+    return tuple(paths)
+
+
+def recent_wkb_paths(settings_path=SETTINGS_PATH):
+    """Load the persisted recent WKB list, newest first."""
+    settings = load_settings(settings_path)
+    return _normalized_recent_wkbs(settings.get("recent_wkbs"))
+
+
+def remember_recent_wkb(path, *, settings_path=SETTINGS_PATH, limit=MAX_RECENT_WKBS):
+    """Move a WKB path to the front of the persisted recent-file list."""
+    settings = load_settings(settings_path)
+    recent = _normalized_recent_wkbs(
+        (path, *settings.get("recent_wkbs", ())), limit=limit
+    )
+    settings["recent_wkbs"] = [str(item) for item in recent]
+    save_settings(settings, settings_path)
+    return recent
+
+
+def forget_recent_wkb(path, *, settings_path=SETTINGS_PATH):
+    """Remove one WKB path from the persisted recent-file list."""
+    settings = load_settings(settings_path)
+    target = os.path.normcase(str(Path(path).expanduser().resolve()))
+    recent = tuple(
+        item
+        for item in _normalized_recent_wkbs(settings.get("recent_wkbs"))
+        if os.path.normcase(str(item)) != target
+    )
+    settings["recent_wkbs"] = [str(item) for item in recent]
+    save_settings(settings, settings_path)
+    return recent
+
+
 def theme_stylesheet(theme=None):
     """Return the Qt stylesheet for the requested theme."""
     theme = theme or get_settings()["theme"]
@@ -88,6 +142,7 @@ def apply_theme(widget, theme=None):
 
 
 __all__ = [
-    "DEFAULTS", "SETTINGS_PATH", "get_settings", "load_settings", "save_settings",
-    "theme_stylesheet", "apply_theme",
+    "DEFAULTS", "MAX_RECENT_WKBS", "SETTINGS_PATH", "forget_recent_wkb",
+    "get_settings", "load_settings", "recent_wkb_paths", "remember_recent_wkb",
+    "save_settings", "theme_stylesheet", "apply_theme",
 ]

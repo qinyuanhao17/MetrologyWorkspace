@@ -52,6 +52,18 @@ def create_default_registry():
     """Register built-in analysis workspaces without importing them at startup."""
     registry = ComponentRegistry()
 
+    def create_card_matching():
+        from .matching_window import MatchingWindow
+        return MatchingWindow()
+
+    registry.register(ComponentSpec(
+        "card_matching",
+        "Match Workbook",
+        "Map Reference and Raw Data parameters, generate Cards, and review Preview or Final results.",
+        "OCD matching",
+        create_card_matching,
+    ))
+
     def create_wafer_map():
         from .window import MainWindow as WaferMapWindow
         return WaferMapWindow()
@@ -74,18 +86,6 @@ def create_default_registry():
         "Fit numeric columns in pairs, rank them by R², and plot Die Seq trends.",
         "Statistical analysis",
         create_correlation_analysis,
-    ))
-
-    def create_card_matching():
-        from .matching_window import MatchingWindow
-        return MatchingWindow()
-
-    registry.register(ComponentSpec(
-        "card_matching",
-        "Match Workbook",
-        "Map Reference and Raw Data parameters, generate Cards, and review Preview or Final results.",
-        "OCD matching",
-        create_card_matching,
     ))
 
     def create_dynamic_analysis():

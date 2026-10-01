@@ -9,11 +9,14 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtCore import QPoint, QRect
 from PyQt6.QtGui import QPalette
 from PyQt6.QtWidgets import (
-    QApplication, QLabel, QListWidget, QPlainTextEdit, QPushButton, QWidget,
+    QApplication, QFrame, QLabel, QListWidget, QPlainTextEdit, QPushButton,
+    QToolButton, QWidget,
 )
 
 from metrology_app.appearance import configure_fonts, fit_window_to_screen
-from metrology_app.module_registry import ComponentRegistry, ComponentSpec
+from metrology_app.module_registry import (
+    ComponentRegistry, ComponentSpec, create_default_registry,
+)
 from metrology_app.settings_dialog import SettingsDialog
 from metrology_app.shell import MainWindow
 
@@ -33,6 +36,75 @@ class FakeScreen:
 
 
 class ShellTests(unittest.TestCase):
+    def test_shell_omits_global_close_and_ready_status_chrome(self):
+        shell = MainWindow()
+        try:
+            self.assertNotIn(
+                "Close all windows",
+                [button.text() for button in shell.findChildren(QToolButton)],
+            )
+            self.assertFalse(any(
+                label.text() == "Ready" for label in shell.findChildren(QLabel)
+            ))
+            self.assertEqual(shell.findChildren(QFrame, "readyDot"), [])
+            self.assertEqual(shell.findChildren(QFrame, "sectionSeparator"), [])
+        finally:
+            shell.close()
+            shell.deleteLater()
+            APP.processEvents()
+
+    def test_empty_shell_omits_the_no_tools_open_message(self):
+        shell = MainWindow()
+        try:
+            self.assertEqual(shell.loaded_component_ids, ())
+            self.assertFalse(any(
+                label.text() == "No tools open"
+                for label in shell.findChildren(QLabel)
+            ))
+        finally:
+            shell.close()
+            shell.deleteLater()
+            APP.processEvents()
+
+    def test_dragged_log_divider_is_restored_next_session(self):
+        stored = {"theme": "light", "shell_splitter_sizes": None}
+
+        def read_settings():
+            return dict(stored)
+
+        def write_settings(changes):
+            stored.update(changes)
+            return dict(stored)
+
+        with (
+            patch("metrology_app.shell.load_settings", side_effect=read_settings),
+            patch("metrology_app.shell.get_settings", side_effect=read_settings),
+            patch("metrology_app.shell.save_settings", side_effect=write_settings),
+        ):
+            first = MainWindow()
+            first.resize(1180, 820)
+            first.show()
+            APP.processEvents()
+            first.shell_splitter.moveSplitter(500, 1)
+            APP.processEvents()
+            dragged = tuple(first.shell_splitter.sizes())
+            first.close()
+            first.deleteLater()
+            APP.processEvents()
+
+            self.assertEqual(tuple(stored["shell_splitter_sizes"]), dragged)
+
+            reopened = MainWindow()
+            try:
+                reopened.resize(1180, 820)
+                reopened.show()
+                APP.processEvents()
+                self.assertEqual(tuple(reopened.shell_splitter.sizes()), dragged)
+            finally:
+                reopened.close()
+                reopened.deleteLater()
+                APP.processEvents()
+
     def test_section_guidance_is_available_from_titles_not_subtitle_rows(self):
         shell = MainWindow()
         try:
@@ -158,6 +230,19 @@ class ShellTests(unittest.TestCase):
         registry.register(ComponentSpec("invalid", "Invalid", "", "Test", lambda: object()))
         with self.assertRaisesRegex(TypeError, "did not create"):
             registry.create("invalid")
+
+    def test_match_workbook_is_the_first_available_tool(self):
+        registry = create_default_registry()
+
+        self.assertEqual(
+            [spec.component_id for spec in registry],
+            [
+                "card_matching",
+                "wafer_map",
+                "correlation_analysis",
+                "dynamic_analysis",
+            ],
+        )
 
     def test_wafer_workspace_supports_multiple_instances(self):
         shell = MainWindow()
