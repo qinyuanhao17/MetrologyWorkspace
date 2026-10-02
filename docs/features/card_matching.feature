@@ -48,7 +48,7 @@ Feature: Build a card matching workbook
       And DP and EW each have a separate plot card in vertical order
       And Match, Trend, absolute bias, and percentage bias use one unclipped horizontal row
       And all four plots fit the visible workbook without horizontal scrolling
-      And each Match plot is 510 pixels wide
+      And each Match plot is 340 pixels wide
       And Trend and bias plots share the remaining width evenly
       And every primary plot is 330 pixels high
       And each Match plot has a reserved heading with its Raw Data column and fitted equation with R squared to the right
@@ -177,6 +177,14 @@ Feature: Build a card matching workbook
       And Reference plots are orange while Raw Data plots are blue
       And Trend uses the same Reference-first source order and colours
 
+    Scenario: Reopen drawn Correlation and Trend without selecting again
+      Given Preview Correlation and Trend has independent Ref and Raw choices
+      And the engineer has drawn selected Correlation fits and Trend curves once
+      When the analysis window or its saved WKB is closed and reopened
+      Then the surviving sidebar choices and selected plot boxes are restored
+      And Correlation and Trend redraw automatically
+      And Final keeps a separate selection state from Preview
+
     Scenario: Repair duplicate headers in every editable data table
       Given an editable Reference or Raw Data table has duplicate row-1 names
       When the engineer uses Auto rename in the visible warning
@@ -250,6 +258,36 @@ Feature: Build a card matching workbook
       When the engineer closes the Match Workbook
       Then the current Map and Dynamic tables are saved into that WKB file
       And all three analysis workspaces close with the Match Workbook
+
+    Scenario: Follow workbook edits in KLA and NOVA
+      Given KLA or NOVA is selected and its Wafer Map and Correlation windows are open
+      When the engineer edits the Raw Data in the Match Workbook
+      Then the Wafer Map and Correlation windows show the updated data
+      But a window whose table the engineer edited keeps that edit
+
+    Scenario: Keep the Dynamic table independent
+      Given a Dynamic window was opened from a Match Workbook
+      When the engineer edits the Raw Data in that workbook
+      Then the Dynamic table keeps the values it was opened with
+      And the engineer's own Dynamic edits are saved with the WKB
+
+    Scenario: Choose whether a workspace applies the parameter Cards
+      Given a Wafer Map or Dynamic window was opened from a Match Workbook
+      Then its Data tab shows the values as they were loaded
+      And a Card option is available but not ticked
+      When the engineer ticks Card
+      Then the mapped parameters are plotted and analysed with slope × value + intercept
+      But the table itself keeps the loaded values
+      When the engineer clears Card
+      Then the plots return to the loaded values
+
+    Scenario: Keep TEM tables independent and single
+      Given TEM is selected
+      When the engineer opens the Wafer Map, Dynamic and Correlation windows
+      Then all three stay open
+      And pressing one of those buttons again reuses its own window
+      And the Correlation and Trend window follows Raw Data edits
+      But the TEM Wafer Map table is never overwritten from Raw Data
 
   Rule: Approved results can leave the workbook
 

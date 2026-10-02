@@ -93,6 +93,7 @@ class CheckMenu(QMenu):
 
 class MainWindow(QMainWindow):
     selection_changed = pyqtSignal(dict)
+    include_fit_quality = True
 
     def __init__(self):
         super().__init__()
@@ -105,6 +106,7 @@ class MainWindow(QMainWindow):
         self._frame = pd.DataFrame()
         self.measurements = []
         self._reset_selection = True
+        self.parameter_cards = {}
         self._pending_selection_state = None
         self._managed_close_handler = None
         self.source_path = ""
@@ -185,6 +187,38 @@ class MainWindow(QMainWindow):
     def is_parameter_selectable(self, column, numeric):
         """Allow specialized workspaces to keep derived numeric fields read-only."""
         return bool(numeric)
+
+    def set_parameter_cards(self, cards):
+        """Offer the Match Workbook's parameter Cards as a Data-tab option."""
+        self.parameter_cards = dict(cards or {})
+        check = getattr(self, "card_check", None)
+        if check is None:
+            return
+        check.blockSignals(True)
+        try:
+            if not self.parameter_cards:
+                check.setChecked(False)
+            check.setEnabled(bool(self.parameter_cards))
+        finally:
+            check.blockSignals(False)
+
+    def carded_frame(self, frame):
+        """Return the frame the plots use: carded only when the box is ticked."""
+        check = getattr(self, "card_check", None)
+        if not self.parameter_cards or check is None or not check.isChecked():
+            return frame
+        carded = frame.copy()
+        for name, card in self.parameter_cards.items():
+            if name not in carded.columns:
+                continue
+            slope, intercept = card
+            values = pd.to_numeric(carded[name], errors="coerce")
+            carded[name] = slope * values + intercept
+        return carded
+
+    def card_toggled(self, *_args):
+        """Re-derive the analysed values with or without the Cards."""
+        self.recognize()
 
     def build_sheet_card(self):
         card = QFrame(objectName="sheetCard")
@@ -291,6 +325,17 @@ class MainWindow(QMainWindow):
         self.numeric_only.setChecked(True)
         self.numeric_only.toggled.connect(self.filter_parameters)
         search_row.addWidget(self.numeric_only)
+        self.card_check = QCheckBox("Card")
+        self.card_check.setToolTip(
+            "Plot and analyse the mapped parameters with the Match Workbook "
+            "Card (slope × value + intercept).\n"
+            "The table keeps the values you loaded; only the plots and their "
+            "statistics use the carded values.\n"
+            "Available when this window was opened from a Match Workbook."
+        )
+        self.card_check.setEnabled(False)
+        self.card_check.toggled.connect(self.card_toggled)
+        search_row.addWidget(self.card_check)
         layout.addLayout(search_row)
         layout.addWidget(self.parameter_list, 1)
         self.parameter_list.itemChanged.connect(self.update_plan)
@@ -406,7 +451,12 @@ class MainWindow(QMainWindow):
         previous_groups = [c for c, check in self.group_checks.items() if check.isChecked()]
         try:
             frame = self.model.frame()
-            detected_wafer, _, metrics = inspect_table(frame)
+            # The table keeps the loaded values; the Card option only changes
+            # what the plots and their statistics are computed from.
+            frame = self.carded_frame(frame)
+            detected_wafer, _, metrics = inspect_table(
+                frame, include_fit_quality=self.include_fit_quality
+            )
             normalize = lambda name: "".join(ch.lower() for ch in str(name) if ch.isalnum())
             excluded = {"fieldx", "fieldy", "x", "y", "xmm", "ymm", "diex", "diey",
                         "dieseq", "diesequence", "diesequenceno"}

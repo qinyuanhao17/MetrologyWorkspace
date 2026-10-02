@@ -75,16 +75,6 @@ def _aligned_reference_frame(reference, raw, mappings):
     return aligned
 
 
-def _analysis_raw_frame(raw, mappings):
-    """Use canonical mapping names for plots without changing the Raw table."""
-    frame = raw.reset_index(drop=True).copy()
-    return frame.rename(columns={
-        mapping.raw_column: mapping.name
-        for mapping in mappings
-        if mapping.raw_column in frame and mapping.name not in frame
-    })
-
-
 class CorrelationWindow(DataWorkspaceWindow):
     """Two editable source tables followed by the standard analysis pages."""
 
@@ -514,6 +504,122 @@ class CorrelationWindow(DataWorkspaceWindow):
         self.tabs.setCurrentIndex(0)
         self.setWindowTitle(f"{mode} Correlation and Trend")
 
+    @staticmethod
+    def _encoded_draw_state(page):
+        state = page.draw_state()
+        cells = []
+        for wafer, metric in state.get("cells", ()):
+            if isinstance(wafer, (tuple, list)) and len(wafer) == 2:
+                source, wafer_key = wafer
+            else:
+                source, wafer_key = "Data", wafer
+            cells.append((str(source), str(wafer_key), str(metric)))
+        return {
+            "enabled": state.get("enabled") is True,
+            "cells": tuple(sorted(cells)),
+        }
+
+    @staticmethod
+    def _decoded_draw_state(state, raw_metric_names=None):
+        if not isinstance(state, dict):
+            return None
+        cells = []
+        for cell in state.get("cells", ()):
+            if isinstance(cell, (str, bytes)) or len(cell) != 3:
+                continue
+            source, wafer_key, metric = (str(value) for value in cell)
+            if source == "Raw Data":
+                metric = (raw_metric_names or {}).get(metric, metric)
+            wafer = wafer_key if source == "Data" else (source, wafer_key)
+            cells.append((wafer, metric))
+        return {
+            "enabled": state.get("enabled") is True,
+            "cells": tuple(cells),
+        }
+
+    def set_second_axis_ratio(self, ratio, *, show_control=False):
+        """Let the Match Workbook's Analysis menu drive the auto threshold."""
+        self.sequence_page.restore_axis_ratio(ratio)
+        self.sequence_page.set_axis_ratio_control_visible(show_control)
+
+    def set_trend_axis_mode(self, mode, *, show_control=False):
+        """Apply the Match Workbook's auto/dual/single axis policy."""
+        self.sequence_page.restore_axis_mode(mode)
+        self.sequence_page.set_axis_ratio_control_visible(show_control)
+
+    def selection_state(self):
+        """Return independent Ref/Raw choices plus both page draw states."""
+        if not hasattr(self, "reference_wafer_list"):
+            return super().selection_state()
+        return {
+            "source_parameter_names": True,
+            "reference": {
+                "wafers": tuple(self.selected(self.reference_wafer_list)),
+                "metrics": tuple(self.selected(self.reference_parameter_list)),
+            },
+            "raw": {
+                "wafers": tuple(self.selected(self.wafer_list)),
+                "metrics": tuple(self.selected(self.parameter_list)),
+            },
+            "correlation_draw": self._encoded_draw_state(
+                self.correlation_page
+            ),
+            "trend_draw": self._encoded_draw_state(self.sequence_page),
+            "trend_axis_ratio": self.sequence_page.axis_ratio_limit(),
+            "trend_axis_mode": self.sequence_page.axis_mode_value(),
+        }
+
+    def restore_selection(self, state):
+        """Restore WKB choices, then redraw pages that succeeded previously."""
+        if not isinstance(state, dict) or not hasattr(
+            self, "reference_wafer_list"
+        ):
+            return
+        if "reference" not in state and "raw" not in state:
+            super().restore_selection(state)
+            return
+        reference = state.get("reference", {})
+        raw = state.get("raw", {})
+        self._set_checked_values(
+            self.reference_wafer_list,
+            reference.get("wafers", ()),
+            keep_current_if_missing=True,
+        )
+        self._set_checked_values(
+            self.reference_parameter_list, reference.get("metrics", ())
+        )
+        self._set_checked_values(
+            self.wafer_list,
+            raw.get("wafers", ()),
+            keep_current_if_missing=True,
+        )
+        self._set_checked_values(
+            self.parameter_list, raw.get("metrics", ())
+        )
+        self.update_plan()
+        self.sequence_page.restore_axis_ratio(state.get("trend_axis_ratio"))
+        self.sequence_page.restore_axis_mode(state.get("trend_axis_mode", "auto"))
+        # Earlier WKB draw states used match aliases for Raw parameters.
+        legacy_raw_names = {} if state.get("source_parameter_names") else {
+            mapping.name: mapping.raw_column for mapping in self._source_mappings
+        }
+        self.correlation_page.restore_draw_state(
+            self._decoded_draw_state(state.get("correlation_draw"), legacy_raw_names)
+        )
+        self.sequence_page.restore_draw_state(
+            self._decoded_draw_state(state.get("trend_draw"), legacy_raw_names)
+        )
+
+    def closeEvent(self, event):
+        """Cancel deferred redraws before Qt disposes their controls."""
+        if hasattr(self, "correlation_page"):
+            self.correlation_page.input_refresh_timer.stop()
+            self.correlation_page.update_timer.stop()
+        if hasattr(self, "sequence_page"):
+            self.sequence_page.input_refresh_timer.stop()
+            self.sequence_page.compare_timer.stop()
+        super().closeEvent(event)
+
     def _rebuild_source_analysis(self):
         if (self.reference_model.duplicate_header_count()
                 or self.raw_model.duplicate_header_count()):
@@ -529,9 +635,8 @@ class CorrelationWindow(DataWorkspaceWindow):
                 self.reference_model.load(reference)
             finally:
                 self.reference_model.blockSignals(False)
-        raw_analysis = _analysis_raw_frame(
-            self.raw_model.frame(), self._source_mappings
-        )
+        # Parameter identity comes from its source tab, not the match alias.
+        raw_analysis = self.raw_model.frame().reset_index(drop=True).copy()
         reference.insert(0, SOURCE_COLUMN, "Reference")
         raw_analysis.insert(0, SOURCE_COLUMN, "Raw Data")
         self._analysis_frame = pd.concat(
@@ -574,13 +679,7 @@ class CorrelationWindow(DataWorkspaceWindow):
         reference_wafers = set(self.selected(self.reference_wafer_list))
         raw_wafers = set(self.selected(self.wafer_list))
         reference_metrics = tuple(self.selected(self.reference_parameter_list))
-        raw_metric_names = {
-            mapping.raw_column: mapping.name for mapping in self._source_mappings
-        }
-        raw_metrics = tuple(
-            raw_metric_names.get(metric, metric)
-            for metric in self.selected(self.parameter_list)
-        )
+        raw_metrics = tuple(self.selected(self.parameter_list))
         metrics = tuple(dict.fromkeys((*reference_metrics, *raw_metrics)))
         split = len(self.reference_model.frame())
         reference_groups = {

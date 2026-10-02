@@ -146,7 +146,7 @@ class RadiusTests(unittest.TestCase):
         window = MainWindow()
         try:
             window.load_path(ROOT / "sample_data" / "OCD_measurement_data.csv")
-            self.select_parameters(window, {"NGOF", "OCD_H1"})
+            self.select_parameters(window, {"OCD_H2", "OCD_H1"})
             page = window.radius_page
             self.assertEqual((page.selector.rowCount(), page.selector.columnCount()), (6, 2))
             page.selector.clearSelection()
@@ -201,7 +201,7 @@ class RadiusTests(unittest.TestCase):
             window.deleteLater()
             APP.processEvents()
 
-    def test_changing_radius_boxes_after_first_draw_refreshes_without_draw_click(self):
+    def test_changing_radius_boxes_waits_for_the_draw_click(self):
         window = MainWindow()
         try:
             window.load_path(ROOT / "sample_data" / "OCD_measurement_data.csv")
@@ -216,16 +216,18 @@ class RadiusTests(unittest.TestCase):
             )
 
             page.selector.set_selected_cells({replacement_cell})
-            deadline = time.monotonic() + 5
-            while time.monotonic() < deadline and (
-                not page.ready or page.drawn_cells != {replacement_cell}
-            ):
-                QTest.qWait(20)
+            APP.processEvents()
+
+            # A new box selection waits for the explicit Draw selected click.
+            self.assertFalse(page.ready)
+            self.assertIs(page.stack.currentWidget(), page.selector_panel)
+            self.assertIn("click Draw selected", page.status.text())
+
+            page.draw_plot()
 
             self.assertTrue(page.ready, page.status.text())
             self.assertEqual(page.drawn_cells, {replacement_cell})
             self.assertIs(page.stack.currentWidget(), page.scroll)
-            self.assertNotIn("click Draw selected", page.status.text())
         finally:
             window.model.undo.setClean()
             window.close()

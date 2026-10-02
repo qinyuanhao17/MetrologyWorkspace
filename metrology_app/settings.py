@@ -37,6 +37,7 @@ DEFAULTS = {
     "shell_splitter_sizes": None,
     "recent_wkbs": [],
     "trend_overlay": {},
+    "trend_source_overlay": None,
 }
 
 _current = dict(DEFAULTS)

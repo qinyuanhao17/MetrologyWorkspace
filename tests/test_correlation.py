@@ -3,6 +3,7 @@
 import os
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -13,7 +14,10 @@ import pyqtgraph as pg
 from PyQt6.QtCore import QPoint, QPointF, Qt
 from PyQt6.QtGui import QKeySequence, QPalette, QWheelEvent
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication, QHBoxLayout, QLabel, QPushButton
+from PyQt6.QtWidgets import (
+    QApplication, QComboBox, QFileDialog, QHBoxLayout, QLabel, QPushButton,
+    QWidget,
+)
 
 from metrology_app.correlation_page import fit_numeric_pair, pairwise_linear_fits
 from metrology_app.correlation_window import CorrelationWindow
@@ -33,13 +37,21 @@ configure_fonts(APP)  # same font registration the launcher installs
 class CorrelationTests(unittest.TestCase):
     def setUp(self):
         self._saved_overlay = get_settings().get("trend_overlay", {})
+        self._saved_source_overlay = get_settings().get("trend_source_overlay")
         settings_module._current["trend_overlay"] = {}
+        settings_module._current.pop("trend_source_overlay", None)
         self._settings_patch = patch("metrology_app.sequence_page.save_settings")
         self._settings_patch.start()
 
     def tearDown(self):
         self._settings_patch.stop()
         settings_module._current["trend_overlay"] = self._saved_overlay
+        if self._saved_source_overlay is None:
+            settings_module._current.pop("trend_source_overlay", None)
+        else:
+            settings_module._current["trend_source_overlay"] = (
+                self._saved_source_overlay
+            )
 
     @staticmethod
     def linear_frame(size=12):
@@ -116,7 +128,7 @@ class CorrelationTests(unittest.TestCase):
                 window.reference_model.frame()["Die Seq"].tolist(),
                 raw["Die Seq"].astype(str).tolist(),
             )
-            self.assertEqual(window.selection["metrics"], ["DP", "EW"])
+            self.assertEqual(window.selection["metrics"], ["DP", "EW", "DP Raw", "EW Raw"])
             self.assertEqual(len(window.selection["wafers"]), 2)
 
             window.correlation_page.selector.selectAll()
@@ -155,7 +167,7 @@ class CorrelationTests(unittest.TestCase):
                 .getPlotItem().listDataItems()
             }
             self.assertEqual(
-                trend_items["Reference"].opts["pen"].color().name(),
+                trend_items["Reference · DP"].opts["pen"].color().name(),
                 "#ed7d31",
             )
             raw_trend_items = {
@@ -164,10 +176,247 @@ class CorrelationTests(unittest.TestCase):
                 .getPlotItem().listDataItems()
             }
             self.assertEqual(
-                raw_trend_items["Raw Data"].opts["pen"].color().name(),
+                raw_trend_items["Raw Data · DP Raw"].opts["pen"].color().name(),
                 "#5b9bd5",
             )
         finally:
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_workbook_raw_parameter_keeps_its_tab_name_in_select_and_compare(self):
+        reference = pd.DataFrame({"TEM": [11., 12., 13.]})
+        raw = pd.DataFrame({
+            "Wafer ID": ["W1"] * 3, "Die Seq": [2, 36, 85],
+            "PL_BCD": [10., 11., 12.], "TEM": [100., 200., 300.],
+        })
+        window = CorrelationWindow()
+        try:
+            window.set_sources(reference, raw, (ParameterMapping("TEM", "TEM", "PL_BCD"),))
+            self.assertEqual(window.selected(window.parameter_list), ["PL_BCD"])
+            for page in (window.correlation_page, window.sequence_page):
+                self.assertEqual(page.selector.metrics, ["TEM", "PL_BCD"])
+                raw_key = next(key for key in page.selector.wafers if key[0] == "Raw Data")
+                reference_key = next(key for key in page.selector.wafers if key[0] == "Reference")
+                self.assertIn((raw_key, "PL_BCD"), page.selector.selected_cells())
+                self.assertNotIn((reference_key, "PL_BCD"), page.selector.selected_cells())
+            page = window.sequence_page
+            page.draw_plot()
+            self.assertEqual([panel.findChild(QLabel).text() for panel in page.panel_hosts],
+                             ["<b>Reference · TEM</b>", "<b>Raw Data · PL_BCD</b>"])
+            self.assertTrue(page.set_overlay("TEM", "PL_BCD", primary_source="Reference",
+                                             secondary_source="Raw Data"))
+            combo = page.panel_hosts[0].side_widget.findChild(QComboBox)
+            self.assertEqual(combo.currentText(), "Raw Data · PL_BCD")
+            items = page.plot_widgets[0].getPlotItem().listDataItems()
+            items += [item for view in page.plot_widgets[0].secondary_views
+                      for item in view.addedItems if isinstance(item, pg.PlotDataItem)]
+            compared = next(item for item in items if item.name() == "Raw Data · PL_BCD")
+            np.testing.assert_array_equal(compared.getData()[1], [10., 11., 12.])
+        finally:
+            window.raw_model.undo.setClean()
+            window.reference_model.undo.setClean()
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_workbook_trend_appends_wafers_with_real_die_labels_and_tight_limits(self):
+        raw = pd.DataFrame({
+            "Wafer ID": ["W1"] * 5 + ["W2"] * 5 + ["W3"] * 5,
+            "Die Seq": [2, 36, 50, 66, 85] * 3,
+            "TEM": np.arange(15, dtype=float) + 10,
+        })
+        reference = raw.copy()
+        reference["TEM"] += 1
+        window = CorrelationWindow()
+        try:
+            window.set_sources(reference, raw, (ParameterMapping("TEM", "TEM", "TEM"),))
+            page = window.sequence_page
+            page.selector.selectAll()
+            page.draw_plot()
+            APP.processEvents()
+            self.assertTrue(page.ready, page.status.text())
+            self.assertEqual(page.wafer_ticks, [(2., "W1"), (7., "W2"), (12., "W3")])
+            for widget, offset in zip(page.plot_widgets, (11, 10)):
+                plot = widget.getPlotItem()
+                self.assertEqual(len(plot.listDataItems()), 1)
+                x, y = plot.listDataItems()[0].getData()
+                np.testing.assert_array_equal(x, np.arange(15))
+                np.testing.assert_array_equal(y, np.arange(15) + offset)
+                np.testing.assert_allclose(plot.getViewBox().viewRange()[0], [-.5, 14.5])
+                self.assertEqual(
+                    plot.getAxis("bottom")._tickLevels[0],
+                    list(zip(range(15), ["2", "36", "50", "66", "85"] * 3)),
+                )
+                self.assertEqual(
+                    [item.value() for item in plot.items if isinstance(item, pg.InfiniteLine)],
+                    [4.5, 9.5],
+                )
+                plot.autoBtnClicked()
+                np.testing.assert_allclose(plot.getViewBox().viewRange()[0], [-.5, 14.5])
+            page.ensure_export_figure()
+            page.figure.canvas.draw()
+            for axis, source in zip(page.figure.axes, ("Reference", "Raw Data")):
+                line = next(line for line in axis.lines if line.get_label() == f"{source} · TEM")
+                np.testing.assert_array_equal(line.get_xdata(), np.arange(15))
+                np.testing.assert_allclose(axis.get_xlim(), [-.5, 14.5])
+                self.assertEqual([text.get_text() for text in axis._wafer_group_labels],
+                                 ["W1", "W2", "W3"])
+                self.assertEqual([text.get_text() for text in axis.get_xticklabels()],
+                                 ["2", "36", "50", "66", "85"] * 3)
+                self.assertGreaterEqual(axis.xaxis.label.get_window_extent().y0, 0)
+                self.assertTrue(all(text.get_window_extent().y0 >= 0
+                                    for text in axis._wafer_group_labels))
+        finally:
+            window.raw_model.undo.setClean()
+            window.reference_model.undo.setClean()
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_workbook_trend_compacts_drawn_spans_and_aligns_partial_source_compare(self):
+        raw = pd.DataFrame({
+            "Wafer ID": ["W1", "W1", "W2", "W2", "W3", "W3"],
+            "Die Seq": [2, 85] * 3, "TEM": [10., 11., 20., 21., 30., 31.],
+        })
+        reference = raw.copy()
+        reference["TEM"] += 1
+        window = CorrelationWindow()
+        try:
+            window.set_sources(reference, raw, (ParameterMapping("TEM", "TEM", "TEM"),))
+            page = window.sequence_page
+            cells = {(key, "TEM") for key in page.selector.wafers
+                     if (key[0] == "Reference" and "W3" in key[1])
+                     or (key[0] == "Raw Data" and "W2" not in key[1])}
+            page.selector.set_selected_cells(cells)
+            page.draw_plot()
+            self.assertTrue(page.set_overlay("TEM", "TEM", primary_source="Reference",
+                                             secondary_source="Raw Data"))
+            self.assertEqual(page.wafer_ticks, [(.5, "W1"), (2.5, "W3")])
+            items = page.plot_widgets[0].getPlotItem().listDataItems()
+            items += [item for view in page.plot_widgets[0].secondary_views
+                      for item in view.addedItems if isinstance(item, pg.PlotDataItem)]
+            plotted = {item.name(): item.getData() for item in items}
+            np.testing.assert_array_equal(plotted["Reference · TEM"][0], [2., 3.])
+            np.testing.assert_array_equal(plotted["Raw Data · TEM"][0], [0., 1., 2., 3.])
+            np.testing.assert_array_equal(plotted["Raw Data · TEM"][1], [10., 11., 30., 31.])
+            np.testing.assert_allclose(page.plot_widgets[0].getPlotItem().getViewBox()
+                                       .viewRange()[0], [-.5, 3.5])
+        finally:
+            window.raw_model.undo.setClean()
+            window.reference_model.undo.setClean()
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_workbook_selection_state_restores_and_redraws_both_pages(self):
+        reference = pd.DataFrame({
+            "Wafer ID": ["W1"] * 5,
+            "Die Seq": [1, 2, 3, 4, 5],
+            "DP Ref": [10.0, 11.0, 12.0, 13.0, 14.0],
+            "EW Ref": [20.0, 22.0, 24.0, 26.0, 28.0],
+        })
+        raw = pd.DataFrame({
+            "Wafer ID": ["W1"] * 5,
+            "Die Seq": [1, 2, 3, 4, 5],
+            "DP Raw": [9.0, 10.0, 11.0, 12.0, 13.0],
+            "EW Raw": [19.0, 20.0, 23.0, 25.0, 27.0],
+        })
+        mappings = (
+            ParameterMapping("DP", "DP Ref", "DP Raw"),
+            ParameterMapping("EW", "EW Ref", "EW Raw"),
+        )
+        first = CorrelationWindow()
+        reopened = CorrelationWindow()
+        try:
+            first.set_sources(reference, raw, mappings, "Preview")
+            raw_ew = next(
+                first.parameter_list.topLevelItem(index)
+                for index in range(first.parameter_list.topLevelItemCount())
+                if first.parameter_list.topLevelItem(index).text(0) == "EW Raw"
+            )
+            raw_ew.setCheckState(0, Qt.CheckState.Unchecked)
+
+            reference_key = next(
+                key for key in first.correlation_page.selector.wafers
+                if key[0] == "Reference"
+            )
+            raw_key = next(
+                key for key in first.sequence_page.selector.wafers
+                if key[0] == "Raw Data"
+            )
+            correlation_cells = {
+                (reference_key, "DP"), (reference_key, "EW")
+            }
+            trend_cells = {(raw_key, "DP Raw")}
+            first.correlation_page.selector.set_selected_cells(
+                correlation_cells
+            )
+            first.correlation_page.draw_plot()
+            first.sequence_page.selector.set_selected_cells(trend_cells)
+            first.sequence_page.draw_plot()
+            self.assertTrue(first.correlation_page.ready)
+            self.assertTrue(first.sequence_page.ready)
+
+            state = first.selection_state()
+            reopened.set_sources(reference, raw, mappings, "Preview")
+            reopened.restore_selection(state)
+            APP.processEvents()
+
+            self.assertEqual(
+                reopened.selected(reopened.parameter_list), ["DP Raw"]
+            )
+            self.assertEqual(
+                reopened.correlation_page.selector.selected_cells(),
+                correlation_cells,
+            )
+            self.assertEqual(
+                reopened.sequence_page.selector.selected_cells(), trend_cells
+            )
+            self.assertTrue(
+                reopened.correlation_page.ready,
+                reopened.correlation_page.status.text(),
+            )
+            self.assertTrue(
+                reopened.sequence_page.ready,
+                reopened.sequence_page.status.text(),
+            )
+        finally:
+            for window in (first, reopened):
+                window.model.undo.setClean()
+                window.reference_model.undo.setClean()
+                window.close()
+                window.deleteLater()
+            APP.processEvents()
+
+    def test_legacy_workbook_raw_draw_aliases_restore_as_source_column_names(self):
+        raw = pd.DataFrame({
+            "Wafer ID": ["W1"] * 3, "Die Seq": [2, 36, 85],
+            "PL_BCD": [10., 11., 12.], "L2": [20., 22., 24.],
+        })
+        reference = pd.DataFrame({"TEM": [11., 12., 13.], "Ref2": [21., 23., 25.]})
+        mappings = (ParameterMapping("TEM", "TEM", "PL_BCD"),
+                    ParameterMapping("Ref2", "Ref2", "L2"))
+        window = CorrelationWindow()
+        try:
+            window.set_sources(reference, raw, mappings)
+            state = window.selection_state()
+            state.pop("source_parameter_names", None)
+            key = state["raw"]["wafers"][0]
+            state["reference"]["metrics"] = ()
+            for page_name in ("correlation_draw", "trend_draw"):
+                state[page_name] = {"enabled": True,
+                                    "cells": (("Raw Data", key, "TEM"),
+                                              ("Raw Data", key, "Ref2"))}
+            window.restore_selection(state)
+            APP.processEvents()
+            for page in (window.correlation_page, window.sequence_page):
+                self.assertTrue(page.ready, page.status.text())
+                self.assertEqual(page.selector.selected_cells(),
+                                 {(("Raw Data", key), "PL_BCD"), (("Raw Data", key), "L2")})
+        finally:
+            window.raw_model.undo.setClean()
+            window.reference_model.undo.setClean()
             window.close()
             window.deleteLater()
             APP.processEvents()
@@ -246,7 +495,7 @@ class CorrelationTests(unittest.TestCase):
                 for key in reference_keys
             ))
             self.assertTrue(all(
-                (key, "EW") in window.selection["available_cells"]
+                (key, "EW Raw") in window.selection["available_cells"]
                 for key in raw_keys
             ))
             self.assertTrue(all(
@@ -511,9 +760,10 @@ class CorrelationTests(unittest.TestCase):
             APP.processEvents()
             self.assertEqual(len(page.plot_widgets), 3)
             self.assertEqual(len(page.home_views), 3)
-            # Two columns: the panels regroup into two draggable rows.
+            # Two columns: the panels regroup into two draggable rows; the
+            # final empty cell reserves the normal panel width.
             grid = page.plot_host
-            self.assertEqual([splitter.count() for splitter in grid.row_splitters], [2, 1])
+            self.assertEqual([splitter.count() for splitter in grid.row_splitters], [2, 2])
             self.assertIs(grid.row_splitters[1].widget(0), page.panel_hosts[2])
         finally:
             window.model.undo.setClean()
@@ -609,6 +859,111 @@ class CorrelationTests(unittest.TestCase):
             window.close()
             window.deleteLater()
             APP.processEvents()
+
+    @staticmethod
+    def wait_for_page(page):
+        for _ in range(1000):
+            if (getattr(page, "worker", None) is None
+                    and not page.input_refresh_timer.isActive()
+                    and not getattr(page, "pending_input_refresh", False)):
+                break
+            QTest.qWait(20)
+        APP.processEvents()
+
+    def test_parameter_changes_select_every_box_and_wait_for_draw_on_all_pages(self):
+        frame = pd.DataFrame({
+            "Wafer ID": ["W1"] * 4 + ["W2"] * 4,
+            "Die Seq": [1, 2, 3, 4] * 2,
+            "FIELD X": [-1, 1, -1, 1] * 2, "FIELD Y": [-1, -1, 1, 1] * 2,
+            "A": [1., 2., 3., 4., 5., 6., 7., 8.],
+            "B": [2., 4., 6., 8., 10., 12., 14., 16.],
+            "C": [3., 6., 9., 12., 15., 18., 21., 24.],
+        })
+        for name in ("plot_page", "radius_page", "correlation_page", "sequence_page"):
+            with self.subTest(page=name):
+                window = (WaferMapWindow() if name in ("plot_page", "radius_page")
+                          else CorrelationWindow())
+                try:
+                    window.set_table(frame, "Parameter selection fixture")
+                    self.select_parameters(window, {"A", "B"})
+                    page = getattr(window, name)
+                    wafer = page.selector.wafers[0]
+                    page.selector.set_selected_cells({(wafer, "A"), (wafer, "B")})
+                    page.draw_button.click()
+                    self.wait_for_page(page)
+                    self.assertTrue(page.has_drawn_once, page.status.text())
+                    self.select_parameters(window, {"A", "B", "C"})
+                    self.wait_for_page(page)
+                    self.assertEqual(len(page.selector.selected_cells()), 6)
+                    self.assertIs(page.stack.currentWidget(), page.selector_panel)
+                    self.select_parameters(window, {"A", "B"})
+                    window.model.edit({(1, 4): "1.5"})
+                    window.recognize()
+                    self.wait_for_page(page)
+                    self.assertEqual(len(page.selector.selected_cells()), 4)
+                    self.assertIs(page.stack.currentWidget(), page.selector_panel)
+                    self.assertFalse(page.export_button.isEnabled())
+                    page.draw_button.click()
+                    self.wait_for_page(page)
+                    self.assertTrue(page.export_button.isEnabled(), page.status.text())
+                finally:
+                    window.model.undo.setClean()
+                    window.close()
+                    window.deleteLater()
+                    APP.processEvents()
+
+    def test_box_changes_wait_for_draw_but_only_data_edits_refresh_on_all_pages(self):
+        frame = pd.DataFrame({
+            "Wafer ID": ["W1"] * 4 + ["W2"] * 4,
+            "Die Seq": [1, 2, 3, 4] * 2,
+            "FIELD X": [-1, 1, -1, 1] * 2, "FIELD Y": [-1, -1, 1, 1] * 2,
+            "A": [1., 2., 3., 4., 5., 6., 7., 8.],
+            "B": [2., 4., 6., 8., 10., 12., 14., 16.],
+        })
+        for name in ("plot_page", "radius_page", "correlation_page", "sequence_page"):
+            with self.subTest(page=name):
+                window = (WaferMapWindow() if name in ("plot_page", "radius_page")
+                          else CorrelationWindow())
+                try:
+                    window.set_table(frame, "Confirmed draw fixture")
+                    self.select_parameters(window, {"A", "B"})
+                    page = getattr(window, name)
+                    wafers = page.selector.wafers
+                    original = {(wafers[0], "A"), (wafers[0], "B")}
+                    replacement = {(wafers[1], "A"), (wafers[1], "B")}
+                    page.selector.set_selected_cells(original)
+                    page.draw_button.click()
+                    self.wait_for_page(page)
+                    page.show_selector()
+                    page.selector.set_selected_cells(replacement)
+                    QTest.qWait(180)
+                    self.assertFalse(page.export_button.isEnabled())
+                    self.assertIs(page.stack.currentWidget(), page.selector_panel)
+                    window.model.edit({(1, 4): "1.5"})
+                    window.recognize()
+                    self.wait_for_page(page)
+                    self.assertEqual(page.selector.selected_cells(), replacement)
+                    self.assertFalse(page.export_button.isEnabled())
+                    # Changing back is still an unconfirmed user choice.
+                    page.selector.set_selected_cells(original)
+                    window.model.edit({(1, 4): "1.8"})
+                    window.recognize()
+                    self.wait_for_page(page)
+                    self.assertFalse(page.export_button.isEnabled())
+                    page.draw_button.click()
+                    self.wait_for_page(page)
+                    self.assertTrue(page.export_button.isEnabled(), page.status.text())
+                    # With the boxes confirmed, changing a value refreshes.
+                    window.model.edit({(1, 4): "2.2"})
+                    window.recognize()
+                    self.wait_for_page(page)
+                    self.assertTrue(page.export_button.isEnabled(), page.status.text())
+                    self.assertEqual(page.selector.selected_cells(), original)
+                finally:
+                    window.model.undo.setClean()
+                    window.close()
+                    window.deleteLater()
+                    APP.processEvents()
 
     def test_trend_box_selection_limits_the_curve(self):
         """Boxes choose which parameters and measurement sets a curve is drawn from."""
@@ -905,6 +1260,30 @@ class CorrelationTests(unittest.TestCase):
             window.deleteLater()
             APP.processEvents()
 
+    def test_fit_report_bookkeeping_columns_are_not_parameters(self):
+        """A SME fit report carries OCD model parameters among its bookkeeping."""
+        window = CorrelationWindow()
+        try:
+            window.sheet.setCurrentIndex(window.model.index(0, 0))
+            APP.clipboard().setText(
+                "Cur SME File Path\tWafer ID\tLot ID\tTool SN\tPAD Name\tDie Seq\t"
+                "FIELD X\tFIELD Y\tSeq\tX(mm)\tY(mm)\tLogical ID\tMSE\tGOF\tNGOF\t"
+                "LBH\tfitTime\tregIter\tCINDEX\tASi_BCD\tSi_SWA1\tM1_ratio\n"
+                "c:/sme/a.csv\tW1\tL1\tT1\tPAD\t1\t0\t0\t1\t0\t0\t1001\t"
+                "1.2\t0.99\t0.98\t0\t0.5\t8\t3\t45.5\t80\t0.02"
+            )
+            window.sheet.paste()
+            window.recognize()
+            self.assertEqual(
+                set(window.selection["metrics"]),
+                {"ASi_BCD", "Si_SWA1", "M1_ratio"},
+            )
+        finally:
+            window.model.undo.setClean()
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
     def test_module_specific_defaults_for_new_table(self):
         frame = pd.DataFrame({
             "Wafer ID": ["W1", "W2"], "X(mm)": [0, 1], "Y(mm)": [0, 1],
@@ -961,6 +1340,117 @@ class CorrelationTests(unittest.TestCase):
             self.assertTrue(page.ready, page.status.text())
             self.assertEqual(len(page.all_fits), 1)
             self.assertEqual(len(page.figure.axes), 1)
+        finally:
+            window.model.undo.setClean()
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_passing_correlation_fits_are_paginated_without_truncation(self):
+        x = np.linspace(-2, 2, 12)
+        frame = {"Wafer ID": ["W1"] * len(x)}
+        for index in range(6):
+            frame[f"P{index + 1}"] = (index + 1) * x + index
+        window = CorrelationWindow()
+        try:
+            window.set_table(pd.DataFrame(frame), "Pagination fixture")
+            window.tabs.setCurrentIndex(2)
+            page = window.correlation_page
+            page.min_rsq.setValue(0)
+            page.draw_plot()
+            APP.processEvents()
+
+            self.assertEqual(len(page.fits), 15)
+            self.assertEqual(len(page.plot_widgets), 12)
+            self.assertEqual(page.page_label.text(), "Page 1 / 2")
+            self.assertIn("showing 1–12 of 15", page.status.text())
+            self.assertFalse(page.previous_page.isEnabled())
+            self.assertTrue(page.next_page.isEnabled())
+
+            page.next_page.click()
+            APP.processEvents()
+            self.assertEqual(len(page.plot_widgets), 3)
+            self.assertEqual(page.page_label.text(), "Page 2 / 2")
+            self.assertIn("showing 13–15 of 15", page.status.text())
+            heading = page.panel_hosts[0].layout().itemAt(0).widget().text()
+            self.assertIn("rank 13", heading)
+
+            page.page_size.setCurrentText("6")
+            APP.processEvents()
+            self.assertEqual(len(page.plot_widgets), 6)
+            self.assertEqual(page.page_label.text(), "Page 1 / 3")
+            self.assertIn("showing 1–6 of 15", page.status.text())
+        finally:
+            window.model.undo.setClean()
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_partial_correlation_page_keeps_the_full_page_panel_size(self):
+        """A short final page leaves empty cells instead of stretching its plots."""
+        x = np.linspace(-2, 2, 12)
+        frame = {"Wafer ID": ["W1"] * len(x)}
+        for index in range(6):
+            frame[f"P{index + 1}"] = (index + 1) * x + index
+        window = CorrelationWindow()
+        try:
+            window.resize(1500, 950)
+            window.show()
+            window.set_table(pd.DataFrame(frame), "Partial page fixture")
+            window.tabs.setCurrentIndex(2)
+            page = window.correlation_page
+            page.columns.setCurrentText("4")
+            page.min_rsq.setValue(0)
+            page.draw_plot()
+            APP.processEvents()
+
+            full_page_size = page.panel_hosts[0].size()
+            page.next_page.click()
+            APP.processEvents()
+
+            self.assertEqual(len(page.panel_hosts), 3)
+            for panel in page.panel_hosts:
+                self.assertLessEqual(
+                    abs(panel.width() - full_page_size.width()), 3,
+                    (full_page_size, panel.size(),
+                     [row.sizes() for row in page.plot_host.row_splitters]),
+                )
+                self.assertLessEqual(
+                    abs(panel.height() - full_page_size.height()), 3,
+                    (full_page_size, panel.size()),
+                )
+        finally:
+            window.model.undo.setClean()
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_all_passing_correlation_pages_can_be_exported(self):
+        x = np.linspace(-2, 2, 12)
+        frame = {"Wafer ID": ["W1"] * len(x)}
+        for index in range(6):
+            frame[f"P{index + 1}"] = (index + 1) * x + index
+        window = CorrelationWindow()
+        try:
+            window.set_table(pd.DataFrame(frame), "Export pagination fixture")
+            window.tabs.setCurrentIndex(2)
+            page = window.correlation_page
+            page.min_rsq.setValue(0)
+            page.resolution.setCurrentText("Standard")
+            page.draw_plot()
+            APP.processEvents()
+
+            with TemporaryDirectory() as folder:
+                target = Path(folder) / "correlation.png"
+                with patch.object(
+                    QFileDialog, "getSaveFileName",
+                    return_value=(str(target), "PNG (*.png)"),
+                ):
+                    page.export_all_pages()
+                self.assertTrue((Path(folder) / "correlation_01.png").exists())
+                self.assertTrue((Path(folder) / "correlation_02.png").exists())
+            self.assertIn("Exported all 15 fits across 2 pages", page.status.text())
+            self.assertEqual(page.page_label.text(), "Page 1 / 2")
         finally:
             window.model.undo.setClean()
             window.close()
@@ -1046,6 +1536,7 @@ class CorrelationTests(unittest.TestCase):
             "DP [nm]": [1.0, 2.0, np.nan, 4.0, 5.0, 6.0, 7.0, 8.0],
             "EW [V]": [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0],
             "TG [nm]": [2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+            "UC [s]": [8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0],
         })
         window = CorrelationWindow()
         window.set_table(frame, "Overlay fixture")
@@ -1057,6 +1548,34 @@ class CorrelationTests(unittest.TestCase):
         page.draw_plot()
         APP.processEvents()
         return window, page
+
+    def test_legacy_single_compare_setting_is_normalised_to_a_list(self):
+        settings_module._current["trend_overlay"] = {"DP [nm]": "EW [V]"}
+        page = sequence_module.SequencePage()
+        try:
+            self.assertEqual(page.overlay, {"DP [nm]": ["EW [V]"]})
+        finally:
+            page.deleteLater()
+            APP.processEvents()
+
+    def test_source_compare_setting_restores_table_and_parameter_pairs(self):
+        settings_module._current["trend_source_overlay"] = {
+            "version": 1,
+            "panels": [{
+                "source": "Reference",
+                "metric": "DP",
+                "comparisons": [{"source": "Raw Data", "metric": "DP"}],
+            }],
+        }
+        page = sequence_module.SequencePage()
+        try:
+            self.assertEqual(
+                page.source_overlay,
+                {("Reference", "DP"): [("Raw Data", "DP")]},
+            )
+        finally:
+            page.deleteLater()
+            APP.processEvents()
 
     def test_trend_right_click_keeps_native_plot_options_only(self):
         window, page = self._overlay_page()
@@ -1080,13 +1599,19 @@ class CorrelationTests(unittest.TestCase):
             APP.processEvents()
             widget, panel = page.plot_widgets[0], page.panel_hosts[0]
             control = panel.side_widget
-            self.assertIsInstance(control, QPushButton)
-            self.assertEqual(control.text(), "叠加对比…")
-            self.assertTrue(control.isEnabled())
+            self.assertIsInstance(control, QWidget)
+            add = next(button for button in control.findChildren(QPushButton)
+                       if button.text() == "Add Compare")
+            self.assertTrue(add.isEnabled())
+            self.assertFalse(control.findChildren(QComboBox))
             self.assertGreaterEqual(
                 control.mapTo(panel, QPoint(0, 0)).x(),
                 widget.mapTo(panel, QPoint(0, 0)).x() + widget.width(),
             )
+            # The control frame spans the plot's height, and its buttons keep
+            # their own height at the top of the column.
+            self.assertAlmostEqual(control.height(), widget.height(), delta=2)
+            self.assertEqual(add.height(), 28)
         finally:
             window.model.undo.setClean()
             window.close()
@@ -1094,26 +1619,102 @@ class CorrelationTests(unittest.TestCase):
     def test_trend_overlay_control_is_disabled_without_a_second_parameter(self):
         window, page = self._overlay_page(("DP [nm]",))
         try:
-            self.assertFalse(page.panel_hosts[0].side_widget.isEnabled())
+            add = next(button for button in page.panel_hosts[0].side_widget
+                       .findChildren(QPushButton) if button.text() == "Add Compare")
+            self.assertFalse(add.isEnabled())
         finally:
             window.model.undo.setClean()
             window.close()
 
-    def test_overlay_control_merges_and_unlinks_two_parameters(self):
-        window, page = self._overlay_page()
+    def test_trend_page_keeps_its_scroll_position_when_a_comparison_is_added(self):
+        """Adding a comparison must not throw the panel list back to the top."""
+        window, page = self._overlay_page(("DP [nm]", "EW [V]", "TG [nm]"))
         try:
-            with patch("metrology_app.sequence_page.QInputDialog.getItem",
-                       return_value=("EW [V]", True)):
-                page.panel_hosts[0].side_widget.click()
-            self.assertEqual(page.overlay, {"DP [nm]": "EW [V]"})
-            self.assertEqual(len(page.plot_widgets), 1)
+            window.resize(1200, 420)
+            window.show()
+            APP.processEvents()
+            bar = page.interactive_scroll.verticalScrollBar()
+            bar.setValue(bar.maximum())
+            APP.processEvents()
+            scrolled = bar.value()
+            self.assertGreater(scrolled, 0)
+
+            page.add_compare("DP [nm]")
+            # The offset must already be back before the next paint, otherwise
+            # the page visibly jumps to the top and returns.
+            self.assertEqual(
+                page.interactive_scroll.verticalScrollBar().value(), scrolled
+            )
+            APP.processEvents()
+            self.assertEqual(
+                page.interactive_scroll.verticalScrollBar().value(), scrolled
+            )
+        finally:
+            window.model.undo.setClean()
+            window.close()
+
+    def test_add_compare_creates_multiple_combo_rows_without_hiding_base_panels(self):
+        window, page = self._overlay_page(("DP [nm]", "EW [V]", "TG [nm]"))
+        try:
+            window.resize(1500, 900)
+            window.show()
+            APP.processEvents()
+            initial_plot_width = page.plot_widgets[0].width()
+            initial_control_width = page.panel_hosts[0].side_widget.width()
+            control = page.panel_hosts[0].side_widget
+            add = next(button for button in control.findChildren(QPushButton)
+                       if button.text() == "Add Compare")
+            add.click()
+            APP.processEvents()
+            self.assertEqual(page.overlay, {"DP [nm]": ["EW [V]"]})
+            self.assertEqual(len(page.plot_widgets), 3)
+            self.assertEqual(page.plot_widgets[0].width(), initial_plot_width)
+            self.assertEqual(page.panel_hosts[0].side_widget.width(),
+                             initial_control_width)
+            control = page.panel_hosts[0].side_widget
+            boxes = control.findChildren(QComboBox)
+            self.assertEqual([box.currentText() for box in boxes], ["EW [V]"])
+            add = next(button for button in control.findChildren(QPushButton)
+                       if button.text() == "Add Compare")
+            add.click()
+            APP.processEvents()
+            self.assertEqual(page.overlay,
+                             {"DP [nm]": ["EW [V]", "TG [nm]"]})
+            self.assertEqual(len(page.plot_widgets), 3)
+            self.assertEqual(page.plot_widgets[0].width(), initial_plot_width)
+            self.assertEqual(page.panel_hosts[0].side_widget.width(),
+                             initial_control_width)
+            boxes = page.panel_hosts[0].side_widget.findChildren(QComboBox)
+            self.assertEqual([box.currentText() for box in boxes],
+                             ["EW [V]", "TG [nm]"])
             heading = page.panel_hosts[0].findChild(QLabel)
-            self.assertIn("DP [nm] + EW [V]", heading.text())
-            unlink = page.panel_hosts[0].side_widget
-            self.assertEqual(unlink.text(), "解除对比")
-            unlink.click()
-            self.assertEqual(len(page.plot_widgets), 2)
-            self.assertFalse(page.overlay)
+            self.assertIn("DP [nm]", heading.text())
+            self.assertNotIn("+", heading.text())
+        finally:
+            window.model.undo.setClean()
+            window.close()
+
+    def test_compare_combo_wheel_switch_is_debounced_and_keeps_row(self):
+        window, page = self._overlay_page(
+            ("DP [nm]", "EW [V]", "TG [nm]", "UC [s]")
+        )
+        try:
+            page.set_overlay("DP [nm]", "EW [V]")
+            combo = page.panel_hosts[0].side_widget.findChild(QComboBox)
+            self.assertEqual(combo.focusPolicy(), Qt.FocusPolicy.StrongFocus)
+            combo.setFocus()
+            event = QWheelEvent(
+                QPointF(5, 5), QPointF(5, 5), QPoint(), QPoint(0, -120),
+                Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+                Qt.ScrollPhase.ScrollUpdate, False,
+            )
+            QApplication.sendEvent(combo, event)
+            QApplication.sendEvent(combo, event)
+            self.assertEqual(combo.currentText(), "UC [s]")
+            QTest.qWait(180)
+            APP.processEvents()
+            self.assertEqual(page.overlay, {"DP [nm]": ["UC [s]"]})
+            self.assertEqual(len(page.panel_hosts[0].side_widget.findChildren(QComboBox)), 1)
         finally:
             window.model.undo.setClean()
             window.close()
@@ -1137,14 +1738,15 @@ class CorrelationTests(unittest.TestCase):
             window.model.undo.setClean()
             window.close()
 
-    def test_overlay_merges_two_panels_into_one_widget_with_two_axes(self):
+    def test_overlay_keeps_all_panels_and_adds_two_axes_to_primary(self):
         window, page = self._overlay_page()
         try:
             self.assertTrue(page.set_overlay("DP [nm]", "EW [V]"))
-            self.assertEqual(len(page.plot_widgets), 1)
+            self.assertEqual(len(page.plot_widgets), 2)
             self.assertEqual(len(page.plot_widgets[0].secondary_views), 1)
             heading = page.panel_hosts[0].findChild(QLabel)
-            self.assertIn("DP [nm] + EW [V]", heading.text())
+            self.assertIn("DP [nm]", heading.text())
+            self.assertNotIn("+", heading.text())
         finally:
             window.model.undo.setClean()
             window.close()
@@ -1161,23 +1763,130 @@ class CorrelationTests(unittest.TestCase):
             window.model.undo.setClean()
             window.close()
 
-    def test_unlink_overlay_restores_one_panel_per_parameter(self):
+    def test_same_unit_distant_scales_use_auto_second_axis(self):
+        """The automatic ratio threshold can split distant same-unit curves."""
+        frame = pd.DataFrame({
+            "Wafer ID": ["W1"] * 4,
+            "Die Seq": [1, 2, 3, 4],
+            "ASi_BCD": [1000.0, 1100.0, 1200.0, 1150.0],
+            "M1_BCDoff": [0.50, 0.60, 0.55, 0.62],
+        })
+        window = CorrelationWindow()
+        try:
+            window.set_table(frame, "Scale fixture")
+            self.select_parameters(window, {"ASi_BCD", "M1_BCDoff"})
+            window.tabs.setCurrentIndex(3)
+            page = window.sequence_page
+            page.overlay = {}
+            page.selector.selectAll()
+            page.draw_plot()
+            APP.processEvents()
+
+            self.assertTrue(page.set_overlay("ASi_BCD", "M1_BCDoff"))
+            APP.processEvents()
+            self.assertEqual(len(page.plot_widgets[0].secondary_views), 1)
+            self.assertIn("第二根 Y 轴", page.status.text())
+        finally:
+            window.model.undo.setClean()
+            window.close()
+
+    def test_trend_axis_mode_and_decimal_ratio_are_saved(self):
+        """Both the mode and decimal threshold follow saved selections."""
+        frame = pd.DataFrame({
+            "Wafer ID": ["W1"] * 4,
+            "Die Seq": [1, 2, 3, 4],
+            "ASi_BCD": [80.0, 100.0, 90.0, 95.0],
+            "M1_BCDoff": [10.0, 12.0, 11.0, 11.5],
+        })
+        window = CorrelationWindow()
+        try:
+            window.set_table(frame, "Ratio fixture")
+            self.select_parameters(window, {"ASi_BCD", "M1_BCDoff"})
+            window.tabs.setCurrentIndex(3)
+            page = window.sequence_page
+            page.overlay = {}
+            page.selector.selectAll()
+            page.draw_plot()
+            APP.processEvents()
+
+            self.assertEqual(page.axis_mode_value(), "auto")
+            self.assertEqual(page.axis_ratio_limit(), 10.0)
+            self.assertTrue(page.set_overlay("ASi_BCD", "M1_BCDoff"))
+            APP.processEvents()
+            self.assertEqual(len(page.plot_widgets[0].secondary_views), 0)
+
+            page.axis_ratio.setValue(2.75)
+            APP.processEvents()
+            self.assertEqual(len(page.plot_widgets[0].secondary_views), 1)
+            page.axis_mode.setCurrentIndex(page.axis_mode.findData("single"))
+            APP.processEvents()
+            self.assertEqual(len(page.plot_widgets[0].secondary_views), 0)
+
+            state = window.selection_state()
+            self.assertEqual(state["trend_axis_mode"], "single")
+            self.assertEqual(state["trend_axis_ratio"], 2.75)
+            window.sequence_page.restore_axis_mode("auto")
+            window.sequence_page.restore_axis_ratio(10.0)
+            self.assertEqual(page.axis_mode_value(), "auto")
+            window.restore_selection(state)
+            self.assertEqual(page.axis_mode_value(), "single")
+            self.assertEqual(page.axis_ratio_limit(), 2.75)
+        finally:
+            window.model.undo.setClean()
+            window.close()
+
+    def test_forced_single_axis_labels_mixed_units_on_screen_and_export(self):
+        window, page = self._overlay_page(("DP [nm]", "EW [V]"))
+        try:
+            page.restore_axis_mode("single")
+            self.assertTrue(page.set_overlay("DP [nm]", "EW [V]"))
+            APP.processEvents()
+            self.assertEqual(len(page.plot_widgets[0].secondary_views), 0)
+            self.assertIn("不同单位", page.status.text())
+            self.assertIn(
+                "Mixed units",
+                page.plot_widgets[0].getPlotItem().getAxis("left").label.toPlainText(),
+            )
+            page.build_export_figure(page.panel_specs, page.view_groups)
+            self.assertIn("Mixed units", page.figure.axes[0].get_ylabel())
+        finally:
+            window.model.undo.setClean()
+            window.close()
+
+    def test_remove_compare_keeps_one_panel_per_parameter(self):
         window, page = self._overlay_page()
         try:
             page.set_overlay("DP [nm]", "EW [V]")
-            page.unlink_overlay("DP [nm]")
+            self.assertTrue(page.remove_overlay("DP [nm]", "EW [V]"))
             self.assertEqual(len(page.plot_widgets), 2)
             self.assertFalse(page.overlay)
         finally:
             window.model.undo.setClean()
             window.close()
 
-    def test_third_parameter_overlay_is_rejected(self):
+    def test_multiple_parameter_overlay_uses_additional_axes_and_new_colours(self):
         window, page = self._overlay_page(("DP [nm]", "EW [V]", "TG [nm]"))
         try:
             self.assertTrue(page.set_overlay("DP [nm]", "EW [V]"))
-            self.assertFalse(page.set_overlay("DP [nm]", "TG [nm]"))
-            self.assertIn("仅支持两个参数", page.status.text())
+            self.assertTrue(page.set_overlay("DP [nm]", "TG [nm]"))
+            self.assertEqual(page.overlay,
+                             {"DP [nm]": ["EW [V]", "TG [nm]"]})
+            self.assertEqual(len(page.plot_widgets[0].secondary_views), 1)
+            items = page.plot_widgets[0].getPlotItem().listDataItems()
+            colours = {item.opts["pen"].color().name() for item in items}
+            self.assertNotIn("#ed7d31", colours)
+        finally:
+            window.model.undo.setClean()
+            window.close()
+
+    def test_multiple_different_units_receive_multiple_linked_y_axes(self):
+        window, page = self._overlay_page(("DP [nm]", "EW [V]", "UC [s]"))
+        try:
+            self.assertTrue(page.set_overlay("DP [nm]", "EW [V]"))
+            self.assertTrue(page.set_overlay("DP [nm]", "UC [s]"))
+            self.assertEqual(len(page.plot_widgets), 3)
+            self.assertEqual(len(page.plot_widgets[0].secondary_views), 2)
+            self.assertEqual(len(page.plot_widgets[0].secondary_axes), 2)
         finally:
             window.model.undo.setClean()
             window.close()
@@ -1196,13 +1905,97 @@ class CorrelationTests(unittest.TestCase):
         try:
             page.set_overlay("DP [nm]", "EW [V]")
             page.ensure_export_figure()
-            self.assertEqual(len(page.figure.axes), 2)
+            self.assertEqual(len(page.figure.axes), 3)
             for axis in page.figure.axes:
                 self.assertTrue(axis._die_sequence_values)
                 self.assertTrue(axis._wafer_ids)
                 self.assertTrue(hasattr(axis, "_wafer_group_labels"))
         finally:
             window.model.undo.setClean()
+            window.close()
+
+    def test_workbook_compare_keeps_source_parameter_labels_and_base_colours(self):
+        reference = pd.DataFrame({
+            "Wafer ID": ["old"] * 3, "Die Seq": [1, 2, 3],
+            "DP Ref": [1.0, 2.0, 3.0], "EW Ref": [3.0, 4.0, 5.0],
+        })
+        raw = pd.DataFrame({
+            "Wafer ID": ["W1"] * 3, "Die Seq": [1, 2, 3],
+            "DP Raw": [1.2, 2.2, 3.2], "EW Raw": [3.2, 4.2, 5.2],
+        })
+        mappings = (
+            ParameterMapping("DP", "DP Ref", "DP Raw"),
+            ParameterMapping("EW", "EW Ref", "EW Raw"),
+        )
+        window = CorrelationWindow()
+        try:
+            window.set_sources(reference, raw, mappings, "Preview")
+            page = window.sequence_page
+            page.selector.selectAll()
+            page.draw_plot()
+            window.refresh_timer.stop()
+            page.input_refresh_timer.stop()
+            reference_control = page.panel_hosts[0].side_widget
+            add = next(button for button in reference_control.findChildren(QPushButton)
+                       if button.text() == "Add Compare")
+            add.click()
+            reference_selector = page.panel_hosts[0].side_widget.findChild(QComboBox)
+            available = {
+                reference_selector.itemData(index): reference_selector.itemText(index)
+                for index in range(reference_selector.count())
+            }
+            self.assertEqual(available[("Reference", "EW")], "Reference · EW")
+            self.assertEqual(available[("Raw Data", "DP Raw")], "Raw Data · DP Raw")
+            self.assertEqual(available[("Raw Data", "EW Raw")], "Raw Data · EW Raw")
+            reference_selector.setCurrentIndex(
+                next(index for index in range(reference_selector.count())
+                     if reference_selector.itemData(index) == ("Raw Data", "DP Raw"))
+            )
+            QTest.qWait(180)
+            APP.processEvents()
+            self.assertEqual(len(page.plot_widgets), 4, page.status.text())
+            reference_selector = page.panel_hosts[0].side_widget.findChild(QComboBox)
+            self.assertEqual(reference_selector.currentText(), "Raw Data · DP Raw")
+            self.assertEqual(reference_selector.currentData(), ("Raw Data", "DP Raw"))
+            self.assertTrue(all(
+                reference_selector.itemText(index).startswith(
+                    ("Reference · ", "Raw Data · ")
+                )
+                for index in range(reference_selector.count())
+            ))
+            self.assertFalse(page.panel_hosts[2].side_widget.findChildren(QComboBox))
+            def all_items(widget):
+                items = list(widget.getPlotItem().listDataItems())
+                items.extend(
+                    item for view in widget.secondary_views
+                    for item in view.addedItems if isinstance(item, pg.PlotDataItem)
+                )
+                return {item.name(): item for item in items}
+
+            reference_items = all_items(page.plot_widgets[0])
+            raw_items = all_items(page.plot_widgets[2])
+            self.assertIn("Reference · DP", reference_items)
+            self.assertIn("Raw Data · DP Raw", reference_items)
+            self.assertEqual(reference_items["Reference · DP"]
+                             .opts["pen"].color().name(), "#ed7d31")
+            self.assertNotIn(reference_items["Raw Data · DP Raw"]
+                             .opts["pen"].color().name(), {"#ed7d31", "#5b9bd5"})
+            _x, compared_values = reference_items["Raw Data · DP Raw"].getData()
+            np.testing.assert_allclose(compared_values, [1.2, 2.2, 3.2])
+            self.assertIn("Raw Data · DP Raw", raw_items)
+            self.assertEqual(raw_items["Raw Data · DP Raw"]
+                             .opts["pen"].color().name(), "#5b9bd5")
+            page.ensure_export_figure()
+            export_labels = {
+                text.get_text()
+                for text in page.figure.axes[0].get_legend().get_texts()
+            }
+            self.assertEqual(
+                export_labels, {"Reference · DP", "Raw Data · DP Raw"}
+            )
+        finally:
+            window.raw_model.undo.setClean()
+            window.reference_model.undo.setClean()
             window.close()
 
 

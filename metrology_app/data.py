@@ -28,13 +28,18 @@ def read_table(path=None, *, text=None, sheet=0, dtype=None):
     raise ValueError("无法识别文件编码，请另存为 UTF-8 CSV。")
 
 
-def inspect_table(frame, wafer_column=None):
+def inspect_table(frame, wafer_column=None, *, include_fit_quality=True):
     """Recognize headers without requiring a plot-ready table during editing."""
     names = {"".join(ch.lower() for ch in str(c) if ch.isalnum()): c for c in frame}
     wafer_column = wafer_column or next((names[n] for n in ("waferid", "wafer", "waferno") if n in names), None)
+    # Fit-quality columns are numeric in every parameter list, without being
+    # physical model parameters. Bookkeeping remains excluded everywhere.
     excluded = {"fieldx", "fieldy", "x", "y", "xmm", "ymm", "diex", "diey", "dieseq", "dieid",
                 "diesequence", "diesequenceno", "lotid", "lot", "lotno", "toolsn", "toolid",
-                "padname", "pad", "waferid", "wafer", "waferno"}
+                "padname", "pad", "waferid", "wafer", "waferno", "seq", "logicalid",
+                "mse", "gof", "ngof", "lbh", "fittime", "regiter", "reglter", "cindex"}
+    if include_fit_quality:
+        excluded -= {"mse", "gof", "ngof", "lbh", "cindex"}
     metrics = [c for c in frame if c != wafer_column
                and "".join(ch.lower() for ch in c if ch.isalnum()) not in excluded
                and "path" not in c.lower() and number(frame[c]).notna().any()]

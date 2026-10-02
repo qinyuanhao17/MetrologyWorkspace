@@ -44,8 +44,9 @@ class PlotPanel(QWidget):
             side_layout = QVBoxLayout(side)
             side_layout.setContentsMargins(0, 0, 0, 0)
             side_layout.setSpacing(4)
-            side_layout.addWidget(side_widget)
-            side_layout.addStretch(1)
+            # The control column matches the plot's height; the control's own
+            # layout keeps its buttons at the top instead of stretching them.
+            side_layout.addWidget(side_widget, 1)
             row.addWidget(side)
             layout.addLayout(row, 1)
 
@@ -83,12 +84,22 @@ class PanelGrid(_Splitter):
         self.setHandleWidth(6)
         self.columns = max(1, int(columns))
         self.panels = []
+        self.placeholders = []
         self.row_splitters = []
+        self._fixed_row_height = None
+        self._height_placeholder = None
 
     def set_minimum_row_height(self, rows, panel_height):
         """Reserve full rows but let their columns share the viewport width."""
         rows = max(1, int(rows))
         height = rows * int(panel_height) + max(0, rows - 1) * self.handleWidth()
+        self.setMinimumSize(0, height)
+
+    def set_fixed_row_height(self, rows, panel_height):
+        """Keep sparse result pages from stretching their remaining rows."""
+        rows = max(1, int(rows))
+        self._fixed_row_height = int(panel_height)
+        height = rows * self._fixed_row_height + max(0, rows - 1) * self.handleWidth()
         self.setMinimumSize(0, height)
 
     def add_panel(self, widget):
@@ -99,12 +110,47 @@ class PanelGrid(_Splitter):
             splitter.setObjectName("panelRow")
             splitter.setChildrenCollapsible(True)
             splitter.setHandleWidth(6)
+            if self._fixed_row_height is not None:
+                splitter.setFixedHeight(self._fixed_row_height)
             splitter.splitterMoved.connect(
                 lambda _position, _index, source=splitter: self.sync_columns(source))
             self.row_splitters.append(splitter)
             self.addWidget(splitter)
         self.row_splitters[row].addWidget(widget)
         self.panels.append(widget)
+
+    def complete_last_row(self, minimum_width=0):
+        """Reserve missing columns so a partial row keeps normal panel widths."""
+        if not self.row_splitters:
+            return
+        row = self.row_splitters[-1]
+        while row.count() < self.columns:
+            placeholder = QWidget(objectName="plotPlaceholder")
+            placeholder.setEnabled(False)
+            placeholder.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+            )
+            placeholder.setMinimumWidth(max(0, int(minimum_width)))
+            row.addWidget(placeholder)
+            self.placeholders.append(placeholder)
+        for index in range(row.count()):
+            row.setStretchFactor(index, 1)
+        row.setSizes([1] * row.count())
+        self.sync_columns(row)
+        if self._fixed_row_height is not None and self._height_placeholder is None:
+            filler = QWidget(objectName="plotHeightPlaceholder")
+            filler.setEnabled(False)
+            filler.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+            )
+            self._height_placeholder = filler
+            self.addWidget(filler)
+            for index in range(len(self.row_splitters)):
+                self.setStretchFactor(index, 0)
+            self.setStretchFactor(self.count() - 1, 1)
+            self.setSizes(
+                [self._fixed_row_height] * len(self.row_splitters) + [1_000_000]
+            )
 
     def reset_layout(self):
         for splitter in (self, *self.row_splitters):

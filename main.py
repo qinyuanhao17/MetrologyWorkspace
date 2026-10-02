@@ -38,8 +38,8 @@ def main():
         matching = window.open_component("card_matching")
         dynamic = window.open_component("dynamic_analysis")
         app.processEvents()
-        valid = (wafer.tabs.count() == 3 and correlation.tabs.count() == 3
-                 and matching.mode_tabs.count() == 2 and dynamic.tabs.count() == 2)
+        valid = (wafer.tabs.count() == 3 and correlation.tabs.count() == 4
+                 and matching.mode_tabs.count() == 2 and dynamic.tabs.count() == 3)
         window.unload_all_components()
         window.close()
         app.processEvents()

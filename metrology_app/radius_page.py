@@ -67,8 +67,6 @@ class RadiusPage(QWidget):
         self.export_button.setEnabled(False)
         self.copy_button.setEnabled(False)
         toolbar.addStretch()
-        self.summary = QLabel("R = sign(X) · √(X² + Y²)", objectName="accent")
-        toolbar.addWidget(self.summary)
         header.addLayout(toolbar)
         appearance = QHBoxLayout()
         appearance.setSpacing(8)
@@ -164,6 +162,7 @@ class RadiusPage(QWidget):
         self.has_drawn_once = True
         self.drawn_cells = set(cells)
         self.selector.set_selected_cells(cells, notify=False)
+        self.selector.pending_draw = False
         self.invalidate()
         self.draw_state_changed.emit(self.draw_state())
         self.queue_input_refresh()
@@ -181,6 +180,14 @@ class RadiusPage(QWidget):
         signature = (id(frame), tuple(selection["wafers"]), tuple(selection["metrics"]), selection["wafer_column"])
         if signature == self.signature:
             return
+        # Only a data change may redraw by itself. Adding or removing wafers or
+        # parameters rebuilds the box grid, so the engineer picks the boxes again
+        # and presses Draw selected.
+        grid_changed = (
+            tuple(selection["wafers"]) != tuple(self.selection.get("wafers", ()))
+            or tuple(selection["metrics"]) != tuple(self.selection.get("metrics", ()))
+            or selection["wafer_column"] != self.selection.get("wafer_column")
+        )
         changed_table = self.frame is not frame
         self.signature, self.frame, self.selection = signature, frame, selection.copy()
         if changed_table:
@@ -191,12 +198,12 @@ class RadiusPage(QWidget):
                 selected = next((names[a] for a in aliases if a in names), None)
                 self.populate(combo, entries, selected)
         self.selector.set_array(selection["wafers"], selection["metrics"], selection.get("labels"))
-        if self.has_drawn_once:
-            self.selector.set_selected_cells(
-                self.selector.reconciled_cells(self.drawn_cells), notify=False
-            )
         self.invalidate()
-        if self.has_drawn_once:
+        if (self.has_drawn_once and not grid_changed
+                and not self.selector.pending_draw
+                and set(self.selector.selected_cells()) == set(self.drawn_cells)):
+            # Auto redraw only replays the last successful draw; a pending box
+            # selection waits for the engineer to press Draw selected.
             self.queue_input_refresh()
 
     def invalidate(self, *_):
@@ -211,13 +218,16 @@ class RadiusPage(QWidget):
         self.stack.setCurrentWidget(self.selector_panel if available else self.empty)
         rows, columns = len(self.selection.get("wafers", [])), len(self.selection.get("metrics", []))
         count = len(self.selector.selected_cells())
-        self.status.setText(f"{count} / {rows * columns} selected  ·  {rows} × {columns}")
+        self.status.setText(
+            f"{count} / {rows * columns} selected  ·  {rows} × {columns}"
+            "  ·  click Draw selected"
+        )
 
     def selector_changed(self):
-        """After the first draw, a changed box selection redraws by itself."""
+        """A changed box selection waits for the explicit Draw selected click."""
+        self.pending_input_refresh = False
+        self.input_refresh_timer.stop()
         self.invalidate()
-        if self.has_drawn_once:
-            self.queue_input_refresh()
 
     def queue_input_refresh(self):
         if not self.selector.selected_cells():
@@ -310,6 +320,7 @@ class RadiusPage(QWidget):
             self.ready = True
             self.has_drawn_once = True
             self.drawn_cells = set(cells)
+            self.selector.pending_draw = False
             self.draw_state_changed.emit(self.draw_state())
             self.refresh_canvas()
             self.export_button.setEnabled(True)
@@ -326,7 +337,30 @@ class RadiusPage(QWidget):
     def refresh_previous_selection(self):
         if not self.pending_input_refresh:
             return
+        # A data refresh redraws the radius plots in place: keep the zoom and
+        # the scroll offset the engineer was reading.
+        zoom = self.zoom.currentText()
+        horizontal = self.scroll.horizontalScrollBar().value()
+        vertical = self.scroll.verticalScrollBar().value()
         self.draw_plot()
+        self.restore_canvas_view(zoom, horizontal, vertical)
+
+    def restore_canvas_view(self, zoom, horizontal, vertical):
+        def settle():
+            try:
+                if self.zoom.currentText() != zoom:
+                    self.zoom.setCurrentText(zoom)
+                self.scroll.horizontalScrollBar().setValue(
+                    min(horizontal, self.scroll.horizontalScrollBar().maximum())
+                )
+                self.scroll.verticalScrollBar().setValue(
+                    min(vertical, self.scroll.verticalScrollBar().maximum())
+                )
+            except RuntimeError:
+                # The page was closed before the deferred pass ran.
+                return
+
+        QTimer.singleShot(0, settle)
 
     def stop(self):
         self.pending_input_refresh = False

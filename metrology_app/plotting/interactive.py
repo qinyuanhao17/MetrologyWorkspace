@@ -41,29 +41,34 @@ class InteractivePlotWidget(pg.PlotWidget):
         view_box = _PlotViewBox(auto_x_range=auto_x_range)
         super().__init__(viewBox=view_box, **kwargs)
         self.secondary_views = []
+        self.secondary_axes = []
         # AxisItems own the four frame lines. A second ViewBox border would
         # overlap them and make some edges appear heavier than others.
         self.view_box.setBorder(None)
         self._frame_axes(frame_tick_length)
 
     def add_secondary_axis(self, label, color):
-        """Add one X-linked Y view while preserving the fixed Auto-X rules."""
-        if self.secondary_views:
-            raise ValueError("Only one secondary Y axis is supported.")
+        """Add an X-linked Y view; later axes are placed further right."""
         plot = self.getPlotItem()
-        axis = plot.getAxis("right")
+        index = len(self.secondary_views)
+        if index == 0:
+            axis = plot.getAxis("right")
+            plot.showAxis("right")
+        else:
+            axis = pg.AxisItem(orientation="right")
+            plot.layout.addItem(axis, 2, 2 + index)
         axis.setStyle(showValues=True, tickLength=-5, autoExpandTextSpace=True)
         axis.setWidth(70)
         axis.setPen(pg.mkPen(color))
         axis.setTextPen(pg.mkPen(color))
         axis.setLabel(label, color=color)
-        plot.showAxis("right")
         view = _PlotViewBox(auto_x_range=self.view_box._fixed_auto_x_range)
         view.setBorder(None)
         plot.scene().addItem(view)
         axis.linkToView(view)
         view.setXLink(self.view_box)
         self.secondary_views.append(view)
+        self.secondary_axes.append(axis)
 
         def sync_geometry():
             view.setGeometry(self.view_box.sceneBoundingRect())

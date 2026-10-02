@@ -35,7 +35,7 @@ from .settings import get_settings
 
 
 MAX_INPUT_COLUMNS = 40
-MAX_VISIBLE_FITS = 12
+DEFAULT_PAGE_SIZE = 12
 HOME_PADDING = 0.08
 
 
@@ -179,8 +179,13 @@ class CorrelationPage(QWidget):
         self.frame = pd.DataFrame()
         self.selection = {}
         self.ready = False
+        self.has_drawn_once = False
+        self.drawn_cells = set()
         self.all_fits = []
         self.fits = []
+        self.page_index = 0
+        self.user_page = 0
+        self.page_intent = "selector"
         self.plot_widgets = []
         self.panel_hosts = []
         self.skipped_count = 0
@@ -189,6 +194,8 @@ class CorrelationPage(QWidget):
         self.home_views = []
         self.update_timer = QTimer(self, interval=180, singleShot=True)
         self.update_timer.timeout.connect(self.flush_updates)
+        self.input_refresh_timer = QTimer(self, interval=180, singleShot=True)
+        self.input_refresh_timer.timeout.connect(self.refresh_previous_selection)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 12, 10, 10)
         layout.setSpacing(10)
@@ -203,15 +210,25 @@ class CorrelationPage(QWidget):
         self.select_button.clicked.connect(self.show_selector)
         toolbar.addWidget(self.select_button)
         self.draw_button = QPushButton("Draw selected", objectName="primary")
-        self.draw_button.clicked.connect(self.draw_plot)
-        self.export_button = QPushButton("Export PNG")
+        self.draw_button.clicked.connect(self.start_draw)
+        self.export_button = QPushButton("Export page")
         self.export_button.clicked.connect(self.export_png)
+        self.export_all_button = QPushButton("Export all")
+        self.export_all_button.clicked.connect(self.export_all_pages)
         self.copy_button = QPushButton("Copy PNG")
         self.copy_button.clicked.connect(self.copy_png)
-        for control in (self.draw_button, self.export_button, self.copy_button):
+        for control in (
+            self.draw_button, self.export_button, self.export_all_button,
+            self.copy_button,
+        ):
             toolbar.addWidget(control)
         self.export_button.setEnabled(False)
+        self.export_all_button.setEnabled(False)
         self.copy_button.setEnabled(False)
+        self.export_button.setToolTip("Export the currently visible correlation page as PNG.")
+        self.export_all_button.setToolTip(
+            "Export every passing fit as numbered page PNG files."
+        )
         toolbar.addStretch()
         self.summary = QLabel("0 × 0", objectName="accent")
         toolbar.addWidget(self.summary)
@@ -269,7 +286,9 @@ class CorrelationPage(QWidget):
         self.copy_shortcut = QShortcut(QKeySequence.StandardKey.Copy, self)
         self.copy_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self.copy_shortcut.activated.connect(self.copy_png)
-        self.copy_button.setToolTip("Copy the full plot grid as a PNG. Ctrl+C works while this tab is active.")
+        self.copy_button.setToolTip(
+            "Copy the current page as a PNG. Ctrl+C works while this tab is active."
+        )
         self.plot_host = None
         self.interactive_scroll = QScrollArea()
         self.interactive_scroll.setWidgetResizable(True)
@@ -294,11 +313,71 @@ class CorrelationPage(QWidget):
         box_layout.addWidget(self.selector, 1)
         self.stack.addWidget(self.selector_panel)
         layout.addWidget(self.stack, 1)
+        footer = QHBoxLayout()
         self.status = QLabel("Choose numeric columns in Data, then select the fits to draw.",
                              objectName="hint")
-        layout.addWidget(self.status)
-        self.selector.changed.connect(self.invalidate)
+        footer.addWidget(self.status, 1)
+        footer.addWidget(QLabel("Per page", objectName="muted"))
+        self.page_size = QComboBox()
+        self.page_size.addItems(["6", "12", "24"])
+        self.page_size.setCurrentText(str(DEFAULT_PAGE_SIZE))
+        self.page_size.setFixedWidth(58)
+        self.page_size.setToolTip("Number of ranked correlation fits shown on each page.")
+        self.page_size.currentIndexChanged.connect(self.change_page_size)
+        footer.addWidget(self.page_size)
+        self.previous_page = QPushButton("Previous", objectName="subtle")
+        self.previous_page.clicked.connect(lambda: self.set_page(self.page_index - 1))
+        footer.addWidget(self.previous_page)
+        self.page_label = QLabel("Page 0 / 0", objectName="muted")
+        self.page_label.setMinimumWidth(76)
+        self.page_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        footer.addWidget(self.page_label)
+        self.next_page = QPushButton("Next", objectName="subtle")
+        self.next_page.clicked.connect(lambda: self.set_page(self.page_index + 1))
+        footer.addWidget(self.next_page)
+        layout.addLayout(footer)
+        self.selector.changed.connect(self.selector_changed)
         self.invalidate()
+
+    def draw_state(self):
+        """Return the last successful fit-box selection for WKB persistence."""
+        cells = self.selector.selected_cells() if self.has_drawn_once else set()
+        return {
+            "enabled": self.has_drawn_once,
+            "cells": tuple(sorted(cells)),
+        }
+
+    def restore_draw_state(self, state):
+        """Restore surviving fit boxes and redraw without another click."""
+        if not isinstance(state, dict) or state.get("enabled") is not True:
+            return
+        try:
+            cells = {
+                (wafer, str(metric))
+                for wafer, metric in state.get("cells", ())
+            }
+        except (TypeError, ValueError):
+            return
+        cells = self.selector.reconciled_cells(cells)
+        if not cells:
+            return
+        self.has_drawn_once = True
+        self.drawn_cells = set(cells)
+        self.selector.set_selected_cells(cells, notify=False)
+        self.redraw_keeping_page()
+
+    def redraw_keeping_page(self, saved=None):
+        """Redraw a refresh in place: same ranked page, same visible sub-page."""
+        page_index = self.user_page if saved is None else saved
+        self.draw_plot()
+        if not self.ready:
+            return
+        self.set_page(page_index)
+        self.apply_page_intent()
+
+    def refresh_previous_selection(self):
+        """Automatic redraw after a data change; the view stays where it was."""
+        self.redraw_keeping_page()
 
     def set_input(self, frame, selection):
         self.frame = frame
@@ -308,25 +387,50 @@ class CorrelationPage(QWidget):
             selection.get("labels"), selection.get("available_cells"),
         )
         self.invalidate()
+        if (self.has_drawn_once and not self.selector.pending_draw
+                and self.selector.selected_cells()):
+            self.input_refresh_timer.start()
+
+    def selector_changed(self):
+        """Changed fit boxes wait for the explicit Draw selected click."""
+        self.invalidate()
 
     def show_selector(self):
         """Return to the box grid so another set of fits can be chosen."""
+        self.page_intent = "selector"
         available = bool(self.selector.rowCount() and self.selector.columnCount())
         self.empty.setText("Select at least 2 numeric columns in the Data tab.")
         self.stack.setCurrentWidget(self.selector_panel if available else self.empty)
 
+    def start_draw(self):
+        """Explicit Draw selected: the ranked plot grid is what the user wants."""
+        self.page_intent = "plots"
+        self.user_page = 0
+        self.draw_plot()
+
+    def apply_page_intent(self):
+        """Show the sub-page the engineer last chose: box grid or ranked plots."""
+        if self.page_intent == "selector":
+            self.stack.setCurrentWidget(self.selector_panel)
+        else:
+            self.stack.setCurrentWidget(self.interactive_scroll)
+
     def invalidate(self):
+        self.input_refresh_timer.stop()
         self.update_timer.stop()
         self._pending_updates.clear()
         self.ready = False
         self.all_fits = []
         self.fits = []
+        self.page_index = 0
         self.skipped_count = 0
         self.export_button.setEnabled(False)
+        self.export_all_button.setEnabled(False)
         self.copy_button.setEnabled(False)
         self._export_dirty = True
         self._copy_image = None
         self._copy_dpi = None
+        self.update_pagination()
         self.figure.clear()
         self.draw_canvas_message("Select one or more boxes, then click Draw selected")
         self.clear_interactive("Select one or more boxes, then click Draw selected")
@@ -362,6 +466,7 @@ class CorrelationPage(QWidget):
         return {key: list(np.flatnonzero(ids == key)) for key in wafers}
 
     def draw_plot(self):
+        self.input_refresh_timer.stop()
         self.update_timer.stop()
         self._pending_updates.clear()
         self.draw_button.setEnabled(False)
@@ -389,6 +494,13 @@ class CorrelationPage(QWidget):
             pair_count = len(drawn_metrics) * (len(drawn_metrics) - 1) // 2
             self.status.setText(f"Fitting {pair_count} parameter pairs…")
             QApplication.processEvents()
+            try:
+                self.draw_button.isEnabled()
+            except RuntimeError:
+                # A deferred automatic refresh can overlap deleteLater().
+                # Once Qt has disposed the page controls there is nothing left
+                # to render, so leave without touching another wrapped object.
+                return
             sources = self.selection.get("sources")
             if sources:
                 self.all_fits, errors = source_pairwise_linear_fits(
@@ -402,13 +514,19 @@ class CorrelationPage(QWidget):
             if not self.all_fits:
                 raise ValueError("No selected pair has enough varying numeric data for a linear fit.")
             self.drawn_metrics = list(drawn_metrics)
+            self.drawn_cells = set(cells)
+            self.has_drawn_once = True
+            self.selector.pending_draw = False
             self.apply_rsq_filter()
         except (ValueError, KeyError) as error:
             self.invalidate()
             self.status.setText(str(error))
         finally:
             QApplication.restoreOverrideCursor()
-            self.draw_button.setEnabled(True)
+            try:
+                self.draw_button.setEnabled(True)
+            except RuntimeError:
+                pass
 
     def queue_update(self, kind):
         """Merge rapid toolbar edits into one redraw after the user pauses."""
@@ -423,6 +541,7 @@ class CorrelationPage(QWidget):
         if not updates or not self.all_fits:
             return
         if "filter" in updates:
+            self.user_page = 0
             self.apply_rsq_filter()
             return
         if "layout" in updates:
@@ -433,58 +552,121 @@ class CorrelationPage(QWidget):
         if "resolution" in updates:
             self.change_resolution()
 
+    def page_count(self):
+        size = int(self.page_size.currentText())
+        return ceil(len(self.fits) / size) if self.fits else 0
+
+    def page_fits(self, index=None):
+        size = int(self.page_size.currentText())
+        index = self.page_index if index is None else index
+        start = index * size
+        return self.fits[start:start + size]
+
+    def update_pagination(self):
+        pages = self.page_count()
+        if pages:
+            self.page_index = min(max(0, self.page_index), pages - 1)
+            self.page_label.setText(f"Page {self.page_index + 1} / {pages}")
+        else:
+            self.page_index = 0
+            self.page_label.setText("Page 0 / 0")
+        self.previous_page.setEnabled(self.page_index > 0)
+        self.next_page.setEnabled(bool(pages and self.page_index + 1 < pages))
+
+    def update_fit_status(self):
+        if not self.fits:
+            return
+        size = int(self.page_size.currentText())
+        start = self.page_index * size + 1
+        end = min(start + size - 1, len(self.fits))
+        skipped = (
+            f" · skipped {self.skipped_count} invalid pairs"
+            if self.skipped_count else ""
+        )
+        self.status.setText(
+            f"{len(self.fits)} / {len(self.all_fits)} fits pass "
+            f"R² > {self.min_rsq.value():.2f} · highest R² first · "
+            f"showing {start}–{end} of {len(self.fits)}{skipped}"
+        )
+
+    def set_page(self, index):
+        pages = self.page_count()
+        if not self.ready or not pages:
+            return
+        target = min(max(0, int(index)), pages - 1)
+        if target == self.page_index:
+            return
+        self.page_index = target
+        self.user_page = target
+        self.render_fits()
+        self.update_fit_status()
+
+    def change_page_size(self, *_):
+        self.page_index = 0
+        self.user_page = 0
+        if self.ready:
+            self.render_fits()
+            self.update_fit_status()
+        else:
+            self.update_pagination()
+
     def apply_rsq_filter(self, *_):
         """Filter already-computed models without running lmfit again."""
         if not self.all_fits:
             return
         threshold = self.min_rsq.value()
         self.fits = [fit for fit in self.all_fits if fit.rsquared > threshold]
+        self.page_index = 0
         if not self.fits:
             self.ready = False
             self.export_button.setEnabled(False)
+            self.export_all_button.setEnabled(False)
             self.copy_button.setEnabled(False)
             self.figure.clear()
             self.draw_canvas_message(f"No pairwise fit has R² > {threshold:.2f}")
             self.clear_interactive(f"No pairwise fit has R² > {threshold:.2f}")
             self.stack.setCurrentWidget(self.interactive_scroll)
+            self.update_pagination()
             self.status.setText(f"0 / {len(self.all_fits)} fits pass R² > {threshold:.2f}.")
             return
         self.render_fits()
         self.ready = True
         self.stack.setCurrentWidget(self.interactive_scroll)
         self.export_button.setEnabled(True)
+        self.export_all_button.setEnabled(True)
         self.copy_button.setEnabled(True)
-        skipped = f" · skipped {self.skipped_count} invalid pairs" if self.skipped_count else ""
-        limited = (f" · showing the top {MAX_VISIBLE_FITS}" if len(self.fits) > MAX_VISIBLE_FITS else "")
-        self.status.setText(
-            f"{len(self.fits)} / {len(self.all_fits)} fits pass R² > {threshold:.2f}"
-            f" · highest R² first{limited}{skipped}"
-        )
+        self.update_fit_status()
 
     def render_fits(self):
         """Refresh the interactive grid; the export mirror is built on demand."""
-        visible_fits = self.fits[:MAX_VISIBLE_FITS]
-        columns = min(int(self.columns.currentText()), len(visible_fits))
+        self.update_pagination()
+        visible_fits = self.page_fits()
+        columns = int(self.columns.currentText())
         rows = ceil(len(visible_fits) / columns)
         self.base_size = (columns * 520, rows * 390 + 30)
         self._export_dirty = True
         self._copy_image = None
         self._copy_dpi = None
-        self.render_interactive(visible_fits, columns, rows)
+        start_rank = self.page_index * int(self.page_size.currentText()) + 1
+        self.render_interactive(visible_fits, columns, rows, start_rank)
 
-    def build_export_figure(self):
+    def build_export_figure(self, page_index=None):
         """Matplotlib mirror of the visible fits, used by Export / Copy PNG."""
         self._export_dirty = False
-        visible_fits = self.fits[:MAX_VISIBLE_FITS]
+        index = self.page_index if page_index is None else page_index
+        visible_fits = self.page_fits(index)
         columns = min(int(self.columns.currentText()), len(visible_fits))
         rows = ceil(len(visible_fits) / columns)
-        width, height = self.base_size
+        width, height = columns * 520, rows * 390 + 30
         self.figure.clear()
         self.figure.set_size_inches(width / 100, height / 100, forward=False)
         axes = self.figure.subplots(rows, columns, squeeze=False)
         base = int(self.font_size.currentText())
         label_size, tick_size = max(6, base - 1), max(5, base - 2)
-        for rank, (ax, fit) in enumerate(zip(axes.flat, visible_fits), start=1):
+        start_rank = index * int(self.page_size.currentText()) + 1
+        for rank, (ax, fit) in enumerate(
+            zip(axes.flat, visible_fits), start=start_rank
+        ):
             if isinstance(fit, SourcePairFit):
                 details = []
                 for source in fit.sources:
@@ -552,14 +734,14 @@ class CorrelationPage(QWidget):
             self.plot_host = label
             self.interactive_scroll.setWidget(label)
 
-    def render_interactive(self, visible_fits, columns, rows):
+    def render_interactive(self, visible_fits, columns, rows, start_rank=1):
         """Build a resizable grid of independently zoomable PyQtGraph plots."""
         self.clear_interactive()
         base = int(self.font_size.currentText())
         panel_height = 350
         grid = PanelGrid(columns)
-        grid.set_minimum_row_height(rows, panel_height)
-        for rank, fit in enumerate(visible_fits, start=1):
+        grid.set_fixed_row_height(rows, panel_height)
+        for rank, fit in enumerate(visible_fits, start=start_rank):
             widget = InteractivePlotWidget(background="w", frame_tick_length=3)
             widget.setMinimumSize(180, 310)
             widget.setToolTip("Ctrl+scroll to zoom · Drag a box to zoom · Right-drag to pan · "
@@ -629,6 +811,7 @@ class CorrelationPage(QWidget):
             grid.add_panel(container)
             self.plot_widgets.append(widget)
             self.panel_hosts.append(container)
+        grid.complete_last_row(minimum_width=180)
         self.plot_host = grid
         self.interactive_scroll.setWidget(grid)
         QTimer.singleShot(0, self.remember_home_views)
@@ -696,12 +879,52 @@ class CorrelationPage(QWidget):
         QApplication.processEvents()
         try:
             self.figure.savefig(path, dpi=dpi, facecolor="white")
-            shown = min(len(self.fits), MAX_VISIBLE_FITS)
-            self.status.setText(f"Exported {shown} of {len(self.fits)} fits "
-                                f"at {dpi} dpi{note}: {path}")
+            shown = len(self.page_fits())
+            self.status.setText(
+                f"Exported {shown} fits from page {self.page_index + 1} "
+                f"of {self.page_count()} at {dpi} dpi{note}: {path}"
+            )
         except Exception as error:
             self.status.setText(f"Export failed: {error}")
         finally:
+            QApplication.restoreOverrideCursor()
+
+    def export_all_pages(self):
+        if not self.ready:
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export all pairwise fit pages", "pairwise_fits.png",
+            "PNG (*.png)",
+        )
+        if not path:
+            return
+        base_path = Path(path).with_suffix(".png")
+        pages = self.page_count()
+        _scale, requested = resolution_settings(self.resolution)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        self.status.setText(f"Exporting {pages} pages…")
+        QApplication.processEvents()
+        try:
+            for index in range(pages):
+                self.build_export_figure(index)
+                output = (
+                    base_path
+                    if pages == 1 else
+                    base_path.with_name(
+                        f"{base_path.stem}_{index + 1:02d}{base_path.suffix}"
+                    )
+                )
+                dpi = export_dpi(self.figure, requested, MAX_EXPORT_PIXELS)
+                self.figure.savefig(output, dpi=dpi, facecolor="white")
+                QApplication.processEvents()
+            self.status.setText(
+                f"Exported all {len(self.fits)} fits across {pages} pages: "
+                f"{base_path.parent}"
+            )
+        except Exception as error:
+            self.status.setText(f"Export failed: {error}")
+        finally:
+            self._export_dirty = True
             QApplication.restoreOverrideCursor()
 
     def copy_png(self):
@@ -723,9 +946,12 @@ class CorrelationPage(QWidget):
             dpi = round(scale * 100)
             note = f" · capped from {requested} dpi" if dpi < requested else ""
             QApplication.clipboard().setImage(image)
-            shown = min(len(self.fits), MAX_VISIBLE_FITS)
-            self.status.setText(f"Copied {shown} of {len(self.fits)} fits "
-                                f"at {dpi} dpi{note} · {image.width()} × {image.height()} px")
+            shown = len(self.page_fits())
+            self.status.setText(
+                f"Copied {shown} fits from page {self.page_index + 1} "
+                f"of {self.page_count()} at {dpi} dpi{note} · "
+                f"{image.width()} × {image.height()} px"
+            )
         except Exception as error:
             self.status.setText(f"Copy failed: {error}")
         finally:

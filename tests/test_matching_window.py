@@ -11,8 +11,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pandas as pd
 import pyqtgraph as pg
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QImage
+from PyQt6.QtCore import QPoint, QPointF, Qt
+from PyQt6.QtGui import QImage, QWheelEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import (
     QApplication, QCheckBox, QFileDialog, QLabel, QMessageBox, QScrollArea, QSplitter,
@@ -208,6 +208,87 @@ class MatchingWindowTests(unittest.TestCase):
             workspace.close()
             workspace.deleteLater()
             APP.processEvents()
+
+    def test_drawn_correlation_and_trend_restore_after_window_and_wkb_reopen(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "drawn-correlation-state.wkb"
+            self.window.save_workbook(path)
+            first = self.window.open_correlation_workspace()
+            raw_spa = next(
+                first.parameter_list.topLevelItem(index)
+                for index in range(first.parameter_list.topLevelItemCount())
+                if first.parameter_list.topLevelItem(index).text(0) == "SPA"
+            )
+            raw_spa.setCheckState(0, Qt.CheckState.Unchecked)
+            reference_keys = [
+                key for key in first.correlation_page.selector.wafers
+                if key[0] == "Reference"
+            ]
+            trend_key = next(
+                key for key in first.sequence_page.selector.wafers
+                if key[0] == "Reference"
+            )
+            correlation_cells = {
+                (key, metric)
+                for key in reference_keys for metric in ("CD_Bot", "SPA")
+            }
+            trend_cells = {(trend_key, "CD_Bot")}
+            first.correlation_page.selector.set_selected_cells(
+                correlation_cells
+            )
+            first.correlation_page.draw_plot()
+            first.sequence_page.selector.set_selected_cells(trend_cells)
+            first.sequence_page.draw_plot()
+            self.assertTrue(first.correlation_page.ready)
+            self.assertTrue(first.sequence_page.ready)
+            self.assertTrue(first.close())
+            first.deleteLater()
+            APP.processEvents()
+
+            second = self.window.open_correlation_workspace()
+            try:
+                self.assertEqual(second.selected(second.parameter_list), ["CD_Bot"])
+                self.assertEqual(
+                    second.correlation_page.selector.selected_cells(),
+                    correlation_cells,
+                )
+                self.assertEqual(
+                    second.sequence_page.selector.selected_cells(), trend_cells
+                )
+                self.assertTrue(second.correlation_page.ready)
+                self.assertTrue(second.sequence_page.ready)
+            finally:
+                second.close()
+                second.deleteLater()
+                APP.processEvents()
+
+            reopened = MatchingWindow()
+            try:
+                reopened.load_workbook(path)
+                restored = reopened.open_correlation_workspace()
+                self.assertEqual(
+                    restored.selected(restored.parameter_list), ["CD_Bot"]
+                )
+                self.assertEqual(
+                    restored.correlation_page.selector.selected_cells(),
+                    correlation_cells,
+                )
+                self.assertEqual(
+                    restored.sequence_page.selector.selected_cells(), trend_cells
+                )
+                self.assertTrue(restored.correlation_page.ready)
+                self.assertTrue(restored.sequence_page.ready)
+                restored.close()
+                restored.deleteLater()
+                APP.processEvents()
+            finally:
+                reopened.close()
+                reopened.deleteLater()
+                APP.processEvents()
 
     def test_keyboard_undo_restores_replaced_reference_and_raw_tables(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
@@ -406,6 +487,33 @@ class MatchingWindowTests(unittest.TestCase):
         ))
         self.assertTrue(self.window.select_all_mappings.isChecked())
 
+    def test_raw_column_picker_ignores_the_mouse_wheel(self):
+        """A wheel over the mapping table must not remap the parameter."""
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.show()
+        APP.processEvents()
+        picker = self.window.mapping_table.cellWidget(0, 3)
+        picker.setFocus()
+        APP.processEvents()
+        self.assertTrue(picker.hasFocus())
+        chosen = picker.currentText()
+        index = picker.currentIndex()
+        center = picker.rect().center()
+
+        for delta in (-120, 120):
+            event = QWheelEvent(
+                QPointF(center), QPointF(picker.mapToGlobal(center)),
+                QPoint(0, 0), QPoint(0, delta), Qt.MouseButton.NoButton,
+                Qt.KeyboardModifier.NoModifier,
+                Qt.ScrollPhase.NoScrollPhase, False,
+            )
+            APP.sendEvent(picker, event)
+            APP.processEvents()
+            # Checked after each notch: a plain combo box would step the index.
+            self.assertEqual(picker.currentIndex(), index)
+            self.assertEqual(picker.currentText(), chosen)
+
     def test_clearing_raw_data_keeps_mappings_and_prompts_for_columns(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
@@ -540,8 +648,8 @@ class MatchingWindowTests(unittest.TestCase):
             [item.name() for item in cd_plots["match"].listDataItems()],
         )
         self.assertTrue(all(plot.minimumHeight() == 330 for plot in cd_plots.values()))
-        self.assertEqual(cd_plots["match"].minimumWidth(), 510)
-        self.assertEqual(cd_plots["match"].maximumWidth(), 510)
+        self.assertEqual(cd_plots["match"].minimumWidth(), 340)
+        self.assertEqual(cd_plots["match"].maximumWidth(), 340)
         self.assertTrue(cd_plots["bias"].listDataItems())
         self.assertTrue(cd_plots["bias-percent"].listDataItems())
         self.assertTrue(spa_plots["match"].listDataItems())
@@ -699,7 +807,7 @@ class MatchingWindowTests(unittest.TestCase):
         )
         self.assertLess(plots["match"].geometry().right(), plots["trend"].geometry().left())
         self.assertLess(plots["trend"].geometry().right(), plots["bias"].geometry().left())
-        self.assertEqual(plots["match"].width(), 510)
+        self.assertEqual(plots["match"].width(), 340)
         self.assertAlmostEqual(
             plots["trend"].width(), plots["bias"].width(), delta=1
         )
@@ -784,7 +892,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(multiple_heights, {330})
         self.assertEqual(single_heights, {330})
         self.assertEqual(
-            self.window.plot_groups["CD_Bot"]["plots"]["match"].width(), 510
+            self.window.plot_groups["CD_Bot"]["plots"]["match"].width(), 340
         )
         self.assertEqual(self.window.plot_groups_layout.spacing(), 8)
 
@@ -946,6 +1054,62 @@ class MatchingWindowTests(unittest.TestCase):
             plots["trend"].getAxis("bottom")._tickLevels,
             [[(1.0, "W1"), (2.0, "W2"), (3.0, "W3")]],
         )
+
+    def test_final_bias_axes_fit_measurements_not_the_zero_reference_line(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.result_mode.setCurrentText("Final")
+        raw = self.raw()
+        raw["CD_Bot"] = [9, 19.1, 29.2]
+        raw["SPA"] = [8, 10.1, 12.2]
+        self.window.set_raw_frame(raw, "Final Clipboard")
+        self.window.percent_bias.setChecked(True)
+        self.window.run_analysis()
+        self.window.resize(1500, 900)
+        self.window.show()
+        APP.processEvents()
+        for parameter, negative in (("CD_Bot", True), ("SPA", False)):
+            for name in ("bias", "bias-percent"):
+                with self.subTest(parameter=parameter, plot=name):
+                    plot = self.window.plot_groups[parameter]["plots"][name]
+                    view = plot.getViewBox()
+                    values = plot.listDataItems()[0].getData()[1]
+                    lines = [item for item in plot.getPlotItem().items if isinstance(item, pg.InfiniteLine)]
+                    self.assertEqual(len(lines), 1)
+                    self.assertEqual(lines[0].value(), 0)
+                    # Check both first draw and the native Auto Scale path after zoom.
+                    for reset in (False, True):
+                        if reset:
+                            view.setYRange(-100, 100, padding=0)
+                            view.enableAutoRange(axis=pg.ViewBox.YAxis, enable=True)
+                            APP.processEvents()
+                        low, high = view.viewRange()[1]
+                        self.assertLess(low, min(values))
+                        self.assertGreater(high, max(values))
+                        if negative:
+                            self.assertLess(high, 0)
+                        else:
+                            self.assertGreater(low, 0)
+
+    def test_bias_auto_range_keeps_zero_crossings_and_constant_values_visible(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.result_mode.setCurrentText("Final")
+        raw = self.raw()
+        raw["CD_Bot"] = [11, 22, 33]
+        raw["SPA"] = [5, 7, 9]
+        self.window.set_raw_frame(raw, "Final Clipboard")
+        self.window.percent_bias.setChecked(True)
+        self.window.run_analysis()
+        for parameter in ("CD_Bot", "SPA"):
+            for name in ("bias", "bias-percent"):
+                with self.subTest(parameter=parameter, plot=name):
+                    plot = self.window.plot_groups[parameter]["plots"][name]
+                    plot.getViewBox().autoRange()
+                    low, high = plot.getViewBox().viewRange()[1]
+                    values = plot.listDataItems()[0].getData()[1]
+                    self.assertLess(low, min(values))
+                    self.assertGreater(high, max(values))
+                    self.assertLess(low, 0)
+                    self.assertGreater(high, 0)
 
     def test_trend_card_checkbox_switches_between_raw_and_carded_values(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
@@ -1233,6 +1397,12 @@ class MatchingWindowTests(unittest.TestCase):
         opened = []
 
         class FakeWaferWorkspace:
+            def __init__(self):
+                self.cards = {}
+
+            def set_parameter_cards(self, cards):
+                self.cards = dict(cards)
+
             def set_table(self, frame, source):
                 self.frame = frame
                 self.source = source
@@ -1268,7 +1438,12 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(len(opened), 2)
         self.assertIn("Preview", preview_workspace.source)
         self.assertIn("Final", final_workspace.source)
-        self.assertEqual(preview_workspace.frame["CD_Bot"].tolist(), [42.0, 52.0])
+        # The workspace gets the pasted values plus the Cards; applying them is
+        # the workspace's own Card option, so nothing is carded up front.
+        self.assertEqual(preview_workspace.frame["CD_Bot"].tolist(), [4.0, 5.0])
+        self.assertEqual(
+            sorted(preview_workspace.cards), ["CD_Bot", "SPA"]
+        )
         pd.testing.assert_frame_equal(final_workspace.frame, final)
 
     def test_kla_map_edits_are_saved_in_wkb_and_not_regenerated(self):
@@ -1294,7 +1469,9 @@ class MatchingWindowTests(unittest.TestCase):
 
         workspace = self.window.open_stage_workspace("preview")
         generated = workspace.model.frame()
-        self.assertEqual(generated["CD_Bot"].astype(float).tolist(), [12.0, 22.0, 32.0])
+        # Preview hands over the raw values; the Card is an opt-in in the
+        # workspace Data tab, so the saved snapshot keeps the raw numbers.
+        self.assertEqual(generated["CD_Bot"].astype(float).tolist(), [1.0, 2.0, 3.0])
         edited = generated.copy()
         edited.loc[0, "CD_Bot"] = 999.0
         workspace.model.load(edited)
@@ -1447,6 +1624,614 @@ class MatchingWindowTests(unittest.TestCase):
                 workspace.deleteLater()
                 APP.processEvents()
 
+    def test_kla_refresh_keeps_each_windows_plot_view(self):
+        """A data refresh repaints plots in place: zoom, scroll and page stay."""
+        parameters = [f"P{i}" for i in range(6)]
+        xs = [-2.0, -1.0, 0.0, 1.0, 2.0, 0.0]
+        ys = [0.0, 1.0, 2.0, 0.0, -1.0, -2.0]
+        reference_rows, raw_rows = [], []
+        for wafer in range(4):
+            for die in range(6):
+                value = float(wafer * 6 + die)
+                reference_rows.append({
+                    "Wafer ID": f"W{wafer}",
+                    "Die Seq": die + 1,
+                    "FIELD X": xs[die],
+                    "FIELD Y": ys[die],
+                    **{
+                        f"{name} Reference": value + offset
+                        for offset, name in enumerate(parameters)
+                    },
+                })
+                raw_rows.append({
+                    "Wafer ID": f"W{wafer}",
+                    "Die Seq": die + 1,
+                    "FIELD X": xs[die],
+                    "FIELD Y": ys[die],
+                    **{
+                        name: value + offset - 1.0
+                        for offset, name in enumerate(parameters)
+                    },
+                })
+        self.window.set_reference_frame(
+            pd.DataFrame(reference_rows), "Clipboard"
+        )
+        self.window.set_raw_frame(pd.DataFrame(raw_rows), "Clipboard")
+        self.window.run_analysis()
+        map_window = self.window.open_stage_workspace("preview")
+        correlation_window = self.window.open_correlation_workspace()
+
+        try:
+            map_page = map_window.plot_page
+            map_window.tabs.setCurrentIndex(1)
+            map_window.check_all(map_window.wafer_list, True)
+            map_window.check_all(map_window.parameter_list, True)
+            map_page.selector.selectAll()
+            map_page.draw_maps()
+            QTest.qWait(600)
+            APP.processEvents()
+            self.assertIsNotNone(map_page.result)
+            map_page.zoom.setCurrentText("150%")
+            APP.processEvents()
+            map_page.scroll.horizontalScrollBar().setValue(70)
+            map_page.scroll.verticalScrollBar().setValue(90)
+            map_page.show_selector()
+
+            correlation_page = correlation_window.correlation_page
+            correlation_window.tabs.setCurrentIndex(2)
+            correlation_page.selector.selectAll()
+            correlation_page.draw_plot()
+            APP.processEvents()
+            self.assertTrue(correlation_page.ready)
+            self.assertGreater(correlation_page.page_count(), 1)
+            correlation_page.set_page(1)
+            correlation_page.show_selector()
+
+            trend_page = correlation_window.sequence_page
+            correlation_window.tabs.setCurrentIndex(3)
+            trend_page.selector.selectAll()
+            trend_page.draw_plot()
+            APP.processEvents()
+            trend_page.show_selector()
+
+            replacement = self.window.raw_model.frame().copy()
+            column = replacement.columns.get_loc("P0")
+            replacement.iloc[0, column] = "400"
+            self.window.raw_model.edit({(1, column): "400"})
+            APP.processEvents()
+            self.window.run_analysis()
+            QTest.qWait(800)
+            APP.processEvents()
+
+            self.assertIs(map_page.stack.currentWidget(), map_page.selector_panel)
+            self.assertEqual(map_page.zoom.currentText(), "150%")
+            # The new canvas may clamp an offset by a pixel or two; what matters
+            # is that the view did not snap back to the top-left corner.
+            self.assertAlmostEqual(
+                map_page.scroll.horizontalScrollBar().value(), 70, delta=3
+            )
+            self.assertAlmostEqual(
+                map_page.scroll.verticalScrollBar().value(), 90, delta=3
+            )
+            self.assertIs(
+                correlation_page.stack.currentWidget(),
+                correlation_page.selector_panel,
+            )
+            self.assertEqual(correlation_page.page_index, 1)
+            self.assertIs(
+                trend_page.stack.currentWidget(), trend_page.selector_panel
+            )
+        finally:
+            self.window._close_stage_windows()
+            APP.processEvents()
+
+    def test_analysis_menu_owns_the_trend_axis_mode(self):
+        """The menu supplies a decimal threshold and two force modes."""
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+
+        self.assertEqual(self.window.trend_axis_mode, "auto")
+        self.assertEqual(self.window.second_axis_ratio, 10.0)
+        self.assertEqual(
+            [self.window.second_axis_actions[mode].text()
+             for mode in ("auto", "dual", "single")],
+            ["● Auto (median ratio)", "○ Always two Y axes",
+             "○ Always one Y axis"],
+        )
+        self.assertFalse(any(action.isCheckable()
+                             for action in self.window.second_axis_actions.values()))
+        self.assertEqual(self.window.second_axis_spin.decimals(), 3)
+
+        workspace = self.window.open_correlation_workspace()
+        try:
+            page = workspace.sequence_page
+            # The menu owns the option, so the in-page control is hidden.
+            self.assertTrue(page.axis_mode.isHidden())
+            self.assertTrue(page.axis_ratio.isHidden())
+            self.assertEqual(page.axis_mode_value(), "auto")
+
+            self.window.second_axis_spin.setValue(2.75)
+            self.window.second_axis_actions["dual"].trigger()
+            APP.processEvents()
+            self.assertEqual(page.axis_ratio_limit(), 2.75)
+            self.assertEqual(page.axis_mode_value(), "dual")
+            self.assertEqual(
+                self.window.second_axis_actions["dual"].text(),
+                "● Always two Y axes",
+            )
+            self.window.second_axis_actions["single"].trigger()
+            APP.processEvents()
+
+            # The menu is saved once, separate from per-stage plotting choices.
+            state = self.window._correlation_selection_states["preview"]
+            self.assertNotIn("trend_axis_mode", state)
+            self.assertNotIn("trend_axis_ratio", state)
+            self.assertEqual(
+                self.window.current_workbook().trend_axis_settings,
+                {"mode": "single", "ratio": 2.75},
+            )
+
+            with tempfile.TemporaryDirectory() as folder:
+                path = Path(folder) / "second-axis.wkb"
+                self.window.save_workbook(path)
+                self.window._close_stage_windows()
+                reopened = MatchingWindow()
+                try:
+                    reopened.load_workbook(path)
+                    self.assertEqual(reopened.trend_axis_mode, "single")
+                    self.assertEqual(reopened.second_axis_spin.value(), 2.75)
+                    restored = reopened.open_correlation_workspace()
+                    self.assertEqual(
+                        restored.sequence_page.axis_mode_value(), "single"
+                    )
+                    self.assertEqual(restored.sequence_page.axis_ratio_limit(), 2.75)
+                    # The menu shows the value the workbook carries.
+                    self.assertEqual(
+                        reopened.second_axis_actions["single"].text(),
+                        "● Always one Y axis",
+                    )
+                    reopened._close_stage_windows()
+                finally:
+                    reopened.close()
+                    reopened.deleteLater()
+                    APP.processEvents()
+        finally:
+            self.window._close_stage_windows()
+            APP.processEvents()
+
+    def test_standalone_correlation_window_keeps_its_own_axis_mode_control(self):
+        """Without a Match Workbook the page keeps the control it always had."""
+        from metrology_app.correlation_window import CorrelationWindow
+
+        workspace = CorrelationWindow()
+        try:
+            self.assertFalse(workspace.sequence_page.axis_mode.isHidden())
+            self.assertFalse(workspace.sequence_page.axis_ratio.isHidden())
+            self.assertEqual(workspace.sequence_page.axis_mode_value(), "auto")
+            workspace.set_second_axis_ratio(2.75, show_control=True)
+            workspace.set_trend_axis_mode("dual", show_control=True)
+            self.assertEqual(workspace.sequence_page.axis_mode_value(), "dual")
+            self.assertEqual(workspace.sequence_page.axis_ratio_limit(), 2.75)
+            self.assertFalse(workspace.sequence_page.axis_mode.isHidden())
+        finally:
+            workspace.close()
+            workspace.deleteLater()
+            APP.processEvents()
+
+    def test_stage_selection_cannot_override_shared_axis_settings(self):
+        """Opening a stage cannot overwrite the workbook menu's policy."""
+        workspace = CorrelationWindow()
+        try:
+            self.window.set_trend_axis_mode("dual")
+            self.window._correlation_selection_states["preview"] = {
+                "trend_axis_ratio": 2.75,
+            }
+            self.window._offer_second_axis_settings(workspace)
+            self.assertEqual(self.window.trend_axis_mode, "dual")
+            self.assertEqual(workspace.sequence_page.axis_mode_value(), "dual")
+            self.assertEqual(workspace.sequence_page.axis_ratio_limit(), 10.0)
+        finally:
+            workspace.close()
+            workspace.deleteLater()
+            APP.processEvents()
+
+    def test_axis_settings_are_shared_between_preview_and_final(self):
+        """Both open windows and later openings use the same saved policy."""
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Preview clipboard")
+        self.window.run_analysis()
+        self.window.second_axis_spin.setValue(2.75)
+        self.window.set_trend_axis_mode("dual")
+        preview = self.window.open_correlation_workspace()
+        self.window.result_mode.setCurrentText("Final")
+        self.window.set_raw_frame(self.raw(), "Final clipboard")
+        final = self.window.open_correlation_workspace()
+        for workspace in (preview, final):
+            self.assertEqual(workspace.sequence_page.axis_ratio_limit(), 2.75)
+            self.assertEqual(workspace.sequence_page.axis_mode_value(), "dual")
+        self.window.set_trend_axis_mode("single")
+        self.window.result_mode.setCurrentText("Preview")
+        for workspace in (preview, final):
+            self.assertEqual(workspace.sequence_page.axis_mode_value(), "single")
+        self.window._close_stage_windows()
+
+        # Save a later menu edit without any child window to capture it.
+        self.window.set_second_axis_ratio(4.125)
+        self.window.set_trend_axis_mode("auto")
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "shared-axis.wkb"
+            self.window.save_workbook(path)
+            reopened = MatchingWindow()
+            try:
+                reopened.load_workbook(path)
+                for stage in ("Final", "Preview"):
+                    reopened.result_mode.setCurrentText(stage)
+                    workspace = reopened.open_correlation_workspace()
+                    self.assertEqual(workspace.sequence_page.axis_ratio_limit(), 4.125)
+                    self.assertEqual(workspace.sequence_page.axis_mode_value(), "auto")
+                    self.assertEqual(reopened.second_axis_spin.value(), 4.125)
+                reopened._close_stage_windows()
+            finally:
+                reopened.close()
+                reopened.deleteLater()
+                APP.processEvents()
+
+    def test_workspace_card_checkbox_applies_the_parameter_cards(self):
+        """The Data tab offers the workbook Card; off until the engineer asks."""
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+        workspace = self.window.open_stage_workspace("preview")
+        try:
+            self.assertTrue(workspace.card_check.isEnabled())
+            self.assertFalse(workspace.card_check.isChecked())
+            plotted = lambda: pd.to_numeric(
+                workspace.plot_page.frame["CD_Bot"], errors="coerce"
+            ).tolist()
+            self.assertEqual(plotted(), [1.0, 2.0, 3.0])
+
+            workspace.card_check.setChecked(True)
+            APP.processEvents()
+            self.assertEqual(plotted(), [12.0, 22.0, 32.0])
+            # The table keeps the loaded values; only the plots use the Card.
+            self.assertEqual(
+                pd.to_numeric(
+                    workspace.model.frame()["CD_Bot"], errors="coerce"
+                ).tolist(),
+                [1.0, 2.0, 3.0],
+            )
+
+            workspace.card_check.setChecked(False)
+            APP.processEvents()
+            self.assertEqual(plotted(), [1.0, 2.0, 3.0])
+        finally:
+            workspace.close()
+            workspace.deleteLater()
+            APP.processEvents()
+
+    def test_dynamic_workspace_card_checkbox_applies_the_parameter_cards(self):
+        self.window.set_reference_frame(pd.DataFrame({
+            "Wafer ID": ["W1"] * 6,
+            "Die Seq": [1, 2, 1, 2, 1, 2],
+            "CD_Bot Reference": [12.0, 22.0, 32.0, 42.0, 52.0, 62.0],
+        }), "Clipboard")
+        self.window.set_raw_frame(pd.DataFrame({
+            "Wafer ID": ["W1"] * 6,
+            "Die Seq": [1, 2, 1, 2, 1, 2],
+            "CD_Bot": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        }), "Clipboard")
+        self.window.run_analysis()
+        workspace = self.window.open_dynamic_workspace("preview")
+        try:
+            self.assertTrue(workspace.card_check.isEnabled())
+            self.assertFalse(workspace.card_check.isChecked())
+            self.assertEqual(
+                pd.to_numeric(
+                    workspace.dynamic_page.frame["CD_Bot"], errors="coerce"
+                ).tolist(),
+                [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            )
+
+            workspace.card_check.setChecked(True)
+            APP.processEvents()
+            self.assertEqual(
+                pd.to_numeric(
+                    workspace.dynamic_page.frame["CD_Bot"], errors="coerce"
+                ).tolist(),
+                [12.0, 22.0, 32.0, 42.0, 52.0, 62.0],
+            )
+        finally:
+            workspace.model.undo.setClean()
+            workspace.close()
+            workspace.deleteLater()
+            APP.processEvents()
+
+    def test_refreshing_analysis_windows_keeps_their_active_tab(self):
+        """Raw, Reference and mapping edits refresh data without moving views."""
+        self.window.set_reference_frame(pd.DataFrame({
+            "Wafer ID": ["W1"] * 6,
+            "Die Seq": [1, 2, 1, 2, 1, 2],
+            "CD_Bot Reference": [12.0, 22.0, 32.0, 42.0, 52.0, 62.0],
+            "SPA Reference": [2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
+        }), "Clipboard")
+        self.window.set_raw_frame(pd.DataFrame({
+            "Wafer ID": ["W1"] * 6,
+            "Die Seq": [1, 2, 1, 2, 1, 2],
+            "CD_Bot": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            "SPA": [9.0, 8.0, 7.0, 6.0, 5.0, 4.0],
+        }), "Clipboard")
+        self.window.run_analysis()
+        map_window = self.window.open_stage_workspace("preview")
+        dynamic_window = self.window.open_dynamic_workspace("preview")
+        correlation_window = self.window.open_correlation_workspace()
+
+        def assert_views_kept():
+            self.assertEqual(map_window.tabs.currentIndex(), 2)
+            self.assertEqual(dynamic_window.tabs.currentIndex(), 2)
+            self.assertEqual(correlation_window.tabs.currentIndex(), 3)
+            self.assertEqual(
+                (
+                    map_window.sheet.currentIndex().row(),
+                    map_window.sheet.currentIndex().column(),
+                ),
+                (3, 1),
+            )
+            self.assertIs(
+                correlation_window.sequence_page.stack.currentWidget(),
+                correlation_window.sequence_page.selector_panel,
+            )
+
+        try:
+            map_window.tabs.setCurrentIndex(2)          # Radius Plot
+            dynamic_window.tabs.setCurrentIndex(2)      # Trend
+            correlation_window.tabs.setCurrentIndex(3)  # Trend
+            map_window.sheet.setCurrentIndex(
+                map_window.sheet.model().index(3, 1)
+            )
+            # Draw once, then go back to the curve boxes: a later refresh must
+            # not yank the engineer out of the selector.
+            trend = correlation_window.sequence_page
+            trend.selector.selectAll()
+            trend.draw_plot()
+            trend.show_selector()
+            APP.processEvents()
+
+            replacement = pd.DataFrame({
+                "Wafer ID": ["W1"] * 6,
+                "Die Seq": [1, 2, 1, 2, 1, 2],
+                "CD_Bot": [40.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+                "SPA": [9.0, 8.0, 7.0, 6.0, 5.0, 4.0],
+            })
+            self.window.set_raw_frame(replacement, "Clipboard")
+            APP.processEvents()
+            self.window.run_analysis()
+            APP.processEvents()
+
+            assert_views_kept()
+            self.assertEqual(
+                pd.to_numeric(
+                    correlation_window.raw_model.frame()["CD_Bot"],
+                    errors="coerce",
+                ).tolist(),
+                replacement["CD_Bot"].tolist(),
+            )
+
+            # A Reference edit refreshes the derived values the same way.
+            reference = pd.DataFrame({
+                "Wafer ID": ["W1"] * 6,
+                "Die Seq": [1, 2, 1, 2, 1, 2],
+                "CD_Bot Reference": [15.0, 25.0, 35.0, 45.0, 55.0, 65.0],
+                "SPA Reference": [2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
+            })
+            self.window.set_reference_frame(reference, "Clipboard")
+            APP.processEvents()
+            self.window.run_analysis()
+            APP.processEvents()
+
+            assert_views_kept()
+            self.assertEqual(
+                pd.to_numeric(
+                    correlation_window.reference_model.frame()["CD_Bot"],
+                    errors="coerce",
+                ).tolist(),
+                reference["CD_Bot Reference"].tolist(),
+            )
+
+            # Changing a parameter mapping must not rebuild the windows either.
+            self.window.mapping_table.cellWidget(0, 3).setCurrentText("SPA")
+            APP.processEvents()
+            self.window.run_analysis()
+            APP.processEvents()
+
+            assert_views_kept()
+        finally:
+            self.window._close_stage_windows()
+            APP.processEvents()
+
+    def test_tem_keeps_one_analysis_window_per_button(self):
+        """TEM opens each of the three windows once, not one window in total."""
+        self.window.match_type.setCurrentText("TEM")
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+
+        correlation = self.window.open_correlation_workspace()
+        map_window = self.window.open_stage_workspace("preview")
+        dynamic_window = self.window.open_dynamic_workspace("preview")
+        try:
+            self.assertEqual(
+                self.window._stage_windows,
+                [correlation, map_window, dynamic_window],
+            )
+            self.assertTrue(correlation.isVisible())
+            self.assertEqual(
+                self.window._stage_window_context[map_window],
+                ("map", "preview"),
+            )
+
+            # Each button reuses its own window instead of opening a second one.
+            repeated = self.window.open_stage_workspace("preview")
+            self.assertIs(repeated, map_window)
+            self.assertEqual(len(self.window._stage_windows), 3)
+            self.assertEqual(
+                self.window._stage_windows.count(map_window), 1
+            )
+        finally:
+            self.window._close_stage_windows()
+            APP.processEvents()
+
+    def test_kla_and_nova_keep_all_three_analysis_windows_open(self):
+        for match_type in ("KLA", "NOVA"):
+            with self.subTest(match_type=match_type):
+                self.window.match_type.setCurrentText(match_type)
+                self.window.set_reference_frame(self.reference(), "Clipboard")
+                self.window.set_raw_frame(self.raw(), "Clipboard")
+                self.window.run_analysis()
+                self.window.preview_dynamic_frame = pd.DataFrame({
+                    "Wafer ID": ["W1", "W1", "W1", "W1"],
+                    "Die Seq": [1, 2, 1, 2],
+                    "Cycle": ["1", "1", "2", "2"],
+                    "CD_Bot": [10.0, 20.0, 11.0, 22.0],
+                })
+                windows = [
+                    self.window.open_stage_workspace("preview"),
+                    self.window.open_dynamic_workspace("preview"),
+                    self.window.open_correlation_workspace(),
+                ]
+                try:
+                    self.assertEqual(len(self.window._stage_windows), 3)
+                    self.assertTrue(
+                        all(window.isVisible() for window in windows)
+                    )
+                finally:
+                    self.window._close_stage_windows()
+                    APP.processEvents()
+
+    def test_kla_raw_edits_refresh_every_analysis_window(self):
+        """KLA/NOVA refresh Map and Correlation; Dynamic keeps its own table."""
+        reference = pd.DataFrame({
+            "Wafer ID": ["W1"] * 6,
+            "Die Seq": [1, 2, 1, 2, 1, 2],
+            "CD_Bot Reference": [12.0, 22.0, 32.0, 42.0, 52.0, 62.0],
+        })
+        self.window.set_reference_frame(reference, "Clipboard")
+        self.window.set_raw_frame(pd.DataFrame({
+            "Wafer ID": ["W1"] * 6,
+            "Die Seq": [1, 2, 1, 2, 1, 2],
+            "CD_Bot": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        }), "Clipboard")
+        self.window.run_analysis()
+        map_window = self.window.open_stage_workspace("preview")
+        dynamic_window = self.window.open_dynamic_workspace("preview")
+        correlation_window = self.window.open_correlation_workspace()
+        try:
+            column = "CD_Bot"
+            before_map = pd.to_numeric(
+                map_window.model.frame()[column], errors="coerce"
+            ).tolist()
+            before_dynamic = pd.to_numeric(
+                dynamic_window.model.frame()[column], errors="coerce"
+            ).tolist()
+
+            replacement = pd.DataFrame({
+                "Wafer ID": ["W1"] * 6,
+                "Die Seq": [1, 2, 1, 2, 1, 2],
+                # A non-affine change: a plain offset would be absorbed by the
+                # refitted Card and the derived Map/Dynamic tables would look
+                # unchanged even though they did follow the workbook.
+                "CD_Bot": [40.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            })
+            self.window.set_raw_frame(replacement, "Clipboard")
+            APP.processEvents()
+            self.window.run_analysis()
+            APP.processEvents()
+
+            self.assertEqual(
+                pd.to_numeric(
+                    correlation_window.raw_model.frame()[column], errors="coerce"
+                ).tolist(),
+                replacement[column].tolist(),
+            )
+            self.assertNotEqual(
+                pd.to_numeric(
+                    map_window.model.frame()[column], errors="coerce"
+                ).tolist(),
+                before_map,
+            )
+            self.assertEqual(
+                pd.to_numeric(
+                    dynamic_window.model.frame()[column], errors="coerce"
+                ).tolist(),
+                before_dynamic,
+            )
+        finally:
+            self.window._close_stage_windows()
+            APP.processEvents()
+
+    def test_tem_correlation_window_follows_raw_edits(self):
+        self.window.match_type.setCurrentText("TEM")
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+        correlation_window = self.window.open_correlation_workspace()
+        try:
+            replacement = self.raw().copy()
+            replacement["CD_Bot"] = replacement["CD_Bot"] + 5
+            self.window.set_raw_frame(replacement, "Clipboard")
+            APP.processEvents()
+            self.window.run_analysis()
+            APP.processEvents()
+
+            self.assertEqual(
+                pd.to_numeric(
+                    correlation_window.raw_model.frame()["CD_Bot"],
+                    errors="coerce",
+                ).tolist(),
+                replacement["CD_Bot"].tolist(),
+            )
+        finally:
+            self.window._close_stage_windows()
+            APP.processEvents()
+
+    def test_tem_map_data_stays_independent_of_raw_edits(self):
+        self.window.match_type.setCurrentText("TEM")
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.run_analysis()
+        independent = pd.DataFrame({
+            "Wafer ID": ["W1", "W1"],
+            "PAD Name": ["P1", "P1"],
+            "Die Seq": [1, 2],
+            "CD_Bot": [42.0, 43.0],
+        })
+        self.window.preview_map_frame = independent.copy()
+        map_window = self.window.open_stage_workspace("preview")
+        try:
+            self.assertEqual(
+                pd.to_numeric(
+                    map_window.model.frame()["CD_Bot"], errors="coerce"
+                ).tolist(),
+                [42.0, 43.0],
+            )
+
+            replacement = self.raw().copy()
+            replacement["CD_Bot"] = replacement["CD_Bot"] + 5
+            self.window.set_raw_frame(replacement, "Clipboard")
+            APP.processEvents()
+            self.window.run_analysis()
+            APP.processEvents()
+
+            self.assertEqual(
+                pd.to_numeric(
+                    map_window.model.frame()["CD_Bot"], errors="coerce"
+                ).tolist(),
+                [42.0, 43.0],
+            )
+        finally:
+            self.window._close_stage_windows()
+            APP.processEvents()
+
     def test_closing_match_workbook_saves_and_closes_all_analysis_workspaces(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
@@ -1535,6 +2320,53 @@ class MatchingWindowTests(unittest.TestCase):
             second.close()
             second.deleteLater()
             APP.processEvents()
+
+    def test_preview_and_final_wafer_quality_metrics_survive_wkb_reopen(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        frame = pd.DataFrame({
+            "Wafer ID": ["W1", "W1"], "X": [-1, 1], "Y": [0, 0],
+            "CD_Bot": [4, 5], "SPA": [5, 6],
+            "MSE": [0.1, 0.2], "GOF": [0.9, 0.8], "NGOF": [0.8, 0.7],
+            "LBH": [1, 2], "CINDEX": [3, 4], "fitTime": [10, 11],
+            "regIter": [5, 6],
+        })
+        self.window.set_preview_frame(frame, "Preview FullMap")
+        self.window.set_final_frame(frame, "Final FullMap")
+        self.window.run_analysis()
+        quality = ["MSE", "GOF", "NGOF", "LBH", "CINDEX"]
+        for stage in ("preview", "final"):
+            workspace = self.window.open_stage_workspace(stage)
+            items = {workspace.parameter_list.topLevelItem(i).text(0):
+                     workspace.parameter_list.topLevelItem(i)
+                     for i in range(workspace.parameter_list.topLevelItemCount())}
+            for column in quality:
+                with self.subTest(stage=stage, column=column):
+                    self.assertEqual(items[column].text(1), "NUMERIC")
+                    self.assertTrue(items[column].flags() & Qt.ItemFlag.ItemIsUserCheckable)
+                    self.assertEqual(items[column].checkState(0), Qt.CheckState.Unchecked)
+                    items[column].setCheckState(0, Qt.CheckState.Checked)
+            self.assertEqual(workspace.plot_page.selection["metrics"], quality)
+            for column in ("fitTime", "regIter"):
+                self.assertEqual(items[column].text(1), "METADATA")
+            workspace.close()
+            workspace.deleteLater()
+            APP.processEvents()
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "quality.wkb"
+            self.window.save_workbook(path)
+            reopened = MatchingWindow()
+            try:
+                reopened.load_workbook(path)
+                for stage in ("preview", "final"):
+                    workspace = reopened.open_stage_workspace(stage)
+                    self.assertEqual(workspace.selection["metrics"], quality)
+                    self.assertEqual(workspace.plot_page.selection["metrics"], quality)
+            finally:
+                reopened.close()
+                reopened.deleteLater()
+                APP.processEvents()
 
     def test_reopening_preview_wafer_map_restores_its_parameter_selection(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")

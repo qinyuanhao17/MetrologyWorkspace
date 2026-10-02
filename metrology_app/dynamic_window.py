@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .dynamic import prepare_dynamic_frame
 from .dynamic_page import DynamicPage
+from .dynamic_trend import DynamicTrendPage
 from .window import MainWindow as DataWorkspaceWindow
 
 
@@ -14,23 +15,31 @@ class DynamicWindow(DataWorkspaceWindow):
         self.tabs.removeTab(2)
         self.tabs.removeTab(1)
         self.dynamic_page = DynamicPage()
+        self.dynamic_page.set_data_model(self.model)
         self.tabs.addTab(self.dynamic_page, "2. Dynamic")
+        self.dynamic_trend = DynamicTrendPage()
+        self.tabs.addTab(self.dynamic_trend, "3. Trend")
+        self.refresh_timer.setInterval(50)
         self.update_plan()
 
     def is_parameter_selectable(self, column, numeric):
         return bool(numeric and str(column).strip().lower() != "cycle")
 
     def set_table(self, frame, source):
-        super().set_table(prepare_dynamic_frame(frame), source)
+        prepared = prepare_dynamic_frame(frame)
+        self.dynamic_page.set_baseline(prepared)
+        super().set_table(prepared, source)
 
     def change_tab(self, index):
-        if index == 1 and self.refresh_timer.isActive():
+        if index >= 1 and self.refresh_timer.isActive():
             self.recognize()
 
     def update_plan(self, *_args):
         super().update_plan()
         if hasattr(self, "dynamic_page"):
             self.dynamic_page.set_input(self._frame, self.selection)
+        if hasattr(self, "dynamic_trend"):
+            self.dynamic_trend.set_input(self._frame, self.selection)
 
 
 __all__ = ["DynamicWindow"]

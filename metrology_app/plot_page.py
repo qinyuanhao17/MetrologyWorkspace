@@ -61,6 +61,7 @@ class PlotPage(QWidget):
         self.worker = None
         self.pending_fill_refresh = False
         self.pending_input_refresh = False
+        self.page_intent = "canvas"
         self.has_drawn_once = False
         self.drawn_cells = set()
         self.pending_cells = set()
@@ -284,6 +285,7 @@ class PlotPage(QWidget):
         self.has_drawn_once = True
         self.drawn_cells = set(cells)
         self.selector.set_selected_cells(cells, notify=False)
+        self.selector.pending_draw = False
         self.invalidate()
         self.draw_state_changed.emit(self.draw_state())
         self.queue_input_refresh()
@@ -301,6 +303,15 @@ class PlotPage(QWidget):
         signature = (id(frame), tuple(selection["wafers"]), tuple(selection["metrics"]), selection["wafer_column"])
         if signature == self.signature:
             return
+        # Only a data change may redraw by itself. Adding or removing wafers or
+        # parameters rebuilds the box grid, so the engineer picks the maps again
+        # and presses Draw selected; that is also what keeps the previous box
+        # selection from being redrawn behind their back.
+        grid_changed = (
+            tuple(selection["wafers"]) != tuple(self.selection.get("wafers", ()))
+            or tuple(selection["metrics"]) != tuple(self.selection.get("metrics", ()))
+            or selection["wafer_column"] != self.selection.get("wafer_column")
+        )
         changed_table = self.frame is not frame
         self.signature, self.frame, self.selection = signature, frame, selection.copy()
         if changed_table:
@@ -312,15 +323,16 @@ class PlotPage(QWidget):
                 default = previous if previous in frame else next((names[a] for a in aliases if a in names), None)
                 self.populate(combo, entries, default)
         self.selector.set_array(selection["wafers"], selection["metrics"], selection.get("labels"))
-        if self.has_drawn_once:
-            self.selector.set_selected_cells(
-                self.selector.reconciled_cells(self.drawn_cells), notify=False
-            )
         self.invalidate()
-        if self.has_drawn_once:
+        if (self.has_drawn_once and not grid_changed
+                and not self.selector.pending_draw
+                and set(self.selector.selected_cells()) == set(self.drawn_cells)):
+            # Auto redraw only replays the last successful draw; a pending box
+            # selection waits for the engineer to press Draw selected.
             self.queue_input_refresh()
 
     def show_selector(self):
+        self.page_intent = "selector"
         self.pending_input_refresh = False
         self.input_refresh_timer.stop()
         if self.worker is not None:
@@ -375,10 +387,10 @@ class PlotPage(QWidget):
         self.status.setText("Drag across the maps you want, then click Draw selected.")
 
     def selector_changed(self):
-        """After the first draw, a changed box selection redraws by itself."""
+        """A changed box selection waits for the explicit Draw selected click."""
+        self.pending_input_refresh = False
+        self.input_refresh_timer.stop()
         self.invalidate()
-        if self.has_drawn_once:
-            self.queue_input_refresh()
 
     def refresh_fill_edge(self, *_):
         """Recompute edge continuation while leaving the current plot visible."""
@@ -396,6 +408,7 @@ class PlotPage(QWidget):
         self._start_surface_job(preserve_canvas=True)
 
     def draw_maps(self, *_):
+        self.page_intent = "canvas"
         self.pending_input_refresh = False
         self.input_refresh_timer.stop()
         self._start_surface_job(preserve_canvas=False)
@@ -419,7 +432,18 @@ class PlotPage(QWidget):
             self.worker.requestInterruption()
             return
         self.pending_input_refresh = False
-        self._start_surface_job(preserve_canvas=False)
+        # A data refresh repaints the maps in place: same zoom, same scroll
+        # offset and the same selector-or-canvas page the engineer chose.
+        self._refresh_keeps_page = True
+        self._start_surface_job(preserve_canvas=True)
+        self.apply_page_intent()
+
+    def apply_page_intent(self):
+        """Show the sub-page the engineer last chose: map boxes or the maps."""
+        if getattr(self, "page_intent", "canvas") == "selector":
+            self.stack.setCurrentWidget(self.selector_panel)
+        elif self.result is not None:
+            self.stack.setCurrentWidget(self.scroll)
 
     def _start_surface_job(self, preserve_canvas=False):
         if self.worker is not None:
@@ -529,8 +553,13 @@ class PlotPage(QWidget):
             self.dirty = False
             self.has_drawn_once = True
             self.drawn_cells = set(self.pending_cells)
+            self.selector.pending_draw = False
             self.draw_state_changed.emit(self.draw_state())
-            self.stack.setCurrentIndex(1)
+            if getattr(self, "_refresh_keeps_page", False):
+                # The engineer may be re-picking maps: refresh without moving.
+                self._refresh_keeps_page = False
+            else:
+                self.stack.setCurrentIndex(1)
             self.refresh_canvas()
             if saved_view is not None:
                 self.restore_view(saved_view)

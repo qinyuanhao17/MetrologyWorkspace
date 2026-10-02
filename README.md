@@ -51,6 +51,7 @@ python -m PyInstaller --noconfirm --clean MetrologyWorkspace.spec
 - Wafers 列表上方显示当前身份字段，例如 `Wafer ID / Lot ID / PAD Name`。身份字段可以多选。
 - Parameters 默认只显示可绘图的 numeric 列。取消 **Numeric** 后，可以查看和选择元数据列。
 - X/Y、FIELD X/Y、X(mm)/Y(mm) 和 Die Seq 默认按元数据处理，不会自动作为测量参数。
+- Wafer Map（主窗口工具及 Match Workbook 的 Preview、Final）把含数值的 MSE、GOF、NGOF、LBH、CINDEX 识别为 **NUMERIC**，可以手动勾选绘图，默认不勾选。fitTime、regIter 仍是元数据；Correlation/Trend 和 Dynamic 的建模参数排除规则不变。
 - 只有手动保存才会写回 CSV。关闭窗口或替换表格前，程序会提示尚未保存的修改。
 
 这个表格用于整理绘图数据，不支持 Excel 公式、合并单元格或完整的 Excel 格式。
@@ -63,10 +64,22 @@ python -m PyInstaller --noconfirm --clean MetrologyWorkspace.spec
 2. 再在 Raw Data 网格粘贴原始数据。两个输入区与 Wafer Map / Correlation 的数据表操作一致：第 1 行是表头，可直接改单元格、区域粘贴，并用 `Ctrl+Z` 撤销。当前版本按从上到下的行顺序对应，两张表必须具有相同的行数。
 3. 软件会把 `<参数名> Reference` 自动匹配到 Raw Data 中同名参数。像 `TEM`、`PMISH` 这样没有 `Reference` 后缀的数值列也会出现在映射表中，但不会擅自自动选择；可用 **Select all** 勾选全部候选项，再为它们选择对应的 Raw Data 参数。Wafer ID、Die Seq 等元数据不会列为参数。一次最多选择 50 个参数，最多处理 100,000 行。
 4. 在顶部选择 **Preview** 或 **Final**。文件操作、KLA/NOVA/TEM Match Type、`Bias` / `Bias %` 和 Run analysis 都位于原生菜单栏；页面不再重复显示 Workbook 标题和设置面板。`Bias` 与 `Bias %` 至少选择一个，也可以同时选择。
-5. 首次执行 **Run analysis** 后，Slope、Intercept、R²、Valid pairs 等结果直接显示在 Parameter mapping 的同一行。以后在 Raw Data 的 A1 粘贴新表或更改 Raw Data column 都会自动重新分析，不需要重复点击；Reference 与 Raw Data 都直接在网格中按 `Ctrl+V` 粘贴，整表替换、单元格编辑和 Delete 清空均可用 `Ctrl+Z` 撤销。Raw Data 暂时清空或缺少原参数列时，Reference 建立的映射仍会保留，界面会提示重新选择缺失的 Raw Data column。Slope 小于 0.9 或大于 1.1、R² 小于 0.9 时，值会以红色警示并说明阈值。
+5. 首次执行 **Run analysis** 后，Slope、Intercept、R²、Valid pairs 等结果直接显示在 Parameter mapping 的同一行。以后在 Raw Data 的 A1 粘贴新表或更改 Raw Data column 都会自动重新分析，不需要重复点击；Reference 与 Raw Data 都直接在网格中按 `Ctrl+V` 粘贴，整表替换、单元格编辑和 Delete 清空均可用 `Ctrl+Z` 撤销。Raw Data 暂时清空或缺少原参数列时，Reference 建立的映射仍会保留，界面会提示重新选择缺失的 Raw Data column。Slope 小于 0.9 或大于 1.1、R² 小于 0.9 时，值会以红色警示并说明阈值。Parameter mapping 里的 **Raw Data column** 下拉框不吃鼠标滚轮：滚轮只滚动页面，不会误改映射（其他下拉框仍是标准行为）。
 6. 结果区分为 **All parameter plots** 和 **Single-wafer metrics** 两个 tab。全部参数按纵向卡片显示，只有一个参数时也从结果区顶部开始；Match、Trend、Bias、Bias % 按当前选择排在同一横行。Match 固定为 510 × 330 px，Trend、Bias 和 Bias % 统一为 330 px 高并平分剩余宽度；四图同时显示时也会收进可见工作区，不需要横向滚动且不会互相重叠。绘图区上下对齐、四边同粗，Trend/Bias 不再重复显示 Wafer 轴标题。Trend 右上角的 **Card** 可在原始 PMISH 与加 Card 后的 PMISH 间切换。拖动参数卡标题时会显示半透明预览和淡入的插入位置；当前顺序会直接保留，不再占用空间显示 Reset。输入、映射和结果区之间的分隔线可以拖动；首次运行成功后，修改 Reference、当前模式的 Raw Data 或 Parameter mapping 会自动原位刷新，并保持分隔栏、滚动位置和参数顺序。Preview 与 Final 各自保留独立 Raw Data，切换模式不会清空另一侧数据或已有结果。当前模式对应的 **Open Preview/Final Wafer Map / Radius** 与 **Open Preview/Final Dynamic** 位于顶部右侧。
 
 顶部右侧还提供 **Open Correlation and Trend**：它直接读取当前模式的 Reference 与 Raw Data，分别显示在两个数据页。Raw Data 保留全部原始列；Ref Data 用 parameter mapping 的参数名显示量测值，并把 Wafer ID、Lot ID、PAD Name 与 Die Seq 按行对齐 Raw Data。Correlation 只在 Reference 内部或 Raw Data 内部拟合，不做跨来源 correlation；所有 Reference 图先显示并使用橙色，随后是蓝色 Raw Data 图。Trend 使用相同的来源顺序与配色。
+
+三个分析窗口与 Match Workbook 的联动规则：
+
+- **KLA / NOVA**：三个窗口可以同时打开，**Wafer Map / Radius** 与 **Correlation and Trend** 的 Data 会跟着 Match Workbook 的 Reference / Raw Data 同步刷新（Map 由 Raw Data 经 Card 推导，Correlation 直接读取 Ref/Raw）；一旦你在其中某个窗口里改过表格，该阶段就以你的修改为准，不再被覆盖。
+- **Dynamic 在任何模式下都是独立数据**：它不跟随 Match Workbook 刷新，打开时以当时的工作簿表起步，之后完全由你在 Dynamic 窗口里编辑，保存 WKB 时按原表快照恢复。
+- **TEM**：Map/Radius 也是 TEM 自己的独立表（Raw Data 变化时不会被刷新）；只有 **Correlation and Trend** 会跟随 Match Workbook 的 Ref / Raw 刷新。三个窗口可以同时打开，但**每个按钮最多一个窗口**——重复点同一个按钮不会开出第二个，而是把已有窗口带到前面并刷新它的数据。
+
+这种刷新**只换数据**：无论是改 Raw Data、改 Reference，还是改 Parameter mapping，子窗口都保持原样——
+
+- 停留的 tab、可编辑网格里的当前单元格与滚动位置不变，不会甩回第一页或 A1；
+- 页面内“方框选择页 vs 绘图页”的切换保持你选的那一页，绘图在后台完成；
+- Wafer Map 的画布缩放/滚动、Radius 的缩放/滚动，以及 Correlation 结果翻到第几页（例如第 2 页）都会保留，新的数据直接画在原来的视图里。
 
 Card 的定义为：
 
@@ -86,11 +99,21 @@ Wafer Map 或 Radius Plot 成功绘制过后，WKB schema 8 会分别保存“�
 
 当前 v2 已把 Preview/Final 作为顶部模式页，并将各自的 Raw Data 交给现有 Wafer Map 和 Radius Plot；独立 FullMap 输入页已移除。尚未实现的是按 Wafer ID、Slot ID、PAD Name 和坐标自动整理尚未对齐的 Reference；当前匹配数据仍按行序对应。
 
+Bias 与 Bias % 的纵轴按实际曲线数据自动适配，Preview/Final 使用相同规则；零参考线不参与范围计算，只有视野包含 0 时显示。原始数据与 Bias 计算不变，缩放后的 Auto Scale 和导出图片也使用这一范围。
+
 ## Dynamic
 
 Dynamic 用于同一 wafer 上若干 Die 的重复测试。导入数据后，软件优先从 `Cur SME File Path` 中的 `DYNAMIC/<run>` 识别每轮测试；如果路径没有该结构，则在有序 Die Seq 首次重复时开始下一 Cycle。Die 数量和 Cycle 数量均不固定。旧 Excel 透视表若位于第一个空白列之后，会在导入时排除，避免把报表列误当成新参数。
 
-第一个 tab 复用 Data 编辑器与 Wafer Map 的 Wafer ID / Lot ID / PAD Name measurement identity，可勾选 DP、EW、TG 等数值参数。粘贴或打开替换表格时，会按列名保留新表中仍存在的参数选择并直接重算，无需重新勾选；Wafer Map 使用相同规则。第二个 tab 要求选择一个 measurement set，并分成上下两个独立滚动区域：上方按勾选顺序纵向显示每个参数自己的 Cycle × Die Seq 透视表；下方先用不同颜色在一张图中比较全部已选参数，再分别显示每个参数的 3σ 图。合并图不重复显示参数拼接标题，原标题行改为带小色块的横向 legend。每张表底部的 `3 Sigma` 使用跨 Cycle 的样本标准差 `3 × std(ddof=1)`；柱图以 Die Seq 为横轴、3 Sigma 为纵轴并固定为 420 × 270 px，只显示柱形、不叠加数据点，每行最多三张，超过三张自动换到下一行。页面不再提供参数下拉框或重复的 Dynamic 标题。相同 Cycle/Die Seq 出现多行时会直接报告歧义，不会静默取平均。
+第一个 tab 复用 Data 编辑器与 Wafer Map 的 Wafer ID / Lot ID / PAD Name measurement identity，可勾选 DP、EW、TG 等数值参数。粘贴或打开替换表格时，会按列名保留新表中仍存在的参数选择并直接重算，无需重新勾选；Wafer Map 使用相同规则。第二个 tab 要求选择一个 measurement set，并分成上下两个独立滚动区域：上方按勾选顺序纵向显示每个参数自己的 Cycle × Die Seq 透视表；下方先用不同颜色在一张图里比较全部已选参数，再分别显示每个参数的 3σ 图。合并图不重复显示参数拼接标题，原标题行改为带小色块的横向 legend。
+
+透视表的数值格可以直接编辑，用的就是 Data 表格那套键位：单击选中后输入新值、`Delete`/`Backspace` 清除格点（常用来删掉离群点）、`Ctrl+C` / `Ctrl+V` 复制粘贴选区、`Ctrl+Z` / `Ctrl+Y` 单步撤销与重做。编辑会写回 Data 表对应行的同一个参数列，所以既是可保存的数据修改，也会立刻重算该列的 `3 Sigma`。Cycle / Die 标签和由数据推导的 `3 Sigma` 行保持只读。每个参数标题右侧有 **Restore**：一键把该参数的格子恢复到打开表格时的值（删除过的格点会回来），本身也是一步可撤销操作；想只撤掉上一步删除就按 `Ctrl+Z`。编辑后表格和图表都保持在原来的滚动位置与当前格子上。
+
+每张表底部的 `3 Sigma` 使用跨 Cycle 的样本标准差 `3 × std(ddof=1)`；柱图以 Die Seq 为横轴、3 Sigma 为纵轴并固定为 420 × 270 px，只显示柱形、不叠加数据点，每行最多三张，超过三张自动换到下一行。页面不再提供参数下拉框或重复的 Dynamic 标题。相同 Cycle/Die Seq 出现多行时会直接报告歧义，不会静默取平均。
+
+数值编辑、Delete、粘贴及 Ctrl+Z/Y 使用局部刷新：只重算改变的参数，并原位更新对应表格、3σ 柱图和 Trend 曲线，不销毁其他参数的控件。缩放、滚动位置、当前格和 Die 选择保持不变；改变参数/wafer 选择、Cycle/Die 结构或列布局时才完整刷新。编辑合并等待为 50 ms，统计公式与撤销粒度不变。可运行 `python benchmarks/benchmark_dynamic_edits.py` 重测：开发机上 10 Cycle × 13 Die × 26 参数的合成数据，9 次编辑/撤销（去掉首次）的中位刷新耗时从约 4.1 秒降至约 0.1 秒；不含等待时间，实际耗时取决于数据和机器，`--profile` 可查看热点。
+
+第三个 tab **Trend** 和 Correlation and Trend 里的 Trend 页用法相近，但横轴换成 **Cycle**：每个勾选参数各占一张交互图，**每张图一次只画一个 Die**，用图右侧的 **Die 下拉框**切换要看哪一个（默认 Die 1，颜色与符号按 Die 序号固定，方便对照）；这样能直接读出某个 Die 在几轮重复测试之间的漂移，而不会十几条线叠在一起。这里没有 Add Compare 控制栏，也不做曲线框选——参数、Die 和 Cycle 全部来自 Data 勾选与当前 measurement set，数据一改就自动重画，并且记住每个参数各自选的 Die。下拉框不吃鼠标滚轮：滚轮只滚动页面，不会误切换 Die。支持 Ctrl+滚轮缩放、左键框选放大、右键平移、双击适配、**Reset views**、Columns 1/2、Font、Resolution，以及 **Export PNG** / **Copy PNG**（Ctrl+C 同样可用）；导出的每张图标题会写成 `参数 · Die n`。
 
 ## Wafer Map
 
@@ -101,7 +124,9 @@ Dynamic 用于同一 wafer 上若干 Die 的重复测试。导入数据后，软
 3. 在方框阵列中拖动选择要绘制的组合。Ctrl 用于增减选择，Shift 用于扩选，**All** 和 **None** 可以全选或清空。
 4. 点击 **Draw selected**。只有选中的组合会参与计算，画布也只保留实际用到的行和列。
 
-Wafer Maps 成功绘制一次后会记住实际绘制的方框。此后直接粘贴、打开或编辑 Data 时，只要对应参数仍存在，就会用新数据自动重绘并继续显示图，不再跳回方框选择页；如果 wafer 身份全部变化，则把上次绘制的参数应用到新的 wafer。需要修改组合时仍可点击 **Select maps**，但改选方框后会自动重绘，不必再次点击 **Draw selected**。Radius Plot 独立记忆自己的上次方框，并采用同样的自动刷新规则。
+Wafer Maps 成功绘制一次后会记住实际绘制的方框。此后**只有数值本身变化**时（粘贴、打开、单元格编辑）才会用新数据自动重绘并继续显示图，不再跳回方框选择页；如果 wafer 身份全部变化，则把上次绘制的参数应用到新的 wafer。只要方框选择或 Data 里的 Wafer/Parameters 勾选发生变化（增加或减少参数、增删测量条目），都不会自动重绘：页面回到方框选择页，需要重新选择组合并点击 **Draw selected** 才会绘制。这样参数一变就不会再拿旧方框直接出图。Radius Plot 独立记忆自己的上次方框，并采用同样的规则。
+
+从 Match Workbook 打开的 Wafer Map / Radius 与 Dynamic，Data 页的 Parameters 卡片里多一个 **Card** 勾选框：**默认不勾**，表格保持你载入/粘贴的原始数值；勾上后，`parameter mapping` 里那些参数会按各自的 Card（`slope × value + intercept`）参与绘图与统计。表格内容不会被改写，取消勾选即回到原始值。没从 Match Workbook 打开的独立窗口没有 Card 可套，该勾选框保持禁用。
 
 坐标列优先匹配 `X(mm) / Y(mm)`，其次是 FIELD X/Y 和 X/Y，也可以手动指定。阵列中的行对应测量条目，列对应参数。同一个 Wafer ID 下，不同 PAD Name 会作为不同条目。
 
@@ -131,7 +156,7 @@ X < 0 位于负半轴，X > 0 位于正半轴，X = 0 时半径为 0。每个“
 
 ## Correlation and Trend
 
-该工具用 **Ref Data** 与 **Raw Data** 两个独立页保留来源表；Raw Data 始终显示全部原始列，Reference 的 Wafer ID、Lot ID、PAD Name 与 Die Seq 按行取自 Raw Data。两个页面支持同样的导入、粘贴和编辑操作。新表格会默认选中所有测量条目，并勾选可用的 numeric 列；MSE、GOF、NGOF、LBH、regIter（包括 `reglter` 拼写）和 CINDEX 默认排除。名称匹配忽略大小写、空格、下划线和连字符。双来源模式下，Correlation 先列完 Reference 的来源内拟合，再列 Raw Data；Trend 也按 Reference 后 Raw Data 排列，并以橙色/蓝色区分来源。
+该工具用 **Ref Data** 与 **Raw Data** 两个独立页保留来源表；Raw Data 始终显示全部原始列，Reference 的 Wafer ID、Lot ID、PAD Name 与 Die Seq 按行取自 Raw Data。两个页面支持同样的导入、粘贴和编辑操作。新表格会默认选中所有测量条目，并勾选可用的建模参数列。MSE、GOF、NGOF、LBH、fitTime、regIter（包括 `reglter` 拼写）、CINDEX、Seq、Logical ID，以及 `Cur SME File Path`、Wafer ID、Lot ID、Tool SN、PAD Name、Die Seq、FIELD X/Y、X(mm)/Y(mm) 都不是建模的物理参数，不会出现在参数列表里。名称匹配忽略大小写、空格、下划线和连字符。双来源模式下，Correlation 先列完 Reference 的来源内拟合，再列 Raw Data；Trend 也按 Reference 后 Raw Data 排列，并以橙色/蓝色区分来源。
 
 ### Correlation
 
@@ -153,7 +178,11 @@ Trend 按 Data 页顺序把每个 numeric 参数画成连续的 Die Seq 曲线�
 
 方框选择决定要画的参数和测量条目。未选条目会跳过，横轴只覆盖实际有曲线的区段。默认双列布局会随窗口宽度伸缩。普通滚轮滚动外层页面，按住 Ctrl 再滚轮才缩放当前图；左键拖动框选区域，右键拖动平移。Auto Scale 会重新适配 Y 轴，但保留紧凑的 X 范围。右侧边框会一直显示。该页也支持 Reset views、Export PNG、Copy PNG 和 Ctrl+C。
 
-默认仍是一个参数一张图。偶尔需要比较两个趋势时，用每张图右上角（图右侧）的 **叠加对比…** 按钮选择第二个已勾选的参数；同单位共用左轴，不同或无法识别的单位自动增加着色右轴，Reference/Raw Data 分别使用实线/虚线。对比建立后该按钮变为 **解除对比**，点击即恢复分面板。右键只保留 PyQtGraph 原生的 Plot Options / Export 菜单。对比关系写入应用设置并在下次 Draw selected 时按仍存在的勾选恢复，不写入 WKB，也不改变 schema 8。
+默认仍是一个参数一张图。需要比较趋势时，每张图右侧的 **Add Compare** 可以叠加任意多个已勾选参数：每点一次增加一个下拉框，滚轮即可快速切换，`×` 只移除该行。Reference 固定橙色实线、Raw Data 固定蓝色虚线，新增对比曲线使用橙蓝之外的颜色与不同点形；图例始终显示来源与参数名。
+
+拆轴规则由 **Analysis ▸ Trend Y axes** 控制：`Auto` 默认按单位与中位绝对值比例判断，可在 spinbox 输入小数阈值（默认 10×）；单位不同，或同单位两条曲线的中位量级相差超过阈值时增加着色右轴。也可选择 `Always two Y axes` 或 `Always one Y axis` 强制绘制；强制单轴混用不同单位时，轴标签和状态栏会明确标记。模式与阈值由 Preview 和 Final 共用，立即同步到两边已打开的 Trend，并作为一份工作簿设置保存到 .wkb；切换 tab 或重开窗口不会覆盖设置。旧 WKB 两边值不同则采用文件保存时所在 tab 的值，只有倍率时默认沿用 Auto。独立打开的 Correlation and Trend 在 Trend 选项栏保留相同的模式与 spinbox。对比关系本身仍写入应用设置并在下次 Draw selected 时按仍存在的勾选恢复。对比控制区宽度固定、**高度与绘图区一致**（`Add Compare` 与各下拉框保持在顶部，边框圆角与卡片一致），增删下拉框不会压缩绘图区；重绘保持面板列表的滚动位置，不会跳回顶部。
+
+Trend 的 Y 轴单位按 OCD 行业规则识别：名称含 `SWA` 视为 degree，含 `ratio` 视为无量纲，其余建模参数视为 nm；列名末尾自带单位（如 `EW (V)`、`Si_SWA [rad]`）时以显式单位为准。
 
 ## 数据识别与限制
 

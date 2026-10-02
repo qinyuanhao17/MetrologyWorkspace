@@ -2,6 +2,7 @@
 
 from contextlib import closing
 from pathlib import Path
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -406,6 +407,164 @@ class MatchWorkbookTests(unittest.TestCase):
 
         self.assertEqual(restored.workspace_selections, workspace_selections)
 
+    def test_wkb_round_trip_preserves_correlation_selections(self):
+        correlation_selections = {
+            "preview": {
+                "reference": {
+                    "wafers": ("reference-wafer",),
+                    "metrics": ("CD_Bot", "SPA"),
+                },
+                "raw": {
+                    "wafers": ("raw-wafer",),
+                    "metrics": ("CD_Bot",),
+                },
+                "correlation_draw": {
+                    "enabled": True,
+                    "cells": (
+                        ("Reference", "reference-wafer", "CD_Bot"),
+                        ("Reference", "reference-wafer", "SPA"),
+                    ),
+                },
+                "trend_draw": {
+                    "enabled": True,
+                    "cells": (("Raw Data", "raw-wafer", "CD_Bot"),),
+                },
+            },
+            "final": None,
+        }
+        workbook = MatchWorkbook(
+            reference=self.reference(),
+            raw=self.raw(),
+            mappings=MatchWorkbook.suggest_mappings(
+                self.reference(), self.raw()
+            ),
+            correlation_selections=correlation_selections,
+            trend_axis_settings={"ratio": 2.75, "mode": "single"},
+        )
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "correlation-selections.wkb"
+            workbook.save(path)
+            restored = MatchWorkbook.load(path)
+
+        self.assertEqual(
+            restored.correlation_selections, correlation_selections
+        )
+        self.assertEqual(
+            restored.trend_axis_settings, {"ratio": 2.75, "mode": "single"}
+        )
+
+    def test_legacy_axis_ratio_without_mode_remains_loadable(self):
+        workbook = MatchWorkbook(
+            reference=self.reference(), raw=self.raw(),
+            mappings=MatchWorkbook.suggest_mappings(self.reference(), self.raw()),
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "legacy-axis-ratio.wkb"
+            workbook.save(path)
+            with closing(sqlite3.connect(path)) as connection, connection:
+                connection.execute(
+                    "UPDATE metadata SET correlation_selections = ?",
+                    (json.dumps({
+                        "preview": {"trend_axis_ratio": 2.75},
+                        "final": None,
+                    }),),
+                )
+                connection.execute(
+                    """CREATE TABLE legacy_metadata AS
+                       SELECT schema_version, match_type, result_mode, bias_mode,
+                              bias_views, setup_splitter_sizes, parameter_order,
+                              workspace_selections, correlation_selections,
+                              saved_utc
+                       FROM metadata"""
+                )
+                connection.execute("DROP TABLE metadata")
+                connection.execute("ALTER TABLE legacy_metadata RENAME TO metadata")
+            restored = MatchWorkbook.load(path)
+        self.assertEqual(
+            restored.trend_axis_settings, {"ratio": 2.75, "mode": "auto"}
+        )
+        state = restored.correlation_selections["preview"]
+        self.assertNotIn("trend_axis_ratio", state)
+        self.assertNotIn("trend_axis_mode", state)
+
+    def test_legacy_axis_policy_uses_the_saved_active_stage(self):
+        selections = {
+            "preview": {"trend_axis_ratio": 2.75, "trend_axis_mode": "dual"},
+            "final": {"trend_axis_ratio": 7.125, "trend_axis_mode": "single"},
+        }
+        for stage, expected in (
+            ("preview", {"ratio": 2.75, "mode": "dual"}),
+            ("final", {"ratio": 7.125, "mode": "single"}),
+        ):
+            with self.subTest(stage=stage):
+                workbook = MatchWorkbook(
+                    reference=self.reference(), raw=self.raw(),
+                    mappings=MatchWorkbook.suggest_mappings(
+                        self.reference(), self.raw()
+                    ),
+                    result_mode=stage,
+                    correlation_selections=selections,
+                )
+                self.assertEqual(workbook.trend_axis_settings, expected)
+                for state in workbook.correlation_selections.values():
+                    self.assertNotIn("trend_axis_ratio", state)
+                    self.assertNotIn("trend_axis_mode", state)
+
+    def test_legacy_axis_policy_falls_back_to_the_other_stage(self):
+        workbook = MatchWorkbook(
+            reference=self.reference(), raw=self.raw(),
+            mappings=MatchWorkbook.suggest_mappings(self.reference(), self.raw()),
+            result_mode="final",
+            correlation_selections={
+                "preview": {"trend_axis_ratio": 3.625, "trend_axis_mode": "dual"},
+                "final": {"raw": {"wafers": ("W1",), "metrics": ("SPA",)}},
+            },
+        )
+        self.assertEqual(
+            workbook.trend_axis_settings, {"ratio": 3.625, "mode": "dual"}
+        )
+        self.assertEqual(
+            workbook.correlation_selections["final"]["raw"],
+            {"wafers": ("W1",), "metrics": ("SPA",)},
+        )
+
+    def test_legacy_axis_policy_does_not_mix_settings_from_two_stages(self):
+        workbook = MatchWorkbook(
+            reference=self.reference(), raw=self.raw(),
+            mappings=MatchWorkbook.suggest_mappings(self.reference(), self.raw()),
+            result_mode="final",
+            correlation_selections={
+                "preview": {"trend_axis_ratio": 42.5, "trend_axis_mode": "dual"},
+                "final": {"trend_axis_mode": "single"},
+            },
+        )
+        self.assertEqual(
+            workbook.trend_axis_settings, {"ratio": 10.0, "mode": "single"}
+        )
+
+    def test_shared_axis_policy_takes_precedence_over_legacy_stage_settings(self):
+        workbook = MatchWorkbook(
+            reference=self.reference(), raw=self.raw(),
+            mappings=MatchWorkbook.suggest_mappings(self.reference(), self.raw()),
+            result_mode="final",
+            correlation_selections={
+                "preview": {"trend_axis_ratio": 2.75, "trend_axis_mode": "dual"},
+                "final": {"trend_axis_ratio": 7.125, "trend_axis_mode": "single"},
+            },
+            trend_axis_settings={"ratio": 1.875, "mode": "auto"},
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "shared-axis-policy.wkb"
+            workbook.save(path)
+            restored = MatchWorkbook.load(path)
+        self.assertEqual(
+            restored.trend_axis_settings, {"ratio": 1.875, "mode": "auto"}
+        )
+        for state in restored.correlation_selections.values():
+            self.assertNotIn("trend_axis_ratio", state)
+            self.assertNotIn("trend_axis_mode", state)
+
     def test_schema_one_wkb_still_opens_without_fullmap_stage_tables(self):
         workbook = MatchWorkbook(
             reference=self.reference(),
@@ -594,6 +753,46 @@ class MatchWorkbookTests(unittest.TestCase):
             restored = MatchWorkbook.load(path)
 
         self.assertEqual(restored.workspace_selections, selections)
+
+    def test_schema_eight_wkb_opens_without_correlation_selections(self):
+        workbook = MatchWorkbook(
+            reference=self.reference(),
+            raw=self.raw(),
+            mappings=MatchWorkbook.suggest_mappings(
+                self.reference(), self.raw()
+            ),
+            correlation_selections={
+                "preview": {
+                    "reference": {
+                        "wafers": ("W1",),
+                        "metrics": ("CD_Bot", "SPA"),
+                    },
+                    "raw": {"wafers": ("W1",), "metrics": ("CD_Bot",)},
+                }
+            },
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "schema-eight.wkb"
+            workbook.save(path)
+            with closing(sqlite3.connect(path)) as connection, connection:
+                connection.execute("UPDATE metadata SET schema_version = 8")
+                connection.execute(
+                    """CREATE TABLE legacy_metadata AS
+                       SELECT schema_version, match_type, result_mode,
+                              bias_mode, bias_views, setup_splitter_sizes,
+                              parameter_order, workspace_selections, saved_utc
+                       FROM metadata"""
+                )
+                connection.execute("DROP TABLE metadata")
+                connection.execute(
+                    "ALTER TABLE legacy_metadata RENAME TO metadata"
+                )
+            restored = MatchWorkbook.load(path)
+
+        self.assertEqual(
+            restored.correlation_selections,
+            {"preview": None, "final": None},
+        )
 
 
 if __name__ == "__main__":

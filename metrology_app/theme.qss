@@ -78,6 +78,7 @@ QTabBar::tab { color: #8c8199; background: #120d19; border: 1px solid #292131; b
 QTabBar::tab:selected { color: #f0e9f5; background: #291b3a; border-color: #654582; }
 QTabBar::tab:hover:!selected { color: #e7e0eb; background: #160e21; }
 QFrame#sheetCard, QFrame#panel { background: #0d0814; border: 1px solid #2b2133; border-top-color: #3a2e43; border-radius: 10px; }
+QFrame#compareControls { background: #120d19; border: 1px solid #2b2133; border-radius: 8px; }
 QFrame#sheetCard[dropPosition="before"] { border-top: 4px solid #9c6eca; }
 QFrame#sheetCard[dropPosition="after"] { border-bottom: 4px solid #9c6eca; }
 QFrame#parameterDropIndicator { background: #b88be3; border: none; border-radius: 2px; }

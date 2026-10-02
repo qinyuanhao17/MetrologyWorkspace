@@ -17,7 +17,7 @@ import pandas as pd
 from ..measurements import default_identity_columns, detect_measurements
 
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 10
 MAX_ROWS = 100_000
 MAX_PARAMETERS = 50
 _ALLOWED_MATCH_TYPES = {"TEM", "NOVA", "KLA"}
@@ -119,6 +119,130 @@ def _normalized_workspace_selections(selections):
                     }
             normalized[kind][stage] = saved
     return normalized
+
+
+def _normalized_correlation_selections(selections):
+    """Return durable per-stage Correlation/Trend sidebar and draw state."""
+    normalized = {stage: None for stage in _WORKSPACE_STAGES}
+    if selections is None:
+        return normalized
+    if not isinstance(selections, dict):
+        raise TypeError("Correlation selections must be a mapping.")
+    if set(selections) - set(_WORKSPACE_STAGES):
+        raise ValueError("Unknown correlation selection stage.")
+    for stage, state in selections.items():
+        if state is None:
+            continue
+        if not isinstance(state, dict):
+            raise TypeError("Each correlation selection must be a mapping.")
+        saved = {}
+        for source in ("reference", "raw"):
+            source_state = state.get(source, {})
+            if not isinstance(source_state, dict):
+                raise TypeError(
+                    f"Correlation {source} selection must be a mapping."
+                )
+            selected = {}
+            for field in ("wafers", "metrics"):
+                values = source_state.get(field, ())
+                if isinstance(values, (str, bytes)):
+                    raise TypeError(
+                        f"Correlation {source} {field} must be a sequence."
+                    )
+                try:
+                    values = tuple(str(value) for value in values)
+                except TypeError as error:
+                    raise TypeError(
+                        f"Correlation {source} {field} must be a sequence."
+                    ) from error
+                if any(not value.strip() for value in values):
+                    raise ValueError(
+                        f"Correlation {source} {field} cannot contain blanks."
+                    )
+                if len(set(values)) != len(values):
+                    raise ValueError(
+                        f"Correlation {source} {field} cannot contain duplicates."
+                    )
+                selected[field] = values
+            saved[source] = selected
+        for field, label in (
+            ("correlation_draw", "Correlation"),
+            ("trend_draw", "Trend"),
+        ):
+            draw_state = state.get(field, {})
+            if not isinstance(draw_state, dict):
+                raise TypeError(f"{label} draw state must be a mapping.")
+            enabled = draw_state.get("enabled", False)
+            if not isinstance(enabled, bool):
+                raise TypeError(f"{label} draw state enabled must be boolean.")
+            raw_cells = draw_state.get("cells", ())
+            if isinstance(raw_cells, (str, bytes)):
+                raise TypeError(f"{label} draw cells must be a sequence.")
+            cells = []
+            try:
+                for cell in raw_cells:
+                    if isinstance(cell, (str, bytes)) or len(cell) != 3:
+                        raise TypeError
+                    source, wafer, metric = (str(value) for value in cell)
+                    if not source.strip() or not wafer.strip() or not metric.strip():
+                        raise ValueError
+                    cells.append((source, wafer, metric))
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    f"{label} draw cells must contain non-blank triples."
+                ) from error
+            if len(set(cells)) != len(cells):
+                raise ValueError(f"{label} draw cells cannot contain duplicates.")
+            saved[field] = {"enabled": enabled, "cells": tuple(cells)}
+        ratio = state.get("trend_axis_ratio")
+        if ratio is not None:
+            try:
+                ratio = float(ratio)
+            except (TypeError, ValueError) as error:
+                raise TypeError(
+                    "Trend second-axis ratio must be a number."
+                ) from error
+            if not np.isfinite(ratio) or not 1 <= ratio <= 1_000_000:
+                raise ValueError(
+                    "Trend second-axis ratio must be between 1 and 1000000."
+                )
+            saved["trend_axis_ratio"] = ratio
+        mode = state.get("trend_axis_mode")
+        if mode is not None:
+            if mode not in ("auto", "dual", "single"):
+                raise ValueError("Trend Y-axis mode must be auto, dual, or single.")
+            saved["trend_axis_mode"] = mode
+        normalized[stage] = saved
+    return normalized
+
+
+def _normalized_trend_axis_settings(settings, selections, active_stage):
+    """One workbook-wide policy; migrate an older stage policy as one pair."""
+    if settings is None:
+        other_stage = "final" if active_stage == "preview" else "preview"
+        legacy = next((
+            state for stage in (active_stage, other_stage)
+            if (state := selections.get(stage)) is not None
+            and any(key in state for key in ("trend_axis_ratio", "trend_axis_mode"))
+        ), {})
+        settings = {
+            "ratio": legacy.get("trend_axis_ratio", 10.0),
+            "mode": legacy.get("trend_axis_mode", "auto"),
+        }
+    if not isinstance(settings, dict):
+        raise TypeError("Trend axis settings must be a mapping.")
+    if set(settings) - {"ratio", "mode"}:
+        raise ValueError("Unknown Trend axis setting.")
+    try:
+        ratio = float(settings.get("ratio", 10.0))
+    except (TypeError, ValueError) as error:
+        raise TypeError("Trend second-axis ratio must be a number.") from error
+    if not np.isfinite(ratio) or not 1 <= ratio <= 1_000_000:
+        raise ValueError("Trend second-axis ratio must be between 1 and 1000000.")
+    mode = settings.get("mode", "auto")
+    if mode not in ("auto", "dual", "single"):
+        raise ValueError("Trend Y-axis mode must be auto, dual, or single.")
+    return {"ratio": ratio, "mode": mode}
 
 
 @dataclass(frozen=True, slots=True)
@@ -279,7 +403,8 @@ class MatchWorkbook:
                  setup_splitter_sizes=None, parameter_order=None,
                  preview_map=None, final_map=None,
                  preview_dynamic=None, final_dynamic=None,
-                 workspace_selections=None):
+                 workspace_selections=None, correlation_selections=None,
+                 trend_axis_settings=None):
         self.reference = reference
         self.raw = raw
         self.preview_raw = preview_raw
@@ -292,9 +417,19 @@ class MatchWorkbook:
         self.workspace_selections = _normalized_workspace_selections(
             workspace_selections
         )
+        self.correlation_selections = _normalized_correlation_selections(
+            correlation_selections
+        )
         self.mappings = tuple(mappings)
         self.match_type = str(match_type).upper()
         self.result_mode = str(result_mode).lower()
+        self.trend_axis_settings = _normalized_trend_axis_settings(
+            trend_axis_settings, self.correlation_selections, self.result_mode
+        )
+        for state in self.correlation_selections.values():
+            if state is not None:
+                state.pop("trend_axis_ratio", None)
+                state.pop("trend_axis_mode", None)
         self.bias_mode = str(bias_mode).lower()
         self.bias_views = tuple(
             str(view).lower() for view in (
@@ -447,11 +582,19 @@ class MatchWorkbook:
             self.result_mode, self.bias_mode, self.match_type,
         )
 
-    def stage_frame(self, stage):
-        """Build map-ready Preview or Final rows while preserving wafer metadata."""
+    def stage_frame(self, stage, *, apply_card=None):
+        """Build map-ready Preview or Final rows while preserving wafer metadata.
+
+        ``apply_card`` defaults to the stage's historical behaviour: Preview
+        runs every mapped parameter through its Card, Final uses the table as
+        it was pasted. Passing ``apply_card=False`` returns the untouched
+        measurement values so a workspace can offer the Card as a choice.
+        """
         stage = str(stage).lower()
         if stage not in _ALLOWED_RESULT_MODES:
             raise ValueError("Stage must be preview or final.")
+        if apply_card is None:
+            apply_card = stage == "preview"
         snapshot = self.preview_map if stage == "preview" else self.final_map
         if snapshot is not None:
             return snapshot.reset_index(drop=True).copy()
@@ -465,7 +608,7 @@ class MatchWorkbook:
                 else self.raw
             )
         frame = source.reset_index(drop=True).copy()
-        result = self.analyze() if stage == "preview" else None
+        result = self.analyze() if apply_card else None
         for mapping in self.mappings:
             if mapping.raw_column not in frame.columns:
                 raise ValueError(
@@ -473,7 +616,7 @@ class MatchWorkbook:
                     f"{mapping.raw_column}"
                 )
             values = pd.to_numeric(frame[mapping.raw_column], errors="coerce").to_numpy(float)
-            if stage == "preview":
+            if apply_card:
                 card = result.card(mapping.name)
                 values = card.slope * values + card.intercept
             frame[mapping.name] = values
@@ -481,7 +624,18 @@ class MatchWorkbook:
                 frame.drop(columns=[mapping.raw_column], inplace=True)
         return frame
 
-    def dynamic_frame(self, stage):
+    def parameter_cards(self):
+        """Return the fitted Card of every mapping as {(name): (slope, intercept)}."""
+        result = self.analyze()
+        return {
+            mapping.name: (
+                result.card(mapping.name).slope,
+                result.card(mapping.name).intercept,
+            )
+            for mapping in self.mappings
+        }
+
+    def dynamic_frame(self, stage, *, apply_card=None):
         """Return the stage's saved Dynamic table or its stage-data default."""
         stage = str(stage).lower()
         if stage not in _ALLOWED_RESULT_MODES:
@@ -491,7 +645,7 @@ class MatchWorkbook:
         )
         if snapshot is not None:
             return snapshot.reset_index(drop=True).copy()
-        return self.stage_frame(stage)
+        return self.stage_frame(stage, apply_card=apply_card)
 
     def save(self, path):
         """Atomically save source tables and settings in a SQLite-backed WKB file."""
@@ -524,6 +678,10 @@ class MatchWorkbook:
                     "workspace_selections": json.dumps(
                         self.workspace_selections, ensure_ascii=False
                     ),
+                    "correlation_selections": json.dumps(
+                        self.correlation_selections, ensure_ascii=False
+                    ),
+                    "trend_axis_settings": json.dumps(self.trend_axis_settings),
                     "saved_utc": datetime.now(timezone.utc).isoformat(),
                 }])
                 metadata.to_sql("metadata", connection, index=False, if_exists="replace")
@@ -677,6 +835,33 @@ class MatchWorkbook:
                 raise ValueError(
                     "This Matching Workbook has invalid workspace selections."
                 ) from error
+        saved_correlation_selections = None
+        if (
+            schema_version >= 9
+            and "correlation_selections" in metadata.index
+            and pd.notna(metadata["correlation_selections"])
+            and str(metadata["correlation_selections"]).strip()
+        ):
+            try:
+                saved_correlation_selections = json.loads(
+                    metadata["correlation_selections"]
+                )
+            except (TypeError, ValueError, json.JSONDecodeError) as error:
+                raise ValueError(
+                    "This Matching Workbook has invalid Correlation/Trend selections."
+                ) from error
+        saved_trend_axis_settings = None
+        if (
+            "trend_axis_settings" in metadata.index
+            and pd.notna(metadata["trend_axis_settings"])
+            and str(metadata["trend_axis_settings"]).strip()
+        ):
+            try:
+                saved_trend_axis_settings = json.loads(metadata["trend_axis_settings"])
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    "This Matching Workbook has invalid Trend axis settings."
+                ) from error
         return cls(
             reference=reference,
             raw=raw,
@@ -695,6 +880,8 @@ class MatchWorkbook:
             setup_splitter_sizes=saved_splitter_sizes,
             parameter_order=saved_parameter_order,
             workspace_selections=saved_workspace_selections,
+            correlation_selections=saved_correlation_selections,
+            trend_axis_settings=saved_trend_axis_settings,
         )
 
 

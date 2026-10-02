@@ -47,6 +47,75 @@ class SheetTests(unittest.TestCase):
 
 
 class WorkspaceTests(unittest.TestCase):
+    def test_quality_columns_are_numeric_in_correlation_and_dynamic_parameter_lists(self):
+        from metrology_app.correlation_window import CorrelationWindow
+        from metrology_app.dynamic_window import DynamicWindow
+
+        quality = ["MSE", "GOF", "LBH", "NGOF", "CINDEX"]
+        frame = pd.DataFrame({
+            "Wafer ID": ["W1"] * 3, "Die Seq": [1, 2, 3],
+            "DP": [65., 66., 67.], "fitTime": [10, 11, 12],
+            **{name: [.1, .2, .3] for name in quality},
+        })
+        for cls in (CorrelationWindow, DynamicWindow):
+            with self.subTest(window=cls.__name__):
+                window = cls()
+                try:
+                    window.set_table(frame, "Quality parameters")
+                    trees = [window.parameter_list]
+                    if isinstance(window, CorrelationWindow):
+                        window.set_reference_table(frame, "Reference quality parameters")
+                        trees.append(window.reference_parameter_list)
+                    for tree in trees:
+                        items = {tree.topLevelItem(i).text(0): tree.topLevelItem(i)
+                                 for i in range(tree.topLevelItemCount())}
+                        for name in quality:
+                            self.assertEqual(items[name].text(1), "NUMERIC")
+                            self.assertTrue(items[name].flags() & Qt.ItemFlag.ItemIsUserCheckable)
+                        self.assertEqual(items["fitTime"].text(1), "METADATA")
+                finally:
+                    window.model.undo.setClean()
+                    if isinstance(window, CorrelationWindow):
+                        window.reference_model.undo.setClean()
+                    window.close()
+                    window.deleteLater()
+                    APP.processEvents()
+
+    def test_wafer_map_quality_columns_are_selectable_numeric_not_metadata(self):
+        w = self.window
+        frame = pd.DataFrame({
+            "Wafer ID": ["W1", "W1"], "FIELD X": [0, 1], "FIELD Y": [0, 1],
+            "MSE": ["0.1", "0.2"], "gof": ["0.9", "0.8"],
+            "N_GOF": ["0.9", "0.8"], "LBH": ["1", "2"],
+            "C Index": ["3", "4"], "fitTime": ["10", "11"],
+            "regIter": ["1", "2"], "DP": ["65", "66"],
+        })
+        w.set_table(frame, "Quality metrics")
+        items = {w.parameter_list.topLevelItem(i).text(0):
+                 w.parameter_list.topLevelItem(i)
+                 for i in range(w.parameter_list.topLevelItemCount())}
+        quality = ["MSE", "gof", "N_GOF", "LBH", "C Index"]
+        for column in quality:
+            with self.subTest(column=column):
+                item = items[column]
+                self.assertEqual(item.text(1), "NUMERIC")
+                self.assertTrue(item.flags() & Qt.ItemFlag.ItemIsUserCheckable)
+                self.assertEqual(item.checkState(0), Qt.CheckState.Unchecked)
+                item.setCheckState(0, Qt.CheckState.Checked)
+        self.assertEqual(w.selection["metrics"], quality)
+        self.assertEqual(w.plot_page.selection["metrics"], quality)
+        for column in ("fitTime", "regIter", "Wafer ID", "FIELD X", "FIELD Y"):
+            self.assertEqual(items[column].text(1), "METADATA")
+            self.assertFalse(items[column].flags() & Qt.ItemFlag.ItemIsUserCheckable)
+
+        frame["MSE"] = ["invalid", ""]
+        w.set_table(frame, "Non-numeric MSE")
+        mse = next(w.parameter_list.topLevelItem(i)
+                   for i in range(w.parameter_list.topLevelItemCount())
+                   if w.parameter_list.topLevelItem(i).text(0) == "MSE")
+        self.assertEqual(mse.text(1), "METADATA")
+        self.assertNotIn("MSE", w.selection["metrics"])
+
     def test_first_cell_paste_auto_identifies_wafers(self):
         w = MainWindow()
         try:
@@ -121,7 +190,16 @@ class WorkspaceTests(unittest.TestCase):
         w.check_all(w.parameter_list, False)
         self.assertEqual(len(w.selection["metrics"]), 0)
         w.check_all(w.parameter_list, True)
-        self.assertEqual(len(w.selection["metrics"]), 20)
+        # Wafer Map also exposes numeric MSE, GOF, NGOF and LBH; regIter
+        # remains bookkeeping rather than a selectable parameter.
+        self.assertEqual(len(w.selection["metrics"]), 19)
+
+    def test_card_option_stays_disabled_without_match_workbook_cards(self):
+        """A stand-alone table has no Cards, so the Data-tab option is inert."""
+        w = self.window
+        self.assertEqual(w.parameter_cards, {})
+        self.assertFalse(w.card_check.isEnabled())
+        self.assertFalse(w.card_check.isChecked())
 
     def test_section_guidance_is_available_from_titles_not_inline_comments(self):
         labels = self.window.findChildren(QLabel)
@@ -149,6 +227,22 @@ class WorkspaceTests(unittest.TestCase):
                    if not w.parameter_list.topLevelItem(i).isHidden()]
         self.assertEqual(len(visible), 3)
         self.assertEqual((len(w.selection["wafers"]), len(w.selection["metrics"])), (6, 0))
+
+    def test_sidebar_keeps_its_scroll_position_when_the_table_is_rebuilt(self):
+        w = self.window
+        w.resize(1200, 520)
+        w.show()
+        APP.processEvents()
+        bar = w.parameter_list.verticalScrollBar()
+        bar.setValue(bar.maximum())
+        APP.processEvents()
+        scrolled = bar.value()
+        self.assertGreater(scrolled, 0)
+
+        w.recognize()
+        APP.processEvents()
+
+        self.assertEqual(w.parameter_list.verticalScrollBar().value(), scrolled)
 
     def test_replacing_table_keeps_available_wafer_and_parameter_selections(self):
         w = self.window

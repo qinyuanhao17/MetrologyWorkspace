@@ -20,6 +20,31 @@
   菜单只剩 PyQtGraph 原生的 Plot Options / Export。`PlotPanel` 随之把可选的
   `heading_extra` 换成 `side_widget`（放在图右侧的窄列）。
 
+## 多参数交互修订（2026-10-02）
+
+后续产品要求已取代下文“只支持两个参数 / 合并并隐藏第二张图 / 解除对比按钮”的旧设计：
+
+- 每张图右侧常驻 `Add Compare`，每点一次增加一行 `QComboBox + ×`，一张图可同时对比多个参数。
+- 下拉框直接响应鼠标滚轮，140 ms single-shot timer 合并连续切换后的重绘。
+- 所有原参数面板一直保留；比较曲线只加到发起面板，不再把被比参数面板从 grid 移除。
+- Reference 基线始终为橙色，Raw Data 基线始终为蓝色；附加参数使用避开这两色的色盲友好调色板和额外 marker。图例文字为 `来源 · 参数`。
+- 同单位仍共用左轴；多个异单位/未知单位参数可各建一根联动右轴，不伪造共享数值尺度。
+- `trend_overlay` 新值为 `{primary: [secondary, ...]}`；读取时自动把旧 `{primary: secondary}` 规范化为列表，不修改 WKB schema。
+
+## 来源感知与固定控制栏修订（2026-10-02）
+
+- Ref/Raw 工作区的候选项不再继承当前图的来源，而是从 `1. Ref Data` 和 `2. Raw Data`
+  的实际已选数据生成 `(来源, 参数)` 组合；因此同名参数也可跨两个表叠加。
+- 下拉文本、屏幕图例和导出图例统一显示 `Reference · 参数` 或 `Raw Data · 参数`，绘图时
+  从该标签对应的表取值，而不是只改变显示文字。
+- 每个来源面板拥有独立比较状态；在 Reference 图添加比较不会替 Raw Data 图自动添加同一行。
+- `Add Compare` 与所有选择行放入固定 180 px 的有边框控制栏。控制栏从第一次绘图就预留，
+  所以增加或删除选择行不改变绘图区宽度，1180 px 最小窗口仍无横向滚动。
+- 普通单表状态继续写入 `trend_overlay`；来源感知状态以版本化的
+  `trend_source_overlay` 记录写入应用 YAML，仍不修改 WKB schema。
+
+本节与下文冲突时以本节为准；下文保留作为最初双参数方案的历史记录。
+
 ## 0. 背景与目标
 
 `metrology_app` 是 Python 3.10+ / PyQt6 的计量数据应用。"Correlation and Trend" 工作区的

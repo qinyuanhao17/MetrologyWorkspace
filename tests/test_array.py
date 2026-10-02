@@ -274,8 +274,11 @@ class PlotWorkspaceTests(unittest.TestCase):
                                                                     widget.minimumSizeHint().width())
                     self.assertGreaterEqual(widget.geometry().width(), floor,
                                             f"{page.objectName()} squeezed a control")
-            self.assertGreaterEqual(page.summary.geometry().width(), page.summary.sizeHint().width(),
-                                    f"{page.objectName()} clipped its summary")
+            if page is self.window.radius_page:
+                self.assertFalse(hasattr(page, "summary"), "Radius formula hint must stay removed")
+            else:
+                self.assertGreaterEqual(page.summary.geometry().width(), page.summary.sizeHint().width(),
+                                        f"{page.objectName()} clipped its summary")
 
     def test_row_titles_do_not_collide_at_large_fonts(self):
         """A row's three-line title must stay clear of the row above's axis label."""
@@ -319,7 +322,7 @@ class PlotWorkspaceTests(unittest.TestCase):
         """Overlay, outline, contour and colour toggles stay on the blit path."""
         w, page = self.window, self.window.plot_page
         w.check_all(w.wafer_list, True)
-        self.select_metrics("NGOF", "OCD_H1")
+        self.select_metrics("OCD_H2", "OCD_H1")
         w.tabs.setCurrentIndex(1)
         APP.processEvents()
         page.selector.selectAll()
@@ -346,7 +349,7 @@ class PlotWorkspaceTests(unittest.TestCase):
         """Toggling Fill edge must not resize, rescale or scroll the canvas."""
         w, page = self.window, self.window.plot_page
         w.check_all(w.wafer_list, True)
-        self.select_metrics("NGOF", "OCD_H1")
+        self.select_metrics("OCD_H2", "OCD_H1")
         w.tabs.setCurrentIndex(1)
         w.resize(1520, 950)
         APP.processEvents()
@@ -377,7 +380,7 @@ class PlotWorkspaceTests(unittest.TestCase):
         """A sub-block selection must not leave the rest of the array as blank canvas."""
         w, page = self.window, self.window.plot_page
         w.check_all(w.wafer_list, True)
-        self.select_metrics("NGOF", "OCD_H1")
+        self.select_metrics("OCD_H2", "OCD_H1")
         w.tabs.setCurrentIndex(1)
         boxes = page.selector
         self.assertEqual((boxes.rowCount(), boxes.columnCount()), (6, 2))
@@ -681,7 +684,7 @@ class PlotWorkspaceTests(unittest.TestCase):
         self.assertIs(page.stack.currentWidget(), page.scroll)
         self.assertNotIn("Select the maps", page.status.text())
 
-    def test_changing_map_boxes_after_first_draw_refreshes_without_draw_click(self):
+    def test_changing_map_boxes_waits_for_the_draw_click(self):
         self.unique_fixture()
         page = self.window.plot_page
         self.window.tabs.setCurrentIndex(1)
@@ -690,7 +693,6 @@ class PlotWorkspaceTests(unittest.TestCase):
         })
         page.draw_maps()
         self.wait_render()
-        first_result = page.result
         replacement_cell = (
             page.selector.wafers[1], page.selector.metrics[1]
         )
@@ -698,10 +700,53 @@ class PlotWorkspaceTests(unittest.TestCase):
         page.selector.set_selected_cells({replacement_cell})
         self.wait_render()
 
-        self.assertIsNot(page.result, first_result)
+        # A new box selection is not drawn until the engineer presses the button.
+        self.assertIsNone(page.result)
+        self.assertTrue(page.dirty)
+        self.assertIs(page.stack.currentWidget(), page.selector_panel)
+        self.assertIn("click Draw selected", page.status.text())
+
+        # A later data edit must not draw the pending selection either.
+        self.window.model.edit({(1, 10): "3.5"})
+        self.window.recognize()
+        self.wait_render()
+        self.assertIsNone(page.result)
+        self.assertEqual(page.selector.selected_cells(), {replacement_cell})
+
+        page.draw_maps()
+        self.wait_render()
+
+        self.assertIsNotNone(page.result)
         self.assertEqual(page.drawn_cells, {replacement_cell})
         self.assertIs(page.stack.currentWidget(), page.scroll)
-        self.assertNotIn("click Draw selected", page.status.text())
+
+    def test_adding_a_parameter_waits_for_a_fresh_map_selection(self):
+        self.unique_fixture()
+        w, page = self.window, self.window.plot_page
+        w.tabs.setCurrentIndex(1)
+        page.selector.set_selected_cells({
+            (page.selector.wafers[0], page.selector.metrics[0])
+        })
+        page.draw_maps()
+        self.wait_render()
+
+        self.select_metrics("OCD_H1", "OCD_H2", "OCD_H3", "ASi_BCD")
+        self.wait_render()
+
+        # The extra parameter rebuilds the grid: no redraw with the old boxes.
+        self.assertIsNone(page.result)
+        self.assertIs(page.stack.currentWidget(), page.selector_panel)
+        self.assertIn("click Draw selected", page.status.text())
+
+        page.selector.set_selected_cells({
+            (page.selector.wafers[0], "OCD_H1"),
+            (page.selector.wafers[0], "ASi_BCD"),
+        })
+        page.draw_maps()
+        self.wait_render()
+
+        self.assertIsNotNone(page.result)
+        self.assertEqual(page.result["shape"], (1, 2))
 
     def test_restored_map_draw_state_redraws_without_draw_click(self):
         self.unique_fixture()

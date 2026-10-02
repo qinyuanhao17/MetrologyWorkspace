@@ -14,10 +14,16 @@ class MapSelector(QTableWidget):
         self.setShowGrid(False)
         self.setWordWrap(True)
         self.setAutoScroll(True)
-        self.itemSelectionChanged.connect(self.changed)
+        self.itemSelectionChanged.connect(self._selection_changed)
         self.wafers, self.metrics = [], []
         self.labels = {}
         self.enabled_cells = None
+        self.pending_draw = False
+
+    def _selection_changed(self):
+        """A user selection needs an explicit Draw, even if changed back."""
+        self.pending_draw = True
+        self.changed.emit()
 
     def selected_cells(self):
         return {(self.wafers[index.row()], self.metrics[index.column()]) for index in self.selectedIndexes()}
@@ -33,7 +39,7 @@ class MapSelector(QTableWidget):
                     self.item(row, column).setSelected(True)
         self.blockSignals(False)
         if notify:
-            self.changed.emit()
+            self._selection_changed()
 
     def reconciled_cells(self, previous):
         """Keep exact boxes when possible, otherwise carry metrics to new wafers."""
@@ -61,6 +67,10 @@ class MapSelector(QTableWidget):
         if (wafers == self.wafers and metrics == self.metrics
                 and labels == self.labels and enabled_cells == self.enabled_cells):
             return
+        parameters_changed = (list(metrics) != self.metrics
+                              or enabled_cells != self.enabled_cells)
+        if list(wafers) != self.wafers or parameters_changed:
+            self.pending_draw = True
         previous = self.selected_cells()
         old_cells = (
             {(w, m) for w in self.wafers for m in self.metrics}
@@ -99,7 +109,8 @@ class MapSelector(QTableWidget):
                     )
                 self.setItem(row, col, item)
                 item.setSelected(enabled and (
-                    (wafer, metric) in previous or (wafer, metric) not in old_cells
+                    parameters_changed or (wafer, metric) in previous
+                    or (wafer, metric) not in old_cells
                 ))
         for header, count, size, minimum in ((self.horizontalHeader(), len(metrics), 260, 170),
                                              (self.verticalHeader(), len(wafers), 190, 110)):

@@ -9,9 +9,9 @@ Card Matching 需要保存最多 100,000 行、50 个参数的 Reference 与 Raw
 
 ## 决策
 
-`.wkb` 使用 SQLite 文件。schema 1 保存 Reference、匹配 Raw Data、映射和设置；schema 2 新增可选的 Preview FullMap 与 Final Raw Data 表；schema 3 新增独立的 Final 匹配 Raw Data，使 Preview/Final 不再共享可编辑输入；schema 4 新增 Preview/Final Map 工作区的精确表快照，并以表是否存在区分“尚未初始化”和“用户明确保留空表”；schema 5 再加入 Preview/Final Dynamic 工作区的独立精确表快照；schema 6 在 metadata 中加入 Map/Dynamic × Preview/Final 四份 wafer/parameter 选择状态；schema 7 在 Map 选择状态中加入 Wafer Map 首次成功绘制标志和实际框选组合；schema 8 再加入 Radius Plot 的成功绘制标志和实际框选组合。metadata 还可以包含 Setup splitter 的三个尺寸与 parameter order；它们是兼容旧 schema 的可选 UI 设置，不存在时使用默认布局、映射顺序和工作区选择。`MatchWorkbook` 是稳定 interface，负责校验行序匹配、参数映射、Card 分析、Map/Dynamic 初始化与快照优先级，以及 WKB 保存/载入。Qt 窗口不直接读写 SQLite。
+`.wkb` 使用 SQLite 文件。schema 1 保存 Reference、匹配 Raw Data、映射和设置；schema 2 新增可选的 Preview FullMap 与 Final Raw Data 表；schema 3 新增独立的 Final 匹配 Raw Data；schema 4/5 加入 Preview/Final Map/Dynamic 工作区的精确表快照；schema 6 加入 Map/Dynamic × Preview/Final 的 wafer/parameter 选择；schema 7/8 加入 Wafer Map/Radius 首次成功绘制状态；schema 9 保存 Preview/Final Correlation and Trend 的 Ref/Raw 侧栏选择与绘制状态；schema 10 支持 Trend 拆轴策略。当前将 Preview/Final 共用的策略保存为可选 metadata 字段 `trend_axis_settings`（`ratio` 缺省 10×，`mode` 为 `auto`/`dual`/`single`、缺省 `auto`）。早期 schema 10 的 stage `trend_axis_ratio` / `trend_axis_mode` 按保存时所在 tab 优先迁移为一份策略，不混用两阶段字段，迁移后不再写入 stage；勾选和绘制状态仍独立保存。metadata 还可以包含 Setup splitter 尺寸与 parameter order；旧文件缺省这些可选 UI 字段时使用默认布局和选择。`MatchWorkbook` 是负责校验、分析和 WKB 保存/载入的稳定 interface；Qt 窗口不直接读写 SQLite。
 
-WKB 保存源表、Map/Dynamic 精确快照、四份工作区选择、Wafer Map/Radius 自动绘制状态、映射和分析设置；Card 与普通分析派生序列在载入后重新计算，但已编辑的工作区快照不重新生成。`MatchAnalysisResult` 只保留每个参数的系数，调用 `series(parameter)` 时才展开该参数的 Card Value、Evaluated Value 和 Bias。载入器兼容 schema 1–7；旧文件没有 Map 快照时按 Match Type 的默认规则初始化，没有 Dynamic 快照时由相应阶段数据初始化，没有工作区选择或绘制状态时采用当前默认选择并保留首次手动绘制行为。
+WKB 保存源表、Map/Dynamic 精确快照与选择、Wafer Map/Radius 自动绘制状态、Correlation/Trend 选择与自动绘制状态、Trend 拆轴模式和小数阈值、映射和分析设置；Card 与普通分析派生序列在载入后重新计算，但已编辑的工作区快照不重新生成。`MatchAnalysisResult` 只保留每个参数的系数，调用 `series(parameter)` 时才展开该参数的 Card Value、Evaluated Value 和 Bias。载入器兼容 schema 1–10；旧文件没有拆轴模式时默认 `auto`，已有倍率仍可读取。
 
 保存过程先写同目录临时文件，提交并关闭 SQLite 句柄后再原子替换目标文件，避免 Windows 上的文件占用和半写入结果。
 

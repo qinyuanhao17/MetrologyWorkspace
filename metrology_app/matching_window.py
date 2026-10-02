@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from io import StringIO
 from pathlib import Path
 import subprocess
@@ -23,6 +24,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QDoubleSpinBox,
     QFileDialog,
     QFrame,
     QGraphicsOpacityEffect,
@@ -44,6 +46,7 @@ from PyQt6.QtWidgets import (
     QTabWidget,
     QVBoxLayout,
     QWidget,
+    QWidgetAction,
 )
 
 from .appearance import fit_window_to_screen, help_title_label
@@ -55,9 +58,15 @@ from .settings import (
     apply_theme, forget_recent_wkb, recent_wkb_paths, remember_recent_wkb,
 )
 from .sheet import DuplicateHeaderBanner, SheetModel, SheetView
+from .widgets import ScrollSafeComboBox
 
 
 PLOT_LIMIT = 20_000
+AXIS_MODE_LABELS = {
+    "auto": "Auto (median ratio)",
+    "dual": "Always two Y axes",
+    "single": "Always one Y axis",
+}
 _PARAMETER_MIME = "application/x-metrology-match-parameter"
 LOGGER = get_logger()
 
@@ -400,8 +409,15 @@ class MatchingWindow(QMainWindow):
         )
         self._map_selection_states = {"preview": None, "final": None}
         self._dynamic_selection_states = {"preview": None, "final": None}
+        self._correlation_selection_states = {
+            "preview": None, "final": None
+        }
         self._stage_windows = []
+        self._syncing_stage_windows = False
+        self._stage_sync_inputs = None
         self._stage_window_context = {}
+        self.second_axis_ratio = 10.0
+        self.trend_axis_mode = "auto"
         self._recent_wkb_paths = list(recent_wkb_paths())
         self.reference_model = SheetModel()
         self.raw_model = SheetModel()
@@ -571,6 +587,42 @@ class MatchingWindow(QMainWindow):
         self.percent_bias.toggled.connect(self.percent_bias_action.setChecked)
         self.bias_menu.addAction(self.absolute_bias_action)
         self.bias_menu.addAction(self.percent_bias_action)
+
+        # One explicit mode choice plus a decimal auto threshold. Plain menu
+        # actions use a radio-style text marker instead of misleading boxes.
+        self.second_axis_menu = self.analysis_menu.addMenu("Trend Y axes")
+        self.second_axis_actions = {}
+        for mode, label in AXIS_MODE_LABELS.items():
+            action = QAction(label, self)
+            action.triggered.connect(
+                lambda _checked=False, value=mode:
+                self.set_trend_axis_mode(value)
+            )
+            self.second_axis_actions[mode] = action
+        self.second_axis_menu.addAction(self.second_axis_actions["auto"])
+        ratio_row = QWidget(self.second_axis_menu)
+        ratio_layout = QHBoxLayout(ratio_row)
+        ratio_layout.setContentsMargins(16, 2, 12, 4)
+        ratio_layout.addWidget(QLabel("Median ratio >", ratio_row))
+        self.second_axis_spin = QDoubleSpinBox(ratio_row)
+        self.second_axis_spin.setDecimals(3)
+        self.second_axis_spin.setRange(1.0, 1_000_000.0)
+        self.second_axis_spin.setSingleStep(0.1)
+        self.second_axis_spin.setSuffix("×")
+        self.second_axis_spin.setValue(self.second_axis_ratio)
+        self.second_axis_spin.setToolTip(
+            "Auto: split same-unit curves when their median absolute values "
+            "differ by more than this ratio. Different units always split."
+        )
+        self.second_axis_spin.valueChanged.connect(self.set_second_axis_ratio)
+        ratio_layout.addWidget(self.second_axis_spin)
+        ratio_action = QWidgetAction(self.second_axis_menu)
+        ratio_action.setDefaultWidget(ratio_row)
+        self.second_axis_menu.addAction(ratio_action)
+        self.second_axis_menu.addSeparator()
+        self.second_axis_menu.addAction(self.second_axis_actions["dual"])
+        self.second_axis_menu.addAction(self.second_axis_actions["single"])
+        self._refresh_axis_mode_menu()
 
         # Compatibility aliases for callers that previously enabled toolbar buttons.
         self.open_button = self.open_action
@@ -1166,7 +1218,7 @@ class MatchingWindow(QMainWindow):
             reference_item = QTableWidgetItem(reference_column)
             reference_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
             self.mapping_table.setItem(row, 2, reference_item)
-            raw_picker = QComboBox()
+            raw_picker = ScrollSafeComboBox()
             raw_picker.addItem("")
             raw_picker.addItems([str(column) for column in raw_frame.columns])
             requested_raw = mapping_state["raw_column"]
@@ -1472,6 +1524,11 @@ class MatchingWindow(QMainWindow):
                 "map": self._map_selection_states,
                 "dynamic": self._dynamic_selection_states,
             },
+            correlation_selections=self._correlation_selection_states,
+            trend_axis_settings={
+                "ratio": self.second_axis_ratio,
+                "mode": self.trend_axis_mode,
+            },
             setup_splitter_sizes=tuple(self.setup_splitter.sizes()),
             parameter_order=parameter_order,
         )
@@ -1500,12 +1557,20 @@ class MatchingWindow(QMainWindow):
         if not mappings:
             raise ValueError("Select at least one valid parameter mapping first.")
         mode = self.result_mode.currentText()
+        stage = mode.lower()
+        existing = self._prepare_stage_window("correlation", stage)
+        if existing is not None:
+            return existing
         workspace = self._correlation_window_factory()
         workspace.set_sources(self.reference_frame, raw, mappings, mode)
+        self._bind_workspace_selection(workspace, "correlation", stage)
+        self._offer_second_axis_settings(workspace)
+        self._configure_managed_close(workspace, "correlation", stage)
         if hasattr(workspace, "setWindowTitle"):
             workspace.setWindowTitle(f"{mode} Correlation and Trend")
-        self._register_stage_workspace(workspace)
+        self._register_stage_workspace(workspace, "correlation", stage)
         workspace.show()
+        self.remember_stage_inputs()
         return workspace
 
     def _open_correlation_clicked(self):
@@ -1517,15 +1582,23 @@ class MatchingWindow(QMainWindow):
             )
 
     def open_stage_workspace(self, stage):
+        existing = self._prepare_stage_window("map", stage)
+        if existing is not None:
+            return existing
         if self.result is None:
             self.run_analysis()
         self.workbook = self.current_workbook()
-        frame = self.workbook.stage_frame(stage)
+        # The workspace owns the Card choice, so hand over untouched values.
+        frame = self.workbook.stage_frame(stage, apply_card=False)
         workspace = self._wafer_window_factory()
         title = f"{str(stage).title()} · Match Workbook"
+        self._offer_parameter_cards(workspace)
         workspace.set_table(frame, title)
         self._bind_workspace_selection(workspace, "map", stage)
-        self._capture_stage_map(stage, frame)
+        if not self._workspace_data_follows_workbook():
+            # TEM owns this table; KLA/NOVA keep deriving it from Raw Data until
+            # the engineer edits the child window.
+            self._capture_stage_map(stage, frame)
         model = getattr(workspace, "model", None)
         if model is not None and hasattr(model, "changed"):
             model.changed.connect(
@@ -1537,9 +1610,14 @@ class MatchingWindow(QMainWindow):
             workspace.setWindowTitle(f"{str(stage).title()} Wafer Map / Radius")
         self._register_stage_workspace(workspace, "map", stage)
         workspace.show()
+        self.remember_stage_inputs()
         return workspace
 
     def _capture_stage_map(self, stage, frame):
+        if self._syncing_stage_windows:
+            # A refresh we pushed ourselves must not turn derived data into a
+            # saved snapshot.
+            return
         snapshot = frame.reset_index(drop=True).copy()
         if str(stage).lower() == "preview":
             self.preview_map_frame = snapshot
@@ -1547,6 +1625,8 @@ class MatchingWindow(QMainWindow):
             self.final_map_frame = snapshot
 
     def _capture_stage_model(self, stage, model):
+        if self._syncing_stage_windows:
+            return
         try:
             frame = model.frame()
         except ValueError:
@@ -1574,6 +1654,12 @@ class MatchingWindow(QMainWindow):
     def _capture_workspace_selection(self, kind, stage, state):
         if not isinstance(state, dict):
             return
+        if kind == "correlation":
+            saved = deepcopy(state)
+            saved.pop("trend_axis_ratio", None)
+            saved.pop("trend_axis_mode", None)
+            self._correlation_selection_states[str(stage).lower()] = saved
+            return
         states = (
             self._map_selection_states
             if kind == "map"
@@ -1599,11 +1685,12 @@ class MatchingWindow(QMainWindow):
     def _bind_workspace_selection(self, workspace, kind, stage):
         """Keep a stage workspace's surviving choices across close/reopen."""
         stage = str(stage).lower()
-        states = (
-            self._map_selection_states
-            if kind == "map"
-            else self._dynamic_selection_states
-        )
+        if kind == "map":
+            states = self._map_selection_states
+        elif kind == "dynamic":
+            states = self._dynamic_selection_states
+        else:
+            states = self._correlation_selection_states
         signal = getattr(workspace, "selection_changed", None)
         if signal is not None and hasattr(signal, "connect"):
             signal.connect(
@@ -1625,17 +1712,315 @@ class MatchingWindow(QMainWindow):
         if not callable(setter):
             return
         setter(
-            lambda frame, workspace_kind=kind, stage_name=stage:
+            lambda frame, workspace_kind=kind, stage_name=stage,
+            child=workspace:
             self._save_managed_workspace_on_close(
-                workspace_kind, stage_name, frame
+                workspace_kind, stage_name, frame, child
             )
         )
 
-    def _save_managed_workspace_on_close(self, kind, stage, frame):
-        if kind == "map":
-            self._capture_stage_map(stage, frame)
+    def _single_stage_window(self):
+        """TEM keeps one analysis window at a time; KLA and NOVA allow all."""
+        return str(self.match_type.currentText()).strip().upper() == "TEM"
+
+    def _workspace_data_follows_workbook(self):
+        """KLA and NOVA derive Map/Dynamic from the workbook's Raw Data.
+
+        TEM keeps independent Map/Radius and Dynamic tables, so those windows
+        must never be overwritten from the workbook.
+        """
+        return not self._single_stage_window()
+
+    def _prepare_stage_window(self, kind, stage):
+        """TEM keeps one window per analysis button.
+
+        Opening a button whose window is already open brings that window
+        forward and refreshes it instead of stacking a second copy; the other
+        two kinds stay open. KLA and NOVA may open each window separately.
+        """
+        if not self._single_stage_window() or not self._stage_windows:
+            return None
+        wanted = (str(kind).lower(), str(stage).lower())
+        for workspace in tuple(self._stage_windows):
+            if self._stage_window_context.get(workspace) != wanted:
+                continue
+            try:
+                self._refresh_stage_workspace(workspace, *wanted)
+            except Exception as error:
+                LOGGER.warning(
+                    "Could not refresh the %s %s window: %s",
+                    wanted[1], wanted[0], error,
+                )
+            workspace.show()
+            raise_window = getattr(workspace, "raise_", None)
+            if callable(raise_window):
+                raise_window()
+            activate = getattr(workspace, "activateWindow", None)
+            if callable(activate):
+                activate()
+            return workspace
+        return None
+
+    def _close_stage_windows(self):
+        """Persist and close every open analysis window."""
+        workspaces = tuple(self._stage_windows)
+        if not workspaces:
+            return
+        self._save_stage_workspaces_before_close(workspaces)
+        self._close_stage_workspaces(workspaces)
+
+    def _stage_window_inputs(self):
+        """Workbook tables the open analysis windows mirror."""
+        return (
+            self.reference_frame.copy(),
+            self._active_raw_frame().copy(),
+            tuple(self.selected_mappings()),
+            str(self.match_type.currentText()),
+        )
+
+    @staticmethod
+    def _same_stage_inputs(left, right):
+        if left is None or right is None:
+            return False
+        return (
+            left[0].equals(right[0])
+            and left[1].equals(right[1])
+            and left[2] == right[2]
+            and left[3] == right[3]
+        )
+
+    def remember_stage_inputs(self):
+        """Mark the workbook tables the open windows were built from."""
+        self._stage_sync_inputs = self._stage_window_inputs()
+
+    def sync_stage_windows(self):
+        """Refresh open analysis windows from the Match Workbook tables.
+
+        KLA and NOVA keep all three windows on the workbook's Reference/Raw
+        data. In TEM only Correlation and Trend follows, because its Map/Radius
+        and Dynamic tables are independent inputs.
+        """
+        if not self._stage_windows or self._syncing_stage_windows:
+            return
+        inputs = self._stage_window_inputs()
+        if self._same_stage_inputs(inputs, self._stage_sync_inputs):
+            return
+        self._syncing_stage_windows = True
+        try:
+            for workspace in tuple(self._stage_windows):
+                context = self._stage_window_context.get(workspace)
+                if context is None:
+                    continue
+                kind, stage = context
+                # Dynamic keeps its own table in every match type; the Map data
+                # is only derived from Raw Data for KLA and NOVA.
+                follows = kind == "correlation" or (
+                    kind == "map" and self._workspace_data_follows_workbook()
+                )
+                if not follows:
+                    continue
+                try:
+                    self._refresh_stage_workspace(workspace, kind, stage)
+                except Exception as error:
+                    LOGGER.warning(
+                        "Could not refresh the %s %s window: %s",
+                        stage, kind, error,
+                    )
+            self._stage_sync_inputs = inputs
+        finally:
+            self._syncing_stage_windows = False
+
+    def _refresh_stage_workspace(self, workspace, kind, stage):
+        """Push the current workbook tables into one open analysis window."""
+        state = getattr(workspace, "selection_state", None)
+        saved = state() if callable(state) else None
+        tabs = getattr(workspace, "tabs", None)
+        tab_index = (
+            tabs.currentIndex() if hasattr(tabs, "currentIndex") else None
+        )
+        views = self._workspace_views(workspace)
+        pages = self._workspace_pages(workspace)
+        if kind == "correlation":
+            workspace.set_sources(
+                self.reference_frame,
+                self._active_raw_frame(),
+                self.selected_mappings(),
+                str(stage).title(),
+            )
         else:
+            self.workbook = self.current_workbook()
+            frame = (
+                self.workbook.stage_frame(stage, apply_card=False)
+                if kind == "map"
+                else self.workbook.dynamic_frame(stage, apply_card=False)
+            )
+            label = "Wafer Map / Radius" if kind == "map" else "Dynamic"
+            self._offer_parameter_cards(workspace)
+            workspace.set_table(
+                frame, f"{str(stage).title()} {label} · Match Workbook"
+            )
+        if tabs is not None and tab_index is not None and tab_index >= 0:
+            # Refreshing data must not move the engineer off the tab they are
+            # reading; loading a fresh window still starts at its first tab.
+            tabs.setCurrentIndex(tab_index)
+        self._restore_workspace_views(views)
+        restore = getattr(workspace, "restore_selection", None)
+        if saved is not None and callable(restore):
+            restore(saved)
+        if kind == "correlation":
+            self._offer_second_axis_settings(workspace)
+        self._restore_workspace_pages(pages)
+
+    @staticmethod
+    def _workspace_pages(workspace):
+        """Stacked sub-pages (curve boxes versus drawn plots) to keep visible."""
+        pages = []
+        for name in ("plot_page", "radius_page", "correlation_page",
+                     "sequence_page"):
+            page = getattr(workspace, name, None)
+            stack = getattr(page, "stack", None)
+            if stack is None or not hasattr(stack, "setCurrentWidget"):
+                continue
+            current = stack.currentWidget()
+            if current is not None:
+                pages.append((stack, current))
+        return pages
+
+    @staticmethod
+    def _restore_workspace_pages(pages):
+        """Leave the engineer on the sub-page they were reading."""
+        for stack, current in pages:
+            try:
+                stack.setCurrentWidget(current)
+            except RuntimeError:
+                # The page was destroyed before the refresh finished.
+                return
+
+    def _offer_parameter_cards(self, workspace):
+        """Hand this workbook's Cards to a workspace that offers the option."""
+        setter = getattr(workspace, "set_parameter_cards", None)
+        if not callable(setter):
+            return
+        try:
+            cards = self.workbook.parameter_cards()
+        except Exception as error:
+            LOGGER.warning("Could not compute the parameter Cards: %s", error)
+            return
+        setter(cards)
+
+    def set_second_axis_ratio(self, ratio):
+        """Keep every open Trend window on the decimal auto threshold."""
+        self.second_axis_ratio = float(ratio)
+        if self.second_axis_spin.value() != self.second_axis_ratio:
+            self.second_axis_spin.setValue(self.second_axis_ratio)
+        for workspace in tuple(self._stage_windows):
+            context = self._stage_window_context.get(workspace)
+            if context is None or context[0] != "correlation":
+                continue
+            setter = getattr(workspace, "set_second_axis_ratio", None)
+            if not callable(setter):
+                continue
+            setter(self.second_axis_ratio)
+            state = getattr(workspace, "selection_state", None)
+            if callable(state):
+                self._capture_workspace_selection(
+                    "correlation", context[1], state()
+                )
+
+    def set_trend_axis_mode(self, mode):
+        """Use automatic, forced dual-axis, or forced single-axis plotting."""
+        if mode not in AXIS_MODE_LABELS:
+            return
+        self.trend_axis_mode = mode
+        self._refresh_axis_mode_menu()
+        for workspace in tuple(self._stage_windows):
+            context = self._stage_window_context.get(workspace)
+            if context is None or context[0] != "correlation":
+                continue
+            setter = getattr(workspace, "set_trend_axis_mode", None)
+            if not callable(setter):
+                continue
+            setter(mode)
+            state = getattr(workspace, "selection_state", None)
+            if callable(state):
+                self._capture_workspace_selection(
+                    "correlation", context[1], state()
+                )
+
+    def _refresh_axis_mode_menu(self):
+        for mode, action in self.second_axis_actions.items():
+            marker = "●" if mode == self.trend_axis_mode else "○"
+            action.setText(f"{marker} {AXIS_MODE_LABELS[mode]}")
+        self.second_axis_spin.setEnabled(self.trend_axis_mode == "auto")
+
+    def _offer_second_axis_settings(self, workspace):
+        """Both stages always use the workbook menu's shared axis policy."""
+        ratio_setter = getattr(workspace, "set_second_axis_ratio", None)
+        mode_setter = getattr(workspace, "set_trend_axis_mode", None)
+        if callable(ratio_setter):
+            ratio_setter(self.second_axis_ratio)
+        if callable(mode_setter):
+            mode_setter(self.trend_axis_mode)
+
+    @staticmethod
+    def _workspace_views(workspace):
+        """Editable grids whose position must survive a data refresh."""
+        views = []
+        for name in ("sheet", "reference_sheet"):
+            view = getattr(workspace, name, None)
+            if view is None or not hasattr(view, "verticalScrollBar"):
+                continue
+            index = view.currentIndex()
+            views.append((
+                view,
+                index.row(),
+                index.column(),
+                view.horizontalScrollBar().value(),
+                view.verticalScrollBar().value(),
+            ))
+        return views
+
+    @staticmethod
+    def _restore_workspace_views(views):
+        """Put each grid back on the cell and offset it was showing."""
+        if not views:
+            return
+        for view, row, column, horizontal, vertical in views:
+            model = view.model()
+            if model is not None and row >= 0 and column >= 0:
+                index = model.index(row, column)
+                if index.isValid():
+                    view.setCurrentIndex(index)
+            view.horizontalScrollBar().setValue(horizontal)
+            view.verticalScrollBar().setValue(vertical)
+
+        def settle():
+            for view, _row, _column, horizontal, vertical in views:
+                try:
+                    view.horizontalScrollBar().setValue(
+                        min(horizontal, view.horizontalScrollBar().maximum())
+                    )
+                    view.verticalScrollBar().setValue(
+                        min(vertical, view.verticalScrollBar().maximum())
+                    )
+                except RuntimeError:
+                    # The window was closed before the deferred pass ran.
+                    return
+
+        QTimer.singleShot(0, settle)
+
+    def _save_managed_workspace_on_close(
+        self, kind, stage, frame, workspace=None
+    ):
+        if kind == "map":
+            if not self._workspace_data_follows_workbook():
+                self._capture_stage_map(stage, frame)
+        elif kind == "dynamic":
             self._capture_stage_dynamic(stage, frame)
+        elif workspace is not None:
+            state = getattr(workspace, "selection_state", None)
+            if callable(state):
+                self._capture_workspace_selection(kind, stage, state())
         self.workbook = self.current_workbook()
         if self.workbook_path is not None:
             self.save_workbook(self.workbook_path)
@@ -1646,14 +2031,24 @@ class MatchingWindow(QMainWindow):
         if context is None:
             return
         kind, stage = context
+        if kind == "correlation":
+            selection_getter = getattr(workspace, "selection_state", None)
+            if callable(selection_getter):
+                self._capture_workspace_selection(
+                    kind, stage, selection_getter()
+                )
+            return
         model = getattr(workspace, "model", None)
         frame_getter = getattr(model, "frame", None)
         if callable(frame_getter):
             frame = frame_getter()
-            if kind == "map":
-                self._capture_stage_map(stage, frame)
-            else:
+            if kind == "dynamic":
+                # Dynamic owns its table in every match type.
                 self._capture_stage_dynamic(stage, frame)
+            elif not self._workspace_data_follows_workbook():
+                # KLA/NOVA keep following Raw Data, so closing an untouched
+                # window must not freeze a copy of the derived table.
+                self._capture_stage_map(stage, frame)
         selection_getter = getattr(workspace, "selection_state", None)
         if callable(selection_getter):
             self._capture_workspace_selection(
@@ -1744,16 +2139,23 @@ class MatchingWindow(QMainWindow):
             QMessageBox.warning(self, f"Cannot open {stage.title()}", str(error))
 
     def open_dynamic_workspace(self, stage):
+        existing = self._prepare_stage_window("dynamic", stage)
+        if existing is not None:
+            return existing
         if self.result is None:
             self.run_analysis()
         self.workbook = self.current_workbook()
-        frame = self.workbook.dynamic_frame(stage)
+        # The workspace owns the Card choice, so hand over untouched values.
+        frame = self.workbook.dynamic_frame(stage, apply_card=False)
         workspace = self._dynamic_window_factory()
         title = f"{str(stage).title()} Dynamic · Match Workbook"
+        self._offer_parameter_cards(workspace)
         workspace.set_table(frame, title)
         self._bind_workspace_selection(workspace, "dynamic", stage)
         model = getattr(workspace, "model", None)
         if model is not None:
+            # Dynamic holds its own table in every match type, so opening the
+            # window freezes the table it starts from.
             self._capture_dynamic_model(stage, model)
             if hasattr(model, "changed"):
                 model.changed.connect(
@@ -1767,9 +2169,12 @@ class MatchingWindow(QMainWindow):
             workspace.setWindowTitle(f"{str(stage).title()} Dynamic")
         self._register_stage_workspace(workspace, "dynamic", stage)
         workspace.show()
+        self.remember_stage_inputs()
         return workspace
 
     def _capture_stage_dynamic(self, stage, frame):
+        if self._syncing_stage_windows:
+            return
         snapshot = frame.reset_index(drop=True).copy()
         if str(stage).lower() == "preview":
             self.preview_dynamic_frame = snapshot
@@ -1777,6 +2182,8 @@ class MatchingWindow(QMainWindow):
             self.final_dynamic_frame = snapshot
 
     def _capture_dynamic_model(self, stage, model):
+        if self._syncing_stage_windows:
+            return
         try:
             frame = model.frame()
         except ValueError:
@@ -1806,6 +2213,11 @@ class MatchingWindow(QMainWindow):
         self.result_status.setText(self._result_descriptor)
         self._draw_all_parameters()
         self._update_state()
+        # Open analysis windows mirror the workbook tables they were built from.
+        try:
+            self.sync_stage_windows()
+        except Exception as error:
+            LOGGER.warning("Could not refresh the analysis windows: %s", error)
         QTimer.singleShot(
             0,
             lambda value=scroll_value:
@@ -1886,9 +2298,9 @@ class MatchingWindow(QMainWindow):
             plot = self._plot_widget(bottom, left, plot_class=plot_class)
             plot.getPlotItem().setContentsMargins(6, 4, 8, 8)
             if name == "match":
-                plot.setFixedWidth(510)
+                plot.setFixedWidth(340)
                 horizontal_policy = QSizePolicy.Policy.Fixed
-                plot_grid.setColumnMinimumWidth(index, 510)
+                plot_grid.setColumnMinimumWidth(index, 340)
             else:
                 # Trend and bias plots share the space left after the fixed
                 # Match plot. Their graphics remain interactive at narrower
@@ -1905,7 +2317,7 @@ class MatchingWindow(QMainWindow):
             if name in {"bias", "bias-percent"}:
                 plot.getAxis("left").enableAutoSIPrefix(False)
             plots[name] = plot
-        primary_width = 510
+        primary_width = 340
         plot_container.setMinimumWidth(0)
         match_title = plots["match"].title_label
         match_formula = plots["match"].formula_label
@@ -2064,7 +2476,11 @@ class MatchingWindow(QMainWindow):
                 symbolBrush="#4f8bd6",
                 symbolPen=None,
             )
-            bias_plot.addLine(y=0, pen=pg.mkPen("#8a8f98", width=1, style=Qt.PenStyle.DashLine))
+            # Zero is a reference, not an observation to include in auto-range.
+            bias_plot.addItem(pg.InfiniteLine(
+                pos=0, angle=0,
+                pen=pg.mkPen("#8a8f98", width=1, style=Qt.PenStyle.DashLine),
+            ), ignoreBounds=True)
             bias_plot.setTitle("Bias")
 
         bias_percent_plot = plots.get("bias-percent")
@@ -2078,9 +2494,10 @@ class MatchingWindow(QMainWindow):
                 symbolBrush="#4f8bd6",
                 symbolPen=None,
             )
-            bias_percent_plot.addLine(
-                y=0, pen=pg.mkPen("#8a8f98", width=1, style=Qt.PenStyle.DashLine)
-            )
+            bias_percent_plot.addItem(pg.InfiniteLine(
+                pos=0, angle=0,
+                pen=pg.mkPen("#8a8f98", width=1, style=Qt.PenStyle.DashLine),
+            ), ignoreBounds=True)
             bias_percent_plot.setTitle("Bias %")
         for primary_plot in plots.values():
             primary_plot.getPlotItem().layout.setRowFixedHeight(
@@ -2291,6 +2708,13 @@ class MatchingWindow(QMainWindow):
         except Exception as error:
             QMessageBox.warning(self, "Cannot save images", str(error))
     def save_workbook(self, path):
+        for workspace in tuple(self._stage_windows):
+            try:
+                self._capture_managed_stage_workspace(workspace)
+            except RuntimeError as error:
+                if not self._deleted_qt_object(error):
+                    raise
+                self._forget_stage_workspace(workspace)
         workbook = self.current_workbook()
         saved = workbook.save(path)
         self.workbook = workbook
@@ -2426,6 +2850,16 @@ class MatchingWindow(QMainWindow):
             stage: workbook.workspace_selections["dynamic"][stage]
             for stage in ("preview", "final")
         }
+        self._correlation_selection_states = {
+            stage: workbook.correlation_selections[stage]
+            for stage in ("preview", "final")
+        }
+        self.second_axis_ratio = workbook.trend_axis_settings["ratio"]
+        self.trend_axis_mode = workbook.trend_axis_settings["mode"]
+        self.second_axis_spin.blockSignals(True)
+        self.second_axis_spin.setValue(self.second_axis_ratio)
+        self.second_axis_spin.blockSignals(False)
+        self._refresh_axis_mode_menu()
         self.reference_frame = workbook.reference
         self.raw_frame = workbook.raw
         self.final_match_frame = (

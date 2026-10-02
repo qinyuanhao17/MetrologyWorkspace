@@ -119,4 +119,67 @@ def dynamic_pivot(
     return pivot
 
 
-__all__ = ["dynamic_pivot", "prepare_dynamic_frame"]
+def cycle_trend(
+    frame,
+    parameter,
+    *,
+    die_column="Die Seq",
+    cycle_column="Cycle",
+):
+    """Return Cycle × Die values for the Dynamic Trend tab.
+
+    One curve per Die Seq is drawn against the Cycle axis, so the derived
+    ``3 Sigma`` row of `dynamic_pivot` is dropped. Duplicate Cycle/Die pairs and
+    empty measurements follow exactly the same rules as the pivot.
+    """
+    pivot = dynamic_pivot(
+        frame, parameter, die_column=die_column, cycle_column=cycle_column
+    )
+    return pivot.iloc[:-1]
+
+
+def selected_measurement_rows(frame, selection):
+    """Return the rows of the one selected measurement set.
+
+    Row positions are preserved so a pivot or trend point can be mapped back to
+    the exact Data sheet row it came from.
+    """
+    selected = list(selection.get("wafers", ()))
+    groups = selection.get("groups", {})
+    if len(selected) != 1:
+        raise ValueError("Select exactly one measurement set in Data.")
+    indices = list(groups.get(selected[0], ()))
+    if not indices:
+        raise ValueError("The selected measurement set has no rows.")
+    return frame.iloc[indices]
+
+
+def changed_dynamic_parameters(before, after, old_selection, selection):
+    """Return value-only changed parameters, or None when layout must rebuild.
+
+    Selection, row positions, headers and Cycle/Die inference inputs must stay
+    identical before an existing editable pivot can safely keep its row map.
+    Unselected measurement columns do not affect the displayed results.
+    """
+    if (old_selection != selection or before.shape != after.shape
+            or not before.columns.equals(after.columns)
+            or not before.index.equals(after.index)):
+        return None
+    structural = [column for column in ("Cur SME File Path", "Die Seq", "Cycle")
+                  if column in after]
+    if not before[structural].equals(after[structural]):
+        return None
+    parameters = list(selection.get("metrics", ()))
+    if any(parameter not in before for parameter in parameters):
+        return None
+    return [parameter for parameter in parameters
+            if not before[parameter].equals(after[parameter])]
+
+
+__all__ = [
+    "changed_dynamic_parameters",
+    "cycle_trend",
+    "dynamic_pivot",
+    "prepare_dynamic_frame",
+    "selected_measurement_rows",
+]
