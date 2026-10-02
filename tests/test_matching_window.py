@@ -98,6 +98,50 @@ class MatchingWindowTests(unittest.TestCase):
         self.window.raw_model.undo.undo()
         self.assertEqual(self.window.raw_frame.iloc[0, 1], "1.0")
 
+    def test_editable_match_tables_offer_auto_rename_for_duplicate_headers(self):
+        duplicate = pd.DataFrame(
+            [["W1", "1", "2"], ["W2", "3", "4"]],
+            columns=["Wafer ID", "DP", "DP"],
+        )
+        self.window.reference_model.load(duplicate)
+        self.window.raw_model.load(duplicate)
+        APP.processEvents()
+
+        for banner in (
+            self.window.reference_duplicate_banner,
+            self.window.raw_duplicate_banner,
+        ):
+            self.assertFalse(banner.isHidden())
+            self.assertGreaterEqual(banner.minimumHeight(), 44)
+            self.assertEqual(banner.button.text(), "Auto rename")
+
+        before = {
+            key: value for key, value in self.window.reference_model.cells.items()
+            if key[0] > 0
+        }
+        self.window.reference_duplicate_banner.button.click()
+        APP.processEvents()
+        self.assertEqual(
+            self.window.reference_model.headers(), ["Wafer ID", "DP", "DP_2"]
+        )
+        self.assertEqual(
+            {key: value for key, value in self.window.reference_model.cells.items()
+             if key[0] > 0},
+            before,
+        )
+        self.assertTrue(self.window.reference_duplicate_banner.isHidden())
+
+        self.window.result_mode.setCurrentText("Final")
+        self.window.final_raw_model.load(duplicate)
+        APP.processEvents()
+        self.assertFalse(self.window.raw_duplicate_banner.isHidden())
+        self.window.raw_duplicate_banner.button.click()
+        APP.processEvents()
+        self.assertEqual(
+            self.window.final_raw_model.headers(), ["Wafer ID", "DP", "DP_2"]
+        )
+        self.assertTrue(self.window.raw_duplicate_banner.isHidden())
+
     def test_correlation_button_opens_active_reference_and_raw_sources(self):
         class FakeCorrelationWorkspace:
             def __init__(self):

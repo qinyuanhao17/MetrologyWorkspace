@@ -13,13 +13,14 @@ import pyqtgraph as pg
 from PyQt6.QtCore import QPoint, QPointF, Qt
 from PyQt6.QtGui import QKeySequence, QPalette, QWheelEvent
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication, QHBoxLayout, QLabel
+from PyQt6.QtWidgets import QApplication, QHBoxLayout, QLabel, QPushButton
 
 from metrology_app.correlation_page import fit_numeric_pair, pairwise_linear_fits
 from metrology_app.correlation_window import CorrelationWindow
 from metrology_app.matching import ParameterMapping
 from metrology_app.appearance import MAX_COPY_PIXELS, configure_fonts
 from metrology_app import settings as settings_module
+from metrology_app import sequence_page as sequence_module
 from metrology_app.settings import get_settings
 from metrology_app.window import MainWindow as WaferMapWindow
 
@@ -167,6 +168,121 @@ class CorrelationTests(unittest.TestCase):
                 "#5b9bd5",
             )
         finally:
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_ref_and_raw_tabs_have_independent_real_wafer_choices(self):
+        reference = pd.DataFrame({
+            "Wafer ID": ["old-ref"] * 6,
+            "Die Seq": [11, 12, 13, 21, 22, 23],
+            "DP Ref": [1, 2, 3, 4, 5, 6],
+            "EW Ref": [2, 4, 6, 8, 10, 12],
+        })
+        raw = pd.DataFrame({
+            "Wafer ID": ["W1"] * 3 + ["W2"] * 3,
+            "Die Seq": [1, 2, 3, 1, 2, 3],
+            "DP Raw": [1.1, 2.1, 3.1, 4.1, 5.1, 6.1],
+            "EW Raw": [2.2, 4.2, 6.2, 8.2, 10.2, 12.2],
+            "Raw only": [10, 11, 12, 13, 14, 15],
+        })
+        mappings = (
+            ParameterMapping("DP", "DP Ref", "DP Raw"),
+            ParameterMapping("EW", "EW Ref", "EW Raw"),
+        )
+        window = CorrelationWindow()
+        try:
+            window.set_sources(reference, raw, mappings, "Preview")
+
+            def visible_names(tree):
+                return [tree.topLevelItem(index).text(0)
+                        for index in range(tree.topLevelItemCount())]
+
+            self.assertEqual(visible_names(window.reference_wafer_list), ["W1", "W2"])
+            self.assertEqual(visible_names(window.wafer_list), ["W1", "W2"])
+            self.assertNotIn("Reference", visible_names(window.reference_wafer_list))
+            self.assertNotIn("Raw Data", visible_names(window.wafer_list))
+            self.assertEqual(
+                set(visible_names(window.reference_parameter_list)),
+                {"Wafer ID", "Die Seq", "DP", "EW"},
+            )
+            self.assertEqual(
+                set(visible_names(window.parameter_list)),
+                {"Wafer ID", "Die Seq", "DP Raw", "EW Raw", "Raw only"},
+            )
+
+            window.reference_wafer_list.topLevelItem(1).setCheckState(
+                0, Qt.CheckState.Unchecked
+            )
+            APP.processEvents()
+            self.assertEqual(window.selected(window.reference_wafer_list), [
+                window.reference_wafer_list.topLevelItem(0).data(
+                    0, Qt.ItemDataRole.UserRole
+                )
+            ])
+            self.assertEqual(len(window.selected(window.wafer_list)), 2)
+            self.assertEqual(len(window.selection["wafers"]), 3)
+            for index in range(window.reference_parameter_list.topLevelItemCount()):
+                item = window.reference_parameter_list.topLevelItem(index)
+                if item.text(0) == "EW":
+                    item.setCheckState(0, Qt.CheckState.Unchecked)
+            APP.processEvents()
+            self.assertEqual(
+                window.selected(window.reference_parameter_list), ["DP"]
+            )
+            self.assertEqual(
+                window.selected(window.parameter_list), ["DP Raw", "EW Raw"]
+            )
+            reference_keys = [
+                key for key in window.selection["wafers"]
+                if key[0] == "Reference"
+            ]
+            raw_keys = [
+                key for key in window.selection["wafers"]
+                if key[0] == "Raw Data"
+            ]
+            self.assertTrue(all(
+                (key, "EW") not in window.selection["available_cells"]
+                for key in reference_keys
+            ))
+            self.assertTrue(all(
+                (key, "EW") in window.selection["available_cells"]
+                for key in raw_keys
+            ))
+            self.assertTrue(all(
+                "Reference" not in item.text(0) and "Raw Data" not in item.text(0)
+                for tree in (window.reference_wafer_list, window.wafer_list)
+                for item in (tree.topLevelItem(index)
+                             for index in range(tree.topLevelItemCount()))
+            ))
+        finally:
+            window.raw_model.undo.setClean()
+            window.reference_model.undo.setClean()
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_ref_data_table_offers_auto_rename_for_duplicate_headers(self):
+        frame = pd.DataFrame(
+            [["W1", "1", "2"], ["W2", "3", "4"]],
+            columns=["Wafer ID", "DP", "DP"],
+        )
+        window = CorrelationWindow()
+        try:
+            window.reference_model.load(frame)
+            APP.processEvents()
+            banner = window.reference_warning_banner
+            self.assertFalse(banner.isHidden())
+            self.assertGreaterEqual(banner.minimumHeight(), 44)
+            banner.button.click()
+            APP.processEvents()
+            self.assertEqual(
+                window.reference_model.headers(), ["Wafer ID", "DP", "DP_2"]
+            )
+            self.assertTrue(banner.isHidden())
+        finally:
+            window.raw_model.undo.setClean()
+            window.reference_model.undo.setClean()
             window.close()
             window.deleteLater()
             APP.processEvents()
@@ -942,15 +1058,81 @@ class CorrelationTests(unittest.TestCase):
         APP.processEvents()
         return window, page
 
-    def test_trend_context_menu_offers_overlay_for_checked_parameters(self):
+    def test_trend_right_click_keeps_native_plot_options_only(self):
         window, page = self._overlay_page()
         try:
-            menu = page.build_panel_menu(page.plot_widgets[0], "DP [nm]")
-            actions = {action.text(): action for action in menu.actions()}
-            self.assertIn("叠加对比…", actions)
-            self.assertTrue(actions["叠加对比…"].isEnabled())
-            self.assertIn("解除对比", actions)
-            self.assertFalse(actions["解除对比"].isEnabled())
+            widget = page.plot_widgets[0]
+            self.assertEqual(widget.contextMenuPolicy(),
+                             Qt.ContextMenuPolicy.DefaultContextMenu)
+            native = widget.getPlotItem().getViewBox().getMenu(None)
+            texts = [action.text() for action in native.actions()]
+            self.assertNotIn("叠加对比…", texts)
+            self.assertNotIn("解除对比", texts)
+            self.assertIn("View All", texts)
+        finally:
+            window.model.undo.setClean()
+            window.close()
+
+    def test_trend_overlay_control_sits_beside_the_plot(self):
+        window, page = self._overlay_page()
+        try:
+            window.show()
+            APP.processEvents()
+            widget, panel = page.plot_widgets[0], page.panel_hosts[0]
+            control = panel.side_widget
+            self.assertIsInstance(control, QPushButton)
+            self.assertEqual(control.text(), "叠加对比…")
+            self.assertTrue(control.isEnabled())
+            self.assertGreaterEqual(
+                control.mapTo(panel, QPoint(0, 0)).x(),
+                widget.mapTo(panel, QPoint(0, 0)).x() + widget.width(),
+            )
+        finally:
+            window.model.undo.setClean()
+            window.close()
+
+    def test_trend_overlay_control_is_disabled_without_a_second_parameter(self):
+        window, page = self._overlay_page(("DP [nm]",))
+        try:
+            self.assertFalse(page.panel_hosts[0].side_widget.isEnabled())
+        finally:
+            window.model.undo.setClean()
+            window.close()
+
+    def test_overlay_control_merges_and_unlinks_two_parameters(self):
+        window, page = self._overlay_page()
+        try:
+            with patch("metrology_app.sequence_page.QInputDialog.getItem",
+                       return_value=("EW [V]", True)):
+                page.panel_hosts[0].side_widget.click()
+            self.assertEqual(page.overlay, {"DP [nm]": "EW [V]"})
+            self.assertEqual(len(page.plot_widgets), 1)
+            heading = page.panel_hosts[0].findChild(QLabel)
+            self.assertIn("DP [nm] + EW [V]", heading.text())
+            unlink = page.panel_hosts[0].side_widget
+            self.assertEqual(unlink.text(), "解除对比")
+            unlink.click()
+            self.assertEqual(len(page.plot_widgets), 2)
+            self.assertFalse(page.overlay)
+        finally:
+            window.model.undo.setClean()
+            window.close()
+
+    def test_copy_png_leaves_the_overlay_control_out_of_the_image(self):
+        window, page = self._overlay_page()
+        try:
+            seen = []
+            real = sequence_module.widget_to_qimage
+
+            def spy(widget, scale, max_pixels):
+                seen.append(page.panel_hosts[0].side_widget.isHidden())
+                return real(widget, scale, max_pixels)
+
+            with patch("metrology_app.sequence_page.widget_to_qimage", side_effect=spy):
+                page.copy_png()
+            self.assertEqual(seen, [True])
+            self.assertFalse(page.panel_hosts[0].side_widget.isHidden())
+            self.assertFalse(APP.clipboard().image().isNull())
         finally:
             window.model.undo.setClean()
             window.close()

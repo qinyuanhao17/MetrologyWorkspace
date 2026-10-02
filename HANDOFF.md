@@ -23,7 +23,9 @@
 
 Match Workbook 的核心规则和 WKB schema 见 `metrology_app/matching/` 与 `docs/adr/`。它按行匹配 Reference/Raw Data，Preview 应用 Card，Final 使用独立且已加 Card 的 Raw Data。schema 5 另存 Preview/Final Map 与 Dynamic 工作区的独立精确表快照；schema 6 保存四个工作区各自右侧的 wafer/parameter 勾选；schema 7 保存 Wafer Map 首次成功绘制状态和实际框选；schema 8 再保存 Radius Plot 对应状态。KLA/NOVA Map 无快照时从相应 Raw Data 初始化，TEM 无独立 Map 数据时保持空白，已编辑快照始终优先恢复。顶部按当前模式提供 Wafer Map / Radius、Dynamic，以及直接读取当前 Reference/Raw Data 的 Correlation and Trend 入口。输入、mapping 和结果共享纵向 splitter；自动重算必须保留用户布局、滚动位置和参数顺序，结果区不再提供 Reset。打开 WKB 后视图从页面顶部开始，但仍恢复保存的 splitter 与参数顺序。首次保存选择路径，之后 `Ctrl+S` 覆盖当前 WKB；`Ctrl+Shift+S` 另存为并切换后续保存目标。File 菜单保存最多 10 个最近 WKB，可跨重启直接打开；已有当前文件时可用 `Reveal WKB in Folder` 在系统文件管理器中定位。
 
-WKB 右上角的 Correlation and Trend 不是独立简化窗口；它与主窗口工具列表复用同一个 `CorrelationWindow`。窗口使用 Ref Data / Raw Data 两个独立数据页；Raw 页保留全部列，Ref 页的 Wafer ID、Lot ID、PAD Name、Die Seq 逐行对齐 Raw，mapping 只为分析提供共用参数名。Correlation 先列 Reference 的来源内拟合，再列 Raw Data；Trend 也按 Reference 后 Raw Data 排列，颜色分别为橙色/蓝色。Trend 默认一参数一图；右键可显式叠加第二个参数，同单位共轴、异单位或未知单位用右轴，颜色表示参数、实线/虚线表示 Reference/Raw。叠加关系只保存在应用 YAML 的 `trend_overlay`，不进入 WKB schema。
+WKB 右上角的 Correlation and Trend 不是独立简化窗口；它与主窗口工具列表复用同一个 `CorrelationWindow`。窗口使用 Ref Data / Raw Data 两个独立数据页；Raw 页保留全部列，Ref 页的 Wafer ID、Lot ID、PAD Name、Die Seq 逐行对齐 Raw，mapping 只为分析提供共用参数名。Correlation 先列 Reference 的来源内拟合，再列 Raw Data；Trend 也按 Reference 后 Raw Data 排列，颜色分别为橙色/蓝色。Trend 默认一参数一图；每张图右侧的按钮可显式叠加第二个参数（对比中该按钮变为解除对比），同单位共轴、异单位或未知单位用右轴，颜色表示参数、实线/虚线表示 Reference/Raw。叠加关系只保存在应用 YAML 的 `trend_overlay`，不进入 WKB schema。
+
+所有可编辑数据表共用 `DuplicateHeaderBanner`：重复表头警告至少 48 px 高，并提供可撤销的 `Auto rename`。该修复入口覆盖通用 Data 页、Match 的 Reference 与 Preview/Final Raw Data，以及 Correlation 的 Ref Data；重命名只改第 1 行重复表头，不改数据行。
 
 Dynamic 复用 `window.MainWindow` 的 Data 编辑和 Wafer/Lot/PAD measurement identity：
 

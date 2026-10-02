@@ -168,12 +168,20 @@ Feature: Build a card matching workbook
       Given a Match Workbook has mapped Reference and Raw Data parameters
       When the engineer opens Correlation and Trend from the active mode
       Then the standard Correlation and Trend workspace opens with separate Ref Data and Raw Data tabs
+      And each data tab has its own wafer and parameter choices
+      And each wafer choice shows the real measurement identity instead of the data source name
       And Raw Data keeps all original columns
       And Reference measurement identity is aligned row by row from Raw Data
       And correlations are fitted only within their own source table
       And all Reference plots precede all Raw Data plots
       And Reference plots are orange while Raw Data plots are blue
       And Trend uses the same Reference-first source order and colours
+
+    Scenario: Repair duplicate headers in every editable data table
+      Given an editable Reference or Raw Data table has duplicate row-1 names
+      When the engineer uses Auto rename in the visible warning
+      Then only the repeated headers receive unique numeric suffixes
+      And the measurement rows remain unchanged
 
     Scenario: Show explanatory guidance only when requested
       Given a workspace section has explanatory guidance

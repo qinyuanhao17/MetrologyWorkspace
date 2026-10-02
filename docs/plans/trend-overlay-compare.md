@@ -14,6 +14,11 @@
   仍不进入 WKB schema。
 - Correlation and Trend 已按后续产品要求改为 Ref Data / Raw Data 两个数据页，且 Trend 默认按
   Reference 后 Raw Data 分面板排列；叠加功能在每个来源的参数面板上保持相同语义。
+- **交互修订（2026-10-01）**：`叠加对比…` 不再放进右键菜单。该自定义菜单会与 PyQtGraph 原生
+  右键菜单重叠显示两张菜单，并把一个主要动作藏在不可发现的右键里。现在每张图右侧常驻一个
+  `叠加对比…` 按钮（对比中变为 `解除对比`），`SequencePage` 不再接管右键，
+  菜单只剩 PyQtGraph 原生的 Plot Options / Export。`PlotPanel` 随之把可选的
+  `heading_extra` 换成 `side_widget`（放在图右侧的窄列）。
 
 ## 0. 背景与目标
 
@@ -110,7 +115,10 @@ def overlay_series(frame, groups, metric, keys):
 - 量级差用各序列有限值的量级（如 `|median|` 或 `max|value|`）比值判断，除零要安全。
 - `overlay_series` 必须**逐测量集**返回，便于在图上按测量集边界断开/标注。
 
-### 步骤 2 — `SequencePage` 增加对比状态与右键菜单
+### 步骤 2 — `SequencePage` 增加对比状态与图侧控件
+
+> 已修订：本节第 2 条描述的右键菜单方案已废弃，实际实现见上方"交互修订"——`叠加对比…` /
+> `解除对比` 是每张图右侧的 `side_widget` 按钮，右键只保留 PyQtGraph 原生菜单。
 
 1. 新增实例状态：`self.overlay = {}`，形如 `{primary_metric: secondary_metric}`；
    另存 `self.overlay_units = {}`（从 `selection`/列名解析出的单位，供渲染与导出复用）。
@@ -213,7 +221,7 @@ twin.spines.right.set_position(("axes", 1.12))
 
 | 情况 | 期望行为 |
 | --- | --- |
-| 只勾选 1 个参数后尝试叠加 | 菜单项禁用，"叠加对比…" 不可点 |
+| 只勾选 1 个参数后尝试叠加 | 图侧按钮禁用，"叠加对比…" 不可点 |
 | 试图叠加第 3 个参数 | 拒绝并提示：仅支持两个参数叠加对比 |
 | 两个参数单位相同 | 共用左轴，不新增轴 |
 | 两个参数单位不同 | 新增右侧第二根 Y 轴，刻度/标签着色 |
@@ -250,7 +258,7 @@ twin.spines.right.set_position(("axes", 1.12))
 在 `docs/features/README.md` 增加条目，**格式与该文件现有条目一致**（用反引号挂到上面这些
 可执行测试名上，不能只写场景文字当证明）：
 
-- 右键叠加两个参数 → 同单位共用一轴、不同单位自动加第二根 Y 轴
+- 用图侧按钮叠加两个参数 → 同单位共用一轴、不同单位自动加第二根 Y 轴
 - 解除对比 → 恢复一个参数一张图
 
 ## 6. 验收

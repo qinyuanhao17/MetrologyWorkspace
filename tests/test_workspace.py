@@ -277,6 +277,7 @@ class WorkspaceTests(unittest.TestCase):
         self.assertIn("Duplicate", w.message.text())
         self.assertFalse(w.auto_rename_button.isHidden())
         self.assertFalse(w.warning_banner.isHidden())
+        self.assertGreaterEqual(w.warning_banner.minimumHeight(), 44)
         self.assertIs(w.auto_rename_button.parentWidget(), w.warning_banner)
         self.assertEqual(w.message.objectName(), "warningText")
         self.assertEqual(w.auto_rename_button.objectName(), "warningAction")

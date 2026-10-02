@@ -54,7 +54,7 @@ from .plotting import InteractivePlotWidget
 from .settings import (
     apply_theme, forget_recent_wkb, recent_wkb_paths, remember_recent_wkb,
 )
-from .sheet import SheetModel, SheetView
+from .sheet import DuplicateHeaderBanner, SheetModel, SheetView
 
 
 PLOT_LIMIT = 20_000
@@ -648,6 +648,8 @@ class MatchingWindow(QMainWindow):
         model = self.final_raw_model if mode == "final" else self.raw_model
         if hasattr(self, "raw_view") and self.raw_view.model() is not model:
             self.raw_view.setModel(model)
+        if hasattr(self, "raw_duplicate_banner"):
+            self.raw_duplicate_banner.set_model(model)
         self._displayed_raw_mode = mode
         if hasattr(self, "raw_source"):
             self.raw_source.setText(self._raw_sources[mode])
@@ -666,10 +668,12 @@ class MatchingWindow(QMainWindow):
 
         inputs = QSplitter(Qt.Orientation.Horizontal)
         self.inputs_splitter = inputs
-        self.reference_card, self.reference_view, self.reference_source = self._table_card(
+        (self.reference_card, self.reference_view, self.reference_source,
+         self.reference_duplicate_banner) = self._table_card(
             "Reference", "Paste the prepared table first.", self.reference_model
         )
-        self.raw_card, self.raw_view, self.raw_source = self._table_card(
+        (self.raw_card, self.raw_view, self.raw_source,
+         self.raw_duplicate_banner) = self._table_card(
             "Raw Data", "Rows are matched to Reference from top to bottom.", self.raw_model
         )
         inputs.addWidget(self.reference_card)
@@ -755,8 +759,11 @@ class MatchingWindow(QMainWindow):
         layout.addLayout(heading)
         if isinstance(model, SheetModel):
             view = SheetView(model)
+            duplicate_banner = DuplicateHeaderBanner(model)
+            layout.addWidget(duplicate_banner)
         else:
             view = QTableView()
+            duplicate_banner = None
             view.setModel(model)
             view.setAlternatingRowColors(True)
             view.setWordWrap(False)
@@ -769,7 +776,7 @@ class MatchingWindow(QMainWindow):
         footer.addWidget(source)
         footer.addStretch()
         layout.addLayout(footer)
-        return card, view, source
+        return card, view, source, duplicate_banner
 
     def _build_results_panel(self):
         panel = QFrame(objectName="panel")

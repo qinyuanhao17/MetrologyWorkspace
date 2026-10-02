@@ -17,6 +17,7 @@ class MapSelector(QTableWidget):
         self.itemSelectionChanged.connect(self.changed)
         self.wafers, self.metrics = [], []
         self.labels = {}
+        self.enabled_cells = None
 
     def selected_cells(self):
         return {(self.wafers[index.row()], self.metrics[index.column()]) for index in self.selectedIndexes()}
@@ -54,15 +55,21 @@ class MapSelector(QTableWidget):
             for metric in metrics
         }
 
-    def set_array(self, wafers, metrics, labels=None):
+    def set_array(self, wafers, metrics, labels=None, enabled_cells=None):
         labels = labels or {}
-        if wafers == self.wafers and metrics == self.metrics and labels == self.labels:
+        enabled_cells = None if enabled_cells is None else set(enabled_cells)
+        if (wafers == self.wafers and metrics == self.metrics
+                and labels == self.labels and enabled_cells == self.enabled_cells):
             return
         previous = self.selected_cells()
-        old_cells = {(w, m) for w in self.wafers for m in self.metrics}
+        old_cells = (
+            {(w, m) for w in self.wafers for m in self.metrics}
+            if self.enabled_cells is None else set(self.enabled_cells)
+        )
         self.blockSignals(True)
         self.wafers, self.metrics = list(wafers), list(metrics)
         self.labels = labels.copy()
+        self.enabled_cells = enabled_cells
         self.clear()
         self.setRowCount(len(wafers))
         self.setColumnCount(len(metrics))
@@ -73,9 +80,27 @@ class MapSelector(QTableWidget):
                 name = labels.get(wafer, wafer)
                 item = QTableWidgetItem(f"{metric}\n{name}")
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                item.setToolTip(f"{name} / {metric}\nDrag to select; Ctrl adds or removes boxes.")
+                enabled = (
+                    enabled_cells is None or (wafer, metric) in enabled_cells
+                )
+                if enabled:
+                    item.setToolTip(
+                        f"{name} / {metric}\n"
+                        "Drag to select; Ctrl adds or removes boxes."
+                    )
+                else:
+                    item.setFlags(
+                        item.flags()
+                        & ~Qt.ItemFlag.ItemIsEnabled
+                        & ~Qt.ItemFlag.ItemIsSelectable
+                    )
+                    item.setToolTip(
+                        f"{metric} is not selected for this data source."
+                    )
                 self.setItem(row, col, item)
-                item.setSelected((wafer, metric) in previous or (wafer, metric) not in old_cells)
+                item.setSelected(enabled and (
+                    (wafer, metric) in previous or (wafer, metric) not in old_cells
+                ))
         for header, count, size, minimum in ((self.horizontalHeader(), len(metrics), 260, 170),
                                              (self.verticalHeader(), len(wafers), 190, 110)):
             header.setMinimumSectionSize(minimum)

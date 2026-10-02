@@ -13,7 +13,9 @@ from PyQt6.QtWidgets import QApplication
 
 from .data import inspect_table, read_table
 from .diagnostics import get_logger
-from .sheet import SheetModel, SheetView, clipboard_rows, column_letter
+from .sheet import (
+    DuplicateHeaderBanner, SheetModel, SheetView, clipboard_rows, column_letter,
+)
 from .plot_page import PlotPage
 from .radius_page import RadiusPage
 from .measurements import default_identity_columns, detect_measurements
@@ -140,22 +142,13 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(10, 12, 10, 10)
         layout.setSpacing(10)
-        self.warning_banner = QFrame(objectName="warningBanner")
-        banner = QHBoxLayout(self.warning_banner)
-        banner.setContentsMargins(4, 4, 4, 4)
-        banner.setSpacing(10)
-        self.message = label("", "warningText")
-        self.message.setWordWrap(True)
+        self.warning_banner = DuplicateHeaderBanner(self.model)
+        self.warning_banner.renamed.connect(self._auto_rename_completed)
+        self.message = self.warning_banner.message
+        self.message.setText("")
         self.message.hide()
-        banner.addWidget(self.message, 1)
-        self.auto_rename_button = QPushButton(
-            "Auto rename", objectName="warningAction"
-        )
-        self.auto_rename_button.setToolTip(
-            "Append 2, 3 … to repeated row-1 column names, in column order.")
+        self.auto_rename_button = self.warning_banner.button
         self.auto_rename_button.hide()
-        self.auto_rename_button.clicked.connect(self.auto_rename_columns)
-        banner.addWidget(self.auto_rename_button)
         self.warning_banner.hide()
         layout.addWidget(self.warning_banner)
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -666,7 +659,9 @@ class MainWindow(QMainWindow):
         The button sits next to the duplicate-name warning; renaming keeps every
         other cell untouched and is undoable with Ctrl+Z.
         """
-        renames = self.model.rename_duplicate_headers()
+        return self.warning_banner.rename_duplicates()
+
+    def _auto_rename_completed(self, renames):
         if not renames:
             self.auto_rename_button.hide()
             return

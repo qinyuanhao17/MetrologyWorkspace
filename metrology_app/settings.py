@@ -9,7 +9,12 @@ import yaml
 
 APP_DIRECTORY = (Path(sys.executable).resolve().parent if getattr(sys, "frozen", False)
                  else Path(__file__).resolve().parent.parent / "config")
-SETTINGS_PATH = APP_DIRECTORY / "settings.yaml"
+# The settings file holds user state (theme, recent workbooks). Tooling and the
+# test suite point METROLOGY_SETTINGS_PATH at a scratch copy so a run can never
+# rewrite the file the application is using.
+SETTINGS_PATH = (Path(os.environ["METROLOGY_SETTINGS_PATH"]).expanduser()
+                 if os.environ.get("METROLOGY_SETTINGS_PATH")
+                 else APP_DIRECTORY / "settings.yaml")
 MAX_RECENT_WKBS = 10
 
 DEFAULTS = {
@@ -35,10 +40,17 @@ DEFAULTS = {
 }
 
 _current = dict(DEFAULTS)
+# Which file _current actually came from. Saving writes the whole mapping, so a
+# process that never loaded a file must load it before its first save; otherwise
+# a helper script or a test would replace the saved theme and recent WKB list
+# with defaults.
+_loaded_path = None
 
 
 def load_settings(path=SETTINGS_PATH):
     """Read settings from YAML, keeping unknown or missing keys at their defaults."""
+    global _loaded_path
+    path = Path(path)
     _current.clear()
     _current.update(DEFAULTS)
     if path.exists():
@@ -48,11 +60,15 @@ def load_settings(path=SETTINGS_PATH):
                 _current.update({key: value for key, value in data.items() if key in DEFAULTS})
         except (OSError, yaml.YAMLError):
             pass
+    _loaded_path = path
     return dict(_current)
 
 
 def save_settings(data, path=SETTINGS_PATH):
     """Validate, persist and activate a settings mapping."""
+    path = Path(path)
+    if _loaded_path != path:
+        load_settings(path)
     for key in DEFAULTS:
         if key in data:
             _current[key] = data[key]

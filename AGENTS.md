@@ -16,17 +16,32 @@ For work in this repository, implicitly invoke only these user-installed skills:
 - `matplotlib`: low-level Matplotlib rendering, layout, artists, axes, colorbars, vector/raster export, and rendering performance.
 - `uncertainty-and-units`: physical units, tolerances, rounding, conversion, calibration, and measurement uncertainty. Never infer missing units or uncertainty models silently.
 - `statistical-analysis`: correlation, regression, R-squared interpretation, filtering thresholds, assumptions, and statistical reporting.
+- `ponytail`: coding, review, refactoring, and dependency choices. Prefer the smallest correct change and reuse existing code, but never remove requested behavior, validation, data-loss protection, accessibility, or required tests.
 
 Do not implicitly invoke any other user-installed skill for this repository. A user may still explicitly request a non-allowlisted skill by name for a particular task; that explicit request applies only to that task.
 
 ## Implementation and verification
+
+Apply the Karpathy-derived coding guardrails from
+https://github.com/multica-ai/andrej-karpathy-skills without installing a
+duplicate always-on skill:
+
+- Surface material assumptions and tradeoffs before committing to an ambiguous implementation.
+- Prefer the simplest implementation that fully satisfies the request; add no speculative flexibility.
+- Make surgical changes only, preserving unrelated code, comments, formatting, and user work.
+- Turn each non-trivial change into observable success criteria and verify them before completion.
 
 - Preserve source measurement strings and row mappings unless the requested behavior explicitly changes them.
 - Keep numerical logic testable without launching the full GUI where practical; test Qt integration separately.
 - Connect BDD scenarios to executable tests rather than treating feature text as proof by itself.
 - Run the smallest relevant tests during development, then run the full suite before claiming completion:
 
-  `python -m unittest discover -s tests -v`
+  `python run_tests.py`
+
+  The runner points `METROLOGY_SETTINGS_PATH` at a scratch file. Never run the
+  suite (or any scratch script) so that it writes `config/settings.yaml`: that
+  file holds the user's theme and Open Recent WKB list, and a stray save used to
+  replace them with defaults.
 
 - Do not claim a performance improvement without a repeatable before/after measurement using representative data.
 - Do not change interpolation, regression, color scaling, or export semantics merely for speed without checking numerical and visual equivalence.

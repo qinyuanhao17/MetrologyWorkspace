@@ -20,7 +20,7 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
-    QInputDialog, QMenu, QPushButton, QScrollArea, QStackedWidget, QVBoxLayout,
+    QInputDialog, QPushButton, QScrollArea, QStackedWidget, QVBoxLayout,
     QWidget,
 )
 
@@ -221,8 +221,10 @@ class SequencePage(QWidget):
         self.selection = selection.copy()
         self.wafer_column = find_column(frame, ("waferid", "wafer", "waferno"))
         self.die_column = find_column(frame, ("dieseq", "diesequence", "diesequenceno", "dieid"))
-        self.selector.set_array(selection.get("wafers", []), selection.get("metrics", []),
-                                selection.get("labels"))
+        self.selector.set_array(
+            selection.get("wafers", []), selection.get("metrics", []),
+            selection.get("labels"), selection.get("available_cells"),
+        )
         self.invalidate()
 
     def show_selector(self):
@@ -409,26 +411,36 @@ class SequencePage(QWidget):
         if accepted:
             self.set_overlay(metric, selected)
 
-    def build_panel_menu(self, widget, metric):
-        menu = QMenu(self)
-        add_action = menu.addAction("叠加对比…")
-        add_action.setEnabled(
-            metric not in self._participants() and bool(self._overlay_candidates(metric))
-        )
-        add_action.triggered.connect(lambda: self.choose_overlay(metric))
-        remove_action = menu.addAction("解除对比")
-        remove_action.setEnabled(metric in self._participants())
-        remove_action.triggered.connect(lambda: self.unlink_overlay(metric))
-        menu.addSeparator()
-        native = widget.getPlotItem().getViewBox().getMenu(None)
-        native.setTitle("Plot options")
-        menu.addAction(native.menuAction())
-        return menu
+    def build_overlay_control(self, metric, secondary):
+        """Compare control that sits beside the plot instead of inside a menu.
 
-    def show_panel_menu(self, widget, metric, point):
-        if point.x() < 0 or point.y() < 0:
-            point = widget.rect().center()
-        self.build_panel_menu(widget, metric).exec(widget.mapToGlobal(point))
+        Overlay comparison used to hide in the plot's right-click menu, which
+        overlapped PyQtGraph's own menu and made a primary action undiscoverable.
+        The button therefore carries both states: start a comparison, or remove
+        the one this panel is part of.
+        """
+        control = QPushButton(objectName="subtle")
+        control.setFixedHeight(26)
+        control.setFixedWidth(92)
+        if secondary is None:
+            control.setText("叠加对比…")
+            available = bool(self._overlay_candidates(metric))
+            control.setEnabled(available)
+            control.setToolTip(
+                "把另一个已勾选的参数叠加到这张图上：同单位共用左轴，"
+                "不同或无法识别的单位自动增加着色右轴。" if available
+                else "没有其它已勾选的参数可以叠加。"
+            )
+            control.clicked.connect(
+                lambda _checked=False, name=metric: self.choose_overlay(name)
+            )
+        else:
+            control.setText("解除对比")
+            control.setToolTip("解除对比，恢复一个参数一张图。")
+            control.clicked.connect(
+                lambda _checked=False, name=metric: self.unlink_overlay(name)
+            )
+        return control
 
     def draw_plot(self, *_):
         try:
@@ -759,13 +771,9 @@ class SequencePage(QWidget):
                 title = (f"{panel_source['name']} · {metric}"
                          if panel_source is not None else str(metric))
             heading = panel_title_label(f"<b>{escape(title)}</b>", base + 1)
-            unlink = None
-            if secondary:
-                unlink = QPushButton("解除对比", objectName="subtle")
-                unlink.setFixedHeight(24)
-                unlink.clicked.connect(lambda _checked=False, name=metric:
-                                       self.unlink_overlay(name))
-            container = PlotPanel(heading, widget, heading_extra=unlink)
+            container = PlotPanel(
+                heading, widget, side_widget=self.build_overlay_control(metric, secondary)
+            )
             chosen = self._chosen_groups(panel, groups)
             axis = plot.getAxis("bottom")
             source_mode = bool(self.selection.get("sources"))
@@ -875,12 +883,7 @@ class SequencePage(QWidget):
                 secondary_view.setDefaultPadding(HOME_PADDING)
                 secondary_view.autoRange(padding=HOME_PADDING)
                 secondary_view.setXRange(*self.x_range, padding=0)
-            widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             widget.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-            widget.customContextMenuRequested.connect(
-                lambda point, control=widget, name=metric:
-                self.show_panel_menu(control, name, point)
-            )
             grid.add_panel(container)
             self.plot_widgets.append(widget)
             self.panel_hosts.append(container)
@@ -979,9 +982,16 @@ class SequencePage(QWidget):
         cache_key = (requested, self.plot_host.width(), self.plot_host.height())
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         self.status.setText("Copying…")
-        QApplication.processEvents()
+        repaint = self._copy_image is None or self._copy_dpi != cache_key
+        controls = [host.side_widget for host in self.panel_hosts
+                    if host.side_widget is not None]
+        if repaint:
+            # The clipboard receives the figure, not the window chrome.
+            for control in controls:
+                control.setVisible(False)
         try:
-            if self._copy_image is None or self._copy_dpi != cache_key:
+            QApplication.processEvents()
+            if repaint:
                 self._copy_image, scale = widget_to_qimage(
                     self.plot_host, requested / 100, MAX_COPY_PIXELS)
                 self._copy_dpi = (requested, self.plot_host.width(), self.plot_host.height())
@@ -996,6 +1006,8 @@ class SequencePage(QWidget):
         except Exception as error:
             self.status.setText(f"Copy failed: {error}")
         finally:
+            for control in controls:
+                control.setVisible(True)
             QApplication.restoreOverrideCursor()
 
 

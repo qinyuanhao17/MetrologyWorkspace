@@ -303,8 +303,10 @@ class CorrelationPage(QWidget):
     def set_input(self, frame, selection):
         self.frame = frame
         self.selection = selection.copy()
-        self.selector.set_array(selection.get("wafers", []), selection.get("metrics", []),
-                                selection.get("labels"))
+        self.selector.set_array(
+            selection.get("wafers", []), selection.get("metrics", []),
+            selection.get("labels"), selection.get("available_cells"),
+        )
         self.invalidate()
 
     def show_selector(self):

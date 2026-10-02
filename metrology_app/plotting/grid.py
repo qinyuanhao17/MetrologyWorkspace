@@ -8,9 +8,14 @@ from PyQt6.QtWidgets import (
 
 
 class PlotPanel(QWidget):
-    """Keep a light title area and plot together as one resizable panel."""
+    """Keep a light title area and plot together as one resizable panel.
 
-    def __init__(self, heading, plot_widget, parent=None, heading_extra=None):
+    ``side_widget`` is optional and, when given, sits in a narrow column to the
+    right of the plot. The Trend page uses it for its compare / unlink control
+    so a primary action is visible instead of hidden behind a right click.
+    """
+
+    def __init__(self, heading, plot_widget, parent=None, side_widget=None):
         super().__init__(parent)
         self.setObjectName("plotPanel")
         self.setAutoFillBackground(True)
@@ -22,20 +27,27 @@ class PlotPanel(QWidget):
         self.setMinimumWidth(0)
         heading.setMinimumWidth(0)
         heading.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.side_widget = side_widget
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
-        if heading_extra is None:
-            layout.addWidget(heading)
+        layout.addWidget(heading)
+        if side_widget is None:
+            layout.addWidget(plot_widget, 1)
         else:
-            header = QWidget()
-            header_layout = QHBoxLayout(header)
-            header_layout.setContentsMargins(0, 0, 0, 0)
-            header_layout.setSpacing(6)
-            header_layout.addWidget(heading, 1)
-            header_layout.addWidget(heading_extra)
-            layout.addWidget(header)
-        layout.addWidget(plot_widget, 1)
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(4)
+            row.addWidget(plot_widget, 1)
+            side = QWidget()
+            side.setObjectName("plotSide")
+            side_layout = QVBoxLayout(side)
+            side_layout.setContentsMargins(0, 0, 0, 0)
+            side_layout.setSpacing(4)
+            side_layout.addWidget(side_widget)
+            side_layout.addStretch(1)
+            row.addWidget(side)
+            layout.addLayout(row, 1)
 
 
 class _Handle(QSplitterHandle):

@@ -5,7 +5,9 @@ from io import StringIO
 import pandas as pd
 from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QKeySequence, QUndoCommand, QUndoStack
-from PyQt6.QtWidgets import QApplication, QTableView
+from PyQt6.QtWidgets import (
+    QApplication, QFrame, QHBoxLayout, QLabel, QPushButton, QTableView,
+)
 
 from .settings import get_settings
 
@@ -229,6 +231,62 @@ class SheetModel(QAbstractTableModel):
         if changes:
             self.edit(changes)
         return {column: (headers[column], value) for (_, column), value in changes.items()}
+
+
+class DuplicateHeaderBanner(QFrame):
+    """Shared, self-updating repair action for editable spreadsheet headers."""
+
+    renamed = pyqtSignal(dict)
+
+    def __init__(self, model=None, parent=None):
+        super().__init__(parent, objectName="warningBanner")
+        self._model = None
+        self.setMinimumHeight(48)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(10)
+        self.message = QLabel(
+            "Duplicate column names in row 1. Rename them to continue.",
+            objectName="warningText",
+        )
+        self.message.setWordWrap(True)
+        layout.addWidget(self.message, 1)
+        self.button = QPushButton("Auto rename", objectName="warningAction")
+        self.button.setToolTip(
+            "Append 2, 3 … to repeated row-1 column names, in column order."
+        )
+        self.button.clicked.connect(self.rename_duplicates)
+        layout.addWidget(self.button)
+        self.set_model(model)
+
+    def set_model(self, model):
+        if self._model is model:
+            self.refresh()
+            return
+        if self._model is not None:
+            try:
+                self._model.changed.disconnect(self.refresh)
+            except TypeError:
+                pass
+        self._model = model
+        if model is not None:
+            model.changed.connect(self.refresh)
+        self.refresh()
+
+    def refresh(self):
+        duplicated = bool(
+            self._model is not None and self._model.duplicate_header_count()
+        )
+        self.message.setVisible(duplicated)
+        self.button.setVisible(duplicated)
+        self.setVisible(duplicated)
+
+    def rename_duplicates(self):
+        renames = self._model.rename_duplicate_headers() if self._model else {}
+        self.refresh()
+        if renames:
+            self.renamed.emit(renames)
+        return renames
 
 
 class SheetView(QTableView):
