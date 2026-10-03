@@ -577,6 +577,8 @@ class SequencePage(QWidget):
             }
 
     def _persist_overlay(self):
+        if getattr(self, "document_scoped", False):
+            return
         try:
             save_settings({
                 "trend_overlay": {

@@ -9,6 +9,7 @@ from .window import MainWindow as DataWorkspaceWindow
 
 
 class DynamicWindow(DataWorkspaceWindow):
+    workspace_type = "dynamic"
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Dynamic")
@@ -21,6 +22,7 @@ class DynamicWindow(DataWorkspaceWindow):
         self.tabs.addTab(self.dynamic_trend, "3. Trend")
         self.refresh_timer.setInterval(50)
         self.update_plan()
+        self.document.mark_clean()
 
     def is_parameter_selectable(self, column, numeric):
         return bool(numeric and str(column).strip().lower() != "cycle")

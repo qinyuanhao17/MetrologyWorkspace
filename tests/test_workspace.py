@@ -357,7 +357,8 @@ class WorkspaceTests(unittest.TestCase):
             with patch.object(QFileDialog, "getSaveFileName", return_value=(str(csv), "")):
                 w.save_table()
             self.assertEqual(read_table(csv, dtype=str).iloc[0, 1], "9.80")
-            self.assertTrue(w.model.undo.isClean())
+            self.assertFalse(w.model.undo.isClean())
+            self.assertIsNone(w.workspace_path)  # CSV export is not a WKB save.
 
     def test_auto_rename_numbers_duplicate_headers_in_column_order(self):
         """The Auto rename button fixes repeated row-1 names without touching data."""

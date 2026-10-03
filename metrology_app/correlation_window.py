@@ -77,6 +77,7 @@ def _aligned_reference_frame(reference, raw, mappings):
 
 class CorrelationWindow(DataWorkspaceWindow):
     """Two editable source tables followed by the standard analysis pages."""
+    workspace_type = "correlation_trend"
 
     def __init__(self):
         self._workbook_sources = ()
@@ -103,6 +104,8 @@ class CorrelationWindow(DataWorkspaceWindow):
         self.sequence_page = SequencePage()
         self.tabs.addTab(self.sequence_page, "4. Trend")
         self.update_plan()
+        self.sequence_page.document_scoped = True
+        self.document.mark_clean()
 
     def _build_reference_page(self):
         page = QWidget(objectName="referenceDataPage")
@@ -153,7 +156,7 @@ class CorrelationWindow(DataWorkspaceWindow):
             ("New", lambda: self.set_reference_table(pd.DataFrame())),
             ("Open file", self.open_reference_file),
             ("Paste table", self.paste_reference_table),
-            ("Save CSV", self.save_reference_csv),
+            ("Export CSV", self.save_reference_csv),
         ):
             control = QPushButton(title)
             control.setObjectName("primary" if title == "Open file" else "subtle")
@@ -269,7 +272,6 @@ class CorrelationWindow(DataWorkspaceWindow):
                 str(Path(path).with_suffix(".csv")), index=False,
                 encoding="utf-8-sig",
             )
-            self.reference_model.undo.setClean()
 
     def _reference_group_columns(self):
         return [
@@ -445,6 +447,9 @@ class CorrelationWindow(DataWorkspaceWindow):
             self.reference_footer.setText(f"{source} · Fix duplicate row-1 headers")
             self._populate_reference_choices()
             return
+        if self.raw_model.duplicate_header_count():
+            self._populate_reference_choices()
+            return
         raw = self.raw_model.frame()
         if not frame.empty and len(frame) == len(raw):
             self._rebuild_source_analysis()
@@ -477,6 +482,8 @@ class CorrelationWindow(DataWorkspaceWindow):
         super().set_table(frame, source)
         if (not self._loading_workbook_sources
                 and hasattr(self, "reference_model")
+                and not self.model.duplicate_header_count()
+                and not self.reference_model.duplicate_header_count()
                 and not self.reference_model.frame().empty
                 and len(self.reference_model.frame()) == len(frame)):
             self._reset_reference_selection = True
@@ -612,13 +619,15 @@ class CorrelationWindow(DataWorkspaceWindow):
 
     def closeEvent(self, event):
         """Cancel deferred redraws before Qt disposes their controls."""
+        super().closeEvent(event)
+        if not event.isAccepted():
+            return
         if hasattr(self, "correlation_page"):
             self.correlation_page.input_refresh_timer.stop()
             self.correlation_page.update_timer.stop()
         if hasattr(self, "sequence_page"):
             self.sequence_page.input_refresh_timer.stop()
             self.sequence_page.compare_timer.stop()
-        super().closeEvent(event)
 
     def _rebuild_source_analysis(self):
         if (self.reference_model.duplicate_header_count()

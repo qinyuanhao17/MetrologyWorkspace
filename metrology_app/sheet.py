@@ -194,6 +194,16 @@ class SheetModel(QAbstractTableModel):
         matrix = [[self.cells.get((r, c), "") for c in range(columns)] for r in range(1, rows)]
         return pd.DataFrame([row for row in matrix if any(v.strip() for v in row)], columns=headers)
 
+    def document_frame(self):
+        """Save a draft exactly, including duplicate headers and empty rows."""
+        if not self.cells:
+            return pd.DataFrame()
+        width = max(c for _, c in self.cells) + 1
+        height = max(r for r, _ in self.cells) + 1
+        headers = [self.cells.get((0, c), "") for c in range(width)]
+        return pd.DataFrame([[self.cells.get((r, c), "") for c in range(width)]
+                             for r in range(1, height)], columns=headers)
+
     def headers(self, columns=None):
         """Row-1 header text, falling back to the column letter when it is blank."""
         if columns is None:

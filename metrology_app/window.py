@@ -20,7 +20,9 @@ from .plot_page import PlotPage
 from .radius_page import RadiusPage
 from .measurements import default_identity_columns, detect_measurements
 from .appearance import fit_window_to_screen, help_title_label
-from .settings import apply_theme
+from .settings import apply_theme, recent_wkb_paths
+from .workspace_store import EXTENSIONS, WORKSPACE_FILTER, WORKSPACE_LABELS, WorkspaceSnapshot, file_revision, load_workspace
+from .workspace_document import WkbDocument, analysis_state, restore_analysis_state, recovery_directory
 
 
 DEFAULT_UNCHECKED_PARAMETERS = {"mse", "gof", "ngof", "lbh", "regiter", "reglter", "cindex"}
@@ -94,6 +96,7 @@ class CheckMenu(QMenu):
 class MainWindow(QMainWindow):
     selection_changed = pyqtSignal(dict)
     include_fit_quality = True
+    workspace_type = "wafer_map"
 
     def __init__(self):
         super().__init__()
@@ -121,6 +124,7 @@ class MainWindow(QMainWindow):
         self.tabs.setCornerWidget(self.data_badge, Qt.Corner.TopRightCorner)
         self.tabs.addTab(self.build_data_page(), "1. Data")
         self.plot_page = PlotPage()
+        self.plot_page.document_scoped = True
         self.plot_page.draw_state_changed.connect(
             lambda _state: self.selection_changed.emit(self.selection_state())
         )
@@ -138,6 +142,174 @@ class MainWindow(QMainWindow):
         self.sheet.selectionModel().currentChanged.connect(self.current_cell)
         self.model.load(pd.DataFrame())
         self.recognize()
+        self.document = WkbDocument(self)
+        self.document.mark_clean()
+        self.file_menu = self.menuBar().addMenu("File")
+        self.file_menu.addAction(self.open_workspace_action)
+        self.recent_workspace_menu = self.file_menu.addMenu("Open Recent")
+        self.recent_workspace_menu.aboutToShow.connect(self.refresh_recent_workspaces)
+        self.file_menu.addSeparator()
+        self.workspace_actions = []
+        for text, handler, shortcut in (("Save", self.save_wkb, "Ctrl+S"),
+                                        ("Save As…", self.save_wkb_as, "Ctrl+Shift+S"),
+                                        ("Recover draft…", self.recover_draft, None)):
+            action = QAction(text, self)
+            if shortcut:
+                action.setShortcut(QKeySequence(shortcut))
+                action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+            action.triggered.connect(handler)
+            self.file_menu.addAction(action)
+            self.workspace_actions.append(action)
+        self.save_workspace_action, self.save_as_workspace_action, self.recover_workspace_action = self.workspace_actions
+        self.ownership_label = QLabel()
+        self.statusBar().addPermanentWidget(self.ownership_label)
+        self.document.refresh_identity()
+
+    @property
+    def workspace_path(self):
+        return self.document.path
+
+    def workspace_snapshot(self, *, include_drafts=False):
+        frames = {"input_data": self.model.document_frame()}
+        if self.workspace_type == "correlation_trend":
+            frames = {"raw_data": self.model.document_frame(),
+                      "reference_data": self.reference_model.document_frame()
+                      if hasattr(self, "reference_model") else pd.DataFrame()}
+        return WorkspaceSnapshot(self.workspace_type, frames, {"ui": analysis_state(self)})
+
+    def restore_workspace(self, snapshot):
+        if snapshot.workspace_type != self.workspace_type:
+            raise ValueError("This WKB belongs to a different tool.")
+        if self.workspace_type == "correlation_trend":
+            self.set_table(snapshot.frames["raw_data"], "WKB Raw Data")
+            self.set_reference_table(snapshot.frames["reference_data"], "WKB Ref Data")
+        else:
+            frame = snapshot.frames["input_data"]
+            if self.workspace_type == "dynamic":
+                self.dynamic_page.set_baseline(frame)
+            # WKB already contains the editable sheet, including invalid drafts.
+            # Do not run import-time Dynamic inference over saved measurements.
+            MainWindow.set_table(self, frame, "WKB workspace")
+        restore_analysis_state(self, snapshot.states.get("ui", {}))
+
+    def load_workspace(self, path):
+        snapshot = load_workspace(path, expected_type=self.workspace_type)
+        owner = getattr(self, "_managed_owner", None)
+        if owner is not None and "recovery" in snapshot.states:
+            raise ValueError("Recover drafts from the owning Match Workbook, not an individual analysis window.")
+        if not self.allow_replace():
+            return None
+        if snapshot.revision != file_revision(path):
+            # Choosing Save may have replaced the same file we are opening.
+            snapshot = load_workspace(path, expected_type=self.workspace_type)
+        if owner is not None and "recovery" in snapshot.states:
+            raise ValueError("Recover drafts from the owning Match Workbook, not an individual analysis window.")
+        if "recovery" in snapshot.states:
+            self.document.recover(path, snapshot)
+            return snapshot
+        self.restore_workspace(snapshot)
+        if owner is not None:
+            # Import a complete analysis into this scope, never silently detach it.
+            self._use_workbook_data = False
+            self._independent_data = True
+            self.document.forced_dirty = True
+            if self.workspace_type == "correlation_trend":
+                owner._offer_second_axis_settings(self)
+            self.document.refresh_identity()
+            return snapshot
+        self.document.path = Path(path).resolve()
+        self.document.revision = snapshot.revision
+        self.document.untrusted_recovery = False
+        self.document.mark_clean()
+        self.document.remember_recent()
+        return snapshot
+
+    def save_wkb(self):
+        try:
+            saved = self.document.save()
+            if saved:
+                owner = getattr(self, "_managed_owner", None)
+                document = owner.document if owner else self.document
+                warning = f" · Warning: {document.last_warning}" if document.last_warning else ""
+                self.statusBar().showMessage(f"Saved: {document.path}{warning}", 8000)
+            return saved
+        except Exception as error:
+            LOGGER.exception("Unable to save WKB workspace")
+            QMessageBox.warning(self, "Cannot save WKB", str(error))
+            return None
+
+    def refresh_recent_workspaces(self):
+        self.recent_workspace_menu.clear()
+        for path in recent_wkb_paths():
+            try:
+                snapshot = load_workspace(path, expected_type=self.workspace_type)
+            except (OSError, ValueError):
+                continue
+            if "recovery" in snapshot.states:
+                continue  # Recovery drafts have their own explicit entry point.
+            action = self.recent_workspace_menu.addAction(path.name)
+            action.setToolTip(str(path))
+            action.triggered.connect(lambda _=False, target=path: self.load_path(target))
+        if not self.recent_workspace_menu.actions():
+            self.recent_workspace_menu.addAction("No Recent Workspaces").setEnabled(False)
+
+    def save_wkb_as(self):
+        if getattr(self, "_managed_owner", None) is not None:
+            return None
+        try:
+            return self.document.save(save_as=True)
+        except Exception as error:
+            QMessageBox.warning(self, "Cannot save WKB", str(error))
+            return None
+
+    def recover_draft(self):
+        if getattr(self, "_managed_owner", None) is not None:
+            return
+        path, _ = QFileDialog.getOpenFileName(self, "Recover workspace draft", str(recovery_directory()), WORKSPACE_FILTER)
+        if path and self.allow_replace():
+            try:
+                self.document.recover(path)
+            except Exception as error:
+                QMessageBox.warning(self, "Cannot recover draft", str(error))
+
+    def export_standalone_copy(self, path=None):
+        try:
+            return self.document.export_copy(path)
+        except Exception as error:
+            QMessageBox.warning(self, "Cannot export standalone copy", str(error))
+            return None
+
+    def configure_workbook_owner(self, owner, scope):
+        if getattr(self, "_managed_owner", None) is owner and getattr(self, "_managed_scope", None) == scope:
+            self._update_workbook_data_action()
+            self.document.refresh_identity()
+            return
+        self._managed_owner, self._managed_scope = owner, scope
+        self.document.timer.stop()
+        self.file_menu.removeAction(self.open_workspace_action)
+        self.file_menu.removeAction(self.recent_workspace_menu.menuAction())
+        self.file_menu.removeAction(self.save_as_workspace_action)
+        self.save_as_workspace_action.setShortcut(QKeySequence())
+        self.save_as_workspace_action.setEnabled(False)
+        self.file_menu.removeAction(self.recover_workspace_action)
+        self.recover_workspace_action.setEnabled(False)
+        self.save_workspace_action.setText("Save Changes to Workbook")
+        action = self.file_menu.addAction("Export Standalone Copy…")
+        action.triggered.connect(lambda: self.export_standalone_copy())
+        action = self.file_menu.addAction("Show Match Workbook")
+        action.triggered.connect(lambda: (owner.show(), owner.raise_(), owner.activateWindow()))
+        self.use_workbook_data_action = self.file_menu.addAction("Use Workbook Data…")
+        self.use_workbook_data_action.triggered.connect(lambda: owner.reset_child_to_workbook(self))
+        owner.match_type.currentTextChanged.connect(self._update_workbook_data_action)
+        self._update_workbook_data_action()
+        self.document.refresh_identity()
+
+    def _update_workbook_data_action(self, *_):
+        # TEM Map/Radius and Dynamic have no Workbook-derived input table.
+        kind = self._managed_scope.split(".", 1)[0]
+        available = kind == "correlation" or self._managed_owner._workspace_data_follows_workbook()
+        self.use_workbook_data_action.setVisible(available)
+        self.use_workbook_data_action.setEnabled(available)
 
     def build_data_page(self):
         page = QWidget(objectName="dataPage")
@@ -235,7 +407,7 @@ class MainWindow(QMainWindow):
             ("New", self.new_table, "Ctrl+N"),
             ("Open file", self.open_file, "Ctrl+O"),
             ("Paste table", self.paste_table, "Ctrl+Shift+V"),
-            ("Save CSV", self.save_table, "Ctrl+S"),
+            ("Export CSV", self.save_table, ""),
         ):
             control = button(title, handler, "primary" if title == "Open file" else "subtle")
             control.setFixedSize(104, 34)
@@ -243,6 +415,10 @@ class MainWindow(QMainWindow):
             heading.addWidget(control)
             action = QAction(title, self)
             action.setShortcut(QKeySequence(shortcut))
+            if title == "Open file":
+                self.open_workspace_action = action
+                action.setText("Open…")
+            action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
             action.triggered.connect(handler)
             self.addAction(action)
         self.file_label = label("Untitled", "muted")
@@ -586,9 +762,15 @@ class MainWindow(QMainWindow):
             self.model.setData(index, self.formula.text())
 
     def update_dirty(self, *_args):
+        if self.sender() is not None:
+            from PyQt6 import sip
+            if sip.isdeleted(self.model.undo):
+                return
         self.dirty_label.setText("Edited · not saved" if not self.model.undo.isClean() else "No pending edits")
 
     def allow_replace(self):
+        if hasattr(self, "document"):
+            return self.document.confirm_close()
         if self.model.undo.isClean():
             return True
         return QMessageBox.question(self, "Unsaved edits", "Discard the current unsaved table edits?",
@@ -631,11 +813,20 @@ class MainWindow(QMainWindow):
             self.set_table(pd.DataFrame(), "Untitled")
 
     def open_file(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Open measurement table", "", "Tables (*.csv *.xlsx)")
+        kind = self.workspace_type
+        file_filter = f"{WORKSPACE_LABELS[kind]} (*{EXTENSIONS[kind]} *.wkb);;Tables (*.csv *.xlsx)"
+        path, _ = QFileDialog.getOpenFileName(self, "Open workspace or table", "", file_filter)
         if path:
             self.load_path(path)
 
     def load_path(self, path):
+        if Path(path).suffix.lower() in EXTENSIONS.values():
+            try:
+                return self.load_workspace(path)
+            except Exception as error:
+                LOGGER.exception("Unable to open workspace")
+                QMessageBox.warning(self, "Unable to open workspace", str(error))
+                return None
         if not self.allow_replace():
             return
         try:
@@ -670,7 +861,6 @@ class MainWindow(QMainWindow):
             path, _ = QFileDialog.getSaveFileName(self, "Save table", "measurements.csv", "CSV (*.csv)")
             if path:
                 frame.to_csv(path, index=False, encoding="utf-8-sig")
-                self.model.undo.setClean()
                 self.file_label.setText(Path(path).name)
                 self.statusBar().showMessage(f"Saved: {path}")
                 LOGGER.info("Measurement table saved: %s", Path(path).resolve())
@@ -679,26 +869,14 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Unable to save table", str(error))
 
     def closeEvent(self, event):
-        if self._managed_close_handler is not None:
-            try:
-                self._managed_close_handler(self.model.frame())
-            except Exception as error:
-                LOGGER.exception("Unable to save managed workspace on close")
-                QMessageBox.warning(
-                    self,
-                    "Cannot close workspace",
-                    f"The table could not be saved to the Match Workbook.\n\n{error}",
-                )
-                event.ignore()
-                return
-            self.model.undo.setClean()
+        if self.document.confirm_close():
+            self.document.closed()
+            self.refresh_timer.stop()
             self.plot_page.stop()
             self.radius_page.stop()
-            event.accept()
-            return
-        if self.allow_replace():
-            self.plot_page.stop()
-            self.radius_page.stop()
+            callback = getattr(self, "_managed_after_close_handler", None)
+            if callable(callback):
+                callback()
             event.accept()
         else:
             event.ignore()

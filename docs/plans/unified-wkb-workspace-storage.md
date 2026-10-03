@@ -1,9 +1,13 @@
 # 方案：统一 WKB / SQLite 工作区存储
 
-> 状态：暂缓，当前不实现。
+> 状态：已按用户授权在本地实现，代码验证见文末。新存储实现尚未上传 GitHub。
 >
 > 本文记录 Match Workbook、Wafer Map / Radius、Dynamic、Correlation and Trend
-> 的目标存储模式，供后续实现时使用。
+> 的统一存储模式。改动前的代码已冻结为 GitHub `dev5` 标签（`8370067`）。
+
+> 后续设计：[文档归属、分类后缀与独立分析副本完整方案](workspace-storage-v2-design.md)。
+> 后续方案已按用户授权在本地实施；本文保留第一阶段基线的历史记录，尤其是统一 `.wkb`
+> 和子窗口整本 Save As 的旧行为。当前分类后缀、独立副本与分层恢复以新方案及 ADR 0003 为准。
 
 ## 1. 目标
 
@@ -13,7 +17,7 @@
    工作区文件保存；`Ctrl+S` 是保存当前工作区的快捷键。
 3. CSV、XLSX、PNG、SVG、PDF 继续作为导入或导出格式，不承担工作区恢复职责。
 4. 保留源测量字符串、列顺序、行顺序和现有参数映射语义。
-5. 继续兼容现有 WKB schema 1–8。
+5. 继续兼容现有 WKB schema 1–10；新容器的 `format_version=1` 与旧 schema 独立编号。
 
 ## 2. 推荐决策
 
@@ -103,8 +107,8 @@ Match Workbook 原有的参数映射保持关系表形式，不必塞入 JSON。
 
 ```text
 match
-wafer_map.preview
-wafer_map.final
+map.preview
+map.final
 dynamic.preview
 dynamic.final
 correlation.preview
@@ -119,7 +123,7 @@ correlation.final
 - Bias 选择；
 - 参数顺序和 Setup 布局。
 
-### `wafer_map.preview` / `wafer_map.final`
+### `map.preview` / `map.final`
 
 - 对应阶段的精确表快照；
 - wafer、parameter 和 grouping 选择；
@@ -144,8 +148,9 @@ correlation.final
 - 字体、分辨率和必要布局设置；
 - 当前页签。
 
-Correlation/Trend 的 Reference 和 Raw Data 应复用 Match Workbook 已保存的源表，
-不重复保存同一份数据。Preview 与 Final 只保存各自的工作区状态。
+Correlation/Trend 未编辑数据时复用 Match Workbook 的源表，不重复存储。
+如果在子窗口编辑了 Ref/Raw，则保存该窗口的独立双表快照，不能再次从父表生成覆盖。
+Preview 与 Final 分别保存配置与数据覆盖状态。
 
 ## 6. 独立工具的 WKB 内容
 
@@ -186,10 +191,16 @@ Ref Data 允许为空，以兼容只粘贴一张普通数据表的独立分析�
 
 - 修改时只更新内存快照并标记 dirty；
 - `Ctrl+S` 时一次性原子保存；
-- 已有 WKB 路径的 Match 子窗口关闭时，捕获状态并写回父 WKB；
-- Match Workbook 关闭时，先捕获所有仍存活子窗口，再保存一次并关闭子窗口；
-- 尚无路径时，子窗口状态保留在父窗口内存，首次保存时一起写入；
-- 独立窗口关闭且 dirty 时显示 Save / Discard / Cancel。
+- Match 子窗口、Match 父窗口和独立工具关闭且 dirty 时，都显示 Save / Discard / Cancel；
+- 子窗口编辑先留在自己的草稿中；选择 Save 才接受该子窗口的数据与配置并写入父 WKB；
+- 子窗口 Save 也会保存父工作簿当前源数据与设置，但不接受其他仍打开子窗口的草稿；
+- 父窗口 Save 捕获所有存活子窗口并一次保存；父窗口 Discard 一并放弃子窗口草稿；
+- 子窗口 Discard 不改变父工作簿接受的数据或磁盘文件；Cancel 保持窗口和修改；
+- 尚无 WKB 路径时，Save 必须选择路径；取消路径选择等同取消关闭，不作静默内存保存；
+- 干净窗口直接关闭，不重复询问。
+
+托管子窗口的 `Ctrl+S` 写回父 WKB；`Ctrl+Shift+S` 为完整父工作簿另存为，
+不会把子窗口切换成一个丢失父关系的独立文件。独立工具的另存为只保存自己的文档。
 
 ## 9. 不保存的内容
 
@@ -205,7 +216,7 @@ Ref Data 允许为空，以兼容只粘贴一张普通数据表的独立分析�
 
 ## 10. 兼容与迁移
 
-- 继续读取 WKB schema 1–8；
+- 继续读取 WKB schema 1–10；
 - 没有 `workspace_manifest` 的文件按旧 Match Workbook 识别；
 - 缺少新状态时使用当前默认值；
 - 第一次重新保存时升级到统一容器格式；
@@ -217,7 +228,7 @@ Ref Data 允许为空，以兼容只粘贴一张普通数据表的独立分析�
 
 1. 建立 `WorkspaceSnapshot` 与 SQLite 存储模块。
 2. 为原子保存、精确 DataFrame round-trip、类型校验和损坏文件补测试。
-3. 让 Match Workbook 通过新 interface 保存，并保留 schema 1–8 读取测试。
+3. 让 Match Workbook 通过新 interface 保存，并保留 schema 1–10 读取测试。
 4. 把 Match 内 Correlation/Trend 状态加入 WKB。
 5. 接入独立 Wafer Map 的 `Ctrl+S`。
 6. 接入独立 Dynamic 的 `Ctrl+S`。
@@ -232,6 +243,47 @@ Ref Data 允许为空，以兼容只粘贴一张普通数据表的独立分析�
 - CSV 导出不改变当前 WKB 路径；
 - 保存失败时旧 WKB 保持完整；
 - 错误类型的 WKB 给出明确提示，不部分载入；
-- 旧 schema 1–8 文件仍可打开；
+- 旧 schema 1–10 文件仍可打开；
 - 重开后所有图均由保存的数据和状态重新生成，而不是读取缓存图片。
+
+## 13. 文件安全、备份与恢复
+
+- 保存使用同目录临时 SQLite 文件，提交、关闭句柄、校验并 `fsync` 后原子替换。
+- 成功覆盖前保留上一版为 `文件名.wkb.bak`；需要回退时先复制为新 `.wkb` 再打开，
+  不直接覆盖当前文件。备份不包含本次尚未接受的草稿。
+- `.wkb.lock` 排除同时写入；SHA-256 revision 检测其他窗口或应用保存后的过期覆盖。
+  检测到冲突时保留现有文件与当前编辑，要求重新打开或另存为，不自动合并测量数据。
+- 崩溃留下的 `.lock` 不自动删除；确认所有实例已关闭后才手动移除，避免误抢活跃写入。
+- 脏文档每 30 秒保存恢复草稿到 `%LOCALAPPDATA%/MetrologyWorkspace/recovery/`；
+  父恢复草稿包含仍打开子窗口的修改，不写回正式 WKB。
+- 用对应工具的 **File → Recover draft…** 手动恢复；恢复后仍标记未保存。
+  Save 或 Discard 会清理该文档的恢复草稿，Cancel 保留；清理被系统拒绝时保留草稿并提示，
+  不把已经成功的保存误报为失败。直接 Open 恢复文件也会识别为草稿，不标记正式保存，
+  恢复 Match 后保存目标是原文档而非此前打开的另一个文件。首次 30 秒内或系统写盘失败
+  尚未产生的修改无法保证恢复；草稿不是正式保存的替代。
+- 载入只读校验版本、类型、必需表、列模式、行顺序和状态版本；不会创建缺失文件，
+  不执行 pickle，也不把错误类型的文件部分装入另一个工具。
+- 支持重复表头、空白内行、`001`、`2.1000`、`NA` 等编辑草稿；用于分析的表仍按既有
+  规则校验。Match 子表无效时保留在独立作用域，不阻塞父分析及子表编辑器重开修复。
+
+## 14. 实现与验证入口
+
+- `metrology_app/workspace_store.py`：纯 SQLite / JSON 存储和旧格式读取适配。
+- `metrology_app/workspace_document.py`：文档状态、关闭决策、草稿与恢复；窗口不直接写 SQL。
+- `tests/test_workspace_store.py`：精确往返、备份、过期覆盖、写入失败、版本与类型拒绝。
+- `tests/test_document_storage.py`：真实窗口的独立文档、父子草稿、取消、恢复、Ref/Raw 对比、
+  Dynamic Die 选择、错误分析草稿和 Shell 路由。
+- `tests/legacy_wkb.py`：只用于构造旧格式测试夹具；生产代码只写新容器。
+- `docs/features/workspace_storage.feature`：BDD 行为场景，落到以上 unittest 的公开 interface。
+- `python run_tests.py`：全量回归；测试隔离应用设置和恢复目录，并对普通夹具清理默认 Discard。
+  Save/Cancel 行为测试分别显式覆盖和断言，不依赖清理默认值。
+
+基准命令：`python -m benchmarks.benchmark_workspace_store`。
+2026-10-03 在当前开发机一次测得：100,000 行 × 50 个四位小数文本参数，加 Wafer ID、Die Seq
+两列，保存 0.963 秒、载入 1.576 秒、文件 43.54 MiB，逐项与原表一致。这是存储模块基准，
+不是 GUI 出图时间，也不是相对旧格式的性能提升结论。备份、草稿、父子多表的总成本需按实际文档计算。
+
+最终验证：2026-10-03 执行 `python -W ignore::DeprecationWarning run_tests.py`，
+全量 320 项测试通过（136.760 秒）；`git diff --check` 无空白错误。
+远端 main 和 dev5 仍为 `837006709016bf0ed30604396674e31cbee2adf4`，本次存储改动仅留在本地工作区。
 

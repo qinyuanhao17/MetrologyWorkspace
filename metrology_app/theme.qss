@@ -55,6 +55,13 @@ QPushButton#componentCloseAll:disabled { color: #685e73; border-color: #211827; 
 QPlainTextEdit#diagnosticLog { background: #08070a; color: #d8d1dc; border: 1px solid #3a2e43; border-radius: 7px; padding: 10px; font-family: "Cascadia Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace; font-size: 12px; selection-background-color: #6d28d9; }
 QListWidget#activityLog { background: transparent; border: none; outline: none; color: #b8acbf; }
 QListWidget#activityLog::item { border-bottom: 1px solid #211829; padding: 10px 4px; }
+QListWidget#recentWorkbooks { background: #0d0814; border: 1px solid #2b2133; border-radius: 10px; outline: none; }
+QListWidget#recentWorkbooks::item { border-bottom: 1px solid #211829; }
+QListWidget#recentWorkbooks::item:hover { background: #1b1225; }
+QListWidget#recentWorkbooks::item:selected { background: #271b35; }
+QLabel#recentName { color: #f4f0f7; font-size: 14px; font-weight: 600; }
+QLabel#recentFolder { color: #9b8fa7; font-size: 11px; }
+QLabel#recentTime { color: #8c8199; font-size: 11px; }
 QPushButton { background: #160e21; border: 1px solid #302538; border-top-color: #3a2e43; border-radius: 7px; padding: 8px 14px; font-weight: 500; }
 QPushButton:hover { background: #21152f; border-color: #8050b2; }
 QPushButton:pressed { background: #39204f; }

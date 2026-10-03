@@ -355,6 +355,8 @@ class PlotPage(QWidget):
         self.settings_timer.start()
 
     def persist_color_preferences(self):
+        if getattr(self, "document_scoped", False):
+            return  # Saved with the owning WKB; Discard must not leak preferences.
         low, high = self.color_range.range()
         try:
             save_settings({

@@ -4,12 +4,9 @@ from __future__ import annotations
 
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime, timezone
 import json
-import os
 from pathlib import Path
 import sqlite3
-import tempfile
 
 import numpy as np
 import pandas as pd
@@ -404,9 +401,12 @@ class MatchWorkbook:
                  preview_map=None, final_map=None,
                  preview_dynamic=None, final_dynamic=None,
                  workspace_selections=None, correlation_selections=None,
-                 trend_axis_settings=None):
+                 trend_axis_settings=None, workspace_states=None,
+                 workspace_frames=None):
         self.reference = reference
         self.raw = raw
+        self.workspace_states = dict(workspace_states or {})
+        self.workspace_frames = dict(workspace_frames or {})
         self.preview_raw = preview_raw
         self.final_raw = final_raw
         self.final_match_raw = final_match_raw
@@ -647,87 +647,52 @@ class MatchWorkbook:
             return snapshot.reset_index(drop=True).copy()
         return self.stage_frame(stage, apply_card=apply_card)
 
+    def to_snapshot(self):
+        from ..workspace_store import WorkspaceSnapshot
+        frames = {"reference": self.reference, "raw": self.raw}
+        for name in ("preview_raw", "final_raw", "final_match_raw", "preview_map",
+                     "final_map", "preview_dynamic", "final_dynamic"):
+            frame = getattr(self, name)
+            if frame is not None:
+                frames[name] = frame
+        frames.update(self.workspace_frames)
+        state = {name: getattr(self, name) for name in (
+            "match_type", "result_mode", "bias_mode", "bias_views",
+            "setup_splitter_sizes", "parameter_order", "workspace_selections",
+            "correlation_selections", "trend_axis_settings")}
+        state["mappings"] = [
+            {"name": m.name, "reference_column": m.reference_column, "raw_column": m.raw_column}
+            for m in self.mappings
+        ]
+        return WorkspaceSnapshot("match_workbook", frames, {"match": state, **self.workspace_states})
+
     def save(self, path):
-        """Atomically save source tables and settings in a SQLite-backed WKB file."""
-        target = Path(path)
-        if target.suffix.lower() != ".wkb":
-            target = target.with_suffix(".wkb")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        handle = tempfile.NamedTemporaryFile(prefix=f".{target.stem}-", suffix=".tmp",
-                                             dir=target.parent, delete=False)
-        temporary = Path(handle.name)
-        handle.close()
-        try:
-            with closing(sqlite3.connect(temporary)) as connection, connection:
-                connection.execute("PRAGMA journal_mode=OFF")
-                connection.execute("PRAGMA synchronous=OFF")
-                metadata = pd.DataFrame([{
-                    "schema_version": SCHEMA_VERSION,
-                    "match_type": self.match_type,
-                    "result_mode": self.result_mode,
-                    "bias_mode": self.bias_mode,
-                    "bias_views": ",".join(self.bias_views),
-                    "setup_splitter_sizes": (
-                        None
-                        if self.setup_splitter_sizes is None
-                        else ",".join(str(size) for size in self.setup_splitter_sizes)
-                    ),
-                    "parameter_order": json.dumps(
-                        self.parameter_order, ensure_ascii=False
-                    ),
-                    "workspace_selections": json.dumps(
-                        self.workspace_selections, ensure_ascii=False
-                    ),
-                    "correlation_selections": json.dumps(
-                        self.correlation_selections, ensure_ascii=False
-                    ),
-                    "trend_axis_settings": json.dumps(self.trend_axis_settings),
-                    "saved_utc": datetime.now(timezone.utc).isoformat(),
-                }])
-                metadata.to_sql("metadata", connection, index=False, if_exists="replace")
-                pd.DataFrame([
-                    {
-                        "position": position,
-                        "name": mapping.name,
-                        "reference_column": mapping.reference_column,
-                        "raw_column": mapping.raw_column,
-                    }
-                    for position, mapping in enumerate(self.mappings)
-                ]).to_sql("parameter_mappings", connection, index=False, if_exists="replace")
-                _write_frame(connection, "reference_data", self.reference)
-                _write_frame(connection, "raw_data", self.raw)
-                if self.preview_raw is not None:
-                    _write_frame(connection, "preview_raw_data", self.preview_raw)
-                if self.final_raw is not None:
-                    _write_frame(connection, "final_raw_data", self.final_raw)
-                if self.final_match_raw is not None:
-                    _write_frame(
-                        connection,
-                        "final_match_raw_data",
-                        self.final_match_raw,
-                    )
-                if self.preview_map is not None:
-                    _write_frame(connection, "preview_map_data", self.preview_map)
-                if self.final_map is not None:
-                    _write_frame(connection, "final_map_data", self.final_map)
-                if self.preview_dynamic is not None:
-                    _write_frame(
-                        connection, "preview_dynamic_data", self.preview_dynamic
-                    )
-                if self.final_dynamic is not None:
-                    _write_frame(
-                        connection, "final_dynamic_data", self.final_dynamic
-                    )
-            os.replace(temporary, target)
-        except Exception:
-            temporary.unlink(missing_ok=True)
-            raise
-        return target
+        from ..workspace_store import save_workspace
+        return save_workspace(path, self.to_snapshot())
+
+    @classmethod
+    def from_snapshot(cls, snapshot):
+        if snapshot.workspace_type != "match_workbook":
+            raise ValueError("This WKB is not a Match Workbook.")
+        state = dict(snapshot.states["match"])
+        state.pop("draft", None)
+        state["mappings"] = tuple(ParameterMapping(**record) for record in state["mappings"])
+        names = ("reference", "raw", "preview_raw", "final_raw", "final_match_raw",
+                 "preview_map", "final_map", "preview_dynamic", "final_dynamic")
+        frames = {name: snapshot.frames[name] for name in names if name in snapshot.frames}
+        return cls(**frames, **state,
+                   workspace_states={key: value for key, value in snapshot.states.items() if key != "match"},
+                   workspace_frames={key: value for key, value in snapshot.frames.items() if key not in names})
 
     @classmethod
     def load(cls, path):
+        from ..workspace_store import load_workspace
+        return cls.from_snapshot(load_workspace(path, expected_type="match_workbook"))
+
+    @classmethod
+    def _load_legacy(cls, path):
         source = Path(path)
-        with closing(sqlite3.connect(source)) as connection:
+        with closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as connection:
             try:
                 metadata = pd.read_sql_query("SELECT * FROM metadata LIMIT 1", connection).iloc[0]
             except (sqlite3.DatabaseError, IndexError, pd.errors.DatabaseError) as error:

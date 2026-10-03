@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 
 from metrology_app.matching import MatchWorkbook, ParameterMapping, extrema_sample_indices
+from tests.legacy_wkb import save_legacy
 
 
 class MatchWorkbookTests(unittest.TestCase):
@@ -461,7 +462,7 @@ class MatchWorkbookTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "legacy-axis-ratio.wkb"
-            workbook.save(path)
+            save_legacy(workbook, path)
             with closing(sqlite3.connect(path)) as connection, connection:
                 connection.execute(
                     "UPDATE metadata SET correlation_selections = ?",
@@ -573,7 +574,7 @@ class MatchWorkbookTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "legacy.wkb"
-            workbook.save(path)
+            save_legacy(workbook, path)
             with closing(sqlite3.connect(path)) as connection, connection:
                 connection.execute("UPDATE metadata SET schema_version = 1")
                 connection.execute(
@@ -603,7 +604,7 @@ class MatchWorkbookTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "schema-two.wkb"
-            workbook.save(path)
+            save_legacy(workbook, path)
             with closing(sqlite3.connect(path)) as connection, connection:
                 connection.execute("UPDATE metadata SET schema_version = 2")
                 connection.execute("DROP TABLE final_match_raw_data")
@@ -620,7 +621,7 @@ class MatchWorkbookTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "schema-three.wkb"
-            workbook.save(path)
+            save_legacy(workbook, path)
             with closing(sqlite3.connect(path)) as connection, connection:
                 connection.execute("UPDATE metadata SET schema_version = 3")
             restored = MatchWorkbook.load(path)
@@ -640,7 +641,7 @@ class MatchWorkbookTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "schema-four.wkb"
-            workbook.save(path)
+            save_legacy(workbook, path)
             with closing(sqlite3.connect(path)) as connection, connection:
                 connection.execute("UPDATE metadata SET schema_version = 4")
             restored = MatchWorkbook.load(path)
@@ -670,7 +671,7 @@ class MatchWorkbookTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "schema-five.wkb"
-            workbook.save(path)
+            save_legacy(workbook, path)
             with closing(sqlite3.connect(path)) as connection, connection:
                 connection.execute("UPDATE metadata SET schema_version = 5")
                 connection.execute(
@@ -715,7 +716,7 @@ class MatchWorkbookTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "schema-six.wkb"
-            workbook.save(path)
+            save_legacy(workbook, path)
             with closing(sqlite3.connect(path)) as connection, connection:
                 connection.execute("UPDATE metadata SET schema_version = 6")
             restored = MatchWorkbook.load(path)
@@ -747,7 +748,7 @@ class MatchWorkbookTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "schema-seven.wkb"
-            workbook.save(path)
+            save_legacy(workbook, path)
             with closing(sqlite3.connect(path)) as connection, connection:
                 connection.execute("UPDATE metadata SET schema_version = 7")
             restored = MatchWorkbook.load(path)
@@ -773,7 +774,7 @@ class MatchWorkbookTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "schema-eight.wkb"
-            workbook.save(path)
+            save_legacy(workbook, path)
             with closing(sqlite3.connect(path)) as connection, connection:
                 connection.execute("UPDATE metadata SET schema_version = 8")
                 connection.execute(

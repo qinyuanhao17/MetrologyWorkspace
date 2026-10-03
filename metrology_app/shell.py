@@ -14,7 +14,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import (
     QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel, QListWidget,
-    QMainWindow, QMenu, QPlainTextEdit, QScrollArea, QSizePolicy, QSplitter,
+    QFileDialog, QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QScrollArea, QSizePolicy, QSplitter,
     QToolBar, QToolButton, QVBoxLayout, QWidget,
 )
 
@@ -24,7 +24,8 @@ from .appearance import (
 from .module_button import ModuleButton
 from .module_registry import create_default_registry
 from .diagnostics import get_logger
-from .settings import apply_theme, get_settings, load_settings, save_settings
+from .settings import apply_theme, get_settings, load_settings, save_settings, recent_wkb_paths
+from .workspace_store import EXTENSIONS, WORKSPACE_FILTER, WORKSPACE_LABELS, load_workspace
 from .settings_dialog import SettingsDialog
 
 
@@ -112,6 +113,7 @@ class MainWindow(QMainWindow):
         self._append_log("INFO", "Runtime", f"Platform {platform.platform()}")
         self._append_log("INFO", "Runtime", f"Working directory: {Path.cwd()}")
         self.update_overview()
+        self.setAcceptDrops(True)
 
     @property
     def loaded_component_ids(self):
@@ -145,6 +147,12 @@ class MainWindow(QMainWindow):
         menu_button.setToolTip("Open the application menu")
         menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu = QMenu(menu_button)
+        open_action = menu.addAction("Open Workspace…")
+        open_action.setShortcut("Ctrl+O")
+        open_action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+        open_action.triggered.connect(self.open_workspace_dialog)
+        self.recent_workspace_menu = menu.addMenu("Open Recent Workspace")
+        self.recent_workspace_menu.aboutToShow.connect(self.refresh_recent_workspaces)
         settings = QAction("Settings…", self)
         settings.triggered.connect(self.open_settings)
         menu.addAction(settings)
@@ -303,22 +311,61 @@ class MainWindow(QMainWindow):
             button.set_content(spec.title, 0)
             button.setToolTip(f"{spec.description}\n\nOpen another {spec.title} window.")
             button.clicked.connect(
-                lambda _=False, component_id=spec.component_id: self.open_component(component_id)
+                lambda _=False, component_id=spec.component_id:
+                self.launch_match_workbook() if component_id == "card_matching" else self.open_component(component_id)
             )
             self.module_buttons[spec.component_id] = button
             self.module_layout.addWidget(button)
 
-    def open_component(self, component_id):
+    def launch_match_workbook(self, path=None):
+        from .workbook_startup import WorkbookStartupDialog
+        if path is not None:
+            # Existing workbooks open exactly as saved; only New asks first.
+            return self.open_component(
+                "card_matching",
+                initialize=lambda window: window.load_workbook(path),
+            )
+        dialog = WorkbookStartupDialog(self)
+        try:
+            if dialog.exec() != dialog.DialogCode.Accepted:
+                return None
+            if dialog.path is not None:
+                chosen = dialog.path
+                return self.open_component(
+                    "card_matching",
+                    initialize=lambda window: window.load_workbook(chosen),
+                )
+            settings = dialog.settings()
+            def initialize(window):
+                window.apply_analysis_settings(settings, refresh=False)
+                window.document.mark_clean()
+            return self.open_component("card_matching", initialize=initialize)
+        except Exception as error:
+            QMessageBox.warning(self, "Cannot open Workbook", str(error))
+            return None
+        finally:
+            dialog.deleteLater()
+
+    def open_component(self, component_id, *, initialize=None):
         spec = self.registry.get(component_id)
         try:
             widget = self.registry.create(component_id)
+            if initialize is not None:
+                try:
+                    initialize(widget)
+                except Exception:
+                    widget.deleteLater()
+                    raise
         except Exception as error:
             self.record("Error", f"Could not open {spec.title}: {error}\n{traceback.format_exc()}")
             raise
         self._instance_serial[component_id] = self._instance_serial.get(component_id, 0) + 1
         serial = self._instance_serial[component_id]
         label = spec.title if serial == 1 else f"{spec.title} #{serial}"
-        widget.setWindowTitle(f"{APPLICATION_NAME} — {label}")
+        if hasattr(widget, "document"):
+            widget.document.refresh_identity()
+        else:
+            widget.setWindowTitle(f"{APPLICATION_NAME} — {label}")
         widget.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         apply_theme(widget)
         widget.destroyed.connect(
@@ -391,7 +438,61 @@ class MainWindow(QMainWindow):
         return not refused
 
     def unload_all_components(self):
+        windows = [widget for items in tuple(self.loaded_components.values()) for widget in tuple(items)]
+        decisions = []
+        for widget in windows:
+            document = getattr(widget, "document", None)
+            if document is None:
+                continue
+            choice = document.close_choice()
+            if choice == QMessageBox.StandardButton.Cancel:
+                return False
+            decisions.append((widget, document, choice))
+        # Do not discard or destroy anything until all necessary saves succeed.
+        for widget, document, choice in decisions:
+            if choice == QMessageBox.StandardButton.Save and not widget.save_wkb():
+                self.record("Warning", "Exit cancelled: a document could not be saved. All windows remain open.")
+                return False
+        for widget, document, choice in decisions:
+            if choice == QMessageBox.StandardButton.Discard:
+                document.discard()
+            document.force_close = True
         return all(self.unload_component(key) for key in tuple(self.loaded_components))
+
+    def open_workspace_dialog(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Open Workspace", "", WORKSPACE_FILTER)
+        if path:
+            try:
+                self.load_path(path)
+            except Exception as error:
+                QMessageBox.warning(self, "Cannot open workspace", str(error))
+
+    def refresh_recent_workspaces(self):
+        self.recent_workspace_menu.clear()
+        for path in recent_wkb_paths():
+            try:
+                kind = load_workspace(path).workspace_type
+            except (OSError, ValueError):
+                continue
+            action = self.recent_workspace_menu.addAction(f"{WORKSPACE_LABELS[kind]} · {path.name}")
+            action.setToolTip(str(path))
+            action.triggered.connect(lambda _=False, target=path: self.open_recent_workspace(target))
+
+    def open_recent_workspace(self, path):
+        try:
+            return self.load_path(path)
+        except Exception as error:
+            QMessageBox.warning(self, "Cannot open workspace", str(error))
+
+    def dragEnterEvent(self, event):
+        if any(Path(url.toLocalFile()).suffix.lower() in EXTENSIONS.values() for url in event.mimeData().urls()):
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        for url in event.mimeData().urls():
+            if url.isLocalFile() and Path(url.toLocalFile()).suffix.lower() in EXTENSIONS.values():
+                self.open_recent_workspace(url.toLocalFile())
+        event.acceptProposedAction()
 
     def forget_instance(self, component_id, widget):
         instances = self.loaded_components.get(component_id)
@@ -478,9 +579,29 @@ class MainWindow(QMainWindow):
         self._append_log(level, source, message)
 
     def load_path(self, path):
-        """Open the wafer component and forward a command-line input file to it."""
-        component = self.open_component("wafer_map")
-        component.load_path(path)
+        """Route a typed WKB to its owner; measurement imports use Wafer Map."""
+        if Path(path).suffix.lower() in EXTENSIONS.values():
+            snapshot = load_workspace(path)
+            suffix = Path(path).suffix.lower()
+            if suffix != EXTENSIONS[snapshot.workspace_type] and not (suffix == ".wkb" and snapshot.workspace_type != "match_workbook"):
+                if QMessageBox.question(self, "Workspace type mismatch",
+                                        f"The {suffix} extension does not match {WORKSPACE_LABELS[snapshot.workspace_type]}.\n"
+                                        "Open using its actual type? Saving will require the correct extension.",
+                                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                        QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+                    return None
+            component_id = {"match_workbook": "card_matching", "wafer_map": "wafer_map",
+                            "dynamic": "dynamic_analysis", "correlation_trend": "correlation_analysis"}[snapshot.workspace_type]
+            if snapshot.workspace_type == "match_workbook":
+                component = self.launch_match_workbook(path)
+                if component is None:
+                    return None
+            else:
+                component = self.open_component(component_id)
+                component.load_workspace(path)
+        else:
+            component = self.open_component("wafer_map")
+            component.load_path(path)
         self.record("Data", f"Opened {Path(path).name}")
         return component
 

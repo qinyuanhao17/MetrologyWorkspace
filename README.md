@@ -63,7 +63,9 @@ python -m PyInstaller --noconfirm --clean MetrologyWorkspace.spec
 1. 先在 Reference 网格粘贴已经整理好的表。一个表可以同时包含多列参数，例如 `CD_Bot Reference`、`SPA Reference`。
 2. 再在 Raw Data 网格粘贴原始数据。两个输入区与 Wafer Map / Correlation 的数据表操作一致：第 1 行是表头，可直接改单元格、区域粘贴，并用 `Ctrl+Z` 撤销。当前版本按从上到下的行顺序对应，两张表必须具有相同的行数。
 3. 软件会把 `<参数名> Reference` 自动匹配到 Raw Data 中同名参数。像 `TEM`、`PMISH` 这样没有 `Reference` 后缀的数值列也会出现在映射表中，但不会擅自自动选择；可用 **Select all** 勾选全部候选项，再为它们选择对应的 Raw Data 参数。Wafer ID、Die Seq 等元数据不会列为参数。一次最多选择 50 个参数，最多处理 100,000 行。
-4. 在顶部选择 **Preview** 或 **Final**。文件操作、KLA/NOVA/TEM Match Type、`Bias` / `Bias %` 和 Run analysis 都位于原生菜单栏；页面不再重复显示 Workbook 标题和设置面板。`Bias` 与 `Bias %` 至少选择一个，也可以同时选择。
+4. 在顶部选择 **Preview** 或 **Final**。文件操作、KLA/NOVA/TEM Match Type、`Bias` / `Bias %` 和 Run analysis 都位于原生菜单栏；页面不再重复显示 Workbook 标题和设置面板。`Bias` 与 `Bias %` 各自独立开关：取消勾选会立刻移除对应的图，两个都不选时结果里只留 Match 与 Trend（工作簿内部仍保留主 Bias 模式）。
+
+从主窗口启动 Match Workbook 时，先选择 **New Workbook**、**Open Workbook** 或最近文件。最近列表每行显示“文件名 + 保存时间（文件修改时间）+ 所在目录”，单击即打开。**Open Workbook** 与最近文件都直接按文件里保存的 Match Type、Bias、Trend Y axes、倍率和原来的 tab 打开，不再经过设置页，打开后保持已保存状态；只有 **New Workbook** 需要确认 Analysis 设置：默认 KLA、Bias、Auto 10×、Preview，且至少选择一个 Bias 视图。旧文件两个 Bias 视图都不选时也能直接打开，之后可在 Analysis 菜单补选。取消不会留下空窗口。File 的 **New Workbook…**（Ctrl+N）与 **Open Workbook…**（Ctrl+O）遵循同一规则。Final 缺少输入时进入等待补数据的页面。Analysis 设置在 Preview/Final 间共用。
 5. 首次执行 **Run analysis** 后，Slope、Intercept、R²、Valid pairs 等结果直接显示在 Parameter mapping 的同一行。以后在 Raw Data 的 A1 粘贴新表或更改 Raw Data column 都会自动重新分析，不需要重复点击；Reference 与 Raw Data 都直接在网格中按 `Ctrl+V` 粘贴，整表替换、单元格编辑和 Delete 清空均可用 `Ctrl+Z` 撤销。Raw Data 暂时清空或缺少原参数列时，Reference 建立的映射仍会保留，界面会提示重新选择缺失的 Raw Data column。Slope 小于 0.9 或大于 1.1、R² 小于 0.9 时，值会以红色警示并说明阈值。Parameter mapping 里的 **Raw Data column** 下拉框不吃鼠标滚轮：滚轮只滚动页面，不会误改映射（其他下拉框仍是标准行为）。
 6. 结果区分为 **All parameter plots** 和 **Single-wafer metrics** 两个 tab。全部参数按纵向卡片显示，只有一个参数时也从结果区顶部开始；Match、Trend、Bias、Bias % 按当前选择排在同一横行。Match 固定为 510 × 330 px，Trend、Bias 和 Bias % 统一为 330 px 高并平分剩余宽度；四图同时显示时也会收进可见工作区，不需要横向滚动且不会互相重叠。绘图区上下对齐、四边同粗，Trend/Bias 不再重复显示 Wafer 轴标题。Trend 右上角的 **Card** 可在原始 PMISH 与加 Card 后的 PMISH 间切换。拖动参数卡标题时会显示半透明预览和淡入的插入位置；当前顺序会直接保留，不再占用空间显示 Reset。输入、映射和结果区之间的分隔线可以拖动；首次运行成功后，修改 Reference、当前模式的 Raw Data 或 Parameter mapping 会自动原位刷新，并保持分隔栏、滚动位置和参数顺序。Preview 与 Final 各自保留独立 Raw Data，切换模式不会清空另一侧数据或已有结果。当前模式对应的 **Open Preview/Final Wafer Map / Radius** 与 **Open Preview/Final Dynamic** 位于顶部右侧。
 
@@ -72,7 +74,7 @@ python -m PyInstaller --noconfirm --clean MetrologyWorkspace.spec
 三个分析窗口与 Match Workbook 的联动规则：
 
 - **KLA / NOVA**：三个窗口可以同时打开，**Wafer Map / Radius** 与 **Correlation and Trend** 的 Data 会跟着 Match Workbook 的 Reference / Raw Data 同步刷新（Map 由 Raw Data 经 Card 推导，Correlation 直接读取 Ref/Raw）；一旦你在其中某个窗口里改过表格，该阶段就以你的修改为准，不再被覆盖。
-- **Dynamic 在任何模式下都是独立数据**：它不跟随 Match Workbook 刷新，打开时以当时的工作簿表起步，之后完全由你在 Dynamic 窗口里编辑，保存 WKB 时按原表快照恢复。
+- **Dynamic 在任何模式下都是独立数据**：Preview 与 Final 打开时都只恢复它自己保存的 Dynamic 表（工作簿里没有就开空白），不会复制 Match Workbook 的 Raw/Map 数据，也不跟随它刷新；之后完全由你在 Dynamic 窗口里编辑，保存时按自己的表快照写回。
 - **TEM**：Map/Radius 也是 TEM 自己的独立表（Raw Data 变化时不会被刷新）；只有 **Correlation and Trend** 会跟随 Match Workbook 的 Ref / Raw 刷新。三个窗口可以同时打开，但**每个按钮最多一个窗口**——重复点同一个按钮不会开出第二个，而是把已有窗口带到前面并刷新它的数据。
 
 这种刷新**只换数据**：无论是改 Raw Data、改 Reference，还是改 Parameter mapping，子窗口都保持原样——
@@ -91,11 +93,29 @@ Card 的定义为：
 - KLA/NOVA 的 Single-wafer tab 使用 Raw Data 的 Wafer ID、Lot ID 和 PAD Name，并沿用 Wafer Map 的默认身份规则；只有真正变化的 Lot/PAD 才参与分组，Die Seq 不单独拆组。多个身份字段分行显示，避免横轴文字重叠。TEM 不显示该组单片结果。
 - Match 始终显示线性拟合，不再提供重复的开关；图名使用映射的 Raw Data column，横轴是 PMISH、纵轴是当前 Match Type。参数名与两行拟合公式/R² 使用绘图区上方的独立标题栏，公式位于参数名右侧且不会覆盖曲线或数据点。Match、Trend、Bias 和单片指标图统一显示完整四边坐标轴，并与 Correlation and Trend 一样支持 Ctrl+滚轮缩放、左键拖框放大、右键平移和双击自动适配；不按 Ctrl 的滚轮会继续滚动外层页面。Trend 中 PMISH 使用蓝色实线圆点，当前 Match Type 使用橙色实线圆点，且不重复显示无意义的纵轴名。Bias 使用蓝色点线并按原始数值显示 `Bias (nm)` 和 `Bias (%)`，禁用自动 SI 缩放，不再出现 ×0.001 或百分比系数。分析层仍按需生成每个参数的派生数据，界面只保留经过极值采样的绘图数组，不复制 50 份完整结果表。
 
-**Save WKB** 保存 Reference、Preview/Final 独立 Raw Data、参数映射、Bias 显示选择、分析设置、分隔栏布局、参数顺序，以及 Preview/Final 的 Map 与 Dynamic 工作区中实际显示和编辑的表；这些数据不需要再单独保存。四个工作区各自右侧勾选的 wafer 与 parameter 也写入 WKB，关闭整个软件并重新打开文件后仍会恢复。KLA/NOVA 在尚无 Map 快照或独立 FullMap 时由相应 Raw Data 初始化；TEM 不会把匹配 Raw Data 自动填进 Map，需输入独立 Map 数据。Map 或 Dynamic 一旦在工作区中打开或修改，保存 WKB 后会按对应 Preview/Final 原表恢复，不会在重开时互相覆盖。同一次 Match Workbook 会话中关闭再打开 Map 或 Dynamic 时，也会恢复该模式上次勾选且仍存在的 wafer 与参数，并立即刷新分析。从 Match Workbook 打开的 Map/Dynamic 由父工作簿托管，关闭时不弹出丢弃编辑确认；当前已有 WKB 路径时会立即覆盖保存，没有路径时先保留在父窗口中并在首次 Save WKB 时写入。独立打开的工具仍保留未保存确认。第一次保存会选择路径，保存或打开以后按 `Ctrl+S` 会直接覆盖当前 WKB。**Save WKB As…**（`Ctrl+Shift+S`）用于另存为，新路径会成为后续保存目标。File 菜单的 **Open Recent WKB** 按最新优先保存最多 10 个成功打开或保存的工作簿，可在软件重启后直接重开；**Reveal WKB in Folder** 会在系统文件管理器中定位当前 WKB，没有当前文件时保持禁用。旧 WKB 没有独立 Final 匹配表、Map、Dynamic 快照或工作区选择状态时继续兼容。WKB 是 SQLite-backed 的主工作文件，可以在多个独立窗口中重新打开比较；它不依赖 Excel，也不会执行不安全的 pickle。**Export Excel** 是确认结果后的可选输出，包含 Summary、Reference、Raw Data、Preview/Final 结果，以及存在时的 Map/FullMap 工作表。**Save images** 会把当前选择显示的每个参数图分别保存为 PNG。
+**Save Workbook** 保存 Reference、Preview/Final 独立 Raw Data、参数映射、Bias 显示选择、分析设置、分隔栏布局、参数顺序，以及三个分析工具中实际显示和编辑的数据及配置。各阶段勾选的 wafer、parameter 和已确认的绘图选择也一起写入 `.wkb`，无需逐个子工具另存。KLA/NOVA 在尚无 Map 快照时由相应 Raw Data 初始化；TEM 需输入独立 Map 数据。已保存的 Preview/Final 分别恢复，不互相覆盖。
 
-10 万行、50 参数的随机浮点基准中，50 个 Card 的计算约 0.16 秒，单个参数结果展开约 0.004 秒；WKB 保存约 1.05 秒、载入约 2.43 秒，文件约 97.9 MB。结果取自当前开发机的一次可重复测量，不代表所有磁盘和数据分布。 可用 python benchmarks/benchmark_matching.py 复测。
+父窗口 **Save Workbook As…**（`Ctrl+Shift+S`）另存整本工作簿，新路径成为后续保存目标。子窗口保存、独立副本与关闭提示的范围见下方“统一文档保存与恢复”。**Open Recent WKB** 保留最近成功打开或保存的工作簿，**Reveal Workbook in Folder** 定位当前文件。旧 WKB 缺少独立 Final、Map、Dynamic 或选择状态时仍可读取。文件内含数据，不依赖原 Excel/CSV，也不执行 pickle。
 
-Wafer Map 或 Radius Plot 成功绘制过后，WKB schema 8 会分别保存“自动绘制已启用”和实际框选组合。关闭子窗口再打开、或彻底关闭并重新加载 WKB，都会恢复仍存在的组合并直接出图，不必再次点击 **Draw selected**；旧 schema 1–7 仍可读取，并保留缺少相应状态时首次手动绘制的兼容行为。
+**Export Excel** 是确认结果后的可选输出，包含 Summary、Reference、Raw Data、Preview/Final 结果，以及存在时的 Map/FullMap 工作表。**Save images** 将当前显示的各参数图分别保存为 PNG。
+
+存储模块基准：10 万行 × 50 个四位小数文本参数加两列标识，保存约 0.96 秒、载入约 1.58 秒、文件约 43.54 MiB，逐项往返一致（2026-10-03 当前开发机一次实测，不代表全部硬件，不包含 GUI 出图，也不是旧格式对比结论）。可用 `python -m benchmarks.benchmark_workspace_store` 复测。Card 计算可单独用 `python benchmarks/benchmark_matching.py` 测量。
+
+Wafer Map 或 Radius Plot 成功绘制并保存过后，WKB 会分别保存“自动绘制已启用”和实际框选组合。保存子窗口再打开、或重新加载 WKB，都会恢复仍存在的组合并直接出图，不必再次点击 **Draw selected**；尚未确认 Draw 的新框选仍等待点击，不自动绘制。旧 schema 1–10 仍可读取。
+
+### 统一文档保存与恢复
+
+Match Workbook 使用 SQLite `.wkb`；独立 Wafer Map / Radius 使用 `.wmap`，Dynamic `.wdyn`，Correlation and Trend `.wct`。**Ctrl+S** 保存当前文档，独立工具和 Match 父窗口的 **Ctrl+Shift+S** 另存为。主窗口菜单的 Open Workspace、最近文件和拖放按内部类型打开正确工具。旧独立 `.wkb` 仍可读，第一次 Save 会要求另存规范后缀，原文件保留。
+
+三个独立工具自己的 File 菜单也有 **Open…**（Ctrl+O）和 **Open Recent**。最近文件复用持久化记录，只显示本工具兼容的正式工作区，过滤缺失、损坏和恢复草稿；打开前仍确认未保存修改，取消不会替换当前文档。Open 与数据区原有 Ctrl+O 共用一个动作，不重复注册快捷键。
+
+Match 内的子工具显示所属文件，**Save Changes to Workbook**（Ctrl+S）保存当前分析加父当前数据/公共设置，不接受其他子草稿。父 **Save Workbook** 保存全部分析草稿；整本 **Save Workbook As** 只在父窗口，子窗口没有隐藏 Ctrl+Shift+S。需要单独分享时选 **Export Standalone Copy**：复制完整实际数据及当前配置成对应独立文件，不改原路径、角色和未保存状态；副本以后独立编辑，不自动回写 Match。子表独立修改后不会被父源数据覆盖，**Use Workbook Data…** 须明确确认，而且替换后仍需正式保存。TEM 的 Preview/Final Map/Radius 与 Dynamic 使用独立数据，不提供该替换操作；Correlation and Trend 仍保留。已打开窗口的菜单会随 Match Type 切换更新。
+
+CSV 按钮是 **Export CSV**，导出不表示文档已保存。Correlation/Trend 保存 Ref/Raw 双表、选择、分页、共享轴策略和 Add Compare；Dynamic 保存实际数据、显示设置和各参数的 Die 选择。重复打开同一 Match 阶段工具只激活原窗口，不刷新掉草稿。
+
+新容器使用版本化状态与生成的 SQL 标识，能保存重复表头待修复草稿，并保留 `001`、`2.1000`、`NA` 和列/行顺序。载入后重新计算图表，不保存可执行对象或图片缓存。正常覆盖保留完整文件名加 `.bak` 的上一版，例如 `.wmap.bak`；同一文件在其他窗口更新后会拒绝过期覆盖，可重新打开或另存为。保存和副本导出会提交尚未失焦的编辑器，不强制 Draw。
+
+脏文档每 30 秒另写恢复草稿，不覆盖正式文件。Match 仅父窗口负责聚合恢复，包含正式基准和各子草稿；保存一个子窗口后，剩余草稿继续保留。父 **Recover Workbook Draft** 或独立工具 **Recover draft** 从 `%LOCALAPPDATA%/MetrologyWorkspace/recovery/` 恢复，恢复后仍需正式保存。新恢复 scope 使用版本 2，旧软件拒绝误读，正式容器仍为版本 1。所有有修改的窗口关闭时提供 Save/Discard/Cancel；应用退出先完成全部保存决策，后续取消/保存失败不会提前放弃其他文档。首次周期内或写盘失败的修改不能保证恢复。完整边界见 [当前存储方案](docs/plans/workspace-storage-v2-design.md) 和 [ADR 0003](docs/adr/0003-typed-workspaces-and-independent-copies.md)。
 
 当前 v2 已把 Preview/Final 作为顶部模式页，并将各自的 Raw Data 交给现有 Wafer Map 和 Radius Plot；独立 FullMap 输入页已移除。尚未实现的是按 Wafer ID、Slot ID、PAD Name 和坐标自动整理尚未对齐的 Reference；当前匹配数据仍按行序对应。
 
@@ -180,7 +200,7 @@ Trend 按 Data 页顺序把每个 numeric 参数画成连续的 Die Seq 曲线�
 
 默认仍是一个参数一张图。需要比较趋势时，每张图右侧的 **Add Compare** 可以叠加任意多个已勾选参数：每点一次增加一个下拉框，滚轮即可快速切换，`×` 只移除该行。Reference 固定橙色实线、Raw Data 固定蓝色虚线，新增对比曲线使用橙蓝之外的颜色与不同点形；图例始终显示来源与参数名。
 
-拆轴规则由 **Analysis ▸ Trend Y axes** 控制：`Auto` 默认按单位与中位绝对值比例判断，可在 spinbox 输入小数阈值（默认 10×）；单位不同，或同单位两条曲线的中位量级相差超过阈值时增加着色右轴。也可选择 `Always two Y axes` 或 `Always one Y axis` 强制绘制；强制单轴混用不同单位时，轴标签和状态栏会明确标记。模式与阈值由 Preview 和 Final 共用，立即同步到两边已打开的 Trend，并作为一份工作簿设置保存到 .wkb；切换 tab 或重开窗口不会覆盖设置。旧 WKB 两边值不同则采用文件保存时所在 tab 的值，只有倍率时默认沿用 Auto。独立打开的 Correlation and Trend 在 Trend 选项栏保留相同的模式与 spinbox。对比关系本身仍写入应用设置并在下次 Draw selected 时按仍存在的勾选恢复。对比控制区宽度固定、**高度与绘图区一致**（`Add Compare` 与各下拉框保持在顶部，边框圆角与卡片一致），增删下拉框不会压缩绘图区；重绘保持面板列表的滚动位置，不会跳回顶部。
+拆轴规则由 **Analysis ▸ Trend Y axes** 控制：`Auto` 默认按单位与中位绝对值比例判断，可在 spinbox 输入小数阈值（默认 10×）；单位不同，或同单位两条曲线的中位量级相差超过阈值时增加着色右轴。也可选择 `Always two Y axes` 或 `Always one Y axis` 强制绘制；强制单轴混用不同单位时，轴标签和状态栏会明确标记。模式与阈值由 Preview 和 Final 共用，立即同步到两边已打开的 Trend，并作为一份工作簿设置保存到 .wkb；切换 tab 或重开窗口不会覆盖设置。旧 WKB 两边值不同则采用文件保存时所在 tab 的值，只有倍率时默认沿用 Auto。独立打开的 Correlation and Trend 在 Trend 选项栏保留相同的模式与 spinbox。对比关系随所属 WKB 保存，不再写入全局应用设置；重新打开时按仍存在的组合恢复。对比控制区宽度固定、**高度与绘图区一致**（`Add Compare` 与各下拉框保持在顶部，边框圆角与卡片一致），增删下拉框不会压缩绘图区；重绘保持面板列表的滚动位置，不会跳回顶部。
 
 Trend 的 Y 轴单位按 OCD 行业规则识别：名称含 `SWA` 视为 degree，含 `ratio` 视为无量纲，其余建模参数视为 nm；列名末尾自带单位（如 `EW (V)`、`Si_SWA [rad]`）时以显式单位为准。
 

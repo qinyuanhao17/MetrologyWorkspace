@@ -14,11 +14,11 @@ import pyqtgraph as pg
 import pyqtgraph.exporters
 from PyQt6.QtCore import (
     QAbstractTableModel, QEasingCurve, QMimeData, QModelIndex, QPoint,
-    QPropertyAnimation, Qt, QTimer,
+    QPropertyAnimation, QSignalBlocker, Qt, QTimer,
 )
 from PyQt6.QtGui import (
     QAction, QActionGroup, QBrush, QColor, QDrag, QKeySequence, QPainter,
-    QPalette, QPixmap,
+    QFontMetrics, QPalette, QPixmap,
 )
 from PyQt6.QtWidgets import (
     QApplication,
@@ -59,14 +59,12 @@ from .settings import (
 )
 from .sheet import DuplicateHeaderBanner, SheetModel, SheetView
 from .widgets import ScrollSafeComboBox
+from .workspace_store import WorkspaceSnapshot, file_revision, load_workspace, save_workspace, workspace_path
+from .workspace_document import WkbDocument, commit_editors, local_snapshot, local_ui, recovery_directory, writable_path
+from .workbook_startup import AXIS_MODE_LABELS, analysis_settings as normalized_analysis_settings
 
 
 PLOT_LIMIT = 20_000
-AXIS_MODE_LABELS = {
-    "auto": "Auto (median ratio)",
-    "dual": "Always two Y axes",
-    "single": "Always one Y axis",
-}
 _PARAMETER_MIME = "application/x-metrology-match-parameter"
 LOGGER = get_logger()
 
@@ -371,6 +369,7 @@ class _TrendPlotWidget(InteractivePlotWidget):
 
 class MatchingWindow(QMainWindow):
     """Build Preview or Final results from one row-aligned matching workbook."""
+    workspace_type = "match_workbook"
 
     def __init__(self, wafer_window_factory=None, dynamic_window_factory=None,
                  correlation_window_factory=None):
@@ -390,6 +389,7 @@ class MatchingWindow(QMainWindow):
         self.workbook = None
         self.workbook_path = None
         self.result = None
+        self._analysis_current = False
         self._primary_bias_mode = "absolute"
         self._auto_run_enabled = False
         self._auto_run_pending = False
@@ -416,6 +416,9 @@ class MatchingWindow(QMainWindow):
         self._syncing_stage_windows = False
         self._stage_sync_inputs = None
         self._stage_window_context = {}
+        self._workspace_states = {}
+        self._workspace_frames = {}
+        self._recovered_children = {}
         self.second_axis_ratio = 10.0
         self.trend_axis_mode = "auto"
         self._recent_wkb_paths = list(recent_wkb_paths())
@@ -435,6 +438,198 @@ class MatchingWindow(QMainWindow):
         )
         self.raw_view.table_pasted.connect(self._raw_table_pasted)
         self._update_state()
+        self.document = WkbDocument(self)
+        self.document.mark_clean()
+        self._initial_layout_pending = True
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._initial_layout_pending:
+            self._initial_layout_pending = False
+            document = self.document
+            if document.path is None and not document.forced_dirty and not document.untrusted_recovery:
+                # Qt resolves the initial splitter geometry only on first show.
+                # Accept that geometry alone, never pre-show data/settings edits.
+                document.baseline.states["match"]["setup_splitter_sizes"] = self.setup_splitter.sizes()
+                document.refresh_identity()
+
+    def workspace_snapshot(self, *, include_drafts=False):
+        frames = {"reference": self.reference_model.document_frame(),
+                  "raw": self.raw_model.document_frame(),
+                  "final_match_raw": self.final_raw_model.document_frame()}
+        if not len(frames["final_match_raw"].columns):
+            del frames["final_match_raw"]
+        for name, frame in (("preview_raw", self.preview_frame), ("final_raw", self.final_frame),
+                            ("preview_map", self.preview_map_frame), ("final_map", self.final_map_frame),
+                            ("preview_dynamic", self.preview_dynamic_frame), ("final_dynamic", self.final_dynamic_frame)):
+            if frame is not None and (not frame.empty or name.endswith(("map", "dynamic"))):
+                frames[name] = frame
+        frames.update(self._workspace_frames)
+        try:
+            mappings = [{"name": m.name, "reference_column": m.reference_column, "raw_column": m.raw_column}
+                        for m in self.selected_mappings()]
+        except ValueError:
+            mappings = []  # Incomplete mapping choices are retained in match_ui.
+        state = {"match_type": self.match_type.currentText(), "result_mode": self.result_mode.currentText().lower(),
+                 "bias_mode": self._primary_bias_mode, "bias_views": self._selected_bias_views(),
+                 "setup_splitter_sizes": self.setup_splitter.sizes(), "parameter_order": list(self.parameter_order()),
+                 "mappings": mappings, "workspace_selections": {"map": self._map_selection_states,
+                                                                   "dynamic": self._dynamic_selection_states},
+                 "correlation_selections": self._correlation_selection_states,
+                 "trend_axis_settings": {"ratio": self.second_axis_ratio, "mode": self.trend_axis_mode},
+                 "draft": not self._analysis_current or self.result is None or not mappings or bool(any(self._input_sheet_errors.values()))}
+        ui = {"mapping_choices": self._mapping_state(),
+              "trend_cards": [[list(key), value] for key, value in self._trend_card_state.items()]}
+        snapshot = WorkspaceSnapshot("match_workbook", frames,
+                                     {"match": state, "match_ui": ui, **deepcopy(self._workspace_states)})
+        if not state["draft"]:
+            try:
+                MatchWorkbook.from_snapshot(snapshot)
+            except (ValueError, TypeError):
+                state["draft"] = True  # Row counts/mappings may be mid-edit after a previous run.
+        if include_drafts:
+            for child in self._stage_windows:
+                context = self._stage_window_context.get(child)
+                if context and hasattr(child, "workspace_snapshot"):
+                    scope = ".".join(context)
+                    draft = child.workspace_snapshot()
+                    snapshot.states[scope] = {"ui": draft.states["ui"], "workspace_type": draft.workspace_type,
+                                              "data_override": True}
+                    for name, frame in draft.frames.items():
+                        snapshot.frames[f"{scope}.{name}"] = frame
+        return snapshot
+
+    def _accepted_workspace_state(self):
+        return {name: deepcopy(getattr(self, name)) for name in (
+            "preview_map_frame", "final_map_frame", "preview_dynamic_frame", "final_dynamic_frame",
+            "_map_selection_states", "_dynamic_selection_states", "_correlation_selection_states",
+            "_workspace_states", "_workspace_frames")}
+
+    def _restore_accepted_workspace_state(self, state):
+        for name, value in state.items():
+            setattr(self, name, value)
+
+    def restore_workspace(self, snapshot, *, analysis_settings=None):
+        if snapshot.workspace_type != self.workspace_type:
+            raise ValueError("This WKB is not a Match Workbook.")
+        self._close_stage_workspaces(tuple(self._stage_windows))
+        self._recovered_children = {}
+        state = snapshot.states["match"]
+        self._workspace_states = {name: deepcopy(value) for name, value in snapshot.states.items()
+                                  if name not in ("match", "match_ui", "recovery")}
+        self._workspace_frames = {name: frame.copy() for name, frame in snapshot.frames.items() if "." in name}
+        self._trend_card_state = {tuple(key): value for key, value in snapshot.states.get("match_ui", {}).get("trend_cards", [])}
+        if not state.get("draft"):
+            workbook = MatchWorkbook.from_snapshot(snapshot)
+            return self._restore_analyzed_workbook(
+                workbook, self.workbook_path or "Workspace.wkb", analysis_settings=analysis_settings)
+        else:
+            self._restore_draft(snapshot)
+            baseline = self.workspace_snapshot()
+            if analysis_settings is not None:
+                self.apply_analysis_settings(analysis_settings, refresh=False)
+            return baseline
+
+    def apply_analysis_settings(self, settings, *, refresh=True):
+        """Apply one Workbook-wide policy without intermediate recalculations."""
+        settings = normalized_analysis_settings(settings)
+        mapping_state = self._mapping_state()
+        changed_stage = self.result_mode.currentText().lower() != settings["result_mode"]
+        with QSignalBlocker(self.match_type), QSignalBlocker(self.result_mode), \
+                QSignalBlocker(self.absolute_bias), QSignalBlocker(self.percent_bias):
+            self.match_type.setCurrentText(settings["match_type"])
+            self.result_mode.setCurrentText(settings["result_mode"].title())
+            self.absolute_bias.setChecked("absolute" in settings["bias_views"])
+            self.percent_bias.setChecked("percent" in settings["bias_views"])
+        self._primary_bias_mode = settings["bias_mode"]
+        self.match_type_actions[settings["match_type"]].setChecked(True)
+        self.absolute_bias_action.setChecked(self.absolute_bias.isChecked())
+        self.percent_bias_action.setChecked(self.percent_bias.isChecked())
+        with QSignalBlocker(self.mode_tabs):
+            self.mode_tabs.setCurrentIndex(self.result_mode.currentIndex())
+        self._show_raw_mode(settings["result_mode"])
+        if changed_stage:
+            self._populate_mappings(mapping_state)
+        self.set_second_axis_ratio(settings["trend_axis_settings"]["ratio"])
+        self.set_trend_axis_mode(settings["trend_axis_settings"]["mode"])
+        for child in self._stage_windows:
+            update = getattr(child, "_update_workbook_data_action", None)
+            if callable(update):
+                update()
+        self._update_state()
+        if refresh and self.analyze_button.isEnabled() and not any(self._input_sheet_errors.values()):
+            self.run_analysis()
+        elif refresh:
+            self._analysis_current = False
+            self._invalidate_analysis()
+        self.document.refresh_identity()
+
+    def _restore_draft(self, snapshot):
+        state = snapshot.states["match"]
+        self._auto_run_enabled = False
+        self._auto_run_pending = False
+        self.result = None
+        self._analysis_current = False
+        self.workbook = None
+        self._clear_plot_groups()
+        self._loading_input_sheets = True
+        try:
+            for name, model in (("reference", self.reference_model), ("raw", self.raw_model),
+                                ("final_match_raw", self.final_raw_model)):
+                frame = snapshot.frames.get(name, pd.DataFrame()).copy()
+                model.load(frame)
+                try:
+                    analysis_frame = model.frame().reset_index(drop=True)
+                except ValueError:
+                    analysis_frame = pd.DataFrame()
+                setattr(self, {"reference": "reference_frame", "raw": "raw_frame",
+                               "final_match_raw": "final_match_frame"}[name], analysis_frame)
+            for name, attribute in (("preview_raw", "preview_frame"), ("final_raw", "final_frame"),
+                                     ("preview_map", "preview_map_frame"), ("final_map", "final_map_frame"),
+                                     ("preview_dynamic", "preview_dynamic_frame"), ("final_dynamic", "final_dynamic_frame")):
+                setattr(self, attribute, snapshot.frames.get(name, pd.DataFrame() if name.endswith("raw") else None))
+            self.match_type.setCurrentText(state.get("match_type", "KLA"))
+            self.result_mode.setCurrentText(state.get("result_mode", "preview").title())
+            self._show_raw_mode(self.result_mode.currentText().lower())
+            self._primary_bias_mode = state.get("bias_mode", "absolute")
+            self.absolute_bias.setChecked("absolute" in state.get("bias_views", ["absolute"]))
+            self.percent_bias.setChecked("percent" in state.get("bias_views", []))
+            self._map_selection_states = state.get("workspace_selections", {}).get("map", {"preview": None, "final": None})
+            self._dynamic_selection_states = state.get("workspace_selections", {}).get("dynamic", {"preview": None, "final": None})
+            self._correlation_selection_states = state.get("correlation_selections", {"preview": None, "final": None})
+            self.set_second_axis_ratio(state.get("trend_axis_settings", {}).get("ratio", 10.0))
+            self.set_trend_axis_mode(state.get("trend_axis_settings", {}).get("mode", "auto"))
+            if self.reference_frame.columns.is_unique:
+                self._populate_mappings(snapshot.states.get("match_ui", {}).get("mapping_choices", {}))
+            else:
+                self.mapping_table.setRowCount(0)
+            self._parameter_order = list(state.get("parameter_order", []))
+            self._input_sheet_errors = {name: "" for name in ("reference", "raw", "final_raw")}
+            for name, model in (("reference", self.reference_model), ("raw", self.raw_model), ("final_raw", self.final_raw_model)):
+                if model.duplicate_header_count():
+                    self._input_sheet_errors[name] = "Duplicate column names in row 1. Rename them to continue."
+            self.preview_model.set_frame(self.preview_frame)
+            self.final_model.set_frame(self.final_frame)
+            self.summary_model.set_frame(pd.DataFrame())
+            self.result_status.setText("Draft restored · Run analysis when the inputs are ready")
+            self.reference_source.setText(self._source_text("WKB draft", self.reference_model.document_frame()))
+            self._raw_sources = {"preview": self._source_text("WKB draft", self.raw_model.document_frame()),
+                                 "final": self._source_text("WKB draft", self.final_raw_model.document_frame())}
+            self.raw_source.setText(self._raw_sources[self.result_mode.currentText().lower()])
+        finally:
+            self._loading_input_sheets = False
+        self._update_state()
+        sizes = state.get("setup_splitter_sizes")
+        if sizes:
+            self._restore_setup_splitter_layout(sizes)
+
+    def recover_draft(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Recover Match draft", str(recovery_directory()), "WKB draft (*.wkb)")
+        if path and self.document.confirm_close():
+            try:
+                self.document.recover(path)
+            except Exception as error:
+                QMessageBox.warning(self, "Cannot recover draft", str(error))
 
     def _build_ui(self):
         self.result_mode = QComboBox(self)
@@ -525,24 +720,31 @@ class MatchingWindow(QMainWindow):
 
     def _build_menu_bar(self):
         self.file_menu = self.menuBar().addMenu("File")
-        self.open_action = QAction("Open WKB", self)
+        self.new_action = QAction("New Workbook…", self)
+        self.new_action.setShortcut(QKeySequence("Ctrl+N"))
+        self.new_action.triggered.connect(lambda: self.start_workbook(new=True))
+        self.open_action = QAction("Open Workbook…", self)
         self.open_action.setShortcut(QKeySequence("Ctrl+O"))
         self.open_action.triggered.connect(self.open_wkb_dialog)
         self.open_recent_menu = QMenu("Open Recent WKB", self.file_menu)
-        self.reveal_wkb_action = QAction("Reveal WKB in Folder", self)
+        self.reveal_wkb_action = QAction("Reveal Workbook in Folder", self)
         self.reveal_wkb_action.setEnabled(False)
         self.reveal_wkb_action.triggered.connect(self.reveal_wkb_in_folder)
-        self.save_action = QAction("Save WKB", self)
+        self.save_action = QAction("Save Workbook", self)
+        self.save_action.setToolTip("Save Workbook data, shared settings and all open analysis drafts.")
         self.save_action.setShortcut(QKeySequence("Ctrl+S"))
         self.save_action.triggered.connect(self.save_wkb)
-        self.save_as_action = QAction("Save WKB As…", self)
+        self.save_as_action = QAction("Save Workbook As…", self)
         self.save_as_action.setShortcut(QKeySequence("Ctrl+Shift+S"))
         self.save_as_action.triggered.connect(self.save_wkb_dialog)
+        for action in (self.new_action, self.open_action, self.save_action, self.save_as_action):
+            action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
         self.export_action = QAction("Export Excel", self)
         self.export_action.triggered.connect(self.export_excel_dialog)
         self.images_action = QAction("Save images", self)
         self.images_action.triggered.connect(self.save_images_dialog)
         for action in (
+            self.new_action,
             self.open_action,
             self.open_recent_menu.menuAction(),
             self.reveal_wkb_action,
@@ -553,6 +755,8 @@ class MatchingWindow(QMainWindow):
         ):
             self.file_menu.addAction(action)
         self._refresh_recent_wkb_menu()
+        recover_action = self.file_menu.addAction("Recover Workbook Draft…")
+        recover_action.triggered.connect(self.recover_draft)
 
         self.analysis_menu = self.menuBar().addMenu("Analysis")
         self.run_action = QAction("Run analysis", self)
@@ -640,6 +844,7 @@ class MatchingWindow(QMainWindow):
         ):
             action = QAction(title, self)
             action.setShortcut(QKeySequence(shortcut))
+            action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
             action.triggered.connect(handler)
             self.addAction(action)
 
@@ -1043,6 +1248,7 @@ class MatchingWindow(QMainWindow):
 
     def _analysis_input_changed(self, *_, view_state=None):
         """Refresh valid post-run edits without blanking plots or layout first."""
+        self._analysis_current = False
         if self._auto_run_enabled:
             if self._pending_auto_view_state is None:
                 self._pending_auto_view_state = (
@@ -1304,13 +1510,9 @@ class MatchingWindow(QMainWindow):
         return tuple(views)
 
     def _bias_view_changed(self, _checked):
-        if not self._selected_bias_views():
-            checkbox = self.sender()
-            checkbox.blockSignals(True)
-            checkbox.setChecked(True)
-            checkbox.blockSignals(False)
+        """Bias plots are optional: unchecking one removes its plot."""
         views = self._selected_bias_views()
-        if self._primary_bias_mode not in views:
+        if views and self._primary_bias_mode not in views:
             self._primary_bias_mode = views[0]
         if self.result is not None:
             self._draw_all_parameters()
@@ -1434,7 +1636,7 @@ class MatchingWindow(QMainWindow):
                             missing_mapping_columns.append(reference.text())
         has_mapping = has_mapping and not missing_mapping_columns
         self.analyze_button.setEnabled(bool(valid_rows and has_mapping))
-        self.save_button.setEnabled(bool(valid_rows and has_mapping))
+        self.save_button.setEnabled(True)  # Incomplete tables can be saved as drafts.
         self.export_button.setEnabled(self.result is not None)
         self.images_button.setEnabled(self.result is not None)
         self.preview_open_button.setEnabled(self.result is not None)
@@ -1452,6 +1654,7 @@ class MatchingWindow(QMainWindow):
             self._input_sheet_errors["reference"]
             or self._input_sheet_errors[raw_error_key]
         )
+        self.run_action.setEnabled(bool(valid_rows and has_mapping and not input_error))
         warning = False
         if input_error:
             message = input_error
@@ -1510,7 +1713,10 @@ class MatchingWindow(QMainWindow):
             match_type=self.match_type.currentText(),
             result_mode=self.result_mode.currentText().lower(),
             bias_mode=self._primary_bias_mode,
-            bias_views=self._selected_bias_views(),
+            # The checkboxes only decide which Bias plots are shown; the
+            # workbook itself always keeps a primary Bias mode.
+            bias_views=self._selected_bias_views()
+            or (self._primary_bias_mode,),
             preview_raw=None if self.preview_frame.empty else self.preview_frame,
             final_raw=None if self.final_frame.empty else self.final_frame,
             final_match_raw=(
@@ -1599,12 +1805,7 @@ class MatchingWindow(QMainWindow):
             # TEM owns this table; KLA/NOVA keep deriving it from Raw Data until
             # the engineer edits the child window.
             self._capture_stage_map(stage, frame)
-        model = getattr(workspace, "model", None)
-        if model is not None and hasattr(model, "changed"):
-            model.changed.connect(
-                lambda stage_name=stage, stage_model=model:
-                self._capture_stage_model(stage_name, stage_model)
-            )
+        # Child edits remain a draft until its Save, or the parent's Save.
         self._configure_managed_close(workspace, "map", stage)
         if hasattr(workspace, "setWindowTitle"):
             workspace.setWindowTitle(f"{str(stage).title()} Wafer Map / Radius")
@@ -1640,6 +1841,32 @@ class MatchingWindow(QMainWindow):
             self._stage_window_context[workspace] = (
                 str(kind).lower(), str(stage).lower()
             )
+            scope = f"{kind}.{stage}"
+            saved = self._workspace_states.get(scope)
+            if saved and hasattr(workspace, "workspace_snapshot"):
+                workspace._independent_data = bool(saved.get("data_override"))
+                snapshot = workspace.workspace_snapshot()
+                snapshot.states["ui"] = deepcopy(saved["ui"])
+                for name in snapshot.frames:
+                    frame = self._workspace_frames.get(f"{scope}.{name}")
+                    if frame is not None:
+                        snapshot.frames[name] = frame.copy()
+                workspace.restore_workspace(snapshot)
+            if kind == "correlation":
+                self._offer_second_axis_settings(workspace)
+            if hasattr(workspace, "document"):
+                workspace.document.mark_clean()
+                if self.document.untrusted_recovery:
+                    workspace.document.forced_dirty = True
+                recovered = self._recovered_children.pop(scope, None)
+                if recovered:
+                    workspace.restore_workspace(recovered["draft"])
+                    workspace._use_workbook_data = bool(recovered.get("follow_source"))
+                    workspace.document.baseline = deepcopy(recovered["baseline"])
+                    if kind == "correlation":
+                        self._offer_second_axis_settings(workspace)
+                workspace.document.refresh_identity()
+                workspace._managed_after_close_handler = lambda child=workspace: self._forget_stage_workspace(child)
         if hasattr(workspace, "destroyed"):
             workspace.destroyed.connect(
                 lambda *_args, window=workspace:
@@ -1650,6 +1877,8 @@ class MatchingWindow(QMainWindow):
         if workspace in self._stage_windows:
             self._stage_windows.remove(workspace)
         self._stage_window_context.pop(workspace, None)
+        if hasattr(self, "document"):
+            self.document.refresh_identity()
 
     def _capture_workspace_selection(self, kind, stage, state):
         if not isinstance(state, dict):
@@ -1691,14 +1920,7 @@ class MatchingWindow(QMainWindow):
             states = self._dynamic_selection_states
         else:
             states = self._correlation_selection_states
-        signal = getattr(workspace, "selection_changed", None)
-        if signal is not None and hasattr(signal, "connect"):
-            signal.connect(
-                lambda state, workspace_kind=kind, stage_name=stage:
-                self._capture_workspace_selection(
-                    workspace_kind, stage_name, state
-                )
-            )
+        # Accepted choices are captured only by Save, not by each checkbox.
         saved = states.get(stage)
         restore = getattr(workspace, "restore_selection", None)
         if saved is not None and callable(restore):
@@ -1718,6 +1940,9 @@ class MatchingWindow(QMainWindow):
                 workspace_kind, stage_name, frame, child
             )
         )
+        configure = getattr(workspace, "configure_workbook_owner", None)
+        if callable(configure):
+            configure(self, f"{kind}.{stage}")
 
     def _single_stage_window(self):
         """TEM keeps one analysis window at a time; KLA and NOVA allow all."""
@@ -1738,19 +1963,13 @@ class MatchingWindow(QMainWindow):
         forward and refreshes it instead of stacking a second copy; the other
         two kinds stay open. KLA and NOVA may open each window separately.
         """
-        if not self._single_stage_window() or not self._stage_windows:
+        if not self._stage_windows:
             return None
         wanted = (str(kind).lower(), str(stage).lower())
         for workspace in tuple(self._stage_windows):
             if self._stage_window_context.get(workspace) != wanted:
                 continue
-            try:
-                self._refresh_stage_workspace(workspace, *wanted)
-            except Exception as error:
-                LOGGER.warning(
-                    "Could not refresh the %s %s window: %s",
-                    wanted[1], wanted[0], error,
-                )
+            # Reopening is activation, never a destructive data refresh.
             workspace.show()
             raise_window = getattr(workspace, "raise_", None)
             if callable(raise_window):
@@ -1830,8 +2049,21 @@ class MatchingWindow(QMainWindow):
         finally:
             self._syncing_stage_windows = False
 
-    def _refresh_stage_workspace(self, workspace, kind, stage):
+    def _refresh_stage_workspace(self, workspace, kind, stage, *, reset_data=False):
         """Push the current workbook tables into one open analysis window."""
+        if hasattr(workspace, "document") and not reset_data:
+            baseline = workspace.document.baseline
+            if baseline is not None:
+                current_frames = workspace.workspace_snapshot().frames
+                if any(not frame.equals(baseline.frames.get(name, pd.DataFrame()))
+                       for name, frame in current_frames.items()):
+                    workspace._independent_data = True
+                    workspace.document.refresh_identity()
+                    return  # Never overwrite the child's unsaved measurement draft.
+            if self._workspace_states.get(f"{kind}.{stage}", {}).get("data_override"):
+                if hasattr(workspace, "ownership_label"):
+                    workspace.ownership_label.setToolTip("Using independently edited data; not overwritten by Workbook source changes.")
+                return
         state = getattr(workspace, "selection_state", None)
         saved = state() if callable(state) else None
         tabs = getattr(workspace, "tabs", None)
@@ -1870,6 +2102,44 @@ class MatchingWindow(QMainWindow):
         if kind == "correlation":
             self._offer_second_axis_settings(workspace)
         self._restore_workspace_pages(pages)
+        if hasattr(workspace, "document") and workspace.document.baseline is not None and not reset_data:
+            # Parent-driven table refreshes are not child edits. Keep draft
+            # configuration intact while advancing the table-only baseline.
+            workspace.document.baseline.frames = deepcopy(workspace.workspace_snapshot().frames)
+
+    def reset_child_to_workbook(self, workspace):
+        """Explicitly replace an independent table; acceptance still requires Save."""
+        context = self._stage_window_context.get(workspace)
+        if context is None:
+            return False
+        kind, stage = context
+        if kind in ("map", "dynamic") and not self._workspace_data_follows_workbook():
+            return False
+        if self.document.untrusted_recovery:
+            QMessageBox.warning(self, "Cannot replace recovered analysis", "Save the entire recovered Workbook As first.")
+            return False
+        choice = QMessageBox.question(workspace, "Use Workbook Data",
+                                      "Discard this analysis's independent measurements and use current Workbook data?\n"
+                                      "Other analysis drafts and the saved file are unchanged until you save.",
+                                      QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+                                      QMessageBox.StandardButton.Cancel)
+        if choice != QMessageBox.StandardButton.Discard:
+            return False
+        previous = self._accepted_workspace_state()
+        try:
+            if kind in ("map", "dynamic"):
+                setattr(self, f"{stage}_{kind}_frame", None)
+            self._refresh_stage_workspace(workspace, kind, stage, reset_data=True)
+        except Exception as error:
+            QMessageBox.warning(workspace, "Cannot use Workbook data", str(error))
+            return False
+        finally:
+            self._restore_accepted_workspace_state(previous)
+        workspace._use_workbook_data = True
+        workspace._independent_data = False
+        workspace.document.forced_dirty = True
+        workspace.document.refresh_identity()
+        return True
 
     @staticmethod
     def _workspace_pages(workspace):
@@ -1921,11 +2191,6 @@ class MatchingWindow(QMainWindow):
             if not callable(setter):
                 continue
             setter(self.second_axis_ratio)
-            state = getattr(workspace, "selection_state", None)
-            if callable(state):
-                self._capture_workspace_selection(
-                    "correlation", context[1], state()
-                )
 
     def set_trend_axis_mode(self, mode):
         """Use automatic, forced dual-axis, or forced single-axis plotting."""
@@ -1941,11 +2206,6 @@ class MatchingWindow(QMainWindow):
             if not callable(setter):
                 continue
             setter(mode)
-            state = getattr(workspace, "selection_state", None)
-            if callable(state):
-                self._capture_workspace_selection(
-                    "correlation", context[1], state()
-                )
 
     def _refresh_axis_mode_menu(self):
         for mode, action in self.second_axis_actions.items():
@@ -2012,18 +2272,9 @@ class MatchingWindow(QMainWindow):
     def _save_managed_workspace_on_close(
         self, kind, stage, frame, workspace=None
     ):
-        if kind == "map":
-            if not self._workspace_data_follows_workbook():
-                self._capture_stage_map(stage, frame)
-        elif kind == "dynamic":
-            self._capture_stage_dynamic(stage, frame)
-        elif workspace is not None:
-            state = getattr(workspace, "selection_state", None)
-            if callable(state):
-                self._capture_workspace_selection(kind, stage, state())
-        self.workbook = self.current_workbook()
-        if self.workbook_path is not None:
-            self.save_workbook(self.workbook_path)
+        if self.workbook_path is None or not writable_path(self.workbook_path) or self.workbook_path.suffix.lower() != ".wkb":
+            return self.save_wkb_dialog(capture_children=False, child=workspace) or False
+        return self.save_workbook(self.workbook_path, capture_children=False, child=workspace)
 
     def _capture_managed_stage_workspace(self, workspace):
         """Copy a managed child's live state before either window is destroyed."""
@@ -2031,6 +2282,41 @@ class MatchingWindow(QMainWindow):
         if context is None:
             return
         kind, stage = context
+        if hasattr(workspace, "workspace_snapshot"):
+            draft = local_snapshot(workspace)
+            scope = f"{kind}.{stage}"
+            prior = self._workspace_states.get(scope, {})
+            baseline = workspace.document.baseline
+            edited = baseline is None or any(
+                not frame.equals(baseline.frames.get(name, pd.DataFrame()))
+                for name, frame in draft.frames.items())
+            reset_data = bool(getattr(workspace, "_use_workbook_data", False))
+            override = not reset_data and bool(prior.get("data_override") or edited)
+            if reset_data:
+                if kind in ("map", "dynamic"):
+                    setattr(self, f"{stage}_{kind}_frame", None)
+                for name in tuple(self._workspace_frames):
+                    if name.startswith(scope + "."):
+                        del self._workspace_frames[name]
+            self._workspace_states[scope] = {"ui": draft.states["ui"], "workspace_type": draft.workspace_type,
+                                              "data_override": override}
+            if kind == "correlation" and override:
+                for name, frame in draft.frames.items():
+                    self._workspace_frames[f"{scope}.{name}"] = frame.copy()
+            if kind in ("map", "dynamic"):
+                frame = draft.frames["input_data"]
+                try:
+                    MatchWorkbook._validate_workspace_snapshot(frame, "Child draft")
+                except ValueError:
+                    # An invalid child sheet must not prevent the parent from
+                    # opening its otherwise valid analysis or the sheet editor.
+                    self._workspace_frames[f"{scope}.input_data"] = frame.copy()
+                else:
+                    if kind == "map" and (override or not self._workspace_data_follows_workbook()):
+                        self._capture_stage_map(stage, frame)
+                    elif kind == "dynamic":
+                        self._capture_stage_dynamic(stage, frame)
+                    self._workspace_frames.pop(f"{scope}.input_data", None)
         if kind == "correlation":
             selection_getter = getattr(workspace, "selection_state", None)
             if callable(selection_getter):
@@ -2040,14 +2326,14 @@ class MatchingWindow(QMainWindow):
             return
         model = getattr(workspace, "model", None)
         frame_getter = getattr(model, "frame", None)
-        if callable(frame_getter):
+        if callable(frame_getter) and not hasattr(workspace, "workspace_snapshot"):
             frame = frame_getter()
             if kind == "dynamic":
                 # Dynamic owns its table in every match type.
                 self._capture_stage_dynamic(stage, frame)
-            elif not self._workspace_data_follows_workbook():
-                # KLA/NOVA keep following Raw Data, so closing an untouched
-                # window must not freeze a copy of the derived table.
+            elif kind == "map":
+                # Legacy adapters have no document baseline; accept their table
+                # only at the explicit save boundary.
                 self._capture_stage_map(stage, frame)
         selection_getter = getattr(workspace, "selection_state", None)
         if callable(selection_getter):
@@ -2089,6 +2375,8 @@ class MatchingWindow(QMainWindow):
                 setter = getattr(workspace, "set_managed_close_handler", None)
                 if callable(setter):
                     setter(None)
+            if hasattr(workspace, "document"):
+                workspace.document.force_close = True
             close = getattr(workspace, "close", None)
             if not callable(close):
                 self._forget_stage_workspace(workspace)
@@ -2112,13 +2400,16 @@ class MatchingWindow(QMainWindow):
             self._forget_stage_workspace(workspace)
 
     def closeEvent(self, event):
-        """Persist and close every analysis child before Qt deletes this WKB."""
+        """One parent decision covers its open child drafts; no silent write."""
+        if not self.document.confirm_close():
+            event.ignore()
+            return
         workspaces = tuple(self._stage_windows)
         if not workspaces:
+            self.document.closed()
             event.accept()
             return
         try:
-            self._save_stage_workspaces_before_close(workspaces)
             self._close_stage_workspaces(workspaces)
         except Exception as error:
             LOGGER.exception("Cannot close Match Workbook and its workspaces")
@@ -2131,6 +2422,7 @@ class MatchingWindow(QMainWindow):
             event.ignore()
             return
         event.accept()
+        self.document.closed()
 
     def _open_stage_clicked(self, stage):
         try:
@@ -2145,8 +2437,19 @@ class MatchingWindow(QMainWindow):
         if self.result is None:
             self.run_analysis()
         self.workbook = self.current_workbook()
-        # The workspace owns the Card choice, so hand over untouched values.
-        frame = self.workbook.dynamic_frame(stage, apply_card=False)
+        # Dynamic measures its own table: restore the saved Dynamic table when
+        # the workbook has one, otherwise start from an empty grid instead of
+        # copying the Raw/Map data (Preview and Final behave the same way).
+        saved_dynamic = (
+            self.workbook.preview_dynamic
+            if str(stage).lower() == "preview"
+            else self.workbook.final_dynamic
+        )
+        frame = (
+            pd.DataFrame()
+            if saved_dynamic is None
+            else saved_dynamic.reset_index(drop=True).copy()
+        )
         workspace = self._dynamic_window_factory()
         title = f"{str(stage).title()} Dynamic · Match Workbook"
         self._offer_parameter_cards(workspace)
@@ -2157,11 +2460,6 @@ class MatchingWindow(QMainWindow):
             # Dynamic holds its own table in every match type, so opening the
             # window freezes the table it starts from.
             self._capture_dynamic_model(stage, model)
-            if hasattr(model, "changed"):
-                model.changed.connect(
-                    lambda stage_name=stage, stage_model=model:
-                    self._capture_dynamic_model(stage_name, stage_model)
-                )
         else:
             self._capture_stage_dynamic(stage, frame)
         self._configure_managed_close(workspace, "dynamic", stage)
@@ -2202,6 +2500,7 @@ class MatchingWindow(QMainWindow):
         scroll_value = self.setup_scroll.verticalScrollBar().value()
         self.workbook = self.current_workbook()
         self.result = self.workbook.analyze()
+        self._analysis_current = True
         self._auto_run_enabled = True
         self._parameter_order = list(self.workbook.parameter_order)
         self.summary_model.set_frame(self.result.summary)
@@ -2346,9 +2645,6 @@ class MatchingWindow(QMainWindow):
         wafer_view.setModel(wafer_model)
         wafer_view.setAlternatingRowColors(True)
         wafer_view.setMaximumHeight(180)
-        wafer_view.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.Stretch
-        )
         wafer_layout.addWidget(wafer_view)
         wafer_plots = QWidget()
         wafer_plot_layout = QGridLayout(wafer_plots)
@@ -2362,6 +2658,12 @@ class MatchingWindow(QMainWindow):
                 QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding
             )
             wafer_plot_layout.addWidget(plot, 0, column)
+        for plot in (wafer_r2, wafer_slope):
+            # Dense single-wafer plots thin the row-number ticks out so the
+            # labels never overlap, however narrow the card becomes.
+            plot.getPlotItem().getViewBox().sigResized.connect(
+                lambda *_args, name=parameter: self._refresh_wafer_ticks(name)
+            )
         wafer_plots.setMinimumHeight(280)
         wafer_layout.addWidget(wafer_plots)
         wafer_card.hide()
@@ -2379,6 +2681,7 @@ class MatchingWindow(QMainWindow):
             "primary_width": primary_width,
             "wafer_card": wafer_card,
             "wafer_model": wafer_model,
+            "wafer_view": wafer_view,
             "wafer_r2": wafer_r2,
             "wafer_slope": wafer_slope,
             "trend_card_key": trend_card_key,
@@ -2559,15 +2862,38 @@ class MatchingWindow(QMainWindow):
             summary = pd.DataFrame()
             enabled = False
         group["wafer_card"].setVisible(enabled)
-        group["wafer_model"].set_frame(summary)
+        # One line per wafer: the identity's newline-separated fields (wafer,
+        # PAD, Lot, ...) are joined with "/" in classification order so the
+        # cell shows the whole label instead of eliding after the first line.
+        display = summary.copy()
+        if "Wafer" in display.columns:
+            display["Wafer"] = [
+                str(value).replace("\n", "/") for value in display["Wafer"]
+            ]
+        group["wafer_model"].set_frame(display)
+        wafer_view = group.get("wafer_view")
+        if wafer_view is not None:
+            # Configure the header only once it owns sections: the per-section
+            # resize mode dereferences an empty section list (index -1) and
+            # crashes inside Qt while the table has no columns yet.
+            header = wafer_view.horizontalHeader()
+            columns = header.count()
+            if columns:
+                header.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+                header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+            # Only in-range sections: the wafer column keeps the free width.
+            for column in range(1, columns):
+                wafer_view.setColumnWidth(column, 104)
+        # Row numbers, not wafer names: the single-wafer table above shows the
+        # same index. Dense rows thin the labels out to every nth row number.
+        group["wafer_tick_count"] = len(summary)
+        group["wafer_tick_levels"] = None
         if summary.empty:
             return
         x = np.arange(len(summary), dtype=float)
-        labels = [(int(index), str(wafer)) for index, wafer in enumerate(summary["Wafer"])]
+        self._refresh_wafer_ticks(parameter)
         wafer_r2 = group["wafer_r2"]
         wafer_slope = group["wafer_slope"]
-        wafer_r2.getAxis("bottom").setTicks([labels])
-        wafer_slope.getAxis("bottom").setTicks([labels])
         r_squared = summary["R²"].to_numpy(float)
         slope = summary["Slope"].to_numpy(float)
         valid_r2 = np.isfinite(r_squared)
@@ -2580,6 +2906,38 @@ class MatchingWindow(QMainWindow):
                              symbol="o", symbolSize=8, symbolBrush="#e09f3e")
         wafer_r2.setTitle("Single-wafer R²")
         wafer_slope.setTitle("Single-wafer slope")
+
+    def _refresh_wafer_ticks(self, parameter, _view_box=None):
+        """Redraw the row-number ticks of one single-wafer card, if it has data."""
+        group = self.plot_groups.get(parameter)
+        if group is None:
+            return
+        count = int(group.get("wafer_tick_count") or 0)
+        if count <= 0:
+            return
+        levels = self._wafer_row_tick_levels(group, count)
+        if levels == group.get("wafer_tick_levels"):
+            return
+        group["wafer_tick_levels"] = levels
+        for key in ("wafer_r2", "wafer_slope"):
+            group[key].getAxis("bottom").setTicks([levels])
+
+    @staticmethod
+    def _wafer_row_tick_levels(group, count):
+        """Show every nth row number so neighbouring labels cannot overlap."""
+        plot = group["wafer_r2"]
+        metrics = QFontMetrics(plot.font())
+        widest = max(
+            metrics.horizontalAdvance("1"),
+            metrics.horizontalAdvance(str(count)),
+        )
+        spacing = max(28.0, float(widest) + 12.0)
+        width = float(plot.getPlotItem().getViewBox().width())
+        if width < 120.0:  # Not laid out yet; refine once the card is shown.
+            width = 480.0
+        room = max(1, int(width // spacing))
+        step = max(1, (count + room - 1) // room)
+        return [(float(index), str(index + 1)) for index in range(0, count, step)]
 
     def _resize_results_for_plot_groups(self):
         total = 64
@@ -2707,25 +3065,85 @@ class MatchingWindow(QMainWindow):
                 self.save_plot_images(folder)
         except Exception as error:
             QMessageBox.warning(self, "Cannot save images", str(error))
-    def save_workbook(self, path):
-        for workspace in tuple(self._stage_windows):
-            try:
-                self._capture_managed_stage_workspace(workspace)
-            except RuntimeError as error:
-                if not self._deleted_qt_object(error):
-                    raise
-                self._forget_stage_workspace(workspace)
-        workbook = self.current_workbook()
-        saved = workbook.save(path)
-        self.workbook = workbook
+    def save_workbook(self, path, *, capture_children=True, child=None):
+        commit_editors(self)
+        previous = self._accepted_workspace_state()
+        children = tuple(self._stage_windows) if capture_children else (() if child is None else (child,))
+        baselines = {}
+        try:
+            if capture_children:
+                for scope, recovered in self._recovered_children.items():
+                    draft = recovered["draft"]
+                    follow_source = bool(recovered.get("follow_source"))
+                    if follow_source:
+                        kind, stage = scope.split(".")
+                        if kind in ("map", "dynamic"):
+                            setattr(self, f"{stage}_{kind}_frame", None)
+                        for name in tuple(self._workspace_frames):
+                            if name.startswith(scope + "."):
+                                del self._workspace_frames[name]
+                    ui = local_ui(draft.states["ui"]) if draft.workspace_type == "correlation_trend" else deepcopy(draft.states["ui"])
+                    self._workspace_states[scope] = {"ui": ui,
+                                                     "workspace_type": draft.workspace_type, "data_override": not follow_source}
+                    for name, frame in draft.frames.items():
+                        if not follow_source or draft.workspace_type == "dynamic":
+                            self._workspace_frames[f"{scope}.{name}"] = frame.copy(deep=True)
+            for workspace in children:
+                if hasattr(workspace, "document"):
+                    commit_editors(workspace)
+                    baselines[workspace] = workspace.workspace_snapshot()
+                try:
+                    self._capture_managed_stage_workspace(workspace)
+                except RuntimeError as error:
+                    if not self._deleted_qt_object(error):
+                        raise
+                    self._forget_stage_workspace(workspace)
+            target = self.document.choose_target(path)
+            if target is None:
+                return None
+            snapshot = self.workspace_snapshot()
+            candidate = self._accepted_workspace_state()
+        finally:
+            # Candidate construction must not accept anything before durable IO.
+            self._restore_accepted_workspace_state(previous)
+        expected = self.document.revision if target == self.document.path else self.document.selected_target_revision
+        saved = save_workspace(target, snapshot, expected_revision=expected)
+        self.document.last_warning = "; ".join(snapshot.warnings)
+        self._restore_accepted_workspace_state(candidate)
         self.workbook_path = Path(saved).resolve()
-        self.reveal_wkb_action.setEnabled(True)
-        for workspace in self._stage_windows:
-            model = getattr(workspace, "model", None)
-            if model is not None and hasattr(model, "undo"):
-                model.undo.setClean()
-        self._set_status(f"Saved {saved.name}")
-        LOGGER.info("WKB saved: %s", Path(saved).resolve())
+        self.document.path = self.workbook_path
+        self.document.revision = snapshot.revision
+        self.document.untrusted_recovery = False
+        if capture_children:
+            self._recovered_children.clear()
+        self.document.mark_clean(snapshot)
+        for workspace, baseline in baselines.items():
+            workspace.document.mark_clean(baseline)
+            workspace._use_workbook_data = False
+            scope = getattr(workspace, "_managed_scope", "")
+            workspace._independent_data = bool(self._workspace_states.get(scope, {}).get("data_override"))
+        # Everything below is auxiliary to an already committed file.
+        try:
+            self.workbook = None if snapshot.states["match"]["draft"] else MatchWorkbook.from_snapshot(snapshot)
+            self.reveal_wkb_action.setEnabled(True)
+            for workspace in children:
+                model = getattr(workspace, "model", None)
+                if model is not None and hasattr(model, "undo"):
+                    model.undo.setClean()
+            for workspace in self._stage_windows:
+                if hasattr(workspace, "document"):
+                    workspace.document.refresh_identity()
+            if self.document.has_changes():
+                self.document.write_recovery()
+            else:
+                self.document.remove_recovery()
+            warning = f" · Warning: {self.document.last_warning}" if self.document.last_warning else ""
+            self._set_status(f"Saved {saved.name}{warning}")
+            LOGGER.info("WKB saved: %s", saved)
+        except Exception as error:
+            self.document.last_warning = str(error)
+            LOGGER.warning("Workbook saved; auxiliary update failed: %s", error)
+            self.statusBar().showMessage(f"Workbook saved; auxiliary update failed: {error}", 8000)
         return saved
 
     def _refresh_recent_wkb_menu(self):
@@ -2735,6 +3153,12 @@ class MatchingWindow(QMainWindow):
             empty_action.setEnabled(False)
             return
         for index, path in enumerate(self._recent_wkb_paths, start=1):
+            if Path(path).is_file():
+                try:
+                    if load_workspace(path).workspace_type != "match_workbook":
+                        continue
+                except (OSError, ValueError):
+                    continue
             action = self.open_recent_menu.addAction(f"{index}. {Path(path).name}")
             action.setToolTip(str(path))
             action.triggered.connect(
@@ -2751,7 +3175,7 @@ class MatchingWindow(QMainWindow):
         ]
         try:
             self._recent_wkb_paths = list(remember_recent_wkb(path))
-        except OSError as error:
+        except Exception as error:
             self._recent_wkb_paths = fallback[:10]
             LOGGER.warning("Recent WKB list could not be saved: %s", error)
         self._refresh_recent_wkb_menu()
@@ -2781,8 +3205,7 @@ class MatchingWindow(QMainWindow):
             )
             return
         try:
-            workbook = self.load_workbook(path)
-            self._remember_recent_wkb(path)
+            workbook = self.start_workbook(path=path)
             return workbook
         except Exception as error:
             LOGGER.exception("Cannot open recent WKB")
@@ -2807,7 +3230,8 @@ class MatchingWindow(QMainWindow):
             QMessageBox.warning(self, "Cannot reveal WKB", str(error))
 
     def save_wkb(self):
-        if self.workbook_path is None:
+        if (self.workbook_path is None or self.workbook_path.suffix.lower() != ".wkb"
+                or self.document.untrusted_recovery or not writable_path(self.workbook_path)):
             return self.save_wkb_dialog()
         try:
             saved = self.save_workbook(self.workbook_path)
@@ -2817,7 +3241,7 @@ class MatchingWindow(QMainWindow):
             LOGGER.exception("Cannot save WKB")
             QMessageBox.warning(self, "Cannot save WKB", str(error))
 
-    def save_wkb_dialog(self):
+    def save_wkb_dialog(self, *, capture_children=True, child=None):
         try:
             default = str(
                 self.workbook_path
@@ -2831,15 +3255,47 @@ class MatchingWindow(QMainWindow):
                 "Matching Workbook (*.wkb)",
             )
             if path:
-                saved = self.save_workbook(path)
+                saved = self.save_workbook(path, capture_children=capture_children, child=child)
                 self._remember_recent_wkb(saved)
                 return saved
         except Exception as error:
             LOGGER.exception("Cannot save WKB")
             QMessageBox.warning(self, "Cannot save WKB", str(error))
 
-    def load_workbook(self, path):
-        workbook = MatchWorkbook.load(path)
+    def load_workbook(self, path, *, analysis_settings=None):
+        snapshot = load_workspace(path, expected_type=self.workspace_type)
+        if analysis_settings is not None:
+            analysis_settings = normalized_analysis_settings(analysis_settings)
+        if not snapshot.states.get("match", {}).get("draft"):
+            MatchWorkbook.from_snapshot(snapshot)
+        if not self.document.confirm_close():
+            return None
+        if snapshot.revision != file_revision(path):
+            snapshot = load_workspace(path, expected_type=self.workspace_type)
+            if not snapshot.states.get("match", {}).get("draft"):
+                MatchWorkbook.from_snapshot(snapshot)
+        self._close_stage_workspaces(tuple(self._stage_windows))
+        if "recovery" in snapshot.states:
+            self.document.recover(path, snapshot)
+            return self.workbook or snapshot
+        self.workbook_path = Path(path).resolve()
+        self._auto_run_enabled = False
+        self._auto_run_pending = False
+        self.result = None
+        self.workbook = None
+        # Use the file's original choices as the accepted basis, even when
+        # launch choices differ. Only the effective choices are drawn.
+        changed_settings = (analysis_settings is not None and analysis_settings !=
+                            normalized_analysis_settings(snapshot.states["match"], allow_empty_bias=True))
+        baseline = self.restore_workspace(snapshot, analysis_settings=analysis_settings if changed_settings else None)
+        self.document.path = self.workbook_path
+        self.document.revision = snapshot.revision
+        self.document.untrusted_recovery = False
+        self.document.mark_clean(baseline if changed_settings else None)
+        self._remember_recent_wkb(path)
+        return self.workbook or snapshot
+
+    def _restore_analyzed_workbook(self, workbook, path, *, analysis_settings=None):
         self.workbook_path = Path(path).resolve()
         self.reveal_wkb_action.setEnabled(True)
         self._map_selection_states = {
@@ -2923,11 +3379,27 @@ class MatchingWindow(QMainWindow):
         self.percent_bias.setChecked("percent" in workbook.bias_views)
         self.absolute_bias.blockSignals(False)
         self.percent_bias.blockSignals(False)
+        self.absolute_bias_action.setChecked(self.absolute_bias.isChecked())
+        self.percent_bias_action.setChecked(self.percent_bias.isChecked())
         self._populate_mappings(workbook.mappings)
         self._parameter_order = list(workbook.parameter_order)
         self._update_state()
+        baseline = None
+        if analysis_settings is not None:
+            baseline = self.workspace_snapshot()
+            baseline.states["match"]["draft"] = False
+            self.apply_analysis_settings(analysis_settings, refresh=False)
+        if analysis_settings is not None and not self.analyze_button.isEnabled():
+            self._analysis_current = False
+            self._clear_plot_groups()
+            self.summary_model.set_frame(pd.DataFrame())
+            self.result_status.setText("Workbook opened · Complete the selected stage's inputs, then Run analysis")
+            if workbook.setup_splitter_sizes is not None:
+                self._restore_setup_splitter_layout(workbook.setup_splitter_sizes)
+            return baseline
         self.workbook = self.current_workbook()
         self.result = self.workbook.analyze()
+        self._analysis_current = True
         self._auto_run_enabled = True
         self._result_descriptor = (
             f"{self.workbook.match_type} · {self.workbook.result_mode.title()} · "
@@ -2947,18 +3419,47 @@ class MatchingWindow(QMainWindow):
         QTimer.singleShot(0, lambda: self.setup_scroll.verticalScrollBar().setValue(0))
         LOGGER.info("WKB opened: %s", Path(path).resolve())
         self._update_state()
-        return workbook
+        return baseline
 
     def open_wkb_dialog(self):
         try:
             path, _ = QFileDialog.getOpenFileName(self, "Open Matching Workbook", "",
                                                   "Matching Workbook (*.wkb)")
             if path:
-                self.load_workbook(path)
-                self._remember_recent_wkb(path)
+                self.start_workbook(path=path)
         except Exception as error:
             LOGGER.exception("Cannot open WKB")
             QMessageBox.warning(self, "Cannot open WKB", str(error))
+
+    def start_workbook(self, *, path=None, new=False):
+        """Open a workbook as saved; only a new workbook asks for its settings."""
+        if path is not None:
+            return self.load_workbook(path)
+        from .workbook_startup import WorkbookStartupDialog
+        dialog = WorkbookStartupDialog(self, new=new)
+        try:
+            if dialog.exec() != dialog.DialogCode.Accepted:
+                return None
+            if dialog.path is not None:
+                return self.load_workbook(dialog.path)
+            settings = dialog.settings()
+            if not self.document.confirm_close():
+                return None
+            self._auto_run_enabled = False
+            self._auto_run_pending = False
+            self.workbook_path = None
+            self.document.path = None
+            self.document.revision = None
+            self.document.untrusted_recovery = False
+            self.reveal_wkb_action.setEnabled(False)
+            snapshot = WorkspaceSnapshot("match_workbook", {
+                "reference": pd.DataFrame(), "raw": pd.DataFrame(),
+            }, {"match": {**settings, "draft": True}, "match_ui": {}})
+            self.restore_workspace(snapshot)
+            self.document.mark_clean()
+            return snapshot
+        finally:
+            dialog.deleteLater()
 
 
 def _safe_filename(value):

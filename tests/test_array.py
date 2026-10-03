@@ -602,9 +602,8 @@ class PlotWorkspaceTests(unittest.TestCase):
         with patch("metrology_app.plot_page.save_settings") as persist:
             page.color_range.set_range(.2, .8, notify=True)
             QTest.qWait(400)
-            persist.assert_called_once_with({
-                "color_map": "rainbow", "color_range_low": .2, "color_range_high": .8,
-            })
+            persist.assert_not_called()  # A document preference cannot leak on Discard.
+            self.assertEqual(self.window.workspace_snapshot().states["ui"]["pages"]["plot_page"]["color_range"], [.2, .8])
         page.scale_bar.setChecked(False)
         QTest.qWait(300)
         self.assertIsNone(page.artists[0][0].colorbar)

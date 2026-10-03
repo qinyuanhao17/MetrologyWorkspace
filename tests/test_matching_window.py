@@ -11,12 +11,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pandas as pd
 import pyqtgraph as pg
-from PyQt6.QtCore import QPoint, QPointF, Qt
+from PyQt6.QtCore import QPoint, QPointF, Qt, QTimer
 from PyQt6.QtGui import QImage, QWheelEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import (
-    QApplication, QCheckBox, QFileDialog, QLabel, QMessageBox, QScrollArea, QSplitter,
-    QTabBar, QTabWidget,
+    QApplication, QCheckBox, QFileDialog, QHeaderView, QLabel, QMessageBox,
+    QScrollArea, QSplitter, QTabBar, QTableView, QTabWidget,
 )
 
 from metrology_app.correlation_window import CorrelationWindow
@@ -48,6 +48,7 @@ class MatchingWindowTests(unittest.TestCase):
         for patcher in self._recent_patchers:
             patcher.start()
         self.window = MatchingWindow()
+        self._documents = tempfile.TemporaryDirectory()
 
     def tearDown(self):
         self.window.close()
@@ -55,6 +56,14 @@ class MatchingWindowTests(unittest.TestCase):
         APP.processEvents()
         for patcher in reversed(self._recent_patchers):
             patcher.stop()
+        self._documents.cleanup()
+
+    def save_child_and_close(self, child):
+        """An explicit Save decision replaces the old silent close-and-save."""
+        if self.window.workbook_path is None:
+            self.window.save_workbook(Path(self._documents.name) / "workspace.wkb")
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Save):
+            self.assertTrue(child.close())
 
     def reference(self):
         return pd.DataFrame({
@@ -245,7 +254,7 @@ class MatchingWindowTests(unittest.TestCase):
             first.sequence_page.draw_plot()
             self.assertTrue(first.correlation_page.ready)
             self.assertTrue(first.sequence_page.ready)
-            self.assertTrue(first.close())
+            self.save_child_and_close(first)
             first.deleteLater()
             APP.processEvents()
 
@@ -558,8 +567,199 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertTrue(self.window.status.wordWrap())
         self.assertFalse(self.window.analyze_button.isEnabled())
 
+    def test_single_wafer_plots_use_the_table_row_numbers_as_ticks(self):
+        """Full wafer names would collide, so the axis uses the table index."""
+        reference = pd.DataFrame({
+            "Wafer ID": ["W1"] * 3 + ["W2"] * 3 + ["W3"] * 3,
+            "CD Reference": [3.0, 5.0, 7.0, 1.0, 4.0, 7.0, 2.0, 4.0, 6.0],
+        })
+        raw = pd.DataFrame({
+            "Wafer ID": ["W1"] * 3 + ["W2"] * 3 + ["W3"] * 3,
+            "CD": [1.0, 2.0, 3.0, 1.0, 2.0, 3.0, 1.0, 2.0, 3.0],
+        })
+        self.window.set_reference_frame(reference, "Clipboard")
+        self.window.set_raw_frame(raw, "Clipboard")
+        self.window.match_type.setCurrentText("NOVA")
+        self.window.run_analysis()
+        APP.processEvents()
+
+        group = self.window.plot_groups["CD"]
+        expected = [[(0.0, "1"), (1.0, "2"), (2.0, "3")]]
+        for name in ("wafer_r2", "wafer_slope"):
+            self.assertEqual(group[name].getAxis("bottom")._tickLevels, expected)
+
+    def test_single_wafer_ticks_thin_out_when_the_rows_do_not_fit(self):
+        """Dense plots show every nth row number instead of overlapping."""
+        wafers = [f"W{index:03d}" for index in range(1, 151)]
+        reference = pd.DataFrame({
+            "Wafer ID": [wafer for wafer in wafers for _ in range(2)],
+            "CD Reference": [12.0, 22.0] * len(wafers),
+        })
+        raw = pd.DataFrame({
+            "Wafer ID": [wafer for wafer in wafers for _ in range(2)],
+            "CD": [1.0, 2.0] * len(wafers),
+        })
+        self.window.set_reference_frame(reference, "Clipboard")
+        self.window.set_raw_frame(raw, "Clipboard")
+        self.window.match_type.setCurrentText("NOVA")
+        self.window.run_analysis()
+        APP.processEvents()
+
+        group = self.window.plot_groups["CD"]
+        levels = group["wafer_r2"].getAxis("bottom")._tickLevels[0]
+        labels = [int(text) for _position, text in levels]
+        step = labels[1] - labels[0]
+        self.assertGreater(step, 1)
+        self.assertLess(len(labels), len(wafers))
+        self.assertEqual(labels, list(range(1, len(wafers) + 1, step)))
+        self.assertEqual(
+            group["wafer_slope"].getAxis("bottom")._tickLevels[0],
+            levels,
+        )
+
+    def test_single_wafer_tick_step_scales_with_the_plot_width(self):
+        """A narrower plot keeps fewer row-number labels than a wide one."""
+
+        class _Box:
+            def __init__(self, width):
+                self._width = width
+
+            def width(self):
+                return self._width
+
+        class _Item:
+            def __init__(self, width):
+                self._box = _Box(width)
+
+            def getViewBox(self):
+                return self._box
+
+        class _Plot:
+            def __init__(self, width):
+                self._item = _Item(width)
+
+            def font(self):
+                return APP.font()
+
+            def getPlotItem(self):
+                return self._item
+
+        narrow = MatchingWindow._wafer_row_tick_levels(
+            {"wafer_r2": _Plot(320)}, 121
+        )
+        wide = MatchingWindow._wafer_row_tick_levels(
+            {"wafer_r2": _Plot(1400)}, 121
+        )
+        narrow_step = int(narrow[1][1]) - int(narrow[0][1])
+        wide_step = int(wide[1][1]) - int(wide[0][1])
+        self.assertGreaterEqual(wide_step, 1)
+        self.assertGreater(narrow_step, wide_step)
+
+    def test_single_wafer_table_gives_the_wafer_column_the_free_width(self):
+        """Long wafer names must not be elided while the table has room."""
+        self.window.set_reference_frame(pd.DataFrame({
+            "Wafer ID": ["AH06836.00-01", "AH06836.00-02", "AH06836.00-03"],
+            "CD_Bot Reference": [12.0, 22.0, 32.0],
+        }), "Clipboard")
+        self.window.set_raw_frame(pd.DataFrame({
+            "Wafer ID": ["AH06836.00-01", "AH06836.00-02", "AH06836.00-03"],
+            "CD_Bot": [1.0, 2.0, 3.0],
+        }), "Clipboard")
+        self.window.run_analysis()
+        APP.processEvents()
+
+        card = self.window.plot_groups["CD_Bot"]["wafer_card"]
+        view = card.findChild(QTableView)
+        header = view.horizontalHeader()
+        self.assertEqual(
+            header.sectionResizeMode(0), QHeaderView.ResizeMode.Stretch
+        )
+        for column in range(1, view.model().columnCount()):
+            self.assertEqual(
+                header.sectionResizeMode(column),
+                QHeaderView.ResizeMode.Fixed,
+            )
+        view.resize(900, 200)
+        APP.processEvents()
+        self.assertGreater(header.sectionSize(0), header.sectionSize(1))
+
+    def test_single_wafer_table_joins_the_identity_lines_with_slashes(self):
+        """The Wafer cell shows the whole a/b/c identity instead of eliding."""
+        self.window.set_reference_frame(pd.DataFrame({
+            "CD Reference": [12.0, 22.0, 32.0, 42.0],
+        }), "Clipboard")
+        self.window.set_raw_frame(pd.DataFrame({
+            "Wafer ID": ["AH06836.00-01"] * 4,
+            "Lot ID": ["L1", "L1", "L2", "L2"],
+            "PAD Name": ["ARRAY", "ARRAY", "CELL", "CELL"],
+            "Die Seq": [1, 2, 1, 2],
+            "CD": [1.0, 2.0, 3.0, 4.0],
+        }), "Clipboard")
+        self.window.match_type.setCurrentText("NOVA")
+        self.window.run_analysis()
+        APP.processEvents()
+
+        view = self.window.plot_groups["CD"]["wafer_view"]
+        model = view.model()
+        texts = [
+            model.data(model.index(row, 0), Qt.ItemDataRole.DisplayRole)
+            for row in range(model.rowCount())
+        ]
+        self.assertEqual(texts, [
+            "AH06836.00-01/PAD: ARRAY/Lot: L1",
+            "AH06836.00-01/PAD: CELL/Lot: L2",
+        ])
+        self.assertTrue(all("\n" not in text for text in texts))
+
+    def test_dynamic_windows_start_empty_until_the_workbook_has_its_own_table(self):
+        """Dynamic never copies Raw/Map data; Preview and Final open blank."""
+        for match_type in ("KLA", "NOVA", "TEM"):
+            with self.subTest(match_type=match_type):
+                self.window.match_type.setCurrentText(match_type)
+                self.window.set_reference_frame(self.reference(), "Clipboard")
+                self.window.set_raw_frame(self.raw(), "Clipboard")
+                self.window.run_analysis()
+                for stage in ("preview", "final"):
+                    workspace = self.window.open_dynamic_workspace(stage)
+                    self.assertEqual(
+                        len(workspace.model.frame().columns), 0,
+                        f"{match_type} {stage} copied workbook data",
+                    )
+                self.window._close_stage_windows()
+                APP.processEvents()
+
+    def test_unchecking_every_bias_view_hides_its_plots(self):
+        """Unchecking Bias or Bias % removes exactly that plot."""
+        # The window asks about its unsaved draft on close; this test only
+        # checks the plot layout, so answer it up front.
+        self.window.document.confirm_close = lambda: True
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.window.percent_bias.setChecked(True)
+        self.window.run_analysis()
+        APP.processEvents()
+
+        plots = lambda: tuple(self.window.plot_groups["CD_Bot"]["plots"])
+        self.assertEqual(plots(), ("match", "trend", "bias", "bias-percent"))
+
+        self.window.percent_bias.setChecked(False)
+        APP.processEvents()
+        self.assertEqual(plots(), ("match", "trend", "bias"))
+
+        self.window.absolute_bias.setChecked(False)
+        APP.processEvents()
+        self.assertEqual(plots(), ("match", "trend"))
+        self.assertFalse(self.window.absolute_bias.isChecked())
+
+        # The workbook still has a primary Bias mode, so analysis keeps working.
+        self.window.run_analysis()
+        APP.processEvents()
+        self.assertEqual(plots(), ("match", "trend"))
+        self.assertTrue(self.window.mapping_table.item(0, 7).text())
+
     def test_analysis_results_share_the_scrollable_setup_workspace(self):
-        self.assertEqual(self.window.windowTitle(), "Match Workbook")
+        self.assertIn("Match Workbook", self.window.windowTitle())
+        self.assertIn("Untitled", self.window.windowTitle())
         self.assertFalse(any(
             label.text() == "Match Workbook"
             for label in self.window.findChildren(QLabel)
@@ -571,13 +771,15 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(
             [action.text() for action in self.window.file_menu.actions()],
             [
-                "Open WKB",
+                "New Workbook…",
+                "Open Workbook…",
                 "Open Recent WKB",
-                "Reveal WKB in Folder",
-                "Save WKB",
-                "Save WKB As…",
+                "Reveal Workbook in Folder",
+                "Save Workbook",
+                "Save Workbook As…",
                 "Export Excel",
                 "Save images",
+                "Recover Workbook Draft…",
             ],
         )
         self.assertFalse(self.window.reveal_wkb_action.isEnabled())
@@ -619,6 +821,9 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertTrue(self.window.absolute_bias.isChecked())
         self.assertFalse(self.window.percent_bias.isChecked())
         self.window.absolute_bias.setChecked(False)
+        # Bias plots are optional; the checkbox no longer springs back.
+        self.assertFalse(self.window.absolute_bias.isChecked())
+        self.window.absolute_bias.setChecked(True)
         self.assertTrue(self.window.absolute_bias.isChecked())
 
         self.window.set_reference_frame(self.reference(), "Clipboard")
@@ -1558,7 +1763,7 @@ class MatchingWindowTests(unittest.TestCase):
                 reopened.deleteLater()
                 APP.processEvents()
 
-    def test_closing_managed_wafer_map_saves_without_discard_prompt(self):
+    def test_closing_managed_wafer_map_saves_after_explicit_save_decision(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
         self.window.run_analysis()
@@ -1573,12 +1778,12 @@ class MatchingWindowTests(unittest.TestCase):
                 with patch.object(
                     QMessageBox,
                     "question",
-                    return_value=QMessageBox.StandardButton.Cancel,
+                    return_value=QMessageBox.StandardButton.Save,
                 ) as discard_prompt:
                     closed = workspace.close()
 
                 self.assertTrue(closed)
-                discard_prompt.assert_not_called()
+                discard_prompt.assert_called_once()
                 saved = MatchWorkbook.load(path)
                 self.assertEqual(float(saved.preview_map.loc[0, "CD_Bot"]), 999.0)
             finally:
@@ -1587,7 +1792,7 @@ class MatchingWindowTests(unittest.TestCase):
                 workspace.deleteLater()
                 APP.processEvents()
 
-    def test_closing_managed_dynamic_saves_without_discard_prompt(self):
+    def test_closing_managed_dynamic_saves_after_explicit_save_decision(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
         self.window.run_analysis()
@@ -1608,12 +1813,12 @@ class MatchingWindowTests(unittest.TestCase):
                 with patch.object(
                     QMessageBox,
                     "question",
-                    return_value=QMessageBox.StandardButton.Cancel,
+                    return_value=QMessageBox.StandardButton.Save,
                 ) as discard_prompt:
                     closed = workspace.close()
 
                 self.assertTrue(closed)
-                discard_prompt.assert_not_called()
+                discard_prompt.assert_called_once()
                 saved = MatchWorkbook.load(path)
                 self.assertEqual(
                     float(saved.preview_dynamic.loc[0, "CD_Bot"]), 777.0
@@ -1922,6 +2127,12 @@ class MatchingWindowTests(unittest.TestCase):
             "CD_Bot": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
         }), "Clipboard")
         self.window.run_analysis()
+        # Dynamic only opens with the table the workbook saved for it.
+        self.window.preview_dynamic_frame = pd.DataFrame({
+            "Wafer ID": ["W1"] * 6,
+            "Die Seq": [1, 2, 1, 2, 1, 2],
+            "CD_Bot": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        })
         workspace = self.window.open_dynamic_workspace("preview")
         try:
             self.assertTrue(workspace.card_check.isEnabled())
@@ -2088,12 +2299,6 @@ class MatchingWindowTests(unittest.TestCase):
                 self.window.set_reference_frame(self.reference(), "Clipboard")
                 self.window.set_raw_frame(self.raw(), "Clipboard")
                 self.window.run_analysis()
-                self.window.preview_dynamic_frame = pd.DataFrame({
-                    "Wafer ID": ["W1", "W1", "W1", "W1"],
-                    "Die Seq": [1, 2, 1, 2],
-                    "Cycle": ["1", "1", "2", "2"],
-                    "CD_Bot": [10.0, 20.0, 11.0, 22.0],
-                })
                 windows = [
                     self.window.open_stage_workspace("preview"),
                     self.window.open_dynamic_workspace("preview"),
@@ -2130,9 +2335,8 @@ class MatchingWindowTests(unittest.TestCase):
             before_map = pd.to_numeric(
                 map_window.model.frame()[column], errors="coerce"
             ).tolist()
-            before_dynamic = pd.to_numeric(
-                dynamic_window.model.frame()[column], errors="coerce"
-            ).tolist()
+            # Dynamic never copies the workbook: it starts empty and stays so.
+            self.assertEqual(len(dynamic_window.model.frame().columns), 0)
 
             replacement = pd.DataFrame({
                 "Wafer ID": ["W1"] * 6,
@@ -2159,12 +2363,7 @@ class MatchingWindowTests(unittest.TestCase):
                 ).tolist(),
                 before_map,
             )
-            self.assertEqual(
-                pd.to_numeric(
-                    dynamic_window.model.frame()[column], errors="coerce"
-                ).tolist(),
-                before_dynamic,
-            )
+            self.assertEqual(len(dynamic_window.model.frame().columns), 0)
         finally:
             self.window._close_stage_windows()
             APP.processEvents()
@@ -2258,7 +2457,9 @@ class MatchingWindowTests(unittest.TestCase):
                 dynamic_workspace.model.edit({(1, dynamic_column): "777"})
                 APP.processEvents()
 
-                with patch.object(QMessageBox, "warning") as warning:
+                with patch.object(QMessageBox, "warning") as warning, patch.object(
+                    QMessageBox, "question", return_value=QMessageBox.StandardButton.Save
+                ):
                     self.assertTrue(self.window.close())
                     APP.processEvents()
 
@@ -2306,7 +2507,7 @@ class MatchingWindowTests(unittest.TestCase):
             if item.text(0) in {"CD_Bot", "SPA"}:
                 item.setCheckState(0, Qt.CheckState.Checked)
         self.assertEqual(first.selection["metrics"], ["CD_Bot", "SPA"])
-        first.close()
+        self.save_child_and_close(first)
         first.deleteLater()
         APP.processEvents()
 
@@ -2349,7 +2550,7 @@ class MatchingWindowTests(unittest.TestCase):
             self.assertEqual(workspace.plot_page.selection["metrics"], quality)
             for column in ("fitTime", "regIter"):
                 self.assertEqual(items[column].text(1), "METADATA")
-            workspace.close()
+            self.save_child_and_close(workspace)
             workspace.deleteLater()
             APP.processEvents()
 
@@ -2381,7 +2582,7 @@ class MatchingWindowTests(unittest.TestCase):
         )
         parameter.setCheckState(0, Qt.CheckState.Checked)
         self.assertEqual(first.selection["metrics"], ["CD_Bot"])
-        first.close()
+        self.save_child_and_close(first)
         first.deleteLater()
         APP.processEvents()
 
@@ -2429,7 +2630,7 @@ class MatchingWindowTests(unittest.TestCase):
         first.plot_page.selector.set_selected_cells({selected_cell})
         first.plot_page.draw_maps()
         wait_for_plot(first)
-        first.close()
+        self.save_child_and_close(first)
         first.deleteLater()
         APP.processEvents()
 
@@ -2492,7 +2693,7 @@ class MatchingWindowTests(unittest.TestCase):
         first.radius_page.selector.set_selected_cells({selected_cell})
         first.radius_page.draw_plot()
         self.assertTrue(first.radius_page.ready, first.radius_page.status.text())
-        first.close()
+        self.save_child_and_close(first)
         first.deleteLater()
         APP.processEvents()
 
@@ -2579,8 +2780,8 @@ class MatchingWindowTests(unittest.TestCase):
                     )
             APP.processEvents()
 
-            self.assertTrue(map_workspace.close())
-            self.assertTrue(dynamic_workspace.close())
+            self.save_child_and_close(map_workspace)
+            self.save_child_and_close(dynamic_workspace)
             map_workspace.deleteLater()
             dynamic_workspace.deleteLater()
             APP.processEvents()

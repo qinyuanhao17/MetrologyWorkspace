@@ -12,6 +12,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 
@@ -20,11 +21,21 @@ def isolate_settings():
     scratch = Path(tempfile.gettempdir()) / "metrology-workspace-tests" / "settings.yaml"
     os.environ.setdefault("METROLOGY_SETTINGS_PATH", str(scratch))
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    os.environ.setdefault("METROLOGY_RECOVERY_DIR", str(scratch.parent / "recovery"))
     return scratch
 
 
 def main(argv):
     isolate_settings()
+    # Fixture teardown must not wait for a human. Save/Cancel workflow tests
+    # override this default locally and assert the actual document behavior.
+    from PyQt6.QtWidgets import QMessageBox
+    with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Discard), \
+            patch.object(QMessageBox, "warning", return_value=QMessageBox.StandardButton.Ok):
+        return run_suite(argv)
+
+
+def run_suite(argv):
     if argv:
         program = unittest.main(module=None, argv=["run_tests.py", *argv], exit=False)
         return 0 if program.result.wasSuccessful() else 1
