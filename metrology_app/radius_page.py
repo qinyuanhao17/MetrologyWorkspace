@@ -10,7 +10,7 @@ from PyQt6.QtCore import QEvent, QPointF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QImage, QKeySequence, QPainter, QShortcut
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QFrame, QGraphicsScene, QGraphicsView,
-    QHBoxLayout, QLabel, QPushButton, QStackedWidget, QVBoxLayout, QWidget,
+    QHBoxLayout, QLabel, QPushButton, QSpinBox, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from .appearance import configure_resolution_combo, resolution_settings, screen_render_scale
@@ -93,12 +93,33 @@ class RadiusPage(QWidget):
         self.resolution.setCurrentIndex(max(0, self.resolution.findText(settings.get("resolution", "High"))))
         self.resolution.currentIndexChanged.connect(self.change_resolution)
         appearance.addWidget(self.resolution)
+        appearance.addWidget(QLabel("Wafers / page", objectName="muted"))
+        self.page_size = QSpinBox()
+        self.page_size.setRange(1, 99)
+        self.page_size.setValue(int(settings.get("map_page_size", 12)))
+        self.page_size.setFixedWidth(58)
+        self.page_size.setKeyboardTracking(False)
+        self.page_size.setToolTip(
+            "Draw one page at a time; every metric of a wafer stays on its page.")
+        self.page_size.valueChanged.connect(self._page_size_changed)
+        appearance.addWidget(self.page_size)
+        self.page_back = QPushButton("◀", objectName="subtle")
+        self.page_back.setFixedWidth(34)
+        self.page_back.clicked.connect(lambda: self.change_page(-1))
+        appearance.addWidget(self.page_back)
+        self.page_label = QLabel("Page 1 / 1", objectName="hint")
+        appearance.addWidget(self.page_label)
+        self.page_next = QPushButton("▶", objectName="subtle")
+        self.page_next.setFixedWidth(34)
+        self.page_next.clicked.connect(lambda: self.change_page(1))
+        appearance.addWidget(self.page_next)
+        self.page_index = 0
         appearance.addStretch()
         header.addLayout(appearance)
         layout.addLayout(header)
 
         self.stack = QStackedWidget()
-        self.empty = QLabel("Select measurement sets and parameters in the Data tab.", objectName="subtitle")
+        self.empty = QLabel(objectName="subtitle")
         self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty.setWordWrap(True)
         self.stack.addWidget(self.empty)
@@ -131,8 +152,7 @@ class RadiusPage(QWidget):
         box_layout.addWidget(self.selector, 1)
         self.stack.addWidget(self.selector_panel)
         layout.addWidget(self.stack, 1)
-        self.status = QLabel("Choose measurement sets and parameters in Data, then select the plots to draw.",
-                             objectName="hint")
+        self.status = QLabel(objectName="hint")
         layout.addWidget(self.status)
         self.x_column.currentIndexChanged.connect(self.invalidate)
         self.y_column.currentIndexChanged.connect(self.invalidate)
@@ -211,8 +231,6 @@ class RadiusPage(QWidget):
         self.export_button.setEnabled(False)
         self.copy_button.setEnabled(False)
         self.figure.clear()
-        self.figure.text(.5, .5, "Select boxes, then click Draw selected",
-                         ha="center", va="center", color="#746b7e")
         self.canvas.draw_idle()
         available = bool(self.selector.rowCount() and self.selector.columnCount())
         self.stack.setCurrentWidget(self.selector_panel if available else self.empty)
@@ -220,14 +238,38 @@ class RadiusPage(QWidget):
         count = len(self.selector.selected_cells())
         self.status.setText(
             f"{count} / {rows * columns} selected  ·  {rows} × {columns}"
-            "  ·  click Draw selected"
         )
 
     def selector_changed(self):
         """A changed box selection waits for the explicit Draw selected click."""
         self.pending_input_refresh = False
         self.input_refresh_timer.stop()
+        self.page_index = 0
         self.invalidate()
+
+    def paginate_wafers(self, wafers):
+        """One page at a time; a wafer always brings all its metrics along."""
+        wafers = list(wafers)
+        size = max(1, self.page_size.value())
+        pages = max(1, (len(wafers) + size - 1) // size)
+        self.page_index = min(max(0, self.page_index), pages - 1)
+        start = self.page_index * size
+        return wafers[start:start + size], self.page_index, pages
+
+    def change_page(self, delta):
+        self.page_index = max(0, self.page_index + delta)
+        if self.selector.selected_cells():
+            self.draw_plot()
+
+    def _page_size_changed(self, *_args):
+        self.page_index = 0
+        if self.has_drawn_once and self.selector.selected_cells():
+            self.draw_plot()
+
+    def _update_page_controls(self, index, pages):
+        self.page_label.setText(f"Page {index + 1} / {pages}")
+        self.page_back.setEnabled(index > 0)
+        self.page_next.setEnabled(index < pages - 1)
 
     def queue_input_refresh(self):
         if not self.selector.selected_cells():
@@ -242,9 +284,8 @@ class RadiusPage(QWidget):
         self.input_refresh_timer.stop()
         available = bool(self.selector.rowCount() and self.selector.columnCount())
         if not available:
-            self.empty.setText("Select measurement sets and parameters in the Data tab.")
+            self.empty.clear()
         self.stack.setCurrentWidget(self.selector_panel if available else self.empty)
-        self.status.setText("Drag across the plots you want, then click Draw selected.")
 
     def _parts(self):
         wafers = self.selection.get("wafers", [])
@@ -265,8 +306,6 @@ class RadiusPage(QWidget):
             x_name, y_name = self.x_column.currentData(), self.y_column.currentData()
             if x_name == y_name:
                 raise ValueError("Choose different X and Y coordinate columns.")
-            if len(wafers) * len(metrics) > 120:
-                raise ValueError("Select up to 120 radius plots per array.")
             cells = self.selector.selected_cells()
             if not cells:
                 raise ValueError("Select at least one plot box before drawing.")
@@ -274,6 +313,10 @@ class RadiusPage(QWidget):
             # Only the rows and columns that hold a drawn box end up on the
             # canvas, so its size follows the number of drawn plots.
             wafers, metrics = drawn_axes(wafers, metrics, cells)
+            wafers, page_index, pages = self.paginate_wafers(wafers)
+            self._update_page_controls(page_index, pages)
+            if len(wafers) * len(metrics) > 120:
+                raise ValueError("Select up to 120 radius plots per page.")
             columns, rows = len(metrics), len(wafers)
             self.figure.clear()
             axes = self.figure.subplots(rows, columns, squeeze=False)
@@ -327,6 +370,7 @@ class RadiusPage(QWidget):
             self.copy_button.setEnabled(True)
             self.stack.setCurrentWidget(self.scroll)
             self.status.setText(f"{drawn} / {rows * columns} radius plots drawn · "
+                                f"Page {page_index + 1} / {pages} · "
                                 f"{rows} measurement rows × {columns} parameters.")
         except (ValueError, KeyError) as error:
             self.ready = False
@@ -385,10 +429,24 @@ class RadiusPage(QWidget):
         render_scale = screen_render_scale(width, height, requested_scale)
         self.figure.set_dpi(100 * render_scale)
         self.figure.set_size_inches(width / 100, height / 100, forward=False)
-        self.canvas.setFixedSize(round(width * render_scale), round(height * render_scale))
+        size = (round(width * render_scale), round(height * render_scale))
+        self._canvas_resized = size != (self.canvas.width(), self.canvas.height())
+        self.canvas.setFixedSize(*size)
         self.canvas.draw()
         self.scene.setSceneRect(self.canvas_proxy.boundingRect())
         self.resize_canvas()
+        # Settle once Qt has processed the canvas resize, so the first frame
+        # never shows the squeezed stale transform until a zoom fixes it.
+        QTimer.singleShot(0, self.settle_canvas)
+
+    def settle_canvas(self):
+        if not self.ready:
+            return
+        self.scene.setSceneRect(self.canvas_proxy.boundingRect())
+        if getattr(self, "_canvas_resized", False):
+            self._canvas_resized = False
+            self.resize_canvas()
+        self.scroll.viewport().update()
 
     def resize_canvas(self, *_):
         if not self.ready:

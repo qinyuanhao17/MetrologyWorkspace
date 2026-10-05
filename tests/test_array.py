@@ -681,7 +681,6 @@ class PlotWorkspaceTests(unittest.TestCase):
         self.assertFalse(page.dirty)
         self.assertEqual(page.selector.selected_cells(), selected_cells)
         self.assertIs(page.stack.currentWidget(), page.scroll)
-        self.assertNotIn("Select the maps", page.status.text())
 
     def test_changing_map_boxes_waits_for_the_draw_click(self):
         self.unique_fixture()
@@ -703,7 +702,6 @@ class PlotWorkspaceTests(unittest.TestCase):
         self.assertIsNone(page.result)
         self.assertTrue(page.dirty)
         self.assertIs(page.stack.currentWidget(), page.selector_panel)
-        self.assertIn("click Draw selected", page.status.text())
 
         # A later data edit must not draw the pending selection either.
         self.window.model.edit({(1, 10): "3.5"})
@@ -735,7 +733,6 @@ class PlotWorkspaceTests(unittest.TestCase):
         # The extra parameter rebuilds the grid: no redraw with the old boxes.
         self.assertIsNone(page.result)
         self.assertIs(page.stack.currentWidget(), page.selector_panel)
-        self.assertIn("click Draw selected", page.status.text())
 
         page.selector.set_selected_cells({
             (page.selector.wafers[0], "OCD_H1"),
@@ -778,9 +775,6 @@ class PlotWorkspaceTests(unittest.TestCase):
             self.assertIs(
                 reopened.plot_page.stack.currentWidget(),
                 reopened.plot_page.scroll,
-            )
-            self.assertNotIn(
-                "click Draw selected", reopened.plot_page.status.text()
             )
         finally:
             reopened.model.undo.setClean()

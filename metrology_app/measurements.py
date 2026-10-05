@@ -18,6 +18,20 @@ class Measurement:
     detail: str
 
 
+def wafer_identity_label(frame, wafer_column=None):
+    """Wafer, Lot and PAD values only; source strings remain untouched."""
+    names = {"".join(ch.lower() for ch in str(c) if ch.isalnum()): c for c in frame}
+    fields = (("waferid", "wafer", "waferno"), ("lotid", "lot", "lotno"), ("padname", "pad"))
+    labels = []
+    for index, aliases in enumerate(fields):
+        column = wafer_column if index == 0 and wafer_column in frame else next(
+            (names[name] for name in aliases if name in names), None)
+        if column is not None:
+            values = frame[column].fillna("").astype(str).str.strip()
+            labels.append(", ".join(dict.fromkeys(value for value in values if value)))
+    return "\n".join(label for label in labels if label)
+
+
 def sequence_runs(values):
     """Infer runs from clear increasing sweeps separated by a restart.
 

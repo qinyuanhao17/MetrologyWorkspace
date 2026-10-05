@@ -221,7 +221,6 @@ class RadiusTests(unittest.TestCase):
             # A new box selection waits for the explicit Draw selected click.
             self.assertFalse(page.ready)
             self.assertIs(page.stack.currentWidget(), page.selector_panel)
-            self.assertIn("click Draw selected", page.status.text())
 
             page.draw_plot()
 
@@ -257,7 +256,6 @@ class RadiusTests(unittest.TestCase):
             self.assertTrue(restored.has_drawn_once)
             self.assertEqual(restored.drawn_cells, {selected_cell})
             self.assertIs(restored.stack.currentWidget(), restored.scroll)
-            self.assertNotIn("click Draw selected", restored.status.text())
         finally:
             for workspace in (window, reopened):
                 workspace.model.undo.setClean()

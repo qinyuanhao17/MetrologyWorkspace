@@ -12,7 +12,7 @@ from matplotlib import colormaps
 
 from PyQt6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QGraphicsScene,
-    QGraphicsView, QHBoxLayout, QLabel, QPushButton, QStackedWidget, QVBoxLayout,
+    QGraphicsView, QHBoxLayout, QLabel, QPushButton, QSpinBox, QStackedWidget, QVBoxLayout,
     QWidget,
 )
 
@@ -214,11 +214,33 @@ class PlotPage(QWidget):
         self.scale_bar.setToolTip("Show the color scale beside every wafer map.")
         self.scale_bar.toggled.connect(self.queue_plot_style)
         options.addWidget(self.scale_bar)
+        options.addSpacing(12)
+        options.addWidget(QLabel("Wafers / page", objectName="muted"))
+        self.page_size = QSpinBox()
+        self.page_size.setRange(1, 99)
+        self.page_size.setValue(int(prefs.get("map_page_size", 12)))
+        self.page_size.setFixedWidth(58)
+        self.page_size.setKeyboardTracking(False)
+        self.page_size.setToolTip(
+            "Draw one page at a time; every metric of a wafer stays on its page.")
+        self.page_size.valueChanged.connect(self._page_size_changed)
+        options.addWidget(self.page_size)
+        self.page_back = QPushButton("◀", objectName="subtle")
+        self.page_back.setFixedWidth(34)
+        self.page_back.clicked.connect(lambda: self.change_page(-1))
+        options.addWidget(self.page_back)
+        self.page_label = QLabel("Page 1 / 1", objectName="hint")
+        options.addWidget(self.page_label)
+        self.page_next = QPushButton("▶", objectName="subtle")
+        self.page_next.setFixedWidth(34)
+        self.page_next.clicked.connect(lambda: self.change_page(1))
+        options.addWidget(self.page_next)
+        self.page_index = 0
         options.addStretch()
         controls.addLayout(options)
         layout.addWidget(settings)
         self.stack = QStackedWidget()
-        self.empty = QLabel("Select wafers and parameters in the Data tab.", objectName="subtitle")
+        self.empty = QLabel(objectName="subtitle")
         self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty.setWordWrap(True)
         self.stack.addWidget(self.empty)
@@ -338,9 +360,8 @@ class PlotPage(QWidget):
         if self.worker is not None:
             self.invalidate()
         available = bool(self.selector.rowCount() and self.selector.columnCount())
-        self.empty.setText("Select wafers and parameters in the Data tab to create map boxes.")
+        self.empty.clear()
         self.stack.setCurrentWidget(self.selector_panel if available else self.empty)
-        self.status.setText("Select the maps you want, then click Draw selected.")
 
     def change_colormap(self, *_):
         """Follow the palette box: show the new palette and reset to its default slice."""
@@ -382,17 +403,47 @@ class PlotPage(QWidget):
         self.stack.setCurrentWidget(self.selector_panel)
         nr, nc = len(self.selection.get("wafers", [])), len(self.selection.get("metrics", []))
         if not nr or not nc:
-            self.empty.setText("Select wafers and parameters in the Data tab to create map boxes.")
+            self.empty.clear()
             self.stack.setCurrentWidget(self.empty)
         count = len(self.selector.selected_cells())
         self.summary.setText(f"{count} / {nr * nc} selected  ·  {nr} × {nc}")
-        self.status.setText("Drag across the maps you want, then click Draw selected.")
 
     def selector_changed(self):
         """A changed box selection waits for the explicit Draw selected click."""
         self.pending_input_refresh = False
         self.input_refresh_timer.stop()
+        self.page_index = 0
         self.invalidate()
+
+    def paginate_wafers(self, wafers):
+        """One page at a time; a wafer always brings all its metrics along."""
+        wafers = list(wafers)
+        size = max(1, self.page_size.value())
+        pages = max(1, (len(wafers) + size - 1) // size)
+        self.page_index = min(max(0, self.page_index), pages - 1)
+        start = self.page_index * size
+        return wafers[start:start + size], self.page_index, pages
+
+    def change_page(self, delta):
+        if self.worker is not None:
+            return
+        self.page_index = max(0, self.page_index + delta)
+        if self.selector.selected_cells():
+            self.draw_maps()
+
+    def _page_size_changed(self, *_args):
+        self.page_index = 0
+        if not self.has_drawn_once or not self.selector.selected_cells():
+            return
+        if self.worker is not None:
+            self._pending_page_refresh = True
+            return
+        self.draw_maps()
+
+    def _update_page_controls(self, index, pages):
+        self.page_label.setText(f"Page {index + 1} / {pages}")
+        self.page_back.setEnabled(index > 0)
+        self.page_next.setEnabled(index < pages - 1)
 
     def refresh_fill_edge(self, *_):
         """Recompute edge continuation while leaving the current plot visible."""
@@ -477,6 +528,9 @@ class PlotPage(QWidget):
             # reserving blank space for every combination of the Data selection.
             wafers, metrics = drawn_axes(self.selection.get("wafers", []),
                                          self.selection.get("metrics", []), cells)
+            wafers, page_index, pages = self.paginate_wafers(wafers)
+            self._update_page_controls(page_index, pages)
+            self._page_total = pages
             selection = dict(self.selection, cells=list(cells),
                              wafers=wafers, metrics=metrics)
             if preserve_canvas:
@@ -536,6 +590,10 @@ class PlotPage(QWidget):
         self.worker.deleteLater()
         self.worker = None
         self.draw_button.setText("Draw selected")
+        if getattr(self, "_pending_page_refresh", False):
+            self._pending_page_refresh = False
+            QTimer.singleShot(0, self.draw_maps)
+            return
         if self.pending_input_refresh:
             self.input_refresh_timer.start()
             return
@@ -569,6 +627,7 @@ class PlotPage(QWidget):
             self.copy_button.setEnabled(bool(self.artists))
             rows, columns = result["shape"]
             self.status.setText(f"{len(self.artists)} / {result['selected_count']} maps · "
+                                f"Page {self.page_index + 1} / {getattr(self, '_page_total', 1)} · "
                                 f"{rows} × {columns} grid · {result['size_summary']} · "
                                 f"Hover a point for its value.")
         except Exception as error:
@@ -584,7 +643,9 @@ class PlotPage(QWidget):
         render_scale = screen_render_scale(base_width, base_height, requested_scale)
         self.figure.set_dpi(100 * render_scale)
         self.figure.set_size_inches(base_width / 100, base_height / 100, forward=False)
-        self.canvas.setFixedSize(round(base_width * render_scale), round(base_height * render_scale))
+        size = (round(base_width * render_scale), round(base_height * render_scale))
+        self._canvas_resized = size != (self.canvas.width(), self.canvas.height())
+        self.canvas.setFixedSize(*size)
         if self.artists:
             # One draw doubles as the clean background cache, so point-value and
             # measurement-point toggles only redraw two artists per panel.
@@ -593,6 +654,21 @@ class PlotPage(QWidget):
             self.canvas.draw()
         self.scene.setSceneRect(self.canvas_proxy.boundingRect())
         self.resize_canvas()
+        # The canvas resize event is delivered after this pass; settle the
+        # scene rect and transform once Qt has processed it so the view never
+        # shows a squeezed preview frame in the meantime.
+        QTimer.singleShot(0, self.settle_canvas)
+
+    def settle_canvas(self):
+        if self.result is None:
+            return
+        self.scene.setSceneRect(self.canvas_proxy.boundingRect())
+        if getattr(self, "_canvas_resized", False):
+            # A new grid (for example after the records filter) changed the
+            # canvas size; re-fit the view instead of reusing a stale transform.
+            self._canvas_resized = False
+            self.resize_canvas()
+        self.scroll.viewport().update()
 
     def overlay_artists(self):
         """Value labels, markers and iso-lines: the artists toggled by checkboxes."""

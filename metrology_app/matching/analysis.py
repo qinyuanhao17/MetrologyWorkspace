@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from copy import copy
 import json
 from pathlib import Path
 import sqlite3
@@ -11,7 +12,8 @@ import sqlite3
 import numpy as np
 import pandas as pd
 
-from ..measurements import default_identity_columns, detect_measurements
+from ..measurements import default_identity_columns, detect_measurements, wafer_identity_label
+from ..trend import parse_unit
 
 
 SCHEMA_VERSION = 10
@@ -249,10 +251,16 @@ class ParameterMapping:
     name: str
     reference_column: str
     raw_column: str
+    bias_limit: float | None = None
+    show_bias_limit: bool = False
 
     def __post_init__(self):
         if not all(str(value).strip() for value in (self.name, self.reference_column, self.raw_column)):
             raise ValueError("Parameter mapping names and columns cannot be blank.")
+        if self.bias_limit is not None:
+            object.__setattr__(self, "bias_limit", _validated_bias_limit(self.bias_limit))
+        if not isinstance(self.show_bias_limit, bool):
+            raise ValueError("Show Bias limit must be a checkbox value.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -265,10 +273,20 @@ class Card:
     valid_pairs: int
 
 
+def _validated_bias_limit(value):
+    try:
+        limit = float(value)
+    except (ValueError, TypeError, OverflowError):
+        raise ValueError("Bias limit must be a finite, non-negative number.") from None
+    if not np.isfinite(limit) or limit < 0:
+        raise ValueError("Bias limit must be a finite, non-negative number.")
+    return limit
+
+
 class MatchAnalysisResult:
     """Compact result; materialize derived rows for only the selected parameter."""
 
-    def __init__(self, reference, raw, mappings, cards, result_mode, bias_mode, match_type):
+    def __init__(self, reference, raw, mappings, cards, result_mode, bias_mode, match_type, bias_limit=.5):
         self._reference = reference
         self._raw = raw
         self._mappings = mappings
@@ -291,6 +309,29 @@ class MatchAnalysisResult:
             }
             for mapping in mappings
         ])
+        self.bias_limits = {}
+        self.set_bias_limit(bias_limit)
+
+    def set_bias_limit(self, value, parameter=None):
+        """Count strict absolute-Bias exceedances over all included finite rows."""
+        limit = _validated_bias_limit(value)
+        if parameter is not None:
+            if parameter not in self._mapping_by_name:
+                raise ValueError(f"Unknown parameter: {parameter}")
+            self.bias_limits[parameter] = limit
+        else:
+            self.bias_limit = limit
+            self.bias_limits.update({m.name: m.bias_limit if m.bias_limit is not None else limit for m in self._mappings})
+        counts = []
+        for index, mapping in enumerate(self._mappings):
+            if parameter is not None and mapping.name != parameter:
+                counts.append(self.summary.at[index, "Bias out of range"])
+                continue
+            bias = self.series(mapping.name)["Bias"].to_numpy(float)
+            counts.append(int(np.count_nonzero(np.isfinite(bias) & (np.abs(bias) > self.bias_limits[mapping.name]))))
+        self.summary["Bias limit"] = [self.bias_limits[m.name] for m in self._mappings]
+        self.summary["Bias unit"] = [parse_unit(mapping.reference_column) for mapping in self._mappings]
+        self.summary["Bias out of range"] = counts
 
     @property
     def parameter_names(self):
@@ -299,6 +340,13 @@ class MatchAnalysisResult:
     def card(self, parameter):
         try:
             return self._cards[parameter]
+        except KeyError as error:
+            raise ValueError(f"Unknown parameter: {parameter}") from error
+
+    def raw_column(self, parameter):
+        """The Raw Data column one parameter is fitted against."""
+        try:
+            return str(self._mapping_by_name[parameter].raw_column)
         except KeyError as error:
             raise ValueError(f"Unknown parameter: {parameter}") from error
 
@@ -350,14 +398,100 @@ class MatchAnalysisResult:
                 slope, intercept, r_squared = card.slope, card.intercept, card.r_squared
             else:
                 slope = intercept = r_squared = np.nan
+            group_label = "Not grouped"
+            if self.group_plan.enabled:
+                labels = list(dict.fromkeys(
+                    self.group_plan.labels[self.source_rows[row]] for row in measurement.rows
+                ))
+                group_label = ("Mixed: " if len(labels) > 1 else "") + " / ".join(labels)
             rows.append({
                 "Wafer": measurement.label,
+                "Group": group_label,
                 "Slope": slope,
                 "Intercept": intercept,
                 "R²": r_squared,
                 "Valid pairs": int(valid.sum()),
             })
-        return pd.DataFrame(rows, columns=["Wafer", "Slope", "Intercept", "R²", "Valid pairs"])
+        return pd.DataFrame(rows, columns=["Wafer", "Group", "Slope", "Intercept", "R²", "Valid pairs"])
+
+    def group_card(self, parameter, key):
+        cache_key = (parameter, key)
+        if cache_key not in self._group_cards:
+            data = self.group_series(parameter, key)
+            try:
+                self._group_cards[cache_key] = _fit_card(data["Raw"].to_numpy(float),
+                                                      data["Reference"].to_numpy(float), parameter)
+            except ValueError:
+                self._group_cards[cache_key] = None
+        return self._group_cards[cache_key]
+
+    def plot_scope(self, rows, *, local_card=False, label=""):
+        """One source-aligned plot range, with explicit local/overall calibration."""
+        allowed = set(rows)
+        positions = [i for i, row in enumerate(self.source_rows) if row in allowed]
+        reference, raw = self._reference.iloc[positions], self._raw.iloc[positions]
+        fits = {}
+        for mapping in self._mappings:
+            x = pd.to_numeric(raw[mapping.raw_column], errors="coerce").to_numpy(float)
+            y = pd.to_numeric(reference[mapping.reference_column], errors="coerce").to_numpy(float)
+            try:
+                fits[mapping.name] = _fit_card(x, y, mapping.name)
+            except ValueError:
+                fits[mapping.name] = Card(np.nan, np.nan, np.nan, int((np.isfinite(x) & np.isfinite(y)).sum()))
+        result = MatchAnalysisResult(reference, raw, self._mappings,
+                                     fits if local_card else self._cards,
+                                     self.result_mode, self.bias_mode, self.match_type, self.bias_limit)
+        result.source_rows = tuple(self.source_rows[i] for i in positions)
+        result.group_plan = copy(self.group_plan)
+        result.group_plan.included_rows = result.source_rows
+        result.group_plan.display_rows = tuple(row for row in self.group_plan.display_rows if row in allowed)
+        result.group_plan.scope_label = label
+        result._group_cards = {}
+        result.plot_fits = fits
+        for name, limit in self.bias_limits.items():
+            result.set_bias_limit(limit, name)
+        return result
+
+    def wafer_frames(self, row):
+        """Paired sources for exactly the measurement identity in wafer_summary."""
+        _, measurements = self._measurement_groups()
+        if not 0 <= row < len(measurements):
+            raise ValueError("Unknown single-wafer row.")
+        indices = list(measurements[row].rows)
+        return (self._reference.iloc[indices].reset_index(drop=True).copy(),
+                self._raw.iloc[indices].reset_index(drop=True).copy())
+
+    def group_series(self, parameter, key="all", *, trend=False, card_mode="raw"):
+        data = self.series(parameter)
+        lookup = {row: i for i, row in enumerate(self.source_rows)}
+        rows = ([row for span in self.group_plan.trend_spans(key) for row in span["rows"]]
+                if trend else self.group_plan.rows(key))
+        output = data.iloc[[lookup[row] for row in rows]].copy()
+        output["Source row"] = rows
+        output["Group"] = [self.group_plan.row_groups[row] for row in rows]
+        output["Trend value"] = output["Raw"].to_numpy(float)
+        if card_mode == "global":
+            output["Trend value"] = output["Card Value"].to_numpy(float)
+        elif card_mode == "group":
+            output["Trend value"] = np.nan
+            for group in dict.fromkeys(output["Group"]):
+                card = self.group_card(parameter, group)
+                if card is not None:
+                    mask = output["Group"] == group
+                    output.loc[mask, "Trend value"] = card.slope * output.loc[mask, "Raw"] + card.intercept
+        return output
+
+    def group_summary(self, parameter):
+        rows = []
+        for key in self.group_plan.group_keys:
+            data = self.group_series(parameter, key)
+            card = self.group_card(parameter, key)
+            valid = np.isfinite(data["Raw"]) & np.isfinite(data["Reference"])
+            rows.append({"Group": self.group_plan.label(key), "Slope": card.slope if card else np.nan,
+                         "Intercept": card.intercept if card else np.nan,
+                         "R²": card.r_squared if card else np.nan, "Valid pairs": int(valid.sum()),
+                         "Status": "" if card else "Card unavailable: need two distinct valid Raw values"})
+        return pd.DataFrame(rows)
 
     def measurement_ticks(self, wafer_column=None):
         """Return one multi-line Raw Data identity label at each group centre."""
@@ -367,6 +501,18 @@ class MatchAnalysisResult:
             for measurement in measurements
             if measurement.rows
         )
+
+    def measurement_spans(self, wafer_column=None):
+        """Identity values and contiguous half-edge spans on the plotted row axis."""
+        source, measurements = self._measurement_groups(wafer_column)
+        spans = []
+        for measurement in measurements:
+            rows = np.asarray(measurement.rows, dtype=int)
+            for run in np.split(rows, np.flatnonzero(np.diff(rows) != 1) + 1):
+                if len(run):
+                    spans.append((float(run[0]) + .5, float(run[-1]) + 1.5,
+                                  wafer_identity_label(source.iloc[run], wafer_column)))
+        return sorted(spans)
 
     def _measurement_groups(self, wafer_column=None):
         source, column = _wafer_groups(self._reference, self._raw, wafer_column)
@@ -402,9 +548,13 @@ class MatchWorkbook:
                  preview_dynamic=None, final_dynamic=None,
                  workspace_selections=None, correlation_selections=None,
                  trend_axis_settings=None, workspace_states=None,
-                 workspace_frames=None):
+                 workspace_frames=None, test_flags=None, grouping_state=None, bias_limit=.5):
         self.reference = reference
         self.raw = raw
+        from ..match_groups import group_state
+        self.test_flags = test_flags
+        self.grouping_state = group_state(grouping_state)
+        self.bias_limit = _validated_bias_limit(bias_limit)
         self.workspace_states = dict(workspace_states or {})
         self.workspace_frames = dict(workspace_frames or {})
         self.preview_raw = preview_raw
@@ -572,17 +722,59 @@ class MatchWorkbook:
             if self.result_mode == "final" and self.final_match_raw is not None
             else self.raw
         )
+        from ..match_groups import GroupPlan
+        # TEM now shares the same optional Head/Mark grouping as KLA and NOVA.
+        state = self.grouping_state
+        flags = self.test_flags
+        plan = GroupPlan(analysis_raw, flags, state, self.reference)
+        if (plan.enabled or state.get("data_selection") is not None) and self.result_mode == "final" and self.final_match_raw is not None:
+            from ..match_groups import row_ids
+            if row_ids(self.raw) != row_ids(analysis_raw):
+                raise ValueError("Preview/Final source identities differ; classifications cannot be shared by row count alone.")
+        if not plan.included_rows and plan.state["data_selection"] is None:
+            raise ValueError("No paired records pass the current filters.")
+        reference_frame = self.reference.iloc[list(plan.included_rows)]
+        analysis_raw = analysis_raw.iloc[list(plan.included_rows)]
         cards = {}
         for mapping in self.mappings:
-            reference = pd.to_numeric(self.reference[mapping.reference_column], errors="coerce").to_numpy(float)
+            reference = pd.to_numeric(reference_frame[mapping.reference_column], errors="coerce").to_numpy(float)
             raw = pd.to_numeric(analysis_raw[mapping.raw_column], errors="coerce").to_numpy(float)
-            cards[mapping.name] = _fit_card(raw, reference, mapping.name)
-        return MatchAnalysisResult(
-            self.reference, analysis_raw, self.mappings, cards,
-            self.result_mode, self.bias_mode, self.match_type,
+            try:
+                cards[mapping.name] = _fit_card(raw, reference, mapping.name)
+            except ValueError:
+                if plan.state["data_selection"] is None:
+                    raise
+                cards[mapping.name] = Card(np.nan, np.nan, np.nan, int((np.isfinite(raw) & np.isfinite(reference)).sum()))
+        result = MatchAnalysisResult(
+            reference_frame, analysis_raw, self.mappings, cards,
+            self.result_mode, self.bias_mode, self.match_type, self.bias_limit,
         )
+        result.group_plan = plan
+        result.source_rows = plan.included_rows
+        result._group_cards = {}
+        return result
 
-    def stage_frame(self, stage, *, apply_card=None):
+    def participating_frame(self, frame, *, paired_source=False, apply_selection=True):
+        """Project traceable Workbook rows; never position-match independent data."""
+        from ..match_groups import applied_state, participation_rows, participation_source_keys
+        selection = applied_state(self.grouping_state)["data_selection"]
+        if selection is None or not apply_selection:
+            return frame.reset_index(drop=True).copy()
+        source = self.final_match_raw if self.result_mode == "final" and self.final_match_raw is not None else self.raw
+        keys = participation_source_keys(source)
+        allowed = set(participation_rows(source, selection))
+        if paired_source:
+            return frame.iloc[sorted(allowed)].reset_index(drop=True).copy()
+        excluded = {key for i, key in enumerate(keys) if i not in allowed}
+        # Identity columns, including duplicate occurrences, are preserved by
+        # the derived KLA/NOVA data. Independent TEM tables are not this source.
+        if self.match_type == "TEM":
+            return frame.reset_index(drop=True).copy()
+        if not any("".join(c.lower() for c in str(column) if c.isalnum()) in ("waferid", "cursmefilepath") for column in source) and not frame.equals(source):
+            return frame.reset_index(drop=True).copy()
+        return frame.iloc[[i for i, key in enumerate(participation_source_keys(frame)) if key not in excluded]].reset_index(drop=True).copy()
+
+    def stage_frame(self, stage, *, apply_card=None, apply_selection=True):
         """Build map-ready Preview or Final rows while preserving wafer metadata.
 
         ``apply_card`` defaults to the stage's historical behaviour: Preview
@@ -597,7 +789,7 @@ class MatchWorkbook:
             apply_card = stage == "preview"
         snapshot = self.preview_map if stage == "preview" else self.final_map
         if snapshot is not None:
-            return snapshot.reset_index(drop=True).copy()
+            return self.participating_frame(snapshot, apply_selection=apply_selection)
         source = self.preview_raw if stage == "preview" else self.final_raw
         if source is None:
             if self.match_type == "TEM":
@@ -622,7 +814,11 @@ class MatchWorkbook:
             frame[mapping.name] = values
             if mapping.name != mapping.raw_column:
                 frame.drop(columns=[mapping.raw_column], inplace=True)
-        return frame
+        return self.participating_frame(
+            frame,
+            paired_source=source is self.raw or source is self.final_match_raw,
+            apply_selection=apply_selection,
+        )
 
     def parameter_cards(self):
         """Return the fitted Card of every mapping as {(name): (slope, intercept)}."""
@@ -635,7 +831,7 @@ class MatchWorkbook:
             for mapping in self.mappings
         }
 
-    def dynamic_frame(self, stage, *, apply_card=None):
+    def dynamic_frame(self, stage, *, apply_card=None, apply_selection=True):
         """Return the stage's saved Dynamic table or its stage-data default."""
         stage = str(stage).lower()
         if stage not in _ALLOWED_RESULT_MODES:
@@ -644,12 +840,14 @@ class MatchWorkbook:
             self.preview_dynamic if stage == "preview" else self.final_dynamic
         )
         if snapshot is not None:
-            return snapshot.reset_index(drop=True).copy()
-        return self.stage_frame(stage, apply_card=apply_card)
+            return self.participating_frame(snapshot, apply_selection=apply_selection)
+        return self.stage_frame(stage, apply_card=apply_card, apply_selection=apply_selection)
 
     def to_snapshot(self):
         from ..workspace_store import WorkspaceSnapshot
         frames = {"reference": self.reference, "raw": self.raw}
+        if self.test_flags is not None:
+            frames["test_flags"] = self.test_flags
         for name in ("preview_raw", "final_raw", "final_match_raw", "preview_map",
                      "final_map", "preview_dynamic", "final_dynamic"):
             frame = getattr(self, name)
@@ -659,9 +857,9 @@ class MatchWorkbook:
         state = {name: getattr(self, name) for name in (
             "match_type", "result_mode", "bias_mode", "bias_views",
             "setup_splitter_sizes", "parameter_order", "workspace_selections",
-            "correlation_selections", "trend_axis_settings")}
+            "correlation_selections", "trend_axis_settings", "grouping_state", "bias_limit")}
         state["mappings"] = [
-            {"name": m.name, "reference_column": m.reference_column, "raw_column": m.raw_column}
+            asdict(m)
             for m in self.mappings
         ]
         return WorkspaceSnapshot("match_workbook", frames, {"match": state, **self.workspace_states})
@@ -677,7 +875,7 @@ class MatchWorkbook:
         state = dict(snapshot.states["match"])
         state.pop("draft", None)
         state["mappings"] = tuple(ParameterMapping(**record) for record in state["mappings"])
-        names = ("reference", "raw", "preview_raw", "final_raw", "final_match_raw",
+        names = ("reference", "raw", "test_flags", "preview_raw", "final_raw", "final_match_raw",
                  "preview_map", "final_map", "preview_dynamic", "final_dynamic")
         frames = {name: snapshot.frames[name] for name in names if name in snapshot.frames}
         return cls(**frames, **state,

@@ -37,7 +37,7 @@ def inspect_table(frame, wafer_column=None, *, include_fit_quality=True):
     excluded = {"fieldx", "fieldy", "x", "y", "xmm", "ymm", "diex", "diey", "dieseq", "dieid",
                 "diesequence", "diesequenceno", "lotid", "lot", "lotno", "toolsn", "toolid",
                 "padname", "pad", "waferid", "wafer", "waferno", "seq", "logicalid",
-                "mse", "gof", "ngof", "lbh", "fittime", "regiter", "reglter", "cindex"}
+                "mse", "gof", "ngof", "lbh", "fittime", "regiter", "reglter", "cindex", "testflag"}
     if include_fit_quality:
         excluded -= {"mse", "gof", "ngof", "lbh", "cindex"}
     metrics = [c for c in frame if c != wafer_column
@@ -74,7 +74,7 @@ class Dataset:
         if not self.x or not self.y:
             raise ValueError("需要坐标列 FIELD X / FIELD Y（或 X / Y）。")
         metadata = {self.x, self.y, find("xmm"), find("ymm"), self.wafer, self.group,
-                    find("dieseq", "dieid"), find("lotid", "lot"), find("toolsn", "toolid")}
+                    find("dieseq", "dieid"), find("lotid", "lot"), find("toolsn", "toolid"), find("testflag")}
         self.metrics = [c for c in self.frame if c not in metadata
                         and "path" not in c.lower() and number(self.frame[c]).notna().any()]
         if not self.metrics:

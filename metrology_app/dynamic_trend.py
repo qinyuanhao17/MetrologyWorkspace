@@ -154,20 +154,14 @@ class DynamicTrendPage(QWidget):
         self.interactive_scroll = QScrollArea()
         self.interactive_scroll.setWidgetResizable(True)
         self.interactive_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.empty = QLabel(
-            "Select one measurement set and at least one numeric parameter in Data.",
-            objectName="subtitle",
-        )
+        self.empty = QLabel(objectName="subtitle")
         self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty.setWordWrap(True)
         self.stack = QStackedWidget()
         self.stack.addWidget(self.empty)
         self.stack.addWidget(self.interactive_scroll)
         layout.addWidget(self.stack, 1)
-        self.status = QLabel(
-            "Cycle trends appear after a measurement set and parameters are selected.",
-            objectName="hint",
-        )
+        self.status = QLabel(objectName="hint")
         layout.addWidget(self.status)
         self.invalidate()
 
@@ -239,9 +233,7 @@ class DynamicTrendPage(QWidget):
         self.export_button.setEnabled(False)
         self.copy_button.setEnabled(False)
         self.figure.clear()
-        self.draw_canvas_message(
-            message or "Select one measurement set and numeric parameters in Data."
-        )
+        self.draw_canvas_message(message or "")
         self.clear_interactive(message)
         self.stack.setCurrentWidget(self.empty)
         self.summary.setText("0 × 0")
@@ -463,9 +455,7 @@ class DynamicTrendPage(QWidget):
         if self.ready:
             self.relayout()
         elif self.plot_host is None:
-            self.draw_canvas_message(
-                "Select one measurement set and numeric parameters in Data."
-            )
+            self.draw_canvas_message("")
 
     def change_resolution(self, *_args):
         if self.ready:

@@ -294,7 +294,7 @@ class CorrelationPage(QWidget):
         self.interactive_scroll.setWidgetResizable(True)
         self.interactive_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.stack = QStackedWidget()
-        self.empty = QLabel("Select at least 2 numeric columns in the Data tab.", objectName="subtitle")
+        self.empty = QLabel(objectName="subtitle")
         self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty.setWordWrap(True)
         self.stack.addWidget(self.empty)
@@ -314,8 +314,7 @@ class CorrelationPage(QWidget):
         self.stack.addWidget(self.selector_panel)
         layout.addWidget(self.stack, 1)
         footer = QHBoxLayout()
-        self.status = QLabel("Choose numeric columns in Data, then select the fits to draw.",
-                             objectName="hint")
+        self.status = QLabel(objectName="hint")
         footer.addWidget(self.status, 1)
         footer.addWidget(QLabel("Per page", objectName="muted"))
         self.page_size = QComboBox()
@@ -399,7 +398,7 @@ class CorrelationPage(QWidget):
         """Return to the box grid so another set of fits can be chosen."""
         self.page_intent = "selector"
         available = bool(self.selector.rowCount() and self.selector.columnCount())
-        self.empty.setText("Select at least 2 numeric columns in the Data tab.")
+        self.empty.clear()
         self.stack.setCurrentWidget(self.selector_panel if available else self.empty)
 
     def start_draw(self):
@@ -432,20 +431,18 @@ class CorrelationPage(QWidget):
         self._copy_dpi = None
         self.update_pagination()
         self.figure.clear()
-        self.draw_canvas_message("Select one or more boxes, then click Draw selected")
-        self.clear_interactive("Select one or more boxes, then click Draw selected")
+        self.clear_interactive()
         wafers = self.selection.get("wafers", [])
         metrics = self.selection.get("metrics", [])
         rows, columns = len(wafers), len(metrics)
         available = bool(self.selector.rowCount() and self.selector.columnCount())
         if not available:
-            self.empty.setText("Select at least 2 numeric columns in the Data tab.")
+            self.empty.clear()
             self.stack.setCurrentWidget(self.empty)
         else:
             self.stack.setCurrentWidget(self.selector_panel)
         count = len(self.selector.selected_cells())
         self.summary.setText(f"{count} / {rows * columns} selected  ·  {rows} × {columns}")
-        self.status.setText("Drag across the fits you want, then click Draw selected.")
 
     def draw_canvas_message(self, message):
         """Draw a readable centered message that follows the plot font setting."""

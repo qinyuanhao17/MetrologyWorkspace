@@ -15,6 +15,52 @@ from tests.legacy_wkb import save_legacy
 
 
 class MatchWorkbookTests(unittest.TestCase):
+    def test_bias_limit_counts_strict_exceedances_and_survives_wkb(self):
+        reference = pd.DataFrame({"CD Reference": [10., 20., 30., 40., 50., 60.]})
+        raw = pd.DataFrame({"CD": [10.5, 19.5, 30.5001, 39.4999, np.nan, np.inf]})
+        book = MatchWorkbook(reference, raw, [ParameterMapping("CD", "CD Reference", "CD")],
+                             match_type="TEM", result_mode="final", bias_mode="percent", bias_limit=.5)
+        result = book.analyze()
+        self.assertEqual(result.summary["Bias out of range"].tolist(), [2])
+        self.assertEqual(result.summary["Bias limit"].tolist(), [.5])
+        self.assertEqual(result.summary["Bias unit"].tolist(), ["nm"])
+        card = result.card("CD")
+        result.set_bias_limit(.6)
+        self.assertEqual(result.summary["Bias out of range"].tolist(), [0])
+        self.assertIs(result.card("CD"), card)
+        result.set_bias_limit(0)
+        self.assertEqual(result.summary["Bias out of range"].tolist(), [4])
+        for invalid in (-1, np.nan, np.inf):
+            with self.assertRaisesRegex(ValueError, "Bias limit"):
+                result.set_bias_limit(invalid)
+        self.assertEqual(result.bias_limit, 0)
+        book.bias_limit = .125
+        with tempfile.TemporaryDirectory() as folder:
+            path = book.save(Path(folder) / "bias-limit.wkb")
+            loaded = MatchWorkbook.load(path)
+            self.assertEqual(loaded.bias_limit, .125)
+            self.assertEqual(loaded.analyze().summary["Bias out of range"].tolist(), [4])
+        snapshot = book.to_snapshot()
+        del snapshot.states["match"]["bias_limit"]
+        self.assertEqual(MatchWorkbook.from_snapshot(snapshot).bias_limit, .5)
+
+    def test_bias_counts_follow_stage_filters_and_parameter_units(self):
+        ref = pd.DataFrame({"CD Reference": [2., 4., 6., 8.],
+                            "Si_SWA Reference": [2., 4., 6., 8.],
+                            "Si_ratio Reference": [2., 4., 6., 8.]})
+        raw = pd.DataFrame({"Wafer ID": ["W1", "W1", "W2", "W2"],
+                            "CD": [1., 2., 3., 4.], "Si_SWA": [1., 2., 3., 4.],
+                            "Si_ratio": [1., 2., 3., 4.]})
+        mappings = MatchWorkbook.suggest_mappings(ref, raw)
+        for stage, expected in (("preview", [0, 0, 0]), ("final", [2, 2, 2])):
+            book = MatchWorkbook(ref, raw, mappings, result_mode=stage, bias_limit=.5,
+                                 grouping_state={"enabled": True,
+                                 "filters": [{"table": "raw", "column": "Wafer ID", "values": ["W1"]}]})
+            result = book.analyze()
+            self.assertEqual(result.summary["Bias out of range"].tolist(), expected)
+            self.assertEqual(result.summary["Bias unit"].tolist(), ["nm", "degree", "1"])
+            self.assertEqual(result.summary["Valid pairs"].tolist(), [2, 2, 2])
+
     def reference(self):
         return pd.DataFrame({
             "Wafer ID": ["W1", "W1", "W2"],

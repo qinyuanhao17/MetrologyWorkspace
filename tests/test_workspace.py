@@ -24,6 +24,20 @@ configure_fonts(APP)
 
 
 class SheetTests(unittest.TestCase):
+    def test_auto_rename_starts_at_one_and_skips_reserved_suffixes(self):
+        for headers, expected in (
+            (["Value", "Value", "Value", "Value"],
+             ["Value", "Value_1", "Value_2", "Value_3"]),
+            (["Value", "Value", "Value_1", "Value", "Value_3"],
+             ["Value", "Value_2", "Value_1", "Value_4", "Value_3"]),
+        ):
+            with self.subTest(headers=headers):
+                model = SheetModel()
+                model.load(pd.DataFrame([["1.00"] * len(headers)], columns=headers))
+                model.rename_duplicate_headers()
+                self.assertEqual(model.headers(), expected)
+                self.assertEqual(model.frame().iloc[0].tolist(), ["1.00"] * len(headers))
+
     def test_default_parameter_exclusions_ignore_formatting(self):
         for name in ("MSE", "gof", "N_GOF", "LBH", "regIter", "reglter", "C Index", "CINDEX"):
             self.assertFalse(parameter_checked_by_default(name))
@@ -132,7 +146,7 @@ class WorkspaceTests(unittest.TestCase):
             w.deleteLater()
             APP.processEvents()
 
-    def test_pasting_a_new_table_at_a1_replaces_and_reidentifies(self):
+    def test_replace_paste_shortcut_clears_the_table_and_reidentifies(self):
         w = MainWindow()
         try:
             w.sheet.setCurrentIndex(w.model.index(0, 0))
@@ -154,7 +168,8 @@ class WorkspaceTests(unittest.TestCase):
                 "Wafer ID\tPAD Name\tValue\n"
                 "W1\tA\t1\nW1\tB\t2\nW2\tA\t3\nW2\tB\t4"
             )
-            w.sheet.paste()
+            QTest.keyClick(w.sheet, Qt.Key.Key_V,
+                           Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)
             w.recognize()
             self.assertEqual(w.group_columns(), ["Wafer ID", "PAD Name"])
             self.assertEqual(len(w.measurements), 4)
@@ -163,6 +178,365 @@ class WorkspaceTests(unittest.TestCase):
             self.assertEqual(w.selection["metrics"], ["Value"])
             self.assertEqual(w.plot_page.selection["metrics"], ["Value"])
         finally:
+            w.model.undo.setClean()
+            w.close()
+            w.deleteLater()
+            APP.processEvents()
+
+    def test_default_paste_at_a1_keeps_cells_outside_the_pasted_range(self):
+        """Ctrl+V only overwrites the pasted rectangle; it never clears the table."""
+        w = MainWindow()
+        try:
+            w.sheet.setCurrentIndex(w.model.index(0, 0))
+            APP.clipboard().setText(
+                "Wafer ID\tPAD Name\tKeep\tExtra\nW1\tCELL\t21\t11\nW2\tCELL\t22\t12"
+            )
+            w.sheet.paste()
+            w.sheet.setCurrentIndex(w.model.index(0, 0))
+            APP.clipboard().setText(
+                "Wafer ID\tPAD Name\tValue\n"
+                "W1\tA\t1\nW1\tB\t2\nW2\tA\t3\nW2\tB\t4"
+            )
+            with patch.object(w.sheet, "mismatched_paste_choice", return_value="keep") as reminder:
+                w.sheet.paste()
+            reminder.assert_called_once_with((3, 4), (4, 2))
+            w.recognize()
+            self.assertEqual(w.group_columns(), ["Wafer ID", "PAD Name"])
+            self.assertEqual(len(w.measurements), 4)
+            self.assertEqual(w._frame.shape, (4, 4))
+            self.assertEqual(w._frame["Extra"].tolist(), ["11", "12", "", ""])
+            w.model.undo.undo()
+            self.assertEqual(w.model.cells[(0, 2)], "Keep")
+        finally:
+            w.model.undo.setClean()
+            w.close()
+            w.deleteLater()
+            APP.processEvents()
+
+    def test_replace_paste_ignores_an_empty_clipboard(self):
+        w = MainWindow()
+        try:
+            w.sheet.setCurrentIndex(w.model.index(0, 0))
+            APP.clipboard().setText("Wafer ID\tValue\nW1\t1")
+            w.sheet.paste()
+            before = dict(w.model.cells)
+            APP.clipboard().setText("")
+            w.sheet.paste(replace=True)
+            self.assertEqual(w.model.cells, before)
+        finally:
+            w.model.undo.setClean()
+            w.close()
+            w.deleteLater()
+            APP.processEvents()
+
+    def test_paste_size_reminder_lists_both_sizes_and_can_replace(self):
+        w = MainWindow()
+        try:
+            w.sheet.setCurrentIndex(w.model.index(0, 0))
+            APP.clipboard().setText(
+                "Wafer ID\tPAD Name\tKeep\tExtra\nW1\tCELL\t21\t11\nW2\tCELL\t22\t12"
+            )
+            w.sheet.paste()
+            w.sheet.setCurrentIndex(w.model.index(0, 0))
+            APP.clipboard().setText(
+                "Wafer ID\tPAD Name\tValue\n"
+                "W1\tA\t1\nW1\tB\t2\nW2\tA\t3\nW2\tB\t4"
+            )
+            seen = {}
+
+            def choose_replace(box):
+                seen["text"] = box.text()
+                next(button for button in box.buttons()
+                     if button.text() == "Clear table and paste").click()
+
+            with patch.object(QMessageBox, "exec", choose_replace):
+                w.sheet.paste()
+            self.assertIn("3 columns × 4 rows", seen["text"])
+            self.assertIn("4 columns × 2 rows", seen["text"])
+            w.recognize()
+            self.assertEqual(w._frame.shape, (4, 3))
+            self.assertNotIn("Extra", w._frame.columns)
+        finally:
+            w.model.undo.setClean()
+            w.close()
+            w.deleteLater()
+            APP.processEvents()
+
+    def test_paste_size_reminder_cancel_leaves_the_table_untouched(self):
+        w = MainWindow()
+        try:
+            w.sheet.setCurrentIndex(w.model.index(0, 0))
+            APP.clipboard().setText(
+                "Wafer ID\tPAD Name\tKeep\tExtra\nW1\tCELL\t21\t11\nW2\tCELL\t22\t12"
+            )
+            w.sheet.paste()
+            before = dict(w.model.cells)
+            w.sheet.setCurrentIndex(w.model.index(0, 0))
+            APP.clipboard().setText("Wafer ID\tPAD Name\tValue\nW1\tA\t1")
+            with patch.object(QMessageBox, "exec", lambda box: None):
+                w.sheet.paste()
+            self.assertEqual(w.model.cells, before)
+        finally:
+            w.model.undo.setClean()
+            w.close()
+            w.deleteLater()
+            APP.processEvents()
+
+    def test_workspace_data_selection_limits_plots_and_restores_with_the_document(self):
+        from PyQt6.QtCore import Qt
+        from metrology_app.data_selection import FrameSelectionDialog
+        from metrology_app.match_groups import participation_source_keys
+        w = MainWindow()
+        try:
+            w.set_table(pd.DataFrame({"Wafer ID": ["W1", "W2", "W3"], "Value": [1., 2., 3.]}),
+                        "Clipboard")
+            frame = w.model.frame()
+            keys = participation_source_keys(frame)
+            dialog = FrameSelectionDialog(frame)
+            dialog.model.setData(dialog.model.index(1, 0), Qt.CheckState.Unchecked,
+                                 Qt.ItemDataRole.CheckStateRole)
+            dialog.accept()
+            self.assertEqual(dialog.excluded, [keys[1]])
+            w._local_selection_excluded = set(dialog.excluded)
+            w._local_view = {"filters": [[{"column": "CD", "minimum": 2}]],
+                             "row_bools": [[]], "group_bools": [], "show": "filtered"}
+            w.update_plan()
+            self.assertEqual(w.participating_positions(frame), {0, 2})
+            self.assertEqual(w.data_badge.text(), "3 rows × 2 columns")
+            self.assertEqual(w.selection_count.text(), "2 of 3 rows used")
+            refreshed = pd.DataFrame({"Wafer ID": ["Z1", "Z2", "Z3"], "Value": [7., 8., 9.]})
+            w.set_table(refreshed, "Workbook refresh", keep_local_selection=True)
+            self.assertEqual(w._local_selection_excluded,
+                             {participation_source_keys(refreshed)[1]})
+            self.assertEqual(w.participating_positions(refreshed), {0, 2})
+            snapshot = w.workspace_snapshot()
+            self.assertEqual(snapshot.states["data_selection"]["excluded"],
+                             [participation_source_keys(refreshed)[1]])
+            self.assertTrue(snapshot.states["data_selection"]["follow_workbook"])
+            self.assertEqual(snapshot.states["data_selection"]["view"]["show"], "filtered")
+            restored = MainWindow()
+            try:
+                restored.restore_workspace(snapshot)
+                self.assertEqual(restored._local_selection_excluded,
+                                 {participation_source_keys(refreshed)[1]})
+                self.assertEqual(restored.participating_positions(restored.model.frame()), {0, 2})
+                self.assertEqual(restored._local_view["show"], "filtered")
+            finally:
+                restored.close()
+                restored.deleteLater()
+        finally:
+            w.model.undo.setClean()
+            w.close()
+            w.deleteLater()
+            APP.processEvents()
+
+    def test_wafer_record_filter_hides_and_unchecks_small_measurement_sets(self):
+        from PyQt6.QtCore import Qt
+        w = MainWindow()
+        try:
+            w.set_table(pd.DataFrame({
+                "Wafer ID": ["W1"] * 2 + ["W2"] * 4,
+                "Die Seq": [1, 2, 1, 2, 3, 4],
+                "Value": [1., 2., 3., 4., 5., 6.]}), "Clipboard")
+            self.assertEqual(
+                [w.wafer_list.topLevelItem(i).data(0, Qt.ItemDataRole.UserRole + 1)
+                 for i in range(2)], [2, 4])
+            w.min_records.setValue(3)
+            self.assertTrue(w.wafer_list.topLevelItem(0).isHidden())
+            self.assertFalse(w.wafer_list.topLevelItem(1).isHidden())
+            self.assertEqual(w.wafer_list.topLevelItem(0).checkState(0), Qt.CheckState.Unchecked)
+            participating = sorted((tuple(rows) for rows in w.selection["groups"].values()),
+                                   key=len)[-1]
+            self.assertEqual(participating, (2, 3, 4, 5))
+            # Pressing All must not bring the records-filtered wafers back.
+            hidden_key = w.wafer_list.topLevelItem(0).data(0, Qt.ItemDataRole.UserRole)
+            w.check_all(w.wafer_list, True)
+            self.assertEqual(w.wafer_list.topLevelItem(0).checkState(0), Qt.CheckState.Unchecked)
+            self.assertNotIn(hidden_key, w.radius_page.selection["wafers"])
+            w.restore_selection({"wafers": (hidden_key,), "metrics": ()})
+            self.assertEqual(w.wafer_list.topLevelItem(0).checkState(0), Qt.CheckState.Unchecked)
+            self.assertEqual(w.selection_state()["min_records"], 3)
+            w.min_records.setValue(0)
+            self.assertFalse(w.wafer_list.topLevelItem(0).isHidden())
+            w.restore_selection({"wafers": (), "metrics": (), "min_records": 3})
+            self.assertEqual(w.min_records.value(), 3)
+            self.assertTrue(w.wafer_list.topLevelItem(0).isHidden())
+        finally:
+            w.model.undo.setClean()
+            w.close()
+            w.deleteLater()
+            APP.processEvents()
+
+    def test_sequence_axis_keeps_labels_until_the_plot_is_laid_out(self):
+        from PyQt6.QtCore import QRectF
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.plotting.sequence_axis import SpanLabelAxis
+        app = QApplication.instance() or QApplication([])
+        axis = SpanLabelAxis([(0, 10, "W1"), (10, 20, "W2")], optional_fields=False)
+
+        class _View:
+            def __init__(self, width):
+                self.width = width
+
+            def viewRange(self):
+                return [[0, 20], [0, 1]]
+
+            def sceneBoundingRect(self):
+                return QRectF(0, 0, self.width, 10)
+
+        try:
+            axis._linkedView = lambda: _View(0)
+            axis.refresh()
+            self.assertFalse(axis._tickLevels)
+            axis._linkedView = lambda: _View(600)
+            axis.refresh()
+            self.assertTrue(axis._tickLevels[0])
+        finally:
+            axis.deleteLater()
+            app.processEvents()
+
+    def test_page_size_reads_two_digit_values(self):
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.plot_page import PlotPage
+        from metrology_app.radius_page import RadiusPage
+        app = QApplication.instance() or QApplication([])
+        pages = [PlotPage(), RadiusPage()]
+        try:
+            wafers = [f"W{i}" for i in range(31)]
+            for page in pages:
+                self.assertFalse(page.page_size.keyboardTracking())
+                page.page_size.setValue(12)
+                page.page_index = 0
+                self.assertEqual(page.paginate_wafers(wafers), (wafers[:12], 0, 3))
+        finally:
+            for page in pages:
+                page.deleteLater()
+            app.processEvents()
+
+    def test_radius_pages_keep_all_metrics_of_a_wafer_together(self):
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.radius_page import RadiusPage
+        app = QApplication.instance() or QApplication([])
+        page = RadiusPage()
+        try:
+            page.page_size.setValue(2)
+            for index, expected in ((0, (["A", "B"], 0, 3)),
+                                    (1, (["C", "D"], 1, 3)),
+                                    (9, (["E"], 2, 3))):
+                page.page_index = index
+                self.assertEqual(page.paginate_wafers(["A", "B", "C", "D", "E"]), expected)
+        finally:
+            page.deleteLater()
+            app.processEvents()
+
+    def test_selection_show_modes_keep_all_rows_and_can_filter_rows(self):
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.data_selection import FrameSelectionDialog
+        app = QApplication.instance() or QApplication([])
+        frame = pd.DataFrame({"Wafer ID": ["W1", "W2", "W3", "W4"], "CD": [1., 2., 3., 4.]})
+        dialog = FrameSelectionDialog(frame)
+        try:
+            dialog.filter_groups = [[{"column": "CD", "minimum": 3}]]
+            dialog._rebuild_filter_rows()
+            dialog.refresh_rows()
+            self.assertEqual(dialog.model.rows, [0, 1, 2, 3])
+            dialog.show_rows.setCurrentIndex(dialog.show_rows.findData("filtered"))
+            self.assertEqual(dialog.model.rows, [2, 3])
+            dialog.show_rows.setCurrentIndex(dialog.show_rows.findData("checked"))
+            self.assertEqual(dialog.model.rows, [2, 3])
+            dialog.model.setData(dialog.model.index(0, 0), Qt.CheckState.Unchecked,
+                                 Qt.ItemDataRole.CheckStateRole)
+            dialog.show_rows.setCurrentIndex(dialog.show_rows.findData("unchecked"))
+            self.assertEqual(dialog.model.rows, [2])
+        finally:
+            dialog.deleteLater()
+            app.processEvents()
+
+    def test_frame_selection_keeps_its_filter_rows_when_reopened(self):
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.data_selection import FrameSelectionDialog
+        app = QApplication.instance() or QApplication([])
+        frame = pd.DataFrame({"Wafer ID": ["W1", "W2", "W3"], "CD": [1., 2., 3.]})
+        dialog = FrameSelectionDialog(
+            frame,
+            filters=[[{"column": "CD", "minimum": 2}]], row_bools=[[]],
+            group_bools=[], show="filtered")
+        try:
+            self.assertEqual(dialog.model.rows, [1, 2])
+            self.assertEqual(dialog.show_rows.currentData(), "filtered")
+            dialog.accept()
+            self.assertEqual(dialog.saved_filters, [[{"column": "CD", "minimum": 2}]])
+            self.assertEqual(dialog.saved_show, "filtered")
+        finally:
+            dialog.deleteLater()
+            app.processEvents()
+
+    def test_frame_selection_dialog_shows_order_and_reference_columns(self):
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.data_selection import FrameSelectionDialog
+        app = QApplication.instance() or QApplication([])
+        frame = pd.DataFrame({"Wafer ID": ["W1", "W2"], "CD": [1., 2.]})
+        dialog = FrameSelectionDialog(
+            frame,
+            extra_frames=[("Order", pd.DataFrame({"TestFlag": [0, 1]})),
+                          ("Reference", pd.DataFrame({"CD Reference": [3., 5.]}))])
+        try:
+            for name in ("Order / TestFlag", "Reference / CD Reference", "Raw Data / Wafer ID"):
+                self.assertIn(name, dialog.model.headers)
+            self.assertEqual(dialog.model.rowCount(), 2)
+        finally:
+            dialog.deleteLater()
+            app.processEvents()
+
+    def test_wafer_map_pages_keep_all_metrics_of_a_wafer_together(self):
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.plot_page import PlotPage
+        app = QApplication.instance() or QApplication([])
+        page = PlotPage()
+        try:
+            page.page_size.setValue(2)
+            for index, expected in ((0, (["A", "B"], 0, 3)),
+                                    (1, (["C", "D"], 1, 3)),
+                                    (9, (["E"], 2, 3))):
+                page.page_index = index
+                self.assertEqual(page.paginate_wafers(["A", "B", "C", "D", "E"]), expected)
+        finally:
+            page.deleteLater()
+            app.processEvents()
+
+    def test_child_window_radio_switches_between_workbook_and_full_data_selection(self):
+        from types import SimpleNamespace
+        from PyQt6.QtWidgets import QComboBox
+        from metrology_app.match_groups import participation_source_keys
+        w = MainWindow()
+        try:
+            w.set_table(pd.DataFrame({"Wafer ID": ["W1", "W2"], "Value": [1., 2.]}), "Clipboard")
+            frame = w.model.frame()
+            keys = participation_source_keys(frame)
+            self.assertFalse(w.workbook_selection_action.isVisible())
+            self.assertFalse(w.full_data_action.isVisible())
+            owner = SimpleNamespace(match_type=QComboBox(),
+                                    document=SimpleNamespace(
+                                        path=None,
+                                        identity_timer=SimpleNamespace(start=lambda: None)),
+                                    _workspace_data_follows_workbook=lambda: True)
+            w.configure_workbook_owner(owner, "map.preview")
+            self.assertTrue(w.workbook_selection_action.isVisible())
+            self.assertTrue(w.full_data_action.isVisible())
+            w._participation_excluded = {keys[1]}
+            w.update_plan()
+            self.assertEqual(w.participating_positions(frame), {0})
+            used = {row for rows in w.selection["groups"].values() for row in rows}
+            self.assertNotIn(1, used)
+            w.full_data_action.trigger()
+            self.assertEqual(w.participating_positions(frame), {0, 1})
+            self.assertFalse(w._workbook_selection_applies)
+            w.workbook_selection_action.trigger()
+            self.assertEqual(w.participating_positions(frame), {0})
+            self.assertTrue(w._workbook_selection_applies)
+        finally:
+            w._managed_owner = None
             w.model.undo.setClean()
             w.close()
             w.deleteLater()
@@ -379,9 +753,8 @@ class WorkspaceTests(unittest.TestCase):
         before = dict(w.model.cells)
 
         w.auto_rename_button.click()
-        # The second "Value" skips the suffix already taken by the last column,
-        # so renaming never introduces a fresh duplicate.
-        self.assertEqual(w.model.headers(), ["Wafer ID", "Value", "Value_3", "Value_2"])
+        # Repeated names start at _1; an existing _2 stays unchanged.
+        self.assertEqual(w.model.headers(), ["Wafer ID", "Value", "Value_1", "Value_2"])
         self.assertTrue(w.auto_rename_button.isHidden())
         self.assertTrue(w.message.isHidden())   # the warning banner is gone
         self.assertTrue(w.warning_banner.isHidden())
@@ -389,12 +762,12 @@ class WorkspaceTests(unittest.TestCase):
         # Only row-1 names change: the measurement rows are byte-identical.
         self.assertEqual({key: value for key, value in w.model.cells.items() if key[0]},
                          {key: value for key, value in before.items() if key[0]})
-        self.assertEqual(sorted(w._frame.columns), ["Value", "Value_2", "Value_3", "Wafer ID"])
+        self.assertEqual(sorted(w._frame.columns), ["Value", "Value_1", "Value_2", "Wafer ID"])
 
         w.model.undo.undo()
         self.assertEqual(w.model.headers(), ["Wafer ID", "Value", "Value", "Value_2"])
         w.model.undo.redo()
-        self.assertEqual(w.model.headers(), ["Wafer ID", "Value", "Value_3", "Value_2"])
+        self.assertEqual(w.model.headers(), ["Wafer ID", "Value", "Value_1", "Value_2"])
 
     def test_duplicate_headers_and_unsaved_cancel(self):
         w = self.window

@@ -58,6 +58,14 @@ QListWidget#recentWorkbooks { background: #ffffff; border: 1px solid #e4e4e7; bo
 QListWidget#recentWorkbooks::item { border-bottom: 1px solid #efeff1; }
 QListWidget#recentWorkbooks::item:hover { background: #f5f5f6; }
 QListWidget#recentWorkbooks::item:selected { background: #ececee; }
+QListWidget#measurementSetList { background: #f7f7f8; border: 1px solid #d9d9de; border-radius: 8px; padding: 4px; outline: none; }
+QListWidget#measurementSetList::item { background: #ffffff; border: 1px solid #cfd1d7; border-radius: 7px; padding: 8px 10px; }
+QListWidget#measurementSetList::item:hover { background: #f5f7fc; border-color: #9aabc8; }
+QListWidget#measurementSetList::item:selected { background: #edf3ff; border-color: #2563eb; }
+QListWidget#measurementSetList::indicator { width: 14px; height: 14px; border-radius: 3px; }
+QListWidget#measurementSetList::indicator:unchecked { background: #ffffff; border: 1px solid #9a9ca5; }
+QListWidget#measurementSetList::indicator:checked { background: #2563eb; border: 1px solid #2563eb; image: url("__CHECK__"); }
+QListWidget#measurementSetList::indicator:indeterminate { background: #93b4f5; border: 1px solid #2563eb; }
 QLabel#recentName { color: #18181b; font-size: 14px; font-weight: 600; }
 QLabel#recentFolder { color: #8a8a90; font-size: 11px; }
 QLabel#recentTime { color: #6b6b70; font-size: 11px; }
@@ -115,6 +123,7 @@ QTreeWidget { background: transparent; border: none; outline: none; }
 QTreeWidget::item { height: 32px; border-bottom: 1px solid #efeff1; padding: 2px 0; }
 QTreeWidget::item:hover { background: #f5f5f6; }
 QTreeWidget::item:selected { background: #ececee; }
+QTreeWidget#combinedGroupMembers::item:selected, QTreeWidget#combinedGroupsList::item:selected { background: #dbeafe; color: #1e3a8a; }
 QTreeWidget QHeaderView::section { background: #ffffff; color: #6b6b70; border: none; border-bottom: 1px solid #ececef; padding: 7px 0; font-size: 11px; }
 QCheckBox { color: #4b4b53; spacing: 8px; font-size: 12px; }
 QCheckBox::indicator, QTreeView::indicator { width: 13px; height: 13px; }
@@ -128,7 +137,24 @@ QScrollBar::handle:hover { background: #b0b0b7; }
 QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
 QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 QSplitter::handle { background: #f2f2f3; }
+QSplitter#parameterPlotSplitter::handle { background: #e4e4e7; border: none; border-radius: 2px; }
+QSplitter#parameterPlotSplitter::handle:hover { background: #2563eb; }
+QLabel#plotDragHandle { color: #4b4b53; background: #f5f5f6; border-bottom: 1px solid #d9d9de; font-size: 11px; }
+QLabel#plotDragHandle:hover { color: #2563eb; background: #eff3fb; }
 QScrollArea { background: transparent; border: none; }
 QStatusBar { background: #f7f7f8; color: #6b6b70; font-size: 11px; }
 QDialog, QMessageBox { background: #f7f7f8; }
 QToolTip { color: #18181b; background: #ffffff; border: 1px solid #b8b8bf; padding: 5px; }
+QTableView#waferMetricsTable::item:selected {
+    background-color: #dbeafe;
+    color: #163d70;
+}
+QToolButton#addFilterRow { padding: 5px 16px 5px 12px; }
+QFrame#filterRow { background: #ffffff; border: 1px solid #e2e2e6; border-radius: 8px; }
+QFrame#filterChip { background: #f1f1f3; border-radius: 6px; }
+QLabel#filterColumn { color: #26262b; font-weight: 600; }
+QComboBox#filterBoolean { min-width: 64px; padding: 2px 6px; }
+QPushButton#filterChipEdit { background: transparent; border: none; color: #2563eb; padding: 1px 4px; font-size: 12px; }
+QPushButton#filterChipEdit:hover { color: #163d70; }
+QPushButton#filterChipRemove { background: transparent; border: none; color: #8a8a90; padding: 0 5px; font-size: 14px; }
+QPushButton#filterChipRemove:hover { color: #c02634; }

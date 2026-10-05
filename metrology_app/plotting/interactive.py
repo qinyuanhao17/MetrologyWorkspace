@@ -6,6 +6,36 @@ from PyQt6.QtGui import QWheelEvent
 from PyQt6.QtWidgets import QAbstractScrollArea, QApplication
 
 
+def place_legend_above_frame(plot, *, columns=2):
+    """Host this plot's legend in the reserved header row, never over the data.
+
+    PyQtGraph anchors legends inside the ViewBox by default, where they cover
+    the curves. Sharing the title row keeps every plot's frame aligned while
+    the entries sit above it. Call this before plotting so the entries
+    register, and once more after the curves are drawn so the final entry
+    widths are in place.
+    """
+    item = plot.getPlotItem()
+    legend = item.legend
+    if legend is None:
+        legend = item.addLegend(offset=None)
+    legend.setColumnCount(max(1, int(columns)))
+    if legend.parentItem() is not item:
+        legend.setParentItem(item)
+    if getattr(plot, "_legend_in_header", None) is not legend:
+        item.layout.addItem(
+            legend, 0, 1,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        )
+        plot._legend_in_header = legend
+    if legend.items:
+        # Keep the entries side by side: a stretched legend would push the last
+        # entry to the far edge, away from the one it belongs to.
+        legend.setMaximumWidth(int(legend.preferredSize().width()))
+    item.layout.invalidate()
+    return legend
+
+
 class _PlotViewBox(pg.ViewBox):
     """Auto-range Y while keeping an optional, meaningful X extent."""
 
@@ -32,6 +62,12 @@ class _PlotViewBox(pg.ViewBox):
         super().autoRange(padding=padding, items=items, item=item)
         if self._fixed_auto_x_range is not None:
             self.setXRange(*self._fixed_auto_x_range, padding=0)
+
+    def enableAutoRange(self, *args, **kwargs):
+        super().enableAutoRange(*args, **kwargs)
+        # A scrolled-out card may not paint yet; Auto Scale must still take effect.
+        if getattr(self, "_autoRangeNeedsUpdate", False) and hasattr(self, "addedItems"):
+            self.updateAutoRange()
 
 
 class InteractivePlotWidget(pg.PlotWidget):

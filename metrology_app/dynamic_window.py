@@ -27,10 +27,10 @@ class DynamicWindow(DataWorkspaceWindow):
     def is_parameter_selectable(self, column, numeric):
         return bool(numeric and str(column).strip().lower() != "cycle")
 
-    def set_table(self, frame, source):
+    def set_table(self, frame, source, **kwargs):
         prepared = prepare_dynamic_frame(frame)
         self.dynamic_page.set_baseline(prepared)
-        super().set_table(prepared, source)
+        super().set_table(prepared, source, **kwargs)
 
     def change_tab(self, index):
         if index >= 1 and self.refresh_timer.isActive():

@@ -261,10 +261,7 @@ class DynamicPage(QWidget):
         layout.setContentsMargins(10, 12, 10, 10)
         layout.setSpacing(10)
 
-        self.message = QLabel(
-            "Select one measurement set and at least one numeric parameter in Data.",
-            objectName="subtitle",
-        )
+        self.message = QLabel(objectName="subtitle")
         self.message.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.message.setWordWrap(True)
         layout.addWidget(self.message)
@@ -435,9 +432,7 @@ class DynamicPage(QWidget):
         parameters = list(self.selection.get("metrics", ()))
         if not parameters:
             self.content.hide()
-            self.message.setText(
-                "Select one measurement set and at least one numeric parameter in Data."
-            )
+            self.message.clear()
             self.message.show()
             return
         try:

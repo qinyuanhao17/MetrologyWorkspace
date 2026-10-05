@@ -274,6 +274,86 @@ class CorrelationTests(unittest.TestCase):
             window.deleteLater()
             APP.processEvents()
 
+    def test_trend_wafer_labels_fit_visible_spans_and_restore_metadata_on_zoom(self):
+        from PyQt6.QtGui import QPainter, QPicture
+
+        frame = pd.DataFrame({
+            "Wafer ID": [f"W{i // 5:02}" for i in range(100)],
+            "Lot ID": ["LOT-2026-VERY-LONG-IDENTITY"] * 100,
+            "PAD Name": ["PAD-2026-VERY-LONG-IDENTITY"] * 100,
+            "Die Seq": [100001, 100004, 100008, 100012, 100020] * 20,
+            "Depth": np.arange(100, dtype=float),
+        })
+        window = CorrelationWindow()
+        try:
+            window.set_table(frame, "Dense wafer identities")
+            window.tabs.setCurrentIndex(3)
+            window.resize(1180, 760)
+            window.show()
+            page = window.sequence_page
+            page.draw_plot()
+            APP.processEvents()
+            self.assertTrue(page.ready, page.status.text())
+            widget = page.plot_widgets[0]
+            axis = widget._wafer_axis
+            for limits in ((-.5, 99.5), (-.5, 4.5), (-.5, 99.5)):
+                widget.setXRange(*limits, padding=0)
+                APP.processEvents()
+                ticks = axis._tickLevels[0]
+                self.assertTrue(ticks)
+                text = "\n".join(label for _, label in ticks)
+                self.assertNotIn("Wafer:", text)
+                self.assertNotIn("Lot:", text)
+                self.assertNotIn("PAD:", text)
+                if limits[1] == 4.5:
+                    self.assertIn("LOT-2026-VERY-LONG-IDENTITY", text)
+                    self.assertIn("PAD-2026-VERY-LONG-IDENTITY", text)
+                else:
+                    self.assertNotIn("LOT-", text)
+                    self.assertNotIn("PAD-", text)
+                picture = QPicture()
+                painter = QPainter(picture)
+                try:
+                    labels = axis.generateDrawSpecs(painter)[2]
+                finally:
+                    painter.end()
+                self.assertTrue(labels)
+                for first, second in zip(labels, labels[1:]):
+                    self.assertFalse(first[0].intersects(second[0]))
+                picture = QPicture()
+                painter = QPainter(picture)
+                try:
+                    die_labels = widget.getAxis("bottom").generateDrawSpecs(painter)[2]
+                finally:
+                    painter.end()
+                self.assertTrue(die_labels)
+                if limits[1] == 4.5:
+                    self.assertEqual({label for _, _, label in die_labels},
+                                     {"100001", "100004", "100008", "100012", "100020"})
+                for first, second in zip(die_labels, die_labels[1:]):
+                    self.assertFalse(first[0].intersects(second[0]))
+            x, y = widget.getPlotItem().listDataItems()[0].getData()
+            np.testing.assert_array_equal(x, np.arange(100))
+            np.testing.assert_array_equal(y, np.arange(100))
+            page.ensure_export_figure()
+            page.figure.canvas.draw()
+            for exported in page.figure.axes:
+                boxes = [text.get_window_extent() for text in exported._wafer_group_labels
+                         if text.get_visible() and text.get_text()]
+                self.assertTrue(boxes)
+                for first, second in zip(boxes, boxes[1:]):
+                    self.assertFalse(first.overlaps(second))
+                die_boxes = [text.get_window_extent() for text in exported.get_xticklabels()
+                             if text.get_visible() and text.get_text()]
+                self.assertTrue(die_boxes)
+                for first, second in zip(die_boxes, die_boxes[1:]):
+                    self.assertFalse(first.overlaps(second))
+        finally:
+            window.model.undo.setClean()
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
     def test_workbook_trend_compacts_drawn_spans_and_aligns_partial_source_compare(self):
         raw = pd.DataFrame({
             "Wafer ID": ["W1", "W1", "W2", "W2", "W3", "W3"],
@@ -526,7 +606,7 @@ class CorrelationTests(unittest.TestCase):
             banner.button.click()
             APP.processEvents()
             self.assertEqual(
-                window.reference_model.headers(), ["Wafer ID", "DP", "DP_2"]
+                window.reference_model.headers(), ["Wafer ID", "DP", "DP_1"]
             )
             self.assertTrue(banner.isHidden())
         finally:
@@ -580,6 +660,8 @@ class CorrelationTests(unittest.TestCase):
         window = CorrelationWindow()
         try:
             window.set_reference_table(reference, "reference.csv")
+            self.assertEqual(window.reference_footer.text(),
+                             "3 rows × 5 columns")
             window.set_table(raw, "raw.csv")
             self.assertIn("Raw only", window.raw_model.frame().columns)
             aligned = window.reference_model.frame()

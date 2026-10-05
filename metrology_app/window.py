@@ -1,13 +1,15 @@
 """Desktop shell: editable data and wafer/parameter selection."""
+from copy import deepcopy
 from pathlib import Path
 
 import pandas as pd
-from PyQt6.QtCore import Qt, QTimer, QSize, pyqtSignal
-from PyQt6.QtGui import QAction, QKeySequence
+from PyQt6.QtCore import QEvent, QSignalBlocker, Qt, QTimer, QSize, pyqtSignal
+from PyQt6.QtGui import QAction, QActionGroup, QKeySequence
 from PyQt6.QtWidgets import (
-    QCheckBox, QFileDialog, QFrame, QHBoxLayout, QHeaderView,
+    QCheckBox, QDialog, QFileDialog, QFrame, QHBoxLayout, QHeaderView,
     QInputDialog, QLabel, QLayout, QLineEdit, QMainWindow, QMessageBox, QPushButton,
-    QMenu, QScrollArea, QSplitter, QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QMenu, QScrollArea, QSpinBox, QSplitter, QTabWidget, QTreeWidget, QTreeWidgetItem,
+    QVBoxLayout, QWidget,
 )
 from PyQt6.QtWidgets import QApplication
 
@@ -49,6 +51,19 @@ def button(text, callback, role=""):
 
 class ChoiceTree(QTreeWidget):
     """Treat the full visible row as the checkbox hit area."""
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.FontChange:
+            self.refresh_row_heights()
+
+    def refresh_row_heights(self):
+        """Multi-line rows follow the current font; stale hints hide them."""
+        metrics = self.fontMetrics()
+        for index in range(self.topLevelItemCount()):
+            item = self.topLevelItem(index)
+            lines = max(1, len(item.text(0).splitlines()))
+            item.setSizeHint(0, QSize(0, metrics.lineSpacing() * lines + 12))
 
     def mousePressEvent(self, event):
         self._pressed_item = self.itemAt(event.position().toPoint()) if event.button() == Qt.MouseButton.LeftButton else None
@@ -112,6 +127,9 @@ class MainWindow(QMainWindow):
         self.parameter_cards = {}
         self._pending_selection_state = None
         self._managed_close_handler = None
+        self._local_selection_excluded = set()
+        self._local_view = {"filters": [], "row_bools": [], "group_bools": [], "show": "all"}
+        self._workbook_selection_applies = True
         self.source_path = ""
         self.refresh_timer = QTimer(self, interval=250, singleShot=True)
         self.refresh_timer.timeout.connect(self.recognize)
@@ -119,9 +137,7 @@ class MainWindow(QMainWindow):
         outer = QVBoxLayout(root)
         outer.setContentsMargins(20, 12, 20, 10)
         outer.setSpacing(8)
-        self.data_badge = label("NO DATA", "hint")
         self.tabs = QTabWidget(objectName="workspaceTabs")
-        self.tabs.setCornerWidget(self.data_badge, Qt.Corner.TopRightCorner)
         self.tabs.addTab(self.build_data_page(), "1. Data")
         self.plot_page = PlotPage()
         self.plot_page.document_scoped = True
@@ -149,6 +165,20 @@ class MainWindow(QMainWindow):
         self.recent_workspace_menu = self.file_menu.addMenu("Open Recent")
         self.recent_workspace_menu.aboutToShow.connect(self.refresh_recent_workspaces)
         self.file_menu.addSeparator()
+        self.data_menu = self.menuBar().addMenu("Data")
+        self.selection_scope_group = QActionGroup(self)
+        self.selection_scope_group.setExclusive(True)
+        self.workbook_selection_action = QAction("Match Workbook selection", self, checkable=True)
+        self.workbook_selection_action.setChecked(True)
+        self.full_data_action = QAction("Full data (before selection)", self, checkable=True)
+        for action in (self.workbook_selection_action, self.full_data_action):
+            self.selection_scope_group.addAction(action)
+            self.data_menu.addAction(action)
+            action.setVisible(False)
+        self.data_selection_action = QAction("Data selection…", self)
+        self.data_selection_action.triggered.connect(self.open_data_selection)
+        self.data_menu.addAction(self.data_selection_action)
+        self.selection_scope_group.triggered.connect(lambda _action: self._selection_scope_changed())
         self.workspace_actions = []
         for text, handler, shortcut in (("Save", self.save_wkb, "Ctrl+S"),
                                         ("Save As…", self.save_wkb_as, "Ctrl+Shift+S"),
@@ -175,11 +205,40 @@ class MainWindow(QMainWindow):
             frames = {"raw_data": self.model.document_frame(),
                       "reference_data": self.reference_model.document_frame()
                       if hasattr(self, "reference_model") else pd.DataFrame()}
-        return WorkspaceSnapshot(self.workspace_type, frames, {"ui": analysis_state(self)})
+        states = {"ui": analysis_state(self)}
+        if getattr(self, "_participation_excluded", None):
+            states["workbook_participation"] = list(self._participation_excluded)
+        states["data_selection"] = {
+            "excluded": sorted(getattr(self, "_local_selection_excluded", set())),
+            "follow_workbook": bool(getattr(self, "_workbook_selection_applies", True)),
+            "view": deepcopy(getattr(self, "_local_view", {})),
+        }
+        return WorkspaceSnapshot(self.workspace_type, frames, states)
 
     def restore_workspace(self, snapshot):
         if snapshot.workspace_type != self.workspace_type:
             raise ValueError("This WKB belongs to a different tool.")
+        excluded = snapshot.states.get("workbook_participation", [])
+        if not isinstance(excluded, list) or any(not isinstance(key, str) for key in excluded):
+            raise ValueError("Invalid Workbook participation state.")
+        self._participation_excluded = set(excluded)
+        local = snapshot.states.get("data_selection", {})
+        if isinstance(local, dict):
+            saved_excluded = local.get("excluded", [])
+            if isinstance(saved_excluded, list) and all(isinstance(key, str) for key in saved_excluded):
+                self._local_selection_excluded = set(saved_excluded)
+            self._workbook_selection_applies = bool(local.get("follow_workbook", True))
+            with QSignalBlocker(self.workbook_selection_action), QSignalBlocker(self.full_data_action):
+                self.workbook_selection_action.setChecked(self._workbook_selection_applies)
+                self.full_data_action.setChecked(not self._workbook_selection_applies)
+            saved_view = local.get("view", {})
+            if isinstance(saved_view, dict):
+                self._local_view = {
+                    "filters": deepcopy(saved_view.get("filters", [])),
+                    "row_bools": deepcopy(saved_view.get("row_bools", [])),
+                    "group_bools": deepcopy(saved_view.get("group_bools", [])),
+                    "show": str(saved_view.get("show", "all")),
+                }
         if self.workspace_type == "correlation_trend":
             self.set_table(snapshot.frames["raw_data"], "WKB Raw Data")
             self.set_reference_table(snapshot.frames["reference_data"], "WKB Ref Data")
@@ -310,6 +369,11 @@ class MainWindow(QMainWindow):
         available = kind == "correlation" or self._managed_owner._workspace_data_follows_workbook()
         self.use_workbook_data_action.setVisible(available)
         self.use_workbook_data_action.setEnabled(available)
+        for action in (self.workbook_selection_action, self.full_data_action):
+            action.setVisible(available)
+        if available and not (self.workbook_selection_action.isChecked()
+                              or self.full_data_action.isChecked()):
+            self.workbook_selection_action.setChecked(True)
 
     def build_data_page(self):
         page = QWidget(objectName="dataPage")
@@ -430,7 +494,7 @@ class MainWindow(QMainWindow):
         self.address.setFixedWidth(62)
         self.address.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.formula = QLineEdit()
-        self.formula.setPlaceholderText("Select a cell to view or edit its full value")
+        self.formula.setPlaceholderText("")
         self.formula.editingFinished.connect(self.edit_formula)
         formula.addWidget(self.address)
         formula.addWidget(self.formula, 1)
@@ -448,6 +512,13 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.sheet, 1)
         footer = QHBoxLayout()
         footer.addWidget(self.file_label)
+        # The window title and status bar already name the source; the footer
+        # only reports the table size.
+        self.file_label.hide()
+        self.data_badge = label("0 rows × 0 columns", "hint")
+        footer.addWidget(self.data_badge)
+        self.selection_count = label("", "hint")
+        footer.addWidget(self.selection_count)
         footer.addStretch()
         self.dirty_label = label("Saved", "hint")
         footer.addWidget(self.dirty_label)
@@ -478,6 +549,17 @@ class MainWindow(QMainWindow):
         self.group_menu.aboutToShow.connect(lambda: self.group_menu.setMinimumWidth(self.group_picker.width()))
         self.group_checks = {}
         layout.addWidget(self.group_picker)
+        record_row = QHBoxLayout()
+        record_row.addWidget(label("Records >", "muted"))
+        self.min_records = QSpinBox()
+        self.min_records.setRange(0, 1_000_000)
+        self.min_records.setToolTip(
+            "Only measurement sets with more records than this stay usable; "
+            "smaller sets are hidden and unchecked. 0 disables the filter.")
+        self.min_records.valueChanged.connect(self.apply_record_filter)
+        record_row.addWidget(self.min_records)
+        record_row.addStretch(1)
+        layout.addLayout(record_row)
         layout.addWidget(self.wafer_list, 1)
         self.wafer_list.itemChanged.connect(self.update_plan)
         self.wafer_count = label("No wafers detected", "hint")
@@ -543,6 +625,7 @@ class MainWindow(QMainWindow):
             "metrics": tuple(self.selected(self.parameter_list)),
             "map_draw": self.plot_page.draw_state(),
             "radius_draw": self.radius_page.draw_state(),
+            "min_records": int(self.min_records.value()) if hasattr(self, "min_records") else 0,
         }
 
     @staticmethod
@@ -582,7 +665,13 @@ class MainWindow(QMainWindow):
 
     def restore_selection(self, state):
         """Restore surviving wafer/parameter choices and refresh every plot page."""
+        if isinstance(state, dict) and hasattr(self, "min_records"):
+            threshold = state.get("min_records")
+            if isinstance(threshold, int) and not isinstance(threshold, bool):
+                with QSignalBlocker(self.min_records):
+                    self.min_records.setValue(threshold)
         self._apply_selection_state(state)
+        self.apply_record_filter()
         self.update_plan()
         if isinstance(state, dict):
             self.plot_page.restore_draw_state(state.get("map_draw"))
@@ -592,6 +681,10 @@ class MainWindow(QMainWindow):
         tree.blockSignals(True)
         for i in range(tree.topLevelItemCount()):
             item = tree.topLevelItem(i)
+            # A records-filtered row stays out of the drawing even when All is
+            # pressed; the threshold has priority over the bulk selection.
+            if checked and item.isHidden():
+                continue
             if item.flags() & Qt.ItemFlag.ItemIsUserCheckable:
                 item.setCheckState(0, Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
         tree.blockSignals(False)
@@ -673,8 +766,10 @@ class MainWindow(QMainWindow):
                 item.setToolTip(0, measurement.detail)
                 item.setToolTip(1, measurement.detail)
                 item.setData(0, Qt.ItemDataRole.UserRole, measurement.key)
+                item.setData(0, Qt.ItemDataRole.UserRole + 1, len(measurement.rows))
                 item.setCheckState(0, Qt.CheckState.Checked if self._reset_selection or measurement.key in previous_wafers else Qt.CheckState.Unchecked)
                 self.wafer_list.addTopLevelItem(item)
+            self.wafer_list.refresh_row_heights()
             defaults = self.default_parameters(metrics)
             chosen = set(defaults) if self._reset_selection else previous_metrics
             for column in frame:
@@ -689,7 +784,7 @@ class MainWindow(QMainWindow):
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
                 self.parameter_list.addTopLevelItem(item)
             self._reset_selection = False
-            self.data_badge.setText(f"{len(frame):,} ROWS  /  {len(frame.columns)} COLUMNS")
+            self._refresh_selection_badge()
             self.wafer_count.setText(f"{len(self.measurements)} measurement sets / {len(counts)} {primary or 'groups'} values")
             self.wafer_count.setToolTip(self.wafer_list.toolTip())
             self.parameter_count.setText(f"{len(metrics)} numeric / {len(frame.columns)} headers detected")
@@ -713,6 +808,7 @@ class MainWindow(QMainWindow):
         self._pending_selection_state = None
         if pending_selection is not None:
             self._apply_selection_state(pending_selection)
+        self.apply_record_filter()
         self.filter_parameters()
         if reset:
             for i in range(self.parameter_list.topLevelItemCount()):
@@ -730,6 +826,22 @@ class MainWindow(QMainWindow):
         self.recognize()
         self.check_all(self.wafer_list, True)
 
+    def apply_record_filter(self, *_args):
+        """Hide and uncheck measurement sets at or below the records threshold."""
+        if not hasattr(self, "min_records"):
+            return
+        threshold = self.min_records.value()
+        blocker = QSignalBlocker(self.wafer_list)
+        for index in range(self.wafer_list.topLevelItemCount()):
+            item = self.wafer_list.topLevelItem(index)
+            records = int(item.data(0, Qt.ItemDataRole.UserRole + 1) or 0)
+            hidden = records <= threshold
+            item.setHidden(hidden)
+            if hidden:
+                item.setCheckState(0, Qt.CheckState.Unchecked)
+        del blocker
+        self.update_plan()
+
     def filter_parameters(self, *_args):
         query = self.search.text().strip().lower()
         for i in range(self.parameter_list.topLevelItemCount()):
@@ -737,7 +849,88 @@ class MainWindow(QMainWindow):
             numeric = item.data(0, Qt.ItemDataRole.UserRole + 1)
             item.setHidden(query not in item.text(0).lower() or (self.numeric_only.isChecked() and not numeric))
 
+    def set_workbook_participation(self, book):
+        """Update traceable exclusions without replacing a child's editable data."""
+        from .match_groups import applied_state, participation_rows, participation_source_keys
+        selection = applied_state(book.grouping_state)["data_selection"]
+        source = book.final_match_raw if book.result_mode == "final" and book.final_match_raw is not None else book.raw
+        allowed = set(participation_rows(source, selection)) if selection is not None else set(range(len(source)))
+        self._participation_excluded = {key for row, key in enumerate(participation_source_keys(source)) if row not in allowed}
+        if self.workspace_type != "correlation_trend" and not any(
+                "".join(c.lower() for c in str(column) if c.isalnum()) in ("waferid", "cursmefilepath") for column in source):
+            self._participation_excluded = set()
+        if book.match_type == "TEM" and self.workspace_type != "correlation_trend":
+            self._participation_excluded = set()  # TEM Map/Dynamic inputs have no paired-source provenance.
+        self._refresh_selection_badge()
+        self.update_plan()
+
+    def participating_positions(self, frame):
+        """Rows of this window's table that its plots may use."""
+        from .match_groups import participation_source_keys
+        excluded = set(getattr(self, "_local_selection_excluded", set()))
+        if getattr(self, "_workbook_selection_applies", True):
+            excluded |= getattr(self, "_participation_excluded", set())
+        if not excluded:
+            return set(range(len(frame)))
+        return set(i for i, key in enumerate(participation_source_keys(frame)) if key not in excluded)
+
+    def _refresh_selection_badge(self):
+        if not hasattr(self, "selection_count"):
+            return
+        frame = self._frame
+        if frame is None or frame.empty:
+            self.data_badge.setText("0 rows × 0 columns")
+            self.selection_count.setText("")
+            return
+        allowed = self.participating_positions(frame)
+        self.data_badge.setText(f"{len(frame):,} rows × {len(frame.columns)} columns")
+        self.selection_count.setText(
+            f"{len(allowed):,} of {len(frame):,} rows used" if len(allowed) != len(frame) else "")
+
+    def _selection_scope_changed(self, *_args):
+        applies = self.workbook_selection_action.isChecked()
+        if applies == self._workbook_selection_applies:
+            self._refresh_selection_badge()
+            return
+        self._workbook_selection_applies = applies
+        owner = getattr(self, "_managed_owner", None)
+        apply_scope = getattr(owner, "apply_child_selection_scope", None) if owner else None
+        if callable(apply_scope):
+            apply_scope(self)
+        else:
+            self._refresh_selection_badge()
+            self.update_plan()
+
+    def open_data_selection(self):
+        """Choose the rows of this window's table that feed its plots."""
+        from .data_selection import FrameSelectionDialog
+        frame = self.model.frame()
+        if frame.empty:
+            return
+        owner = getattr(self, "_managed_owner", None)
+        context = getattr(owner, "child_selection_context", None) if owner is not None else None
+        extra_frames = context(self) if callable(context) else []
+        saved_view = getattr(self, "_local_view", {}) or {}
+        dialog = FrameSelectionDialog(frame, getattr(self, "_local_selection_excluded", set()),
+                                      self, extra_frames=extra_frames,
+                                      filters=saved_view.get("filters"),
+                                      row_bools=saved_view.get("row_bools"),
+                                      group_bools=saved_view.get("group_bools"),
+                                      show=saved_view.get("show", "all"))
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._local_selection_excluded = set(dialog.excluded)
+            self._local_view = {
+                "filters": dialog.saved_filters,
+                "row_bools": dialog.saved_row_bools,
+                "group_bools": dialog.saved_group_bools,
+                "show": dialog.saved_show,
+            }
+            self._refresh_selection_badge()
+            self.update_plan()
+        dialog.deleteLater()
+
     def update_plan(self, *_args):
+        self._refresh_selection_badge()
         wafers, metrics = self.selected(self.wafer_list), self.selected(self.parameter_list)
         groups = self.group_columns()
         aliases = {"waferid", "wafer", "waferno"}
@@ -746,6 +939,9 @@ class MainWindow(QMainWindow):
         self.selection = {"wafers": wafers, "metrics": metrics, "wafer_column": primary,
                           "groups": {m.key: m.rows for m in self.measurements},
                           "labels": {m.key: m.label for m in self.measurements}}
+        allowed = self.participating_positions(self._frame)
+        self.selection["groups"] = {key: tuple(row for row in rows if row in allowed)
+                                    for key, rows in self.selection["groups"].items()}
         self.plot_page.set_input(self._frame, self.selection)
         self.radius_page.set_input(self._frame, self.selection)
         self.statusBar().showMessage(f"{len(wafers)} measurement sets selected    ·    {len(metrics)} parameters selected")
@@ -789,9 +985,17 @@ class MainWindow(QMainWindow):
             self._pending_selection_state = self.selection_state()
         self._reset_selection = True
 
-    def set_table(self, frame, source):
+    def set_table(self, frame, source, *, keep_local_selection=False):
+        from .match_groups import participation_source_keys
         previous_selection = self.selection_state()
         had_table = not self._frame.empty
+        previous_keys = []
+        if had_table:
+            try:
+                previous_keys = list(participation_source_keys(self.model.frame()))
+            except ValueError:
+                previous_keys = []
+        previous_excluded = set(getattr(self, "_local_selection_excluded", set()))
         self.source_path = str(source)
         self.file_label.setText(Path(source).name or "Untitled")
         self.file_label.setToolTip(str(source))
@@ -803,6 +1007,22 @@ class MainWindow(QMainWindow):
         self.sheet.setCurrentIndex(self.model.index(0, 0))
         self.tabs.setCurrentIndex(0)
         self.recognize()
+        if keep_local_selection and previous_keys and previous_excluded:
+            # Keep this window's own selection when the Workbook refreshes its
+            # data: surviving identities win, otherwise the same row position does.
+            try:
+                keys = list(participation_source_keys(frame.reset_index(drop=True)))
+            except ValueError:
+                keys = []
+            exclusions = set()
+            for position, key in enumerate(keys):
+                if key in previous_excluded:
+                    exclusions.add(key)
+                elif position < len(previous_keys) and previous_keys[position] in previous_excluded:
+                    exclusions.add(key)
+            self._local_selection_excluded = exclusions
+            self._refresh_selection_badge()
+            self.update_plan()
         if had_table:
             self.restore_selection(previous_selection)
         else:

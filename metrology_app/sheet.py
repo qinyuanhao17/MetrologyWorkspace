@@ -6,7 +6,7 @@ import pandas as pd
 from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QKeySequence, QUndoCommand, QUndoStack
 from PyQt6.QtWidgets import (
-    QApplication, QFrame, QHBoxLayout, QLabel, QPushButton, QTableView,
+    QApplication, QFrame, QHBoxLayout, QLabel, QMessageBox, QPushButton, QTableView,
 )
 
 from .settings import get_settings
@@ -52,7 +52,7 @@ class CellEdit(QUndoCommand):
 
 
 class TableReplace(QUndoCommand):
-    """Undoable replacement used when a user pastes a complete table at A1."""
+    """Undoable whole-table replacement behind the Ctrl+Shift+V paste."""
 
     def __init__(self, model, matrix):
         super().__init__("Replace table")
@@ -219,8 +219,8 @@ class SheetModel(QAbstractTableModel):
     def rename_duplicate_headers(self):
         """Number repeated row-1 headers by column order and return the renames.
 
-        The first column of each name keeps it; later repeats become ``name_2``,
-        ``name_3`` … (skipping any suffix already used elsewhere), so the table
+        The first column of each name keeps it; later repeats become ``name_1``,
+        ``name_2`` … (skipping any suffix already used elsewhere), so the table
         can be read again without touching any other cell. Renames go through the
         undo stack.
         """
@@ -231,7 +231,7 @@ class SheetModel(QAbstractTableModel):
             seen[name] = seen.get(name, 0) + 1
             if seen[name] == 1:
                 continue
-            suffix = seen[name]
+            suffix = seen[name] - 1
             candidate = f"{name}_{suffix}"
             while candidate in used:
                 suffix += 1
@@ -315,20 +315,66 @@ class SheetView(QTableView):
         self.horizontalHeader().setMinimumSectionSize(48)
         self.verticalHeader().setMinimumWidth(44)
 
-    def paste(self):
+    @staticmethod
+    def _data_size(model):
+        """(columns, data rows) currently holding values, ignoring trailing blanks."""
+        if not model.cells:
+            return 0, 0
+        columns = max(c for _, c in model.cells) + 1
+        last_row = max(r for r, _ in model.cells)
+        rows = sum(1 for r in range(1, last_row + 1)
+                   if any(model.cells.get((r, c), "").strip() for c in range(columns)))
+        return columns, rows
+
+    def mismatched_paste_choice(self, pasted, current):
+        """Ask before an A1 paste leaves existing cells outside the pasted range.
+
+        ``pasted`` and ``current`` are (columns, data rows). Returns
+        ``"keep"``, ``"replace"`` or ``"cancel"``.
+        """
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Paste size differs")
+        box.setText(f"Pasted data: {pasted[0]} columns × {pasted[1]} rows. "
+                    f"Current table: {current[0]} columns × {current[1]} rows.")
+        box.setInformativeText("Cells outside the pasted range keep their current values. "
+                               "Choose “Clear table and paste” to replace everything "
+                               "(Ctrl+Shift+V).")
+        keep = box.addButton("Paste over range", QMessageBox.ButtonRole.AcceptRole)
+        replace = box.addButton("Clear table and paste", QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(keep)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is replace:
+            return "replace"
+        if clicked is keep:
+            return "keep"
+        return "cancel"
+
+    def paste(self, replace=False):
         model = self.model()
         was_empty = not model.cells
         matrix = clipboard_rows(QApplication.clipboard().text())
+        if not matrix:
+            return
         index = self.currentIndex()
         row, column = (index.row(), index.column()) if index.isValid() else (0, 0)
-        replaces_table = (row, column) == (0, 0) and len(matrix) > 1
-        if replaces_table:
-            # Pasting a header row plus data at A1 replaces the whole table, so no
-            # stale cells from a previously pasted file survive.
+        if not replace and (row, column) == (0, 0) and not was_empty and len(matrix) > 1:
+            pasted = (max(len(line) for line in matrix), len(matrix) - 1)
+            current = self._data_size(model)
+            if pasted[0] < current[0] or pasted[1] < current[1]:
+                choice = self.mismatched_paste_choice(pasted, current)
+                if choice == "cancel":
+                    return
+                replace = choice == "replace"
+        if replace:
+            # Explicit Ctrl+Shift+V replacement: clear the rest of the table so
+            # no stale cells from a previously pasted file survive.
             model.replace_matrix(matrix)
         else:
             model.edit({(row + r, column + c): v for r, line in enumerate(matrix) for c, v in enumerate(line)})
-        if matrix and (was_empty or replaces_table):
+        if matrix and (was_empty or replace):
             # The first paste into an empty sheet replaces the table, so the
             # window should re-run automatic wafer/parameter identification.
             self.table_pasted.emit()
@@ -346,7 +392,11 @@ class SheetView(QTableView):
         QApplication.clipboard().setText(output.getvalue())
 
     def keyPressEvent(self, event):
-        if event.matches(QKeySequence.StandardKey.Paste):
+        if (event.key() == Qt.Key.Key_V
+                and event.modifiers() == (Qt.KeyboardModifier.ControlModifier
+                                          | Qt.KeyboardModifier.ShiftModifier)):
+            self.paste(replace=True)
+        elif event.matches(QKeySequence.StandardKey.Paste):
             self.paste()
         elif event.matches(QKeySequence.StandardKey.Copy):
             self.copy()

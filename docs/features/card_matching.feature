@@ -198,6 +198,22 @@ Feature: Build a card matching workbook
       And hovering the section title shows the same guidance
       And data status, warnings, errors, and empty-state feedback remain visible
 
+    Scenario: Keep dialogs free of usage explanations
+      Given a grouped workbook is open
+      When the engineer opens Group settings, Manage groups, or Data selection
+      Then the dialog shows its controls without explanatory paragraphs
+      But row counts, warnings, and validation messages remain visible
+
+    Scenario: Stack several column filters in Data selection
+      Given the Data selection dialog is open
+      When the engineer adds two conditions to one filter row and joins them with OR
+      And adds a second row joined to the first with AND
+      Then the visible rows follow (row one) AND (row two)
+      And the status reports the full boolean expression
+      When the engineer removes one condition
+      Then the remaining rows keep their connectors
+      And Clear filters removes every filter
+
   Rule: Match rows and FullMap rows have separate responsibilities
 
     Scenario: Reopen an edited KLA or NOVA map from the workbook
@@ -288,6 +304,38 @@ Feature: Build a card matching workbook
       And pressing one of those buttons again reuses its own window
       And the Correlation and Trend window follows Raw Data edits
       But the TEM Wafer Map table is never overwritten from Raw Data
+
+  Rule: A grouped trend reads in one clear order
+
+    Scenario: Read a grouped trend in the original row order
+      Given a grouped workbook whose Lot ID varies inside each wafer
+      When the engineer chooses Original row order and draws the trend
+      Then the curves keep the original input row order
+      And the thin dashed lines mark wafer boundaries only
+
+    Scenario: Choose the trend order without the removed table order
+      Given a grouped workbook is open
+      Then Trend order offers Group → wafer → Die Seq and Original row order
+      And a workbook saved with the removed Current table order reopens as Original row order
+
+    Scenario: Classify every wafer with at most one freely named Mark
+      Given a workbook with TestFlag values
+      When the engineer opens Marks…
+      Then the first Mark catches wafers without an explicit assignment and is marked with ✓
+      And the engineer can add Marks and rename any Mark without fixed dropdown values
+      When the engineer assigns a measurement set to another Mark
+      Then that wafer carries exactly one Mark
+      When the engineer deletes that Mark
+      Then its wafers return to the first Mark
+      And the Order table and plots use the surviving Mark name
+
+    Scenario: Group by Mark when no TestFlag was entered
+      Given a workbook whose Order table has no TestFlag values
+      When the engineer enables Mark and applies the group settings
+      Then the groups follow the Mark classification alone
+      And the group names are the Mark names
+      When the engineer also disables Mark
+      Then the workbook has no groups
 
   Rule: Approved results can leave the workbook
 
