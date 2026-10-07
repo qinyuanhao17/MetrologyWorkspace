@@ -37,6 +37,10 @@ QToolBar#mainToolbar QToolButton { color: #b9adbf; background: #140d1c; border: 
 QToolBar#mainToolbar QToolButton:hover { color: #f4f0f7; border-color: #8050b2; background: #21152f; }
 QToolButton#toolbarMenu { padding: 6px 10px; }
 QToolButton#toolbarMenu::menu-indicator { image: none; width: 0; }
+QMenuBar { background: #0d0814; color: #ddd5e5; padding: 2px 4px; }
+QMenuBar::item { background: transparent; padding: 6px 10px; border-radius: 6px; }
+QMenuBar::item:selected { background: #2f1d42; color: #f4f0f7; }
+QMenuBar::item:pressed { background: #452a5e; }
 QWidget#colorRangeBar { background: transparent; }
 QFrame#sidebar { background: #0b0711; border: none; border-right: 1px solid #241a2d; }
 QWidget#overviewPage { background: #07040b; }
@@ -71,11 +75,12 @@ QLabel#recentName { color: #f4f0f7; font-size: 14px; font-weight: 600; }
 QLabel#recentFolder { color: #9b8fa7; font-size: 11px; }
 QLabel#recentTime { color: #8c8199; font-size: 11px; }
 QPushButton { background: #160e21; border: 1px solid #302538; border-top-color: #3a2e43; border-radius: 7px; padding: 8px 14px; font-weight: 500; }
-QPushButton:hover { background: #21152f; border-color: #8050b2; }
-QPushButton:pressed { background: #39204f; }
+QPushButton:hover { background: #2c1a3e; border-color: #9b6ec7; }
+QPushButton:pressed { background: #452a5e; }
 QPushButton:disabled { color: #685e73; border-color: #211827; background: #100a17; }
 QPushButton#primary { background: #6f3fa0; color: #f4f0f7; border-color: #9066ba; font-weight: 600; }
-QPushButton#primary:hover { background: #8050b2; }
+QPushButton#primary:hover { background: #8a5cbf; border-color: #b891dd; }
+QPushButton#primary:pressed { background: #5f3489; }
 QPushButton#primary:disabled { color: #685e73; border-color: #211827; background: #100a17; }
 QPushButton#subtle { padding: 5px 9px; font-size: 12px; }
 QPushButton#link { background: transparent; border: none; color: #c19af3; padding: 3px 5px; font-size: 12px; }

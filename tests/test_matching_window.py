@@ -59,6 +59,8 @@ class MatchingWindowTests(unittest.TestCase):
                           for row in range(1, 13)], [""] * 12)
         self.assertEqual([controls.order_model.data(controls.order_model.index(row, 3))
                           for row in range(1, 13)], ["Previous"] * 6 + ["Current"] * 6)
+        window.results_tabs.setCurrentWidget(window.group_plot_page)
+        APP.processEvents()
         self.assertEqual(set(window.group_plot_page.plot_groups), {("Old:", "CD"), ("New:", "CD")})
         self.assertGreaterEqual(window.results_tabs.indexOf(window.group_plot_page), 0)
         self.assertTrue(window.group_plot_page.use_group_card.isEnabled())
@@ -1610,6 +1612,8 @@ class MatchingWindowTests(unittest.TestCase):
         window.result_mode.setCurrentText("Final")
         window.set_raw_frame(raw)
         window.run_analysis()
+        window.results_tabs.setCurrentWidget(page)
+        APP.processEvents()
         final_block = page.plot_groups[("All:0", "CD")]
         self.assertEqual(final_block["trend_card_key"][0], "final")
         self.assertFalse(final_block["plots"]["trend"].card_checkbox.isChecked())
@@ -2293,6 +2297,57 @@ class MatchingWindowTests(unittest.TestCase):
             self.assertFalse(getattr(self.window, frame_name).empty)
 
         self.assertEqual(self.window.mapping_table.rowCount(), 2)
+
+    def test_group_apply_reuses_fitted_cards_and_raw_edits_refit_them(self):
+        """Group labels reuse the Cards; editing Raw Data always refits."""
+        window = self.window
+        window.set_reference_frame(pd.DataFrame({"CD Reference": [2., 4., 6., 8.]}))
+        window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1", "W1", "W2", "W2"],
+                                           "Die Seq": [1, 2, 1, 2],
+                                           "CD": [1., 2., 3., 4.]}))
+        window.run_analysis()
+        first = window.result
+        card = first.card("CD")
+
+        window.group_controls.restore(
+            {"enabled": True, "head_names": {"0": "Old", "1": "New"}},
+            pd.DataFrame({"TestFlag": [0, 0, 1, 1]}),
+        )
+        window.group_controls.apply_button.click()
+
+        self.assertIs(window.result, first)
+        self.assertIs(window.result.card("CD"), card)
+        self.assertEqual(set(window.result.group_plan.labels), {"Old", "New"})
+
+        window.raw_model.edit({(1, 2): "5"})
+        window.run_analysis()
+        self.assertIsNot(window.result, first)
+        self.assertNotAlmostEqual(window.result.card("CD").slope, card.slope)
+
+    def test_stage_switch_reuses_each_stages_fitted_cards(self):
+        """Preview and Final keep one fitted result each while inputs are intact."""
+        window = self.window
+        window.set_reference_frame(pd.DataFrame({"CD Reference": [2., 4., 6., 8.]}))
+        window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1", "W1", "W2", "W2"],
+                                           "Die Seq": [1, 2, 1, 2],
+                                           "CD": [1., 2., 3., 4.]}))
+        window.run_analysis()
+        preview = window.result
+        self.assertAlmostEqual(preview.card("CD").slope, 2)
+
+        window.result_mode.setCurrentText("Final")
+        window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1", "W1", "W2", "W2"],
+                                           "Die Seq": [1, 2, 1, 2],
+                                           "CD": [2., 4., 6., 8.]}))
+        window.run_analysis()
+        final = window.result
+        self.assertIsNot(final, preview)
+        self.assertAlmostEqual(final.card("CD").slope, 1)
+
+        window.result_mode.setCurrentText("Preview")
+        self.assertIs(window.result, preview)
+        window.result_mode.setCurrentText("Final")
+        self.assertIs(window.result, final)
 
     def test_reference_is_loaded_before_raw_data_and_enables_analysis(self):
         self.assertFalse(self.window.raw_view.isEnabled())

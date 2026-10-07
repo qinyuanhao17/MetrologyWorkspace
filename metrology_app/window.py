@@ -1,5 +1,6 @@
 """Desktop shell: editable data and wafer/parameter selection."""
 from copy import deepcopy
+from contextlib import contextmanager
 from pathlib import Path
 
 import pandas as pd
@@ -126,6 +127,9 @@ class MainWindow(QMainWindow):
         self._reset_selection = True
         self.parameter_cards = {}
         self._pending_selection_state = None
+        self._input_update_depth = 0
+        self._input_plan_pending = False
+        self._input_draw_pending = {}
         self._managed_close_handler = None
         self._local_selection_excluded = set()
         self._local_view = {"filters": [], "row_bools": [], "group_bools": [], "show": "all"}
@@ -199,7 +203,8 @@ class MainWindow(QMainWindow):
     def workspace_path(self):
         return self.document.path
 
-    def workspace_snapshot(self, *, include_drafts=False):
+    def workspace_snapshot(self, *, include_drafts=False, readonly=False):
+        """Read-only state views are only for immediate GUI-thread comparison."""
         frames = {"input_data": self.model.document_frame()}
         if self.workspace_type == "correlation_trend":
             frames = {"raw_data": self.model.document_frame(),
@@ -211,7 +216,8 @@ class MainWindow(QMainWindow):
         states["data_selection"] = {
             "excluded": sorted(getattr(self, "_local_selection_excluded", set())),
             "follow_workbook": bool(getattr(self, "_workbook_selection_applies", True)),
-            "view": deepcopy(getattr(self, "_local_view", {})),
+            "view": (getattr(self, "_local_view", {}) if readonly
+                     else deepcopy(getattr(self, "_local_view", {}))),
         }
         return WorkspaceSnapshot(self.workspace_type, frames, states)
 
@@ -679,8 +685,30 @@ class MainWindow(QMainWindow):
         self.apply_record_filter()
         self.update_plan()
         if isinstance(state, dict):
-            self.plot_page.restore_draw_state(state.get("map_draw"))
-            self.radius_page.restore_draw_state(state.get("radius_draw"))
+            self._restore_page_draw(self.plot_page, state.get("map_draw"))
+            self._restore_page_draw(self.radius_page, state.get("radius_draw"))
+
+    @contextmanager
+    def input_update(self):
+        """Publish one final plan after sources, participation and choices agree."""
+        self._input_update_depth += 1
+        try:
+            yield
+        finally:
+            self._input_update_depth -= 1
+            if self._input_update_depth == 0:
+                if self._input_plan_pending:
+                    self._input_plan_pending = False
+                    self.update_plan()
+                pending, self._input_draw_pending = self._input_draw_pending, {}
+                for page, state in pending.items():
+                    page.restore_draw_state(state)
+
+    def _restore_page_draw(self, page, state):
+        if self._input_update_depth:
+            self._input_draw_pending[page] = state
+        else:
+            page.restore_draw_state(state)
 
     def check_all(self, tree, checked):
         tree.blockSignals(True)
@@ -938,6 +966,9 @@ class MainWindow(QMainWindow):
         dialog.deleteLater()
 
     def update_plan(self, *_args):
+        if self._input_update_depth:
+            self._input_plan_pending = True
+            return
         self._refresh_selection_badge()
         wafers, metrics = self.selected(self.wafer_list), self.selected(self.parameter_list)
         groups = self.group_columns()

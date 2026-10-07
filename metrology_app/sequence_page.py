@@ -32,6 +32,7 @@ from .data import number
 from .map_selector import MapSelector
 from .plotting import InteractivePlotWidget, PanelGrid, PlotPanel
 from .plotting.sequence_axis import DieSequenceAxis, SpanLabelAxis, fit_tick_labels, span_label_ticks
+from .plotting.curve import ResponsivePlotDataItem
 from .measurements import wafer_identity_label
 from .settings import get_settings, save_settings
 from .trend import MAGNITUDE_RATIO_LIMIT, overlay_spec, parse_unit
@@ -406,23 +407,37 @@ class SequencePage(QWidget):
         sources = self.selection.get("sources", ())
         source_by_key = {key: source for source in sources for key in source.get("keys", ())}
         drawn_keys = {key for key, _metric in cells}
-        parts = [(key, part) for key, part in self._parts()
-                 if key in drawn_keys and not part.empty]
+        if 'groups' in self.selection:
+            parts = [(key, np.asarray(self.selection['groups'].get(key, ()), dtype=int))
+                     for key in self.selection.get('wafers', ()) if key in drawn_keys]
+        else:
+            ids = self.frame[self.selection['wafer_column']].astype(str).str.strip().to_numpy()
+            parts = [(key, np.flatnonzero(ids == key))
+                     for key in self.selection.get('wafers', ()) if key in drawn_keys]
+        parts = [(key, positions) for key, positions in parts if len(positions)]
         # Convert the shared Die Seq column once. Each selected measurement
         # retains its original indices, stable order and missing-value rules.
-        die = number(self.frame[self.die_column])
+        die = number(self.frame[self.die_column]).to_numpy()
         if sources and not self.selection.get("preserve_group_order"):
             # Keep table order even when the two tabs select different wafers.
-            parts.sort(key=lambda pair: pair[1].index.min() - min(
+            parts.sort(key=lambda pair: self.frame.index.take(pair[1]).min() - min(
                 source_by_key.get(pair[0], {}).get("rows") or (0,)
             ))
-        for key, part in parts:
-            values = die.reindex(part.index) if die.index.is_unique else number(part[self.die_column])
-            ordered = part.assign(__die=values).dropna(subset=["__die"])
+        for key, source_positions in parts:
+            values = die[source_positions]
+            # Select/sort positional indices first; avoid copying a wide source
+            # table for assign, dropna and sort separately for every wafer.
+            positions_in_part = np.flatnonzero(~pd.isna(values))
             if not self.selection.get("preserve_group_order"):
-                ordered = ordered.sort_values("__die", kind="stable")
-            if ordered.empty:
+                order = np.argsort(values[positions_in_part], kind="stable")
+                positions_in_part = positions_in_part[order]
+            if not len(positions_in_part):
                 continue
+            # One row take of all source columns. A shallow copy gives this
+            # result its own column manager before adding __die; the take
+            # already detached the selected source values.
+            ordered = self.frame.iloc[source_positions[positions_in_part]].copy(deep=False)
+            ordered["__die"] = values[positions_in_part]
             source = source_by_key.get(key)
             # Ref and Raw are row-aligned tables. The same measurement must
             # occupy the same span in both sources, not overlap other wafers.
@@ -1275,12 +1290,13 @@ class SequencePage(QWidget):
                     color, width=1.6,
                     style=self._source_line_style(curve_groups[0].get("source"), qt=True),
                 )
-                item = pg.PlotDataItem(
+                item = ResponsivePlotDataItem(
                     positions, values, connect="finite", pen=pen,
                     symbol=symbol, symbolSize=5, symbolPen=pg.mkPen(color),
                     symbolBrush=pg.mkBrush(color), name=label,
                 )
                 target.addItem(item)
+                item.rendering_changed.connect(widget._render_status_changed)
                 if legend is not None and target is not plot:
                     legend.addItem(item, label)
                 return item
@@ -1355,10 +1371,10 @@ class SequencePage(QWidget):
                 )
 
             if self.axis_groups:
-                for group in self.axis_groups[1:]:
-                    plot.addItem(pg.InfiniteLine(pos=group["start"] - .5, angle=90,
-                                                 pen=pg.mkPen(BOUNDARY_COLOR, width=1,
-                                                              style=Qt.PenStyle.DashLine)))
+                widget.wafer_boundaries = widget.add_vertical_boundaries(
+                    [group['start'] - .5 for group in self.axis_groups[1:]],
+                    pg.mkPen(BOUNDARY_COLOR, width=1, style=Qt.PenStyle.DashLine),
+                )
             axis.setStyle(tickFont=widget.font(), tickTextOffset=0)
             axis.setPen(pg.mkPen("#30343b"))
             axis.setTextPen(pg.mkPen("#30343b"))

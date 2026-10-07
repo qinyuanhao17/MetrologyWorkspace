@@ -1,8 +1,12 @@
 """Launch the application shell with no analysis windows open."""
 import os
 import sys
+import multiprocessing
 import tempfile
 from pathlib import Path
+
+if __name__ == '__main__':
+    multiprocessing.freeze_support()
 
 # PyInstaller's Matplotlib hook normally creates a disposable font cache on
 # every launch. A stable per-user cache makes repeated module opens much faster.

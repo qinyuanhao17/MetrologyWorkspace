@@ -146,7 +146,9 @@ def widget_to_qimage(widget, requested_scale, max_pixels=MAX_COPY_PIXELS):
                                QPainter.RenderHint.TextAntialiasing |
                                QPainter.RenderHint.SmoothPixmapTransform)
         painter.scale(scale, scale)
-        widget.render(painter)
+        from .plotting.curve import complete_curve_painting
+        with complete_curve_painting(widget):
+            widget.render(painter)
     finally:
         painter.end()
     if image.isNull():

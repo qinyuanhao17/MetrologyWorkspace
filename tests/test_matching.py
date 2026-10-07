@@ -274,6 +274,72 @@ class MatchWorkbookTests(unittest.TestCase):
                 mappings=(ParameterMapping("CD_Bot", "CD_Bot Reference", "CD_Bot"),),
             )
 
+    def test_reused_result_keeps_fitted_cards_while_group_labels_change(self):
+        """Renaming a Group is a label edit, so the fitted Cards stay."""
+        reference = pd.DataFrame({"CD Reference": [10., 20., 30., 40.]})
+        raw = pd.DataFrame({"Wafer ID": ["W1", "W1", "W2", "W2"],
+                            "Die Seq": [1, 2, 1, 2], "CD": [10., 20., 30., 40.]})
+        workbook = MatchWorkbook(
+            reference, raw, [ParameterMapping("CD", "CD Reference", "CD")],
+            match_type="NOVA", result_mode="preview",
+            test_flags=pd.DataFrame({"TestFlag": [0, 0, 1, 1]}),
+            grouping_state={"enabled": True},
+        )
+        first = workbook.analyze()
+        card = first.card("CD")
+
+        workbook.grouping_state = {**workbook.grouping_state,
+                                   "head_names": {"0": "Old", "1": "New"}}
+        again = workbook.analyze(reuse=first)
+
+        self.assertIs(again, first)
+        self.assertIs(again.card("CD"), card)
+        self.assertEqual(again.source_rows, first.source_rows)
+        self.assertEqual(again.group_plan.group_keys, ("All:0", "All:1"))
+        self.assertEqual(set(again.group_plan.labels), {"Old", "New"})
+
+    def test_reuse_is_rejected_when_rows_mappings_or_stage_change(self):
+        """Stale Cards never survive a changed paired slice or mapping."""
+        reference = pd.DataFrame({"CD Reference": [10., 20., 30., 40.]})
+        raw = pd.DataFrame({"Wafer ID": ["W1", "W1", "W2", "W2"],
+                            "Die Seq": [1, 2, 1, 2], "CD": [10., 20., 30., 40.],
+                            "CD Alias": [10., 20., 30., 40.]})
+        mapping = ParameterMapping("CD", "CD Reference", "CD")
+        flags = pd.DataFrame({"TestFlag": [0, 0, 1, 1]})
+        workbook = MatchWorkbook(reference, raw, [mapping], match_type="NOVA",
+                                 result_mode="preview", test_flags=flags,
+                                 grouping_state={"enabled": True})
+        first = workbook.analyze()
+        self.assertEqual(len(first.source_rows), 4)
+
+        filtered = MatchWorkbook(
+            reference, raw, [mapping], match_type="NOVA", result_mode="preview",
+            test_flags=flags,
+            grouping_state={"enabled": True,
+                            "filters": [{"table": "raw", "column": "CD", "minimum": 25}]},
+        )
+        refreshed = filtered.analyze(reuse=first)
+        self.assertIsNot(refreshed, first)
+        self.assertEqual(len(refreshed.source_rows), 2)
+
+        # Equal values under another Raw column still refit and re-title.
+        aliased = MatchWorkbook(
+            reference, raw, [ParameterMapping("CD", "CD Reference", "CD Alias")],
+            match_type="NOVA", result_mode="preview", test_flags=flags,
+            grouping_state={"enabled": True},
+        )
+        reased = aliased.analyze(reuse=first)
+        self.assertIsNot(reased, first)
+        self.assertEqual(reased.raw_column("CD"), "CD Alias")
+
+        # Final evaluates the pasted Raw Data, so it never shares Preview Cards.
+        final = MatchWorkbook(
+            reference, raw, [mapping], match_type="NOVA", result_mode="final",
+            final_match_raw=raw, test_flags=flags,
+            grouping_state={"enabled": True},
+        )
+        self.assertIsNot(final.analyze(reuse=first), first)
+
     def test_plot_sampling_keeps_local_extrema_without_changing_analysis_data(self):
         values = np.zeros(1_000)
         values[555] = -80.0

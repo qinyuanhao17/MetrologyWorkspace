@@ -1,5 +1,15 @@
 # Executable scenario map
 
+`control_responsiveness.feature` uses the existing Python runner (no extra
+Cucumber dependency). Scenarios map to public workflow regression tests:
+
+- Filtered Raw Data selection, single click, clear and Undo → `WorkbookPerformanceTests.test_large_filtered_raw_selection_and_single_cell_remain_responsive`.
+- Stage-specific Cards/curves and repeated Group Apply → `WorkbookPerformanceTests.test_warm_stage_switch_and_group_apply_keep_current_results_promptly` and `MatchingWindowTests.test_switching_preview_and_final_keeps_results_and_layout`.
+- One consistent child input and retained selection panel → `WorkbookPerformanceTests.test_linked_source_update_publishes_one_consistent_selection`, `MatchingWindowTests.test_refreshing_analysis_windows_keeps_their_active_tab` and `MatchingWindowTests.test_kla_refresh_keeps_each_windows_plot_view`.
+- Full-data wheel, current pixels/export and stale-image rejection → `WorkbookPerformanceTests.test_grouped_trend_wheel_preserves_full_curves_promptly` and `WorkbookPerformanceTests.test_dense_trend_screen_and_export_match_with_nan_gaps`.
+- Queued Fit-width versus explicit view restore → `WorkbookPerformanceTests.test_map_resize_queued_before_explicit_restore_keeps_latest_view`.
+- Sparse, invalid and repeated Die Seq values → `WorkbookPerformanceTests.test_trend_preparation_keeps_invalid_dies_and_stable_duplicates_consistent`.
+
 `card_matching.feature`、`dynamic_analysis.feature`、`application_shell.feature`、`trend_overlay_compare.feature` 和 `correlation_pagination.feature` 保存业务语言；项目不额外引入 Cucumber 运行时。相同场景由现有 `unittest` 公共接口测试执行：
 
 - Preview two mapped parameters → `MatchWorkbookTests.test_preview_generates_one_card_per_parameter_and_applies_it_lazily`

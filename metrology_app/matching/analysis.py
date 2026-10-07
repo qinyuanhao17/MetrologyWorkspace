@@ -294,6 +294,10 @@ class MatchAnalysisResult:
         self.result_mode = result_mode
         self.bias_mode = bias_mode
         self.match_type = match_type
+        self.mapping_columns = tuple(
+            (mapping.name, mapping.reference_column, mapping.raw_column)
+            for mapping in mappings
+        )
         self._mapping_by_name = {mapping.name: mapping for mapping in mappings}
         self._measurements = {}
         self.summary = pd.DataFrame([
@@ -723,23 +727,81 @@ class MatchWorkbook:
                 mappings.append(ParameterMapping(name, str(column), candidates[0]))
         return tuple(mappings)
 
-    def analyze(self):
+    @property
+    def mapping_columns(self):
+        """The (name, Reference, Raw) triplets one fitted Card is keyed on."""
+        return tuple(
+            (mapping.name, mapping.reference_column, mapping.raw_column)
+            for mapping in self.mappings
+        )
+
+    def plan_inputs(self, prepared_plan=None):
+        """Resolve the included rows and Group plan this workbook analyzes."""
         analysis_raw = (
             self.final_match_raw
             if self.result_mode == "final" and self.final_match_raw is not None
             else self.raw
         )
-        from ..match_groups import GroupPlan
+        from ..match_groups import GroupPlan, applied_state
         # TEM now shares the same optional Head/Mark grouping as KLA and NOVA.
         state = self.grouping_state
         flags = self.test_flags
-        plan = GroupPlan(analysis_raw, flags, state, self.reference)
+        plan = prepared_plan
+        expected = applied_state(state)
+        expected_flags = expected.pop('flags', None)
+        if expected_flags is None:
+            if flags is not None and len(flags.columns):
+                expected_flags = flags.iloc[:, 0].tolist()
+            else:
+                from ..match_groups import normalized
+                column = next((c for c in analysis_raw if normalized(c) == 'testflag'), None)
+                expected_flags = analysis_raw[column].tolist() if column else []
+        expected_flags = expected_flags + [''] * (len(analysis_raw) - len(expected_flags))
+        if not (plan is not None and plan.raw is analysis_raw and plan.reference is self.reference
+                and {k: v for k, v in plan.state.items() if k != 'flags'} == expected
+                and plan.order_frame['TestFlag'].tolist() == expected_flags):
+            plan = GroupPlan(analysis_raw, flags, state, self.reference)
         if (plan.enabled or state.get("data_selection") is not None) and self.result_mode == "final" and self.final_match_raw is not None:
             from ..match_groups import row_ids
             if row_ids(self.raw) != row_ids(analysis_raw):
                 raise ValueError("Preview/Final source identities differ; classifications cannot be shared by row count alone.")
         if not plan.included_rows and plan.state["data_selection"] is None:
             raise ValueError("No paired records pass the current filters.")
+        return plan, analysis_raw
+
+    def reuses(self, result, plan):
+        """True while a previous result still fits this workbook's paired rows.
+
+        Group names, order and axes live on the plan, so renaming or reordering
+        Groups reuses the fitted Cards and only swaps that plan in.
+        """
+        if result is None:
+            return False
+        return (
+            result.match_type == self.match_type
+            and result.result_mode == self.result_mode
+            and result.bias_mode == self.bias_mode
+            and result.mapping_columns == self.mapping_columns
+            and result.group_plan.ids == plan.ids
+            and result.source_rows == plan.included_rows
+        )
+
+    def analyze(self, reuse=None, *, prepared_plan=None):
+        """Fit every mapping against the paired rows the current Group plan keeps.
+
+        ``reuse`` is a result from an untouched workbook: its Cards stay and
+        only the Group plan, wafer summaries and Bias limits are refreshed.
+        """
+        plan, analysis_raw = self.plan_inputs(prepared_plan)
+        if self.reuses(reuse, plan):
+            reuse.group_plan = plan
+            reuse.source_rows = plan.included_rows
+            reuse._group_cards = {}
+            reuse._mappings = self.mappings
+            reuse._mapping_by_name = {mapping.name: mapping for mapping in self.mappings}
+            # Bias limits are workbook inputs, not fit results.
+            reuse.set_bias_limit(self.bias_limit)
+            return reuse
         reference_frame = self.reference.iloc[list(plan.included_rows)]
         analysis_raw = analysis_raw.iloc[list(plan.included_rows)]
         cards = {}

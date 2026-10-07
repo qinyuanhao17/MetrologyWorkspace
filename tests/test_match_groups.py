@@ -804,6 +804,10 @@ class MatchGroupTests(unittest.TestCase):
             self.assertTrue(window.group_controls.card.isChecked())
             window.group_controls.apply_button.click()
             self.assertFalse(window.group_controls.pending)
+            # Hidden plots keep their latest logical result; opening the tab
+            # materializes every Group automatically, without Select/Draw.
+            window.results_tabs.setCurrentWidget(window.group_plot_page)
+            app.processEvents()
             self.assertEqual(set(window.group_plot_page.plot_groups), {("Old:0", "P"), ("Old:1", "P")})
             window.match_type.setCurrentText("TEM")
             self.assertTrue(window.group_settings_action.isEnabled())

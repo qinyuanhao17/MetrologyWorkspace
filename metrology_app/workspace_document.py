@@ -204,10 +204,15 @@ def restore_analysis_state(window, state):
             action.setChecked(column in state[field])
             action.blockSignals(False)
     window._reset_selection = False
-    window.recognize()
     if hasattr(window, "reference_model"):
         window._reset_reference_selection = False
-        window._populate_reference_choices()
+    window.recognize()
+    if hasattr(window, "reference_model"):
+        # Source-aware Correlation recognizes Reference together with Raw and
+        # publishes their combined plan. The ordinary single-source path still
+        # needs its separate Reference choice refresh.
+        if not getattr(window, "_workbook_sources", ()):
+            window._populate_reference_choices()
     window.set_parameter_cards({name: (value["slope"], value["intercept"])
                                 for name, value in state.get("cards", {}).items()})
     window.card_check.blockSignals(True)
@@ -324,7 +329,13 @@ class WkbDocument:
 
     def mark_clean(self, snapshot=None):
         self._cancel_recovery()
-        self.baseline = deepcopy(snapshot or self.window.workspace_snapshot())
+        if snapshot is None:
+            snapshot = (self.window.workspace_snapshot(readonly=True)
+                        if self.window.workspace_type in ("match_workbook", "correlation_trend")
+                        else self.window.workspace_snapshot())
+        # Detach once, here on the GUI thread. Save/recovery still receive
+        # independent snapshots; none of these read-only views escape to workers.
+        self.baseline = deepcopy(snapshot)
         self.forced_dirty = False
         try:
             self.refresh_identity()
@@ -341,7 +352,8 @@ class WkbDocument:
         # without copying its source tables and classification context twice.
         if snapshot is None:
             snapshot = (self.window.workspace_snapshot(readonly=True)
-                        if self.window.workspace_type == "match_workbook" else self.window.workspace_snapshot())
+                        if self.window.workspace_type in ("match_workbook", "correlation_trend")
+                        else self.window.workspace_snapshot())
         current, baseline = snapshot, self.baseline
         if (getattr(self.window, "_managed_owner", None) is not None
                 and self.window.workspace_type == "correlation_trend"):

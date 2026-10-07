@@ -1,5 +1,6 @@
 """Workbook group controls and source-mapped editable sheet projections."""
 from copy import deepcopy
+from collections.abc import Mapping
 from math import ceil
 import json
 from uuid import uuid4
@@ -17,12 +18,14 @@ from PyQt6.QtWidgets import (
 )
 
 from .appearance import fit_window_to_screen, widget_to_qimage
-from .match_groups import GroupPlan, applied_state, flag_order, flag_value, group_state, normalized, participation_ids, row_ids
+from .match_groups import (GroupPlan, applied_state, copy_group_state, flag_order,
+                           flag_value, group_state, normalized, participation_ids,
+                           row_ids)
 from .plotting import InteractivePlotWidget, place_legend_above_frame
 from .sheet import SheetModel, clipboard_rows
 
 
-class _ViewCells:
+class _ViewCells(Mapping):
     def __init__(self, proxy):
         self.proxy = proxy
 
@@ -31,7 +34,30 @@ class _ViewCells:
 
     def get(self, key, default=""):
         row, column = key
+        if row < 0 or (self.proxy.rows is not None and row > len(self.proxy.rows)):
+            return default
         return self.proxy.sourceModel().cells.get((self.proxy.source_row(row), column), default)
+
+    def __getitem__(self, key):
+        missing = object()
+        value = self.get(key, missing)
+        if value is missing:
+            raise KeyError(key)
+        return value
+
+    def __iter__(self):
+        if self.proxy.rows is None:
+            yield from self.proxy.sourceModel().cells
+            return
+        positions = {source: row + 1 for row, source in enumerate(self.proxy.rows)}
+        for row, column in self.proxy.sourceModel().cells:
+            if row == 0:
+                yield row, column
+            elif row in positions:
+                yield positions[row], column
+
+    def __len__(self):
+        return sum(1 for _ in self)
 
 
 class ProjectedSheetModel(QAbstractProxyModel):
@@ -92,6 +118,10 @@ class ProjectedSheetModel(QAbstractProxyModel):
 
     def flags(self, index):
         return self.sourceModel().flags(self.mapToSource(index))
+
+    @property
+    def uniform_selectable(self):
+        return getattr(self.sourceModel(), "uniform_selectable", False)
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
         if orientation == Qt.Orientation.Vertical and role == Qt.ItemDataRole.DisplayRole:
@@ -280,6 +310,7 @@ class GroupControls(QWidget):
         self.state["applied"] = deepcopy(self.state)
         self.reference, self.raw = pd.DataFrame(), pd.DataFrame()
         self.plan = None
+        self._source_plans = []
         self.order_model = OrderModel()
         self._loading = False
         self._header_tables = {}
@@ -360,8 +391,14 @@ class GroupControls(QWidget):
 
     def refresh(self):
         try:
-            self.plan = GroupPlan(self.raw, self.order_model.flags_frame(len(self.raw)),
-                                  {key: value for key, value in self.state.items() if key != "applied"}, self.reference)
+            state = {key: value for key, value in self.state.items() if key != 'applied'}
+            cached = next((plan for ref, raw, saved, plan in self._source_plans
+                           if ref is self.reference and raw is self.raw and saved == state), None)
+            self.plan = cached or GroupPlan(self.raw, self.order_model.flags_frame(len(self.raw)),
+                                            state, self.reference)
+            self._source_plans = [(ref, raw, saved, plan) for ref, raw, saved, plan in self._source_plans
+                                  if raw is not self.raw][-1:]
+            self._source_plans.append((self.reference, self.raw, copy_group_state(state), self.plan))
             detail = "; ".join(f"{spec['table']} / {spec['column']}" for spec in self.state["filters"])
             self.status.setText(f"{len(self.plan.included_rows):,} / {len(self.raw):,} paired rows · "
                                 f"{len(self.plan.measurements)} measurement sets"
@@ -383,6 +420,7 @@ class GroupControls(QWidget):
     def restore(self, state, flags=None):
         self._loading = True
         try:
+            self._source_plans.clear()
             self.state = group_state(state)
             self.state.setdefault("applied", deepcopy({k: v for k, v in self.state.items() if k != "applied"}))
             self.order_model.load(flags if flags is not None else pd.DataFrame(columns=["TestFlag"]))
@@ -395,7 +433,9 @@ class GroupControls(QWidget):
         self.refresh()
 
     def accept_changes(self):
-        self.state["applied"] = deepcopy({k: v for k, v in self.state.items() if k != "applied"})
+        self.state["applied"] = copy_group_state(
+            {k: v for k, v in self.state.items() if k != "applied"}
+        )
         self.state["applied"]["flags"] = self.flags_frame().iloc[:, 0].tolist()
         self.refresh()
 
@@ -1382,7 +1422,6 @@ class GroupPlotPage(QWidget):
         self.card.toggled.connect(self.trend_card_changed)
 
     def set_result(self, result):
-        previous = self.result
         if self._restored is None and (self.result is None or self.result.result_mode != result.result_mode):
             self.card.blockSignals(True)
             self.card.setChecked(result.result_mode == "preview")
@@ -1390,13 +1429,9 @@ class GroupPlotPage(QWidget):
         self.result = result
         plan = result.group_plan
         keys = list(plan.plot_group_keys) if plan.enabled else []
-        structure_changed = (previous is None or previous.result_mode != result.result_mode
-                             or previous.match_type != result.match_type
-                             or previous.parameter_names != result.parameter_names
-                             or set(self.scopes) != set(keys))
         self.scopes = {key: (plan.label(key), plan.rows(key)) for key in keys}
         self._restored = None
-        if self._panels and not structure_changed and self.workbook_window.isVisible() and not self.isVisible():
+        if self.workbook_window.isVisible() and not self.isVisible():
             # Keep the latest result, not a queue of obsolete hidden redraws.
             # All scopes are still drawn on show/export; source analysis itself
             # remains current while the engineer edits another results tab.

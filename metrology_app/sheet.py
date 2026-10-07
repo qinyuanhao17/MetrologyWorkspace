@@ -3,10 +3,13 @@ import csv
 from io import StringIO
 
 import pandas as pd
-from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QKeySequence, QUndoCommand, QUndoStack
+from PyQt6.QtCore import (
+    QAbstractTableModel, QItemSelection, QItemSelectionModel, QModelIndex, Qt, pyqtSignal,
+)
+from PyQt6.QtGui import QColor, QCursor, QFont, QKeySequence, QUndoCommand, QUndoStack
 from PyQt6.QtWidgets import (
-    QApplication, QFrame, QHBoxLayout, QLabel, QMessageBox, QPushButton, QTableView,
+    QApplication, QFrame, QHeaderView, QHBoxLayout, QLabel, QMessageBox, QPushButton,
+    QStyle, QStyleOptionHeader, QTableView,
 )
 
 from .settings import get_settings
@@ -86,6 +89,12 @@ class SheetModel(QAbstractTableModel):
         self.changed.connect(self._invalidate_frames)
         self.height, self.width = 100, 26
         self.undo = QUndoStack(self)
+        self._revision = 0
+
+    @property
+    def revision(self):
+        """Monotonic edit counter; analysis reuse is keyed on it, never on values."""
+        return self._revision
 
     def rowCount(self, parent=QModelIndex()):
         return 0 if parent.isValid() else self.height
@@ -117,6 +126,10 @@ class SheetModel(QAbstractTableModel):
     def flags(self, index):
         return CELL_FLAGS if index.isValid() else Qt.ItemFlag.ItemIsEditable
 
+    @property
+    def uniform_selectable(self):
+        return type(self).flags is SheetModel.flags and type(self).headerData is SheetModel.headerData
+
     def setData(self, index, value, role=Qt.ItemDataRole.EditRole):
         if role != Qt.ItemDataRole.EditRole or not index.isValid():
             return False
@@ -135,6 +148,7 @@ class SheetModel(QAbstractTableModel):
 
     def apply(self, changes):
         self._invalidate_frames()
+        self._revision += 1
         self._preserves_record_positions = True
         rows = max(self.height, max(r for r, _ in changes) + 21)
         cols = max(self.width, max(c for _, c in changes) + 4)
@@ -202,6 +216,7 @@ class SheetModel(QAbstractTableModel):
 
     def restore(self, state, emit_changed=True):
         self._invalidate_frames()
+        self._revision += 1
         cells, height, width = state
         self._preserves_record_positions = False
         self.beginResetModel()
@@ -348,11 +363,73 @@ class DuplicateHeaderBanner(QFrame):
         return renames
 
 
+class _SheetHeader(QHeaderView):
+    """Native header styling with range-based selection for uniform sheets.
+
+    Qt's header asks isColumnSelected for each painted column, which calls
+    Python model.flags for every record. A rectangular sheet selection already
+    contains that information. Custom/disabled-cell models keep Qt's path.
+    """
+
+    def initStyleOptionForIndex(self, option, section):
+        model = self.model()
+        if not getattr(model, "uniform_selectable", False):
+            return super().initStyleOptionForIndex(option, section)
+        self.initStyleOption(option)
+        horizontal = self.orientation() == Qt.Orientation.Horizontal
+        count = model.rowCount() if horizontal else model.columnCount()
+        ranges = self.selectionModel().selection()
+
+        def selected(index):
+            spans = sorted((r.top(), r.bottom()) if horizontal else (r.left(), r.right())
+                           for r in ranges if (r.left() <= index <= r.right() if horizontal
+                                               else r.top() <= index <= r.bottom()))
+            end = -1
+            for low, high in spans:
+                if low > end + 1:
+                    break
+                end = max(end, high)
+            return bool(spans), end >= count - 1 and count > 0
+
+        intersects, full = selected(section)
+        if self.sectionsClickable():
+            if self.underMouse() and self.logicalIndexAt(self.mapFromGlobal(QCursor.pos())) == section:
+                option.state |= QStyle.StateFlag.State_MouseOver
+            if self.highlightSections():
+                if intersects:
+                    option.state |= QStyle.StateFlag.State_On
+                if full:
+                    option.state |= QStyle.StateFlag.State_Sunken
+        option.section = section
+        option.text = str(model.headerData(section, self.orientation(), Qt.ItemDataRole.DisplayRole) or "")
+        alignment = model.headerData(section, self.orientation(), Qt.ItemDataRole.TextAlignmentRole)
+        option.textAlignment = alignment if alignment is not None else self.defaultAlignment()
+        visual = self.visualIndex(section)
+        option.position = (QStyleOptionHeader.SectionPosition.OnlyOneSection if self.count() == 1
+                           else QStyleOptionHeader.SectionPosition.Beginning if visual == 0
+                           else QStyleOptionHeader.SectionPosition.End if visual == self.count() - 1
+                           else QStyleOptionHeader.SectionPosition.Middle)
+        before, after = selected(self.logicalIndex(visual - 1))[1], selected(self.logicalIndex(visual + 1))[1]
+        option.selectedPosition = (QStyleOptionHeader.SelectedPosition.NextAndPreviousAreSelected if before and after
+                                   else QStyleOptionHeader.SelectedPosition.PreviousIsSelected if before
+                                   else QStyleOptionHeader.SelectedPosition.NextIsSelected if after
+                                   else QStyleOptionHeader.SelectedPosition.NotAdjacent)
+        if self.isSortIndicatorShown() and self.sortIndicatorSection() == section:
+            option.sortIndicator = (QStyleOptionHeader.SortIndicator.SortDown
+                                    if self.sortIndicatorOrder() == Qt.SortOrder.AscendingOrder
+                                    else QStyleOptionHeader.SortIndicator.SortUp)
+
+
 class SheetView(QTableView):
     table_pasted = pyqtSignal()
 
     def __init__(self, model):
         super().__init__()
+        self.setHorizontalHeader(_SheetHeader(Qt.Orientation.Horizontal, self))
+        self.setVerticalHeader(_SheetHeader(Qt.Orientation.Vertical, self))
+        for header in (self.horizontalHeader(), self.verticalHeader()):
+            header.setSectionsClickable(True)
+            header.setHighlightSections(True)
         self.setModel(model)
         self.setAlternatingRowColors(True)
         self.setSelectionMode(self.SelectionMode.ContiguousSelection)
@@ -363,6 +440,21 @@ class SheetView(QTableView):
         self.horizontalHeader().setDefaultSectionSize(118)
         self.horizontalHeader().setMinimumSectionSize(48)
         self.verticalHeader().setMinimumWidth(44)
+
+    def selectAll(self):
+        """Select in one batched change so Qt does not repaint in stages."""
+        model = self.model()
+        rows, columns = model.rowCount(), model.columnCount()
+        if rows <= 0 or columns <= 0:
+            return
+        selection = QItemSelection(model.index(0, 0), model.index(rows - 1, columns - 1))
+        self.setUpdatesEnabled(False)
+        try:
+            self.selectionModel().select(
+                selection, QItemSelectionModel.SelectionFlag.ClearAndSelect)
+        finally:
+            self.setUpdatesEnabled(True)
+        self.viewport().update()
 
     @staticmethod
     def _data_size(model):
@@ -429,11 +521,18 @@ class SheetView(QTableView):
             self.table_pasted.emit()
 
     def copy(self):
-        indexes = self.selectedIndexes()
-        if not indexes:
-            return
-        rows = range(min(i.row() for i in indexes), max(i.row() for i in indexes) + 1)
-        columns = range(min(i.column() for i in indexes), max(i.column() for i in indexes) + 1)
+        if getattr(self.model(), 'uniform_selectable', False):
+            ranges = self.selectionModel().selection()
+            if not ranges:
+                return
+            rows = range(min(r.top() for r in ranges), max(r.bottom() for r in ranges) + 1)
+            columns = range(min(r.left() for r in ranges), max(r.right() for r in ranges) + 1)
+        else:
+            indexes = self.selectedIndexes()
+            if not indexes:
+                return
+            rows = range(min(i.row() for i in indexes), max(i.row() for i in indexes) + 1)
+            columns = range(min(i.column() for i in indexes), max(i.column() for i in indexes) + 1)
         output = StringIO()
         writer = csv.writer(output, delimiter="\t", lineterminator="\n")
         for row in rows:
@@ -455,7 +554,7 @@ class SheetView(QTableView):
             self.model().undo.redo()
         elif event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             model = self.model()
-            if type(model).flags is SheetModel.flags:
+            if getattr(model, 'uniform_selectable', False):
                 # Uniform selectable flags: ranges describe the same selection
                 # without constructing a QModelIndex for every trailing blank.
                 bounds = [(r.top(), r.bottom(), r.left(), r.right())

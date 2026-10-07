@@ -1,14 +1,35 @@
 """Source-preserving measurement classification and one paired row projection."""
 from collections import Counter
-from copy import deepcopy
 from decimal import Decimal, InvalidOperation
 import json
 from uuid import uuid4
+import weakref
 
 import numpy as np
 import pandas as pd
 
 from .measurements import Measurement, default_identity_columns, detect_measurements
+
+
+def _copy_state_value(value):
+    """Copy only the containers of one grouping value; scalars stay shared."""
+    if isinstance(value, dict):
+        return {key: _copy_state_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_copy_state_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_copy_state_value(item) for item in value)
+    return value
+
+
+def copy_group_state(state):
+    """Detach a grouping state without the generic deep-copy machinery.
+
+    ``group_state`` normalizes nested lists, dicts and record tables in place,
+    so it must not alias the caller's draft state. Copying just the containers
+    keeps large participation lists (one record per paired row) cheap.
+    """
+    return {key: _copy_state_value(value) for key, value in state.items()}
 
 
 DEFAULT_FLAGS = ("0", "1", "-1")
@@ -88,7 +109,9 @@ def group_state(state=None):
     source = state or {}
     # Normalize the accepted state separately below: copying it here and again
     # recursively doubles the largest participation/Mark lists on every edit.
-    state = deepcopy({key: value for key, value in source.items() if key != "applied"})
+    state = copy_group_state(
+        {key: value for key, value in source.items() if key != "applied"}
+    )
     state.setdefault("enabled", False)
     # Old workbooks used Old/New unconditionally; files that never stored Mark
     # data must not switch Mark on by themselves.
@@ -167,12 +190,43 @@ def applied_state(state):
     return group_state(state.get("applied", state) if state else None)
 
 
+# One analysis run asks for the same frame's identities several times (plan,
+# participation and the Preview/Final guard). Cached entries hold a weak
+# reference, so a replaced frame can never be served its predecessor's ids.
+_ROW_IDS_CACHE = []
+_ROW_IDS_CACHE_LIMIT = 6
+
+
+def _cached_row_ids(frame):
+    length, columns = len(frame), tuple(frame.columns)
+    for index, (reference, cached_length, cached_columns, ids) in enumerate(_ROW_IDS_CACHE):
+        if reference() is frame and cached_length == length and cached_columns == columns:
+            if index:
+                _ROW_IDS_CACHE.insert(0, _ROW_IDS_CACHE.pop(index))
+            return ids
+    return None
+
+
+def _remember_row_ids(frame, ids):
+    try:
+        reference = weakref.ref(frame)
+    except TypeError:  # pragma: no cover - pandas frames always allow weak refs
+        return
+    _ROW_IDS_CACHE.insert(0, (reference, len(frame), tuple(frame.columns), ids))
+    del _ROW_IDS_CACHE[_ROW_IDS_CACHE_LIMIT:]
+
+
 def row_ids(raw):
     """Identity plus occurrence preserves assignments across regrouping and Final.
 
     Source position is only used when no identifying columns are available.
     Neither displayed row order nor user-facing head names enter the identity.
+    Frames are immutable snapshots here: replacing a table builds a new frame,
+    so identities may be reused until that frame is gone.
     """
+    cached = _cached_row_ids(raw)
+    if cached is not None:
+        return cached
     aliases = {normalized(c): c for c in raw}
     columns = [aliases[key] for key in ("waferid", "lotid", "padname", "dieseq") if key in aliases]
     if not columns:
@@ -183,7 +237,9 @@ def row_ids(raw):
         ordinal = seen[key]
         seen[key] += 1
         ids.append(json.dumps([columns, key, ordinal], ensure_ascii=False))
-    return tuple(ids)
+    ids = tuple(ids)
+    _remember_row_ids(raw, ids)
+    return ids
 
 
 def filter_mask(series, spec):

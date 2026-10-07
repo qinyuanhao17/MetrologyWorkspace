@@ -92,6 +92,7 @@ class CorrelationWindow(DataWorkspaceWindow):
         self._restoring_source_tables = False
         self._match_groups = None
         self._group_plan = None
+        self._group_result_cache = None
         super().__init__()
         self.setWindowTitle("Correlation and Trend")
         self.raw_model = self.model
@@ -138,10 +139,17 @@ class CorrelationWindow(DataWorkspaceWindow):
         self.update_plan()
 
     def _refresh_group_results(self):
-        self._group_plan = None
         context = self._match_groups
         if not context:
+            self._group_plan = None
+            self._group_result_cache = None
             return
+        revisions = (self.reference_model.revision, self.raw_model.revision)
+        cached = self._group_result_cache
+        if cached is not None and cached[0] == revisions and cached[1] == context:
+            self._group_plan = cached[2]
+            return
+        self._group_plan = None
         raw = self.raw_model.frame()
         if (list(row_ids(raw)) != context["identities"] or
                 ("provenance" in context and list(participation_source_keys(raw)) != context["provenance"])):
@@ -155,6 +163,7 @@ class CorrelationWindow(DataWorkspaceWindow):
                                  grouping_state=context["grouping"], match_type=context["match_type"],
                                  result_mode=context["result_mode"])
             self._group_plan = book.analyze().group_plan
+            self._group_result_cache = (revisions, deepcopy(context), self._group_plan)
         except ValueError as error:
             self.statusBar().showMessage(f"Group analysis unavailable: {error}")
 
@@ -168,10 +177,10 @@ class CorrelationWindow(DataWorkspaceWindow):
             self._refresh_group_results()
         super().set_workbook_participation(book)
 
-    def workspace_snapshot(self, *, include_drafts=False):
-        snapshot = super().workspace_snapshot(include_drafts=include_drafts)
+    def workspace_snapshot(self, *, include_drafts=False, readonly=False):
+        snapshot = super().workspace_snapshot(include_drafts=include_drafts, readonly=readonly)
         if self._match_groups:
-            snapshot.states["match_groups"] = deepcopy(self._match_groups)
+            snapshot.states["match_groups"] = self._match_groups if readonly else deepcopy(self._match_groups)
         return snapshot
 
     def _restore_workspace_tables(self, snapshot):
@@ -189,7 +198,10 @@ class CorrelationWindow(DataWorkspaceWindow):
         if not self.raw_model.duplicate_header_count() and not self.reference_model.duplicate_header_count():
             raw, reference = self.raw_model.frame(), self.reference_model.frame()
             if not raw.empty and not reference.empty and len(raw) == len(reference):
-                self._rebuild_source_analysis()
+                # restore_analysis_state recognizes both sources immediately
+                # after installing the saved grouping choices. Avoid preparing
+                # an intermediate plan with the previous sidebar first.
+                self._workbook_sources = True
         # The base restore now applies the full UI once, after Group keys exist:
         # overlays, pending Draw choices, page index and saved boxes included.
 
@@ -768,14 +780,20 @@ class CorrelationWindow(DataWorkspaceWindow):
         self.update_plan()
         self.sequence_page.restore_axis_ratio(state.get("trend_axis_ratio"))
         self.sequence_page.restore_axis_mode(state.get("trend_axis_mode", "auto"))
+        # set_input queued automatic redraws of the old page choices. Saved
+        # draw state supersedes them: Correlation processes Qt events while
+        # fitting, which would otherwise run the Trend timer mid-restoration
+        # and draw it again below with the actual saved boxes.
+        for page in (self.correlation_page, self.sequence_page):
+            page.input_refresh_timer.stop()
         # Earlier WKB draw states used match aliases for Raw parameters.
         legacy_raw_names = {} if state.get("source_parameter_names") else {
             mapping.name: mapping.raw_column for mapping in self._source_mappings
         }
-        self.correlation_page.restore_draw_state(
+        self._restore_page_draw(self.correlation_page,
             self._decoded_draw_state(state.get("correlation_draw"), legacy_raw_names)
         )
-        self.sequence_page.restore_draw_state(
+        self._restore_page_draw(self.sequence_page,
             self._decoded_draw_state(state.get("trend_draw"), legacy_raw_names)
         )
 
@@ -841,7 +859,10 @@ class CorrelationWindow(DataWorkspaceWindow):
         super().recognize()
 
     def update_plan(self, *_args):
-        if self._restoring_source_tables:
+        if self._input_update_depth:
+            self._input_plan_pending = True
+            return
+        if self._restoring_source_tables or self._workbook_sources is True:
             return  # No provisional selection/plots between the two table loads.
         if not self._workbook_sources:
             super().update_plan()

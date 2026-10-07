@@ -3,9 +3,34 @@
 from math import ceil
 
 import pyqtgraph as pg
-from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtCore import QLineF, QPointF, QRectF, Qt
 from PyQt6.QtGui import QWheelEvent
 from PyQt6.QtWidgets import QAbstractScrollArea, QApplication
+from .curve import ResponsivePlotDataItem
+
+
+class _VerticalBoundaries(pg.GraphicsObject):
+    """Full-height reference lines in one item, excluded from data auto-range."""
+    def __init__(self, positions, pen):
+        super().__init__()
+        self.positions = tuple(positions)
+        self.pen = pg.mkPen(pen)
+        self.pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+
+    def boundingRect(self):
+        rect = self.viewRect()
+        return QRectF(rect) if rect is not None else QRectF()
+
+    def viewTransformChanged(self):
+        self.prepareGeometryChange()
+        super().viewTransformChanged()
+        self.update()
+
+    def paint(self, painter, *args):
+        rect = self.boundingRect()
+        painter.setPen(self.pen)
+        painter.drawLines([QLineF(x, rect.top(), x, rect.bottom())
+                           for x in self.positions if rect.left() <= x <= rect.right()])
 
 
 def place_legend_above_frame(plot, *, columns=2):
@@ -88,6 +113,7 @@ class InteractivePlotWidget(pg.PlotWidget):
     def __init__(self, *, auto_x_range=None, frame_tick_length=0, **kwargs):
         view_box = _PlotViewBox(auto_x_range=auto_x_range)
         super().__init__(viewBox=view_box, **kwargs)
+        self.plot = self._plot_data
         self.secondary_views = []
         self.secondary_axes = []
         # Graphics items are not QWidget parents. Their unparented native menus
@@ -140,6 +166,28 @@ class InteractivePlotWidget(pg.PlotWidget):
 
     def set_auto_x_range(self, x_range):
         self.view_box.set_auto_x_range(x_range)
+
+    def _plot_data(self, *args, **kwargs):
+        if kwargs.get('clear', False):
+            self.clear()
+        item = ResponsivePlotDataItem(*args, **kwargs)
+        self.getPlotItem().addItem(item, params=kwargs.get('params') or {})
+        item.rendering_changed.connect(self._render_status_changed)
+        return item
+
+    def add_vertical_boundaries(self, positions, pen):
+        """Draw every wafer edge without adding hundreds of scene objects."""
+        item = _VerticalBoundaries(positions, pen)
+        self.getPlotItem().addItem(item, ignoreBounds=True)
+        return item
+
+    def _render_status_changed(self):
+        items = self.listDataItems() + [item for view in self.secondary_views for item in view.addedItems]
+        pending = any(getattr(item, 'render_pending', False) for item in items)
+        if pending:
+            self.viewport().setCursor(Qt.CursorShape.BusyCursor)
+        else:
+            self.viewport().unsetCursor()
 
     def wheelEvent(self, event):
         """Leave ordinary wheel navigation to the enclosing page."""

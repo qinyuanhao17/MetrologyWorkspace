@@ -1,6 +1,6 @@
 # Metrology Workspace
 
-Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、径向图、相关性图和 Die Seq 趋势图。主窗口依次提供 **Match Workbook**、**Wafer Map**、**Correlation and Trend** 和 **Dynamic** 四个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例。v2 在 `main` 分支持续开发，本轮开发快照为 `v2.0.0-dev.4`；已发布且保留的稳定版本是 `v1.2.0`。
+Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、径向图、相关性图和 Die Seq 趋势图。主窗口依次提供 **Match Workbook**、**Wafer Map**、**Correlation and Trend** 和 **Dynamic** 四个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例。当前正式源码版本为 **v3.0.0**，在 `main` 分支维护；功能、验证及已知限制见 [v3.0.0 发布说明](docs/releases/v3.0.0.md)。历史版本与开发版标签保持不变。
 
 ## 运行
 
@@ -27,7 +27,7 @@ python main.py
 
 ## Windows 便携版
 
-解压 `MetrologyWorkspace-Windows-x64-v1.2.0.zip`，双击 `MetrologyWorkspace.exe` 即可运行，无需另装 Python。`_internal` 文件夹必须和 EXE 放在同一目录。设置保存在 EXE 旁边的 `settings.yaml` 中，下次启动时会自动读取。
+历史便携版 `MetrologyWorkspace-Windows-x64-v1.2.0.zip` 解压后双击 `MetrologyWorkspace.exe` 即可运行，无需另装 Python；它不包含 v3.0.0 的功能和优化。本次 v3.0.0 发布为源码及 Git 标签，未生成新的 Windows 便携包。`_internal` 文件夹必须和 EXE 放在同一目录。设置保存在 EXE 旁边的 `settings.yaml` 中，下次启动时会自动读取。
 
 重新构建便携版：
 
@@ -273,9 +273,9 @@ KLA/NOVA 的 TestFlag、可命名测头、可选自定义 Mark 分类、三表�
 在项目目录运行：
 
 ```powershell
-conda run -n metrology-workspace python -m unittest discover -s tests -v
+conda run -n metrology-workspace python run_tests.py
 ```
 
-测试覆盖数据识别、编辑操作、插值、绘图、导出、窗口行为、Correlation/Trend 交互以及 Card Matching/WKB 工作流。开发过程中生成的截图和临时视觉检查文件不纳入项目。
+测试覆盖数据识别、编辑操作、插值、绘图、导出、窗口行为、Correlation/Trend 交互以及 Card Matching/WKB 工作流。`run_tests.py` 使用 scratch 设置与 recovery，避免覆盖用户的主题和 Open Recent 列表。开发过程中生成的截图和临时视觉检查文件不纳入项目。
 
 当前开发状态和 Skill 使用约定见 [docs/HANDOFF.md](docs/HANDOFF.md)。

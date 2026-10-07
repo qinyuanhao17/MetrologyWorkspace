@@ -60,6 +60,8 @@ class PlotPage(QWidget):
         self.revision = 0
         self._center_timer = QTimer(self, singleShot=True)
         self._center_timer.timeout.connect(self.center_canvas)
+        self._fit_width_timer = QTimer(self, singleShot=True)
+        self._fit_width_timer.timeout.connect(self._resize_fit_width)
         self.worker = None
         self.pending_fill_refresh = False
         self.pending_input_refresh = False
@@ -782,6 +784,7 @@ class PlotPage(QWidget):
         # An explicit restore supersedes the fit/centering queued by rendering.
         # Also prevent settle_canvas from scheduling a second late recenter.
         self._center_timer.stop()
+        self._fit_width_timer.stop()
         self._canvas_resized = False
         self.scroll.resetTransform()
         self.scroll.scale(saved["scale"], saved["scale"])
@@ -977,7 +980,14 @@ class PlotPage(QWidget):
         # Percentage zoom does not depend on viewport width. A late layout
         # resize must not recenter a previously restored/user-scrolled view.
         if self.zoom.currentText() == "Fit width":
-            QTimer.singleShot(0, self.resize_canvas)
+            self._fit_width_timer.start(0)
+
+    def _resize_fit_width(self):
+        # A resize requested while fitting must not later re-centre an explicit
+        # percentage zoom or restored viewport. The owned timer also coalesces
+        # layout cascades and is cancelled when this page is destroyed.
+        if self.zoom.currentText() == "Fit width":
+            self.resize_canvas()
 
     def hover_point(self, event):
         if event.x is None or event.inaxes is None:

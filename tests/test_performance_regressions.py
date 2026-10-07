@@ -11,6 +11,429 @@ from metrology_app.matching import MatchWorkbook, ParameterMapping
 
 
 class WorkbookPerformanceTests(unittest.TestCase):
+    def test_restore_disabled_trend_does_not_run_old_queued_draw(self):
+        from PyQt6.QtTest import QTest
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.correlation_window import CorrelationWindow
+        app = QApplication.instance() or QApplication([])
+        window = CorrelationWindow()
+        try:
+            raw = pd.DataFrame({'Wafer ID': ['W1'] * 10, 'Die Seq': np.arange(1, 11),
+                                'CD': np.arange(10.) + 1, 'Thickness': np.arange(10.) * 2 + 3})
+            reference = pd.DataFrame({'Ref': raw['CD'] * 1.03 + 2,
+                                      'Thickness Ref': raw['Thickness'] * 1.03 + 2})
+            window.set_sources(reference, raw, [ParameterMapping('CD', 'Ref', 'CD'),
+                ParameterMapping('Thickness', 'Thickness Ref', 'Thickness')])
+            for page in (window.correlation_page, window.sequence_page):
+                page.selector.selectAll()
+                page.draw_plot()
+                self.assertTrue(page.ready, page.status.text())
+            state = window.selection_state()
+            expected_raw = window.raw_model.document_frame().copy(deep=True)
+            # Pending Draw in a saved workspace disables automatic drawing.
+            # Zero interval makes the ordering deterministic, even on a fast
+            # machine: Correlation processes events while fitting its result.
+            state['trend_draw']['enabled'] = False
+            window.sequence_page.input_refresh_timer.setInterval(0)
+            window.restore_selection(state)
+            QTest.qWait(50)
+            self.assertTrue(window.correlation_page.ready)
+            self.assertFalse(window.sequence_page.ready,
+                             'The old queued Trend drew despite disabled saved Draw state')
+            self.assertEqual(window.sequence_page.plot_widgets, [])
+            pd.testing.assert_frame_equal(window.raw_model.document_frame(), expected_raw)
+        finally:
+            window.document.timer.stop()
+            window.document.identity_timer.stop()
+            window.document.force_close = True
+            window.close()
+            window.deleteLater()
+            app.processEvents()
+
+    def test_batched_wafer_edges_match_native_lines_after_zoom(self):
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QApplication
+        import pyqtgraph as pg
+        from metrology_app.plotting import InteractivePlotWidget
+        app = QApplication.instance() or QApplication([])
+        native, batched = InteractivePlotWidget(background='white'), InteractivePlotWidget(background='white')
+        try:
+            positions = [10.5, 40.5, 80.5]
+            pen = pg.mkPen('#d4d7dc', width=1, style=Qt.PenStyle.DashLine)
+            for plot in (native, batched):
+                plot.resize(640, 320)
+                plot.plot(np.arange(100.), np.sin(np.arange(100.)), pen='blue')
+                plot.show()
+            for position in positions:
+                native.addItem(pg.InfiniteLine(position, angle=90, pen=pen))
+            batched.add_vertical_boundaries(positions, pen)
+            for limits in ((0, 100, -1, 1), (5, 50, -3, 3)):
+                for plot in (native, batched):
+                    plot.setRange(xRange=limits[:2], yRange=limits[2:], padding=0)
+                app.processEvents()
+                self.assertEqual(native.grab().toImage(), batched.grab().toImage(),
+                                 'Batched wafer edges changed rendered positions or dash styles')
+        finally:
+            for plot in (native, batched):
+                plot.close()
+                plot.deleteLater()
+            app.processEvents()
+
+    def test_first_wide_trend_draw_preserves_all_source_columns_promptly(self):
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.sequence_page import SequencePage
+        app = QApplication.instance() or QApplication([])
+        page = SequencePage()
+        rows = 8000
+        frame = pd.DataFrame({'Wafer ID': np.repeat([f'W{i:03}' for i in range(400)], 20),
+                              'Die Seq': list(range(1, 21)) * 400,
+                              'CD': np.arange(rows, dtype=float),
+                              'Thickness': np.arange(rows, dtype=float) * 2 + 3})
+        metrics = ['CD', 'Thickness', 'Etch', 'Recess', 'Depth', 'Width']
+        for column, name in enumerate(metrics[2:]):
+            frame[name] = np.arange(rows, dtype=float) + column
+        for column in range(25):
+            frame[f'Source {column}'] = [f'{column}:000{i}' for i in range(rows)]
+        original = frame.copy(deep=True)
+        try:
+            groups = {f'W{i:03}': tuple(range(i * 20, (i + 1) * 20)) for i in range(400)}
+            page.set_input(frame, {'wafers': list(groups), 'metrics': metrics,
+                                  'wafer_column': 'Wafer ID', 'groups': groups})
+            page.selector.selectAll()
+            start = perf_counter()
+            page.draw_plot()
+            elapsed = perf_counter() - start
+            self.assertTrue(page.ready, page.status.text())
+            self.assertEqual(sum(len(group['positions']) for group in page.groups), rows)
+            restored = pd.concat([group['frame'].drop(columns='__die') for group in page.groups])
+            pd.testing.assert_frame_equal(restored, original)
+            for plot, name in zip(page.plot_widgets, page.metrics):
+                curve = next(item for item in plot.listDataItems() if len(item.xData) == rows)
+                np.testing.assert_array_equal(curve.xData, np.arange(rows))
+                np.testing.assert_array_equal(curve.yData, frame[name])
+            self.assertLess(elapsed, 1.0, f'First wide Trend draw blocked for {elapsed:.3f}s')
+        finally:
+            page.input_refresh_timer.stop()
+            page.compare_timer.stop()
+            page.deleteLater()
+            app.processEvents()
+
+    def test_trend_preparation_keeps_invalid_dies_and_stable_duplicates_consistent(self):
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.sequence_page import SequencePage
+        app = QApplication.instance() or QApplication([])
+        page = SequencePage()
+        frame = pd.DataFrame({'Wafer ID': ['W1'] * 6,
+                              'Die Seq': ['4', '1', '1', 'invalid', 'inf', '2'],
+                              'CD': [10., 20., np.nan, 40., 50., 60.]},
+                             index=[7, 9, 11, 13, 15, 17])
+        original = frame.copy(deep=True)
+        try:
+            for preserve, expected in ((False, [9, 11, 17, 7]), (True, [7, 9, 11, 17])):
+                page.set_input(frame, {'wafers': ['W1'], 'metrics': ['CD'],
+                                      'wafer_column': 'Wafer ID',
+                                      'preserve_group_order': preserve})
+                page.selector.selectAll()
+                page.draw_plot()
+                self.assertTrue(page.ready, page.status.text())
+                ordered = page.groups[0]['frame']
+                self.assertEqual(ordered.index.tolist(), expected)
+                np.testing.assert_array_equal(ordered['CD'], frame.loc[expected, 'CD'])
+                np.testing.assert_array_equal(ordered['__die'],
+                                              pd.to_numeric(frame.loc[expected, 'Die Seq']))
+                pd.testing.assert_frame_equal(frame, original)
+        finally:
+            page.deleteLater()
+            app.processEvents()
+
+    def test_dense_trend_screen_and_export_match_with_nan_gaps(self):
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtTest import QTest
+        from PyQt6.QtWidgets import QApplication
+        import pyqtgraph as pg
+        from metrology_app.appearance import widget_to_qimage
+        from metrology_app.plotting import InteractivePlotWidget
+        app = QApplication.instance() or QApplication([])
+        plot = InteractivePlotWidget(background='white')
+        try:
+            plot.resize(720, 340)
+            values = np.random.default_rng(10).normal(10, 1, 6000)
+            values[500:550] = np.nan
+            values[1700] = 100  # A narrow, truthful spike must remain present.
+            item = plot.plot(np.arange(6000.), values, connect='finite',
+                             pen=pg.mkPen('#4472c4', width=1.5, style=Qt.PenStyle.DashLine))
+            plot.show()
+            app.processEvents()
+            plot.viewport().repaint()
+            plot.grab()  # Starts screen rasterization on offscreen Qt too.
+            deadline = perf_counter() + 15
+            while item.render_pending and perf_counter() < deadline:
+                QTest.qWait(10)
+            self.assertFalse(item.render_pending, 'Full curve image did not finish')
+            screen = plot.grab().toImage()
+            # Exercise the same public export-mode contract pyqtgraph's
+            # exporters use, with an immediate full-resolution QWidget capture.
+            item.curve.setExportMode(True, {'antialias': pg.getConfigOption('antialias')})
+            full = plot.grab().toImage()
+            item.curve.setExportMode(False)
+            if screen != full:
+                screen.save(str(Path(tempfile.gettempdir()) / 'trend-screen.png'))
+                full.save(str(Path(tempfile.gettempdir()) / 'trend-full.png'))
+            self.assertEqual(screen, full, 'Cached screen trace differs from complete Qt painting')
+            np.testing.assert_equal(item.getOriginalDataset()[1], values)
+            # The public curve style API must invalidate an image independently
+            # of data changes, including changes while a job is already running.
+            item.curve.setPen(pg.mkPen('#ed7d31', width=2.4, style=Qt.PenStyle.DashDotLine))
+            plot.grab()
+            deadline = perf_counter() + 15
+            while item.render_pending and perf_counter() < deadline:
+                QTest.qWait(10)
+            self.assertFalse(item.render_pending)
+            styled = plot.grab().toImage()
+            item.curve.setExportMode(True, {'antialias': pg.getConfigOption('antialias')})
+            styled_full = plot.grab().toImage()
+            item.curve.setExportMode(False)
+            self.assertEqual(styled, styled_full, 'Screen image retained an obsolete pen style')
+            # A subsequent data revision cannot publish the old curve image.
+            item.setData(np.arange(6000.), values + 3)
+            immediate, _scale = widget_to_qimage(plot, 1)
+            from pyqtgraph.exporters import ImageExporter
+            scene_export = ImageExporter(plot.getPlotItem()).export(toBytes=True)
+            scene_pixels = np.frombuffer(scene_export.constBits().asstring(scene_export.sizeInBytes()),
+                                         dtype=np.uint8).reshape(scene_export.height(), scene_export.bytesPerLine())
+            scene_pixels = scene_pixels[:, :scene_export.width() * 4].reshape(scene_export.height(), scene_export.width(), 4)
+            self.assertGreater(np.count_nonzero(scene_pixels[..., 0].astype(int) - scene_pixels[..., 2] > 50), 100,
+                               'Native scene exporter lost the current complete curve')
+            pixels = np.frombuffer(immediate.constBits().asstring(immediate.sizeInBytes()), dtype=np.uint8)
+            pixels = pixels.reshape(immediate.height(), immediate.bytesPerLine())[:, :immediate.width() * 4]
+            pixels = pixels.reshape(immediate.height(), immediate.width(), 4)
+            self.assertGreater(np.count_nonzero(pixels[..., 0].astype(int) - pixels[..., 2] > 50), 100,
+                               'Immediate PNG lost the measured blue curve')
+            app.processEvents()
+            plot.viewport().repaint()
+            plot.grab()
+            while item.render_pending and perf_counter() < deadline:
+                QTest.qWait(10)
+            self.assertFalse(item.render_pending)
+            updated = plot.grab().toImage()
+            completed_export, _scale = widget_to_qimage(plot, 1)
+            self.assertEqual(immediate, completed_export,
+                             'Export made before the screen job finished was stale')
+            item.curve.setExportMode(True, {'antialias': pg.getConfigOption('antialias')})
+            updated_full = plot.grab().toImage()
+            self.assertEqual(updated, updated_full)
+        finally:
+            plot.close()
+            plot.deleteLater()
+            app.processEvents()
+
+    def test_grouped_trend_wheel_preserves_full_curves_promptly(self):
+        from PyQt6.QtCore import QPoint, QPointF, Qt
+        from PyQt6.QtGui import QWheelEvent
+        from PyQt6.QtTest import QTest
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.matching_window import MatchingWindow
+        app = QApplication.instance() or QApplication([])
+        window = MatchingWindow()
+        try:
+            values = np.random.default_rng(20).normal(850, 12, 16000)
+            raw = pd.DataFrame({'Wafer ID': np.repeat([f'W{i}' for i in range(800)], 20),
+                                'Die Seq': list(range(1, 21)) * 800, 'Depth': values})
+            window.set_reference_frame(pd.DataFrame({'Depth Reference': values * 1.03 + 2}))
+            window.set_raw_frame(raw)
+            window.group_controls.restore({'enabled': True, 'mark_enabled': False},
+                                          pd.DataFrame({'TestFlag': [0] * len(raw)}))
+            window.run_analysis()
+            window.resize(1500, 950)
+            window.show()
+            plot = next(iter(window.plot_groups.values()))['plots']['trend']
+            window.setup_scroll.ensureWidgetVisible(plot)
+            QTest.qWait(400)
+            curves = plot.listDataItems()
+            original = [(item.xData.copy(), item.yData.copy()) for item in curves]
+            delays = []
+            for i in range(6):
+                point = plot.viewport().rect().center()
+                event = QWheelEvent(QPointF(point), QPointF(plot.viewport().mapToGlobal(point)),
+                                    QPoint(), QPoint(0, 120 if i % 2 else -120),
+                                    Qt.MouseButton.NoButton, Qt.KeyboardModifier.ControlModifier,
+                                    Qt.ScrollPhase.NoScrollPhase, False)
+                start = perf_counter()
+                app.sendEvent(plot.viewport(), event)
+                app.processEvents()
+                delays.append(perf_counter() - start)
+            for item, (x, y) in zip(plot.listDataItems(), original):
+                np.testing.assert_equal(item.xData, x)
+                np.testing.assert_equal(item.yData, y)
+            self.assertEqual(len(original[0][0]), 16000)
+            self.assertLess(max(delays), .1, f'Trend wheel froze the UI: {delays}')
+        finally:
+            window.document.force_close = True
+            window.close()
+            window.deleteLater()
+            app.processEvents()
+
+    def test_linked_source_update_publishes_one_consistent_selection(self):
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.matching_window import MatchingWindow
+        app = QApplication.instance() or QApplication([])
+        window = MatchingWindow()
+        try:
+            raw = pd.DataFrame({'Wafer ID': ['W1'] * 3, 'Die Seq': [1, 2, 3],
+                                'CD': [1., 2., 3.]})
+            window.set_reference_frame(pd.DataFrame({'CD Reference': [3., 5., 7.]}))
+            window.set_raw_frame(raw)
+            window.run_analysis()
+            child = window.open_correlation_workspace()
+            app.processEvents()
+            updates = []
+            child.correlation_page.selector.changed.connect(lambda: updates.append(child.selection))
+            window.raw_model.edit({**{(row, 0): 'W2' for row in range(1, 4)}, (1, 2): '1.500'})
+            window.run_analysis()
+            app.processEvents()
+            self.assertEqual(child.raw_model.document_frame().iloc[0, 2], '1.500')
+            self.assertEqual(len(updates), 1, 'Published provisional source/selection combinations')
+            self.assertEqual(child.raw_model.document_frame()['Wafer ID'].tolist(), ['W2'] * 3)
+        finally:
+            window.document.force_close = True
+            window.close()
+            window.deleteLater()
+            app.processEvents()
+
+    def test_warm_stage_switch_and_group_apply_keep_current_results_promptly(self):
+        from PyQt6.QtTest import QTest
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.matching_window import MatchingWindow
+        app = QApplication.instance() or QApplication([])
+        window = MatchingWindow()
+        try:
+            raw = pd.DataFrame({'Wafer ID': np.repeat([f'W{i}' for i in range(250)], 30),
+                                'Die Seq': list(range(1, 31)) * 250})
+            ref = pd.DataFrame()
+            for i in range(3):
+                raw[f'CD{i}'] = np.arange(7500.) + i + 1
+                ref[f'CD{i} Reference'] = raw[f'CD{i}'] * 2 + 3
+            window.set_reference_frame(ref)
+            window.set_raw_frame(raw)
+            window.run_analysis()
+            window.result_mode.setCurrentText('Final')
+            window.set_raw_frame(raw.assign(CD0=raw.CD0 + 10))
+            window.run_analysis()
+            window.resize(1500, 950)
+            window.show()
+            QTest.qWait(400)
+            delays = []
+            for mode in ('Preview', 'Final', 'Preview', 'Final'):
+                start = perf_counter()
+                window.result_mode.setCurrentText(mode)
+                app.processEvents()
+                delays.append(perf_counter() - start)
+                self.assertEqual(window.result.result_mode, mode.lower())
+                self.assertAlmostEqual(window.result.card('CD0').slope, 2)
+                self.assertAlmostEqual(window.result.card('CD0').intercept, 3 if mode == 'Preview' else -17)
+                self.assertEqual(window.result.series('CD0')['Raw'].iat[0], 1 if mode == 'Preview' else 11)
+            window.group_controls.order.setCurrentIndex(1)
+            start = perf_counter()
+            window.group_controls.apply_button.click()
+            app.processEvents()
+            delays.append(perf_counter() - start)
+            self.assertFalse(window.group_controls.pending)
+            self.assertEqual(window.result.group_plan.state['trend_order'], 'original')
+            self.assertLess(max(delays), .25, f"Warm switch/Apply stalled: {delays}")
+        finally:
+            window.document.force_close = True
+            window.close()
+            window.deleteLater()
+            app.processEvents()
+
+    def test_map_resize_queued_before_explicit_restore_keeps_latest_view(self):
+        from PyQt6.QtTest import QTest
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.window import MainWindow
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        try:
+            frame = pd.DataFrame({'Wafer ID': ['W1'] * 6 + ['W2'] * 6,
+                                  'Xmm': [-2., -1., 0., 1., 2., 0.] * 2,
+                                  'Ymm': [0., 1., 2., 0., -1., -2.] * 2,
+                                  'Depth (nm)': np.arange(12.) + 10,
+                                  'Thickness (nm)': np.arange(12.) + 20})
+            window.resize(1000, 760)
+            window.set_table(frame, 'Map view regression')
+            window.show()
+            window.check_all(window.wafer_list, True)
+            window.check_all(window.parameter_list, True)
+            page = window.plot_page
+            window.tabs.setCurrentWidget(page)
+            page.selector.selectAll()
+            page.draw_maps()
+            deadline = perf_counter() + 15
+            while page.worker is not None and perf_counter() < deadline:
+                QTest.qWait(10)
+            self.assertIsNotNone(page.result)
+            page.zoom.setCurrentText('200%')
+            QTest.qWait(50)
+            page.scroll.horizontalScrollBar().setValue(70)
+            saved = page.capture_view()
+            self.assertEqual(saved['h'], 70)
+            page.zoom.setCurrentText('Fit width')
+            page.resize(page.width() + 40, page.height() + 20)
+            page.restore_view(saved)
+            QTest.qWait(80)
+            self.assertEqual(page.zoom.currentText(), '200%')
+            self.assertAlmostEqual(page.capture_view()['h'], 70, delta=1)
+            pd.testing.assert_frame_equal(window.model.document_frame(), frame.astype(str))
+        finally:
+            window.document.force_close = True
+            window.close()
+            window.deleteLater()
+            app.processEvents()
+
+    def test_large_filtered_raw_selection_and_single_cell_remain_responsive(self):
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtTest import QTest
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.match_group_ui import ProjectedSheetModel
+        from metrology_app.sheet import SheetModel, SheetView
+        app = QApplication.instance() or QApplication([])
+        model = SheetModel()
+        raw = pd.DataFrame({f"C{c}": ["1.000"] * 8000 for c in range(33)})
+        model.load(raw)
+        projected = ProjectedSheetModel(model)
+        projected.set_rows(range(7999, -1, -1))
+        view = SheetView(projected)
+        try:
+            view.resize(850, 330)
+            view.show()
+            app.processEvents()
+            delays = []
+            for _ in range(3):
+                start = perf_counter()
+                QTest.keyClick(view, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+                app.processEvents()
+                delays.append(perf_counter() - start)
+                self.assertTrue(view.selectionModel().isSelected(projected.index(8000, 32)))
+                start = perf_counter()
+                cell = projected.index(2, 2)
+                QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton,
+                                 pos=view.visualRect(cell).center())
+                app.processEvents()
+                delays.append(perf_counter() - start)
+                self.assertEqual(view.selectedIndexes(), [cell])
+            pd.testing.assert_frame_equal(model.document_frame(), raw)
+            self.assertTrue(model.undo.isClean())
+            self.assertLess(max(delays), .1, f"Selection blocked the UI: {delays}")
+            # Clear a filtered/reordered range and Undo, without changing the
+            # source header or unselected records.
+            view.selectAll()
+            QTest.keyClick(view, Qt.Key.Key_Delete)
+            model.undo.undo()
+            pd.testing.assert_frame_equal(model.document_frame(), raw)
+        finally:
+            view.close()
+            view.deleteLater()
+            app.processEvents()
+
     def test_equal_value_mapping_column_change_refreshes_the_raw_title(self):
         from PyQt6.QtCore import Qt
         from PyQt6.QtWidgets import QApplication
@@ -404,6 +827,7 @@ class WorkbookPerformanceTests(unittest.TestCase):
         from PyQt6 import sip
         from PyQt6.QtCore import QCoreApplication, QEvent
         from PyQt6.QtWidgets import QApplication, QVBoxLayout, QWidget
+        from unittest.mock import patch
         from metrology_app.plotting import InteractivePlotWidget
         app = QApplication.instance() or QApplication([])
         host = QWidget()
@@ -416,7 +840,10 @@ class WorkbookPerformanceTests(unittest.TestCase):
         menus = [plot.getPlotItem().getMenu(), plot.getViewBox().getMenu(None), secondary.getMenu(None)]
         self.assertTrue(all(menu.actions() for menu in menus), "Native plot options must remain available")
         host.deleteLater()
-        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        callback_errors = []
+        with patch('sys.excepthook', side_effect=lambda *error: callback_errors.append(error)):
+            QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        self.assertEqual(callback_errors, [], 'Plot disposal raised a Qt callback error')
         self.assertTrue(sip.isdeleted(plot))
         self.assertTrue(all(sip.isdeleted(menu) for menu in menus), "Disposed plots left live native menus")
         app.processEvents()

@@ -249,7 +249,7 @@ class CorrelationTests(unittest.TestCase):
                     list(zip(range(15), ["2", "36", "50", "66", "85"] * 3)),
                 )
                 self.assertEqual(
-                    [item.value() for item in plot.items if isinstance(item, pg.InfiniteLine)],
+                    list(widget.wafer_boundaries.positions),
                     [4.5, 9.5],
                 )
                 plot.autoBtnClicked()
@@ -1234,8 +1234,7 @@ class CorrelationTests(unittest.TestCase):
             self.assertEqual(len(x), 480)
             self.assertEqual(len(values), 480)
             np.testing.assert_allclose(np.diff(x), 1.0)  # one line, no gap between sets
-            boundaries = [float(item.value()) for item in first.getPlotItem().items
-                          if isinstance(item, pg.InfiniteLine)]
+            boundaries = list(first.wafer_boundaries.positions)
             self.assertEqual(boundaries, [79.5, 159.5, 239.5, 319.5, 399.5])
 
             view = first.getPlotItem().getViewBox()
