@@ -93,6 +93,14 @@ Feature: Durable metrology workspaces
 
   Rule: Recovery preserves the accepted basis of each analysis
 
+    # test_unchanged_recovery_is_not_rewritten_and_new_edits_remain_recoverable
+    Scenario: Keep an unchanged recovery draft while protecting later edits
+      Given an engineer has a recovery draft containing unsaved measurement "9.9900"
+      When another recovery check runs without a new edit
+      Then the existing recovery file is retained without rewriting
+      When the engineer changes the measurement to "11.5000"
+      Then the next recovery check protects that new draft and its accepted baseline
+
     # test_recovery_keeps_other_child_draft_and_its_discard_baseline
     Scenario: Recover another analysis after saving the wafer map
       Given Project A has saved wafer choices and an unsaved Dynamic measurement "99"

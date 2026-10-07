@@ -1,12 +1,14 @@
 """Document behavior through the same window actions used by engineers."""
 from pathlib import Path
 import tempfile
+from time import monotonic
 import unittest
 from unittest.mock import patch
 
 import pandas as pd
 from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox
 from PyQt6.QtCore import QTimer
+from PyQt6.QtTest import QTest
 
 from metrology_app.window import MainWindow
 from metrology_app.correlation_window import CorrelationWindow
@@ -17,6 +19,352 @@ APP = QApplication.instance() or QApplication([])
 
 
 class DocumentStorageTests(unittest.TestCase):
+    def test_cancelled_save_as_suspends_recovery_publication_and_then_resumes_the_draft(self):
+        import os
+        import threading
+        from metrology_app.workspace_store import load_workspace
+        entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+        gui_thread = threading.get_ident()
+        real_fsync, real_replace = os.fsync, os.replace
+        with tempfile.TemporaryDirectory() as directory:
+            window = MainWindow()
+
+            def slow_disk(descriptor):
+                if threading.get_ident() != gui_thread:
+                    entered.set()
+                    if not release.wait(5):
+                        raise OSError("test disk wait expired")
+                return real_fsync(descriptor)
+
+            def record_commit(source, target):
+                result = real_replace(source, target)
+                if threading.get_ident() != gui_thread:
+                    finished.set()
+                return result
+
+            def choose_and_cancel(*args, **kwargs):
+                release.set()
+                deadline = monotonic() + 5
+                while not finished.is_set() and monotonic() < deadline:
+                    QTest.qWait(10)
+                self.assertTrue(finished.is_set())
+                QTest.qWait(60)  # Allow the completed result through the nested dialog event loop.
+                self.assertFalse(window.document.recovery_path.exists(), "A pending result published during the Save decision")
+                return "", ""
+
+            try:
+                window.set_table(pd.DataFrame({"CD": ["2.1000"]}), "Measurements")
+                window.document.save(Path(directory) / "accepted.wmap")
+                window.document.recovery_path = Path(directory) / "draft.wmap"
+                window.model.edit({(1, 0): "9.9900"})
+                with patch.object(os, "fsync", side_effect=slow_disk), patch.object(os, "replace", side_effect=record_commit):
+                    window.document.request_recovery()
+                    deadline = monotonic() + 5
+                    while not entered.is_set() and monotonic() < deadline:
+                        QTest.qWait(10)
+                    self.assertTrue(entered.is_set())
+                    with patch.object(QFileDialog, "getSaveFileName", side_effect=choose_and_cancel):
+                        self.assertIsNone(window.document.save(save_as=True))
+                    deadline = monotonic() + 5
+                    while window.document.recovery_pending and monotonic() < deadline:
+                        QTest.qWait(10)
+                    self.assertFalse(window.document.recovery_pending)
+                self.assertEqual(load_workspace(window.document.recovery_path).frames["input_data"].iloc[0, 0], "9.9900")
+                self.assertTrue(window.document.is_dirty())
+            finally:
+                release.set()
+                window.document.force_close = True
+                window.close()
+                window.deleteLater()
+                APP.processEvents()
+
+    def test_background_recovery_failed_publication_keeps_the_last_valid_draft_and_retries(self):
+        import os
+        from metrology_app.workspace_store import file_revision, load_workspace
+
+        def finish(document):
+            deadline = monotonic() + 5
+            while document.recovery_pending and monotonic() < deadline:
+                QTest.qWait(10)
+            self.assertFalse(document.recovery_pending)
+
+        with tempfile.TemporaryDirectory() as directory:
+            window = MainWindow()
+            try:
+                window.set_table(pd.DataFrame({"CD": ["2.1000"]}), "Measurements")
+                original = window.document.save(Path(directory) / "accepted.wmap")
+                original_revision = file_revision(original)
+                path = window.document.recovery_path = Path(directory) / "draft.wmap"
+                window.model.edit({(1, 0): "9.9900"})
+                window.document.request_recovery()
+                finish(window.document)
+                previous = file_revision(path)
+                window.model.edit({(1, 0): "11.5000"})
+                real_replace = os.replace
+
+                def fail_publication(source, target):
+                    if Path(target).resolve() == path:
+                        raise PermissionError("recovery target in use")
+                    return real_replace(source, target)
+
+                with patch.object(os, "replace", side_effect=fail_publication):
+                    window.document.request_recovery()
+                    finish(window.document)
+                self.assertIn("recovery target in use", window.document.last_warning)
+                self.assertEqual(file_revision(path), previous)
+                self.assertEqual(load_workspace(path).frames["input_data"].iloc[0, 0], "9.9900")
+                window.document.request_recovery()
+                finish(window.document)
+                self.assertEqual(load_workspace(path).frames["input_data"].iloc[0, 0], "11.5000")
+                path.unlink()
+                window.document.request_recovery()
+                finish(window.document)
+                self.assertEqual(load_workspace(path).frames["input_data"].iloc[0, 0], "11.5000")
+                self.assertEqual(file_revision(original), original_revision)
+            finally:
+                window.document.force_close = True
+                window.close()
+                window.deleteLater()
+                APP.processEvents()
+
+    def test_discard_and_close_cancel_a_disk_waiting_recovery_without_recreating_the_draft(self):
+        import os
+        import threading
+        from metrology_app.workspace_store import load_workspace
+        gui_thread = threading.get_ident()
+        real_fsync, real_replace = os.fsync, os.replace
+        for choice in ("discard", "save", "close"):
+            with self.subTest(choice=choice), tempfile.TemporaryDirectory() as directory:
+                entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+                root = Path(directory)
+                window = MainWindow()
+
+                def slow_disk(descriptor):
+                    if threading.get_ident() != gui_thread:
+                        entered.set()
+                        if not release.wait(5):
+                            raise OSError("test disk wait expired")
+                    return real_fsync(descriptor)
+
+                def record_private_commit(source, target):
+                    result = real_replace(source, target)
+                    if threading.get_ident() != gui_thread:
+                        finished.set()
+                    return result
+
+                def wait_for(condition):
+                    deadline = monotonic() + 5
+                    while not condition() and monotonic() < deadline:
+                        QTest.qWait(10)
+                    self.assertTrue(condition())
+
+                try:
+                    window.set_table(pd.DataFrame({"CD": ["2.1000"]}), "Measurements")
+                    original = window.document.save(root / "accepted.wmap")
+                    window.document.recovery_path = root / "draft.wmap"
+                    window.model.edit({(1, 0): "9.9900"})
+                    with patch.object(os, "fsync", side_effect=slow_disk), patch.object(os, "replace", side_effect=record_private_commit):
+                        window.document.request_recovery()
+                        wait_for(entered.is_set)
+                        if choice == "save":
+                            window.document.save()
+                        elif choice == "discard":
+                            window.document.discard()
+                        else:
+                            with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Discard):
+                                self.assertTrue(window.close())
+                        release.set()
+                        retained = {original, Path(str(original) + ".bak")} if choice == "save" else {original}
+                        wait_for(lambda: finished.is_set() and set(root.iterdir()) == retained)
+                        self.assertFalse(window.document.recovery_path.exists())
+                    expected = "9.9900" if choice == "save" else "2.1000"
+                    self.assertEqual(load_workspace(original).frames["input_data"].iloc[0, 0], expected)
+                finally:
+                    release.set()
+                    window.document.force_close = True
+                    window.close()
+                    window.deleteLater()
+                    APP.processEvents()
+
+    def test_background_recovery_keeps_the_interface_responsive_and_the_latest_requested_edit(self):
+        import os
+        import threading
+        from metrology_app.workspace_store import load_workspace
+        entered, release = threading.Event(), threading.Event()
+        gui_thread = threading.get_ident()
+        real_fsync = os.fsync
+
+        def slow_disk(descriptor):
+            if threading.get_ident() != gui_thread:
+                entered.set()
+                if not release.wait(5):
+                    raise OSError("test disk wait expired")
+            return real_fsync(descriptor)
+
+        def wait_for(condition):
+            deadline = monotonic() + 5
+            while not condition() and monotonic() < deadline:
+                QTest.qWait(10)
+            self.assertTrue(condition(), "Recovery did not reach the expected state")
+
+        with tempfile.TemporaryDirectory() as directory:
+            window = MainWindow()
+            try:
+                window.set_table(pd.DataFrame({"CD": ["2.1000"]}), "Measurements")
+                window.document.save(Path(directory) / "accepted.wmap")
+                window.document.recovery_path = Path(directory) / "draft.wmap"
+                window.model.edit({(1, 0): "9.9900"})
+                with patch.object(os, "fsync", side_effect=slow_disk):
+                    start = monotonic()
+                    window.document.request_recovery()
+                    self.assertLess(monotonic() - start, .1)
+                    wait_for(entered.is_set)
+                    window.model.edit({(1, 0): "11.5000"})
+                    window.document.request_recovery()
+                    release.set()
+                    wait_for(lambda: not window.document.recovery_pending)
+                self.assertEqual(load_workspace(window.document.recovery_path).frames["input_data"].iloc[0, 0], "11.5000")
+                self.assertTrue(window.document.is_dirty(), "Recovery must not accept edits as a formal Save")
+            finally:
+                release.set()
+                window.document.force_close = True
+                window.close()
+                window.deleteLater()
+                APP.processEvents()
+
+    def test_settings_save_updates_open_recovery_intervals_and_cancel_keeps_the_saved_interval(self):
+        from metrology_app.settings import get_settings, save_settings
+        from metrology_app.settings_dialog import SettingsDialog
+        before = get_settings()
+        save_settings({"recovery_interval_seconds": 120})
+        window = MainWindow()
+        dialog = SettingsDialog()
+        try:
+            self.assertEqual(window.document.timer.interval(), 120_000)
+            dialog.recovery_interval.setValue(300)
+            dialog.save()
+            self.assertEqual(window.document.timer.interval(), 300_000)
+            self.assertEqual(get_settings()["recovery_interval_seconds"], 300)
+            dialog.deleteLater()
+            dialog = SettingsDialog()
+            dialog.recovery_interval.setValue(600)
+            dialog.reject()
+            self.assertEqual(window.document.timer.interval(), 300_000)
+            self.assertEqual(get_settings()["recovery_interval_seconds"], 300)
+        finally:
+            dialog.deleteLater()
+            save_settings(before)
+            window.document.force_close = True
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_cached_recovery_recreates_missing_or_replaced_files_and_cleans_after_undo(self):
+        from metrology_app.workspace_store import WorkspaceSnapshot, file_revision, load_workspace, save_workspace
+        window = MainWindow()
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                window.set_table(pd.DataFrame({"CD": ["2.1000"]}), "Measurements")
+                original = window.document.save(Path(directory) / "accepted.wmap")
+                accepted_revision = file_revision(original)
+                path = Path(directory) / "draft.wmap"
+                window.document.recovery_path = path
+                window.model.edit({(1, 0): "9.9900"})
+                window.document.write_recovery()
+                path.unlink()
+                window.document.write_recovery()
+                self.assertEqual(load_workspace(path).frames["input_data"].iloc[0, 0], "9.9900")
+                save_workspace(path, WorkspaceSnapshot("wafer_map", {"input_data": pd.DataFrame({"CD": ["0"]})},
+                                                      {"ui": {}}), backup=False)
+                window.document.write_recovery()
+                self.assertEqual(load_workspace(path).frames["input_data"].iloc[0, 0], "9.9900")
+                window.model.undo.undo()
+                window.document.write_recovery()
+                self.assertFalse(path.exists(), "Returning to accepted data must remove the obsolete recovery")
+                window.model.edit({(1, 0): "9.9900"})
+                window.document.write_recovery()
+                self.assertEqual(load_workspace(path).frames["input_data"].iloc[0, 0], "9.9900")
+                self.assertEqual(file_revision(original), accepted_revision)
+        finally:
+            window.document.force_close = True
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_failed_recovery_commit_keeps_the_previous_draft_and_retries_new_edits(self):
+        import os
+        from metrology_app.workspace_store import file_revision, load_workspace
+        window = MainWindow()
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                window.set_table(pd.DataFrame({"CD": ["2.1000"]}), "Measurements")
+                original = window.document.save(Path(directory) / "accepted.wmap")
+                accepted_revision = file_revision(original)
+                window.document.recovery_path = Path(directory) / "draft.wmap"
+                window.model.edit({(1, 0): "9.9900"})
+                window.document.write_recovery()
+                path = window.document.recovery_path
+                previous_revision = file_revision(path)
+                window.model.edit({(1, 0): "11.5000"})
+                real_replace = os.replace
+                def fail_recovery(source, target):
+                    if Path(target).resolve() == path:
+                        raise PermissionError("recovery target in use")
+                    return real_replace(source, target)
+                with patch.object(os, "replace", side_effect=fail_recovery):
+                    window.document.write_recovery()
+                self.assertIn("recovery target in use", window.document.last_warning)
+                self.assertEqual(file_revision(path), previous_revision)
+                self.assertEqual(load_workspace(path).frames["input_data"].iloc[0, 0], "9.9900")
+                self.assertEqual(window.model.document_frame().iloc[0, 0], "11.5000")
+                self.assertTrue(window.document.is_dirty())
+                window.document.write_recovery()
+                self.assertEqual(load_workspace(path).frames["input_data"].iloc[0, 0], "11.5000")
+                self.assertEqual(file_revision(original), accepted_revision)
+        finally:
+            window.document.force_close = True
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_unchanged_recovery_is_not_rewritten_and_new_edits_remain_recoverable(self):
+        from metrology_app.workspace_store import file_revision, load_workspace
+        window, restored = MainWindow(), MainWindow()
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                window.set_table(pd.DataFrame({"Wafer ID": ["001"], "CD": ["2.1000"]}), "Measurements")
+                original = window.document.save(Path(directory) / "accepted.wmap")
+                original_revision = file_revision(original)
+                window.document.recovery_path = Path(directory) / "draft.wmap"
+                window.model.edit({(1, 1): "9.9900"})
+                window.document.write_recovery()
+                path = window.document.recovery_path
+                first_revision, first_stamp = file_revision(path), path.stat().st_mtime_ns
+                window.document.write_recovery()
+                window.document.write_recovery()
+                self.assertEqual(file_revision(path), first_revision, "An unchanged draft was rewritten")
+                self.assertEqual(path.stat().st_mtime_ns, first_stamp)
+                from metrology_app.settings import get_settings
+                self.assertEqual(window.document.timer.interval(), get_settings()["recovery_interval_seconds"] * 1000)
+                window.model.edit({(1, 1): "11.5000"})
+                window.document.write_recovery()
+                self.assertNotEqual(file_revision(path), first_revision)
+                self.assertEqual(load_workspace(path).frames["input_data"].iloc[0, 1], "11.5000")
+                restored.document.recover(path)
+                self.assertEqual(restored.model.document_frame().iloc[0, 1], "11.5000")
+                self.assertTrue(restored.document.is_dirty())
+                with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Discard):
+                    self.assertTrue(restored.close())
+                    restored.load_workspace(original)
+                self.assertEqual(restored.model.document_frame().iloc[0, 1], "2.1000")
+                self.assertEqual(file_revision(original), original_revision)
+        finally:
+            for widget in (window, restored):
+                widget.document.force_close = True
+                widget.close()
+                widget.deleteLater()
+            APP.processEvents()
+
     def test_match_reopen_current_document_after_save_uses_the_new_saved_data(self):
         from metrology_app.matching_window import MatchingWindow
         window = MatchingWindow()

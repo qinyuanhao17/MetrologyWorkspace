@@ -364,6 +364,7 @@ class SequencePage(QWidget):
 
     def invalidate(self):
         self.input_refresh_timer.stop()
+        self._numeric_columns = {}
         self.ready = False
         self.groups = []
         self.metrics = []
@@ -407,13 +408,17 @@ class SequencePage(QWidget):
         drawn_keys = {key for key, _metric in cells}
         parts = [(key, part) for key, part in self._parts()
                  if key in drawn_keys and not part.empty]
+        # Convert the shared Die Seq column once. Each selected measurement
+        # retains its original indices, stable order and missing-value rules.
+        die = number(self.frame[self.die_column])
         if sources and not self.selection.get("preserve_group_order"):
             # Keep table order even when the two tabs select different wafers.
             parts.sort(key=lambda pair: pair[1].index.min() - min(
                 source_by_key.get(pair[0], {}).get("rows") or (0,)
             ))
         for key, part in parts:
-            ordered = part.assign(__die=number(part[self.die_column])).dropna(subset=["__die"])
+            values = die.reindex(part.index) if die.index.is_unique else number(part[self.die_column])
+            ordered = part.assign(__die=values).dropna(subset=["__die"])
             if not self.selection.get("preserve_group_order"):
                 ordered = ordered.sort_values("__die", kind="stable")
             if ordered.empty:
@@ -829,6 +834,7 @@ class SequencePage(QWidget):
 
     def draw_plot(self, *_):
         self.input_refresh_timer.stop()
+        self._numeric_columns = {}
         try:
             metrics = self.selection.get("metrics", [])
             wafers = self.selection.get("wafers", [])
@@ -918,7 +924,15 @@ class SequencePage(QWidget):
             self.status.setText(str(error))
 
     def _metric_values(self, metric, groups):
-        values = [number(group["frame"][metric]).to_numpy(float) for group in groups]
+        if self.frame.index.is_unique:
+            # One conversion per drawn result, shared by curves, comparisons
+            # and export. set_input/invalidate discard it before any edit.
+            if metric not in self._numeric_columns:
+                self._numeric_columns[metric] = number(self.frame[metric])
+            column = self._numeric_columns[metric]
+            values = [column.reindex(group["frame"].index).to_numpy(float) for group in groups]
+        else:
+            values = [number(group["frame"][metric]).to_numpy(float) for group in groups]
         return np.concatenate(values) if values else np.asarray([], dtype=float)
 
     def _overlay_specs(self):
@@ -1033,6 +1047,15 @@ class SequencePage(QWidget):
         width, height = self.base_size
         base = int(self.font_size.currentText())
         label_spans = self._label_spans()
+        # Reserve physical annotation space for every row, not just the last.
+        # A fixed hspace made large-font wafer labels overlap the next title.
+        label_lines = max((label.count("\n") + 1 for _, _, label in label_spans), default=1)
+        footer = max(95, (3 * base + 12 + label_lines * max(6, base - 2) * 1.2 + 8)
+                     * self.figure.dpi / 72)
+        header = ((base + 1) * 1.4 + 16) * self.figure.dpi / 72
+        row_gap = footer + header
+        height = max(height, rows * (220 + row_gap))
+        plot_height = (height - rows * row_gap) / rows
         self.figure.clear()
         self.figure.set_size_inches(width / 100, height / 100, forward=False)
         axes = self.figure.subplots(rows, columns, squeeze=False)
@@ -1155,13 +1178,8 @@ class SequencePage(QWidget):
         for ax in axes.flat[len(panels):]:
             ax.set_axis_off()
         right = max(.72, .985 - .075 * max_secondary_axes)
-        # Reserve physical space for Die Seq and the wafer labels, including
-        # short one-panel exports where a percentage margin is too small.
-        label_lines = max((label.count("\n") + 1 for _, _, label in label_spans), default=1)
-        label_space = (3 * base + 12 + label_lines * max(6, base - 2) * 1.2 + 8) * self.figure.dpi / 72
-        bottom = min(.45, max(95, label_space) / height)
-        self.figure.subplots_adjust(left=.065, right=right, top=.965, bottom=bottom,
-                                    hspace=.64, wspace=.18)
+        self.figure.subplots_adjust(left=.065, right=right, top=1 - header / height,
+                                    bottom=footer / height, hspace=row_gap / plot_height, wspace=.18)
         # Fit against the export renderer, not screen pixels or a fixed count.
         renderer = self.figure.canvas.get_renderer()
         for ax in axes.flat[:len(panels)]:
@@ -1447,7 +1465,25 @@ class SequencePage(QWidget):
             if self.metrics:
                 self.clear_interactive()
             return
-        self.relayout()
+        base = int(self.font_size.currentText())
+        self._export_dirty = True
+        self._copy_image = None
+        self._copy_dpi = None
+        # Font is presentation state: keep the existing curves, comparison
+        # controls, panel sizes and zoom instead of rebuilding the plot grid.
+        for container, widget in zip(self.panel_hosts, self.plot_widgets):
+            heading = container.findChild(QLabel, "panelTitle")
+            if heading is not None:
+                heading.setStyleSheet(f"color: #20242a; font-size: {base + 1}pt;")
+            plot = widget.getPlotItem()
+            for name in ("left", "bottom"):
+                axis = plot.getAxis(name)
+                options = {key: getattr(axis, attribute) for key, attribute in
+                           (("unitPower", "unitPower"), ("siPrefixEnableRanges", "_siPrefixEnableRanges"))
+                           if hasattr(axis, attribute)}  # Not present in supported PyQtGraph 0.13.
+                axis.setLabel(axis.labelText, units=axis.labelUnits, unitPrefix=axis.labelUnitPrefix,
+                              **options,
+                              **{**axis.labelStyle, "size": f"{max(7, base - 1)}pt"})
 
     def change_resolution(self, *_):
         if self.ready:

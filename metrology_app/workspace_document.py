@@ -1,5 +1,7 @@
 """Document choices and close/recovery workflow, shared by real windows."""
 from copy import deepcopy
+from contextlib import contextmanager
+from functools import wraps
 from pathlib import Path
 import os
 import stat
@@ -15,6 +17,16 @@ from .workspace_store import (EXTENSIONS, REQUIRED_FRAMES, WORKSPACE_LABELS, Wor
                               json_text, load_workspace, same_file, save_workspace, workspace_path)
 
 DOCUMENTS = weakref.WeakSet()
+
+
+def recovery_decision(method):
+    """Keep nested Save/Open/close dialogs outside automatic recovery."""
+    @wraps(method)
+    def guarded(target, *args, **kwargs):
+        document = getattr(target, "document", target)
+        with document.pause_recovery():
+            return method(target, *args, **kwargs)
+    return guarded
 
 
 def writable_path(path):
@@ -66,12 +78,15 @@ def pack_snapshot(container, name, snapshot):
             "states": deepcopy(snapshot.states)}
 
 
-def unpack_snapshot(container, description):
+def unpack_snapshot(container, description, *, copy=True):
     kind = description["workspace_type"]
-    frames = {key: container.frames[value].copy(deep=True) for key, value in description["frames"].items()}
-    states = deepcopy(description["states"])
+    frames = {key: container.frames[value] for key, value in description["frames"].items()}
+    states = description["states"]
     if kind not in REQUIRED_FRAMES or not REQUIRED_FRAMES[kind].issubset(frames) or not isinstance(states, dict):
         raise ValueError("Invalid recovery snapshot.")
+    if copy:
+        frames = {key: frame.copy(deep=True) for key, frame in frames.items()}
+        states = deepcopy(states)
     return WorkspaceSnapshot(kind, frames, states)
 
 
@@ -246,14 +261,23 @@ def restore_analysis_state(window, state):
 
 def same_snapshot(first, second):
     return (first.workspace_type == second.workspace_type
-            and json_text(first.states) == json_text(second.states)
             and first.frames.keys() == second.frames.keys()
-            and all(frame.equals(second.frames[name]) for name, frame in first.frames.items()))
+            and all(frame.equals(second.frames[name]) for name, frame in first.frames.items())
+            and json_text(first.states) == json_text(second.states))
 
 
 def recovery_directory():
     override = os.environ.get("METROLOGY_RECOVERY_DIR")
     return Path(override) if override else Path(os.environ.get("LOCALAPPDATA", Path.home())) / "MetrologyWorkspace" / "recovery"
+
+
+def apply_recovery_settings():
+    """Update every open document, keeping managed-child timers stopped."""
+    from .settings import get_settings
+    interval = get_settings().get("recovery_interval_seconds", 120) * 1000
+    for document in tuple(DOCUMENTS):
+        if document.timer.interval() != interval:
+            document.timer.setInterval(interval)
 
 
 class WkbDocument:
@@ -268,11 +292,20 @@ class WkbDocument:
         self.forced_dirty = False
         self.untrusted_recovery = False
         self.last_warning = ""
+        self._last_recovery = None
+        self._last_recovery_path = None
+        self._recovery_future = None
+        self._recovery_again = False
+        self._recovery_target = None
+        self._recovery_pause_depth = 0
         self.recovery_path = recovery_directory() / f"{uuid.uuid4().hex}{EXTENSIONS[window.workspace_type]}"
         DOCUMENTS.add(self)
-        self.timer = QTimer(window, interval=30_000)
-        self.timer.timeout.connect(self.write_recovery)
+        from .settings import get_settings
+        self.timer = QTimer(window, interval=get_settings().get("recovery_interval_seconds", 120) * 1000)
+        self.timer.timeout.connect(self.request_recovery)
         self.timer.start()
+        self.recovery_poll = QTimer(window, interval=25)
+        self.recovery_poll.timeout.connect(self._finish_recovery)
         self.identity_timer = QTimer(window, interval=300, singleShot=True)
         self.identity_timer.timeout.connect(self.refresh_identity)
         for control in window.findChildren(QComboBox):
@@ -290,6 +323,7 @@ class WkbDocument:
             window.selection_changed.connect(lambda *_: self.identity_timer.start())
 
     def mark_clean(self, snapshot=None):
+        self._cancel_recovery()
         self.baseline = deepcopy(snapshot or self.window.workspace_snapshot())
         self.forced_dirty = False
         try:
@@ -300,9 +334,22 @@ class WkbDocument:
             get_logger().warning("Saved baseline; title update failed: %s", error)
             self.last_warning = str(error)
 
-    def is_dirty(self):
-        return self.forced_dirty or self.baseline is None or not same_snapshot(
-            local_snapshot(self.window), local_snapshot(self.window, self.baseline))
+    def is_dirty(self, snapshot=None):
+        if self.forced_dirty or self.baseline is None:
+            return True
+        # Comparison is read-only. Normalize only the managed Correlation UI,
+        # without copying its source tables and classification context twice.
+        if snapshot is None:
+            snapshot = (self.window.workspace_snapshot(readonly=True)
+                        if self.window.workspace_type == "match_workbook" else self.window.workspace_snapshot())
+        current, baseline = snapshot, self.baseline
+        if (getattr(self.window, "_managed_owner", None) is not None
+                and self.window.workspace_type == "correlation_trend"):
+            current = WorkspaceSnapshot(current.workspace_type, current.frames,
+                {**current.states, "ui": local_ui(current.states.get("ui", {}))})
+            baseline = WorkspaceSnapshot(baseline.workspace_type, baseline.frames,
+                {**baseline.states, "ui": local_ui(baseline.states.get("ui", {}))})
+        return not same_snapshot(current, baseline)
 
     def has_changes(self):
         return (self.is_dirty() or bool(getattr(self.window, "_recovered_children", {}))
@@ -360,6 +407,7 @@ class WkbDocument:
             if any(same_file(target, path) for path in candidates):
                 raise ValueError("This target belongs to an open document, its backup or recovery draft. Choose another file.")
 
+    @recovery_decision
     def save(self, path=None, *, save_as=False):
         commit_editors(self.window)
         owner = getattr(self.window, "_managed_close_handler", None)
@@ -455,6 +503,7 @@ class WkbDocument:
         else:
             self.remove_recovery()
 
+    @recovery_decision
     def confirm_close(self):
         if self.force_close:
             return True
@@ -479,39 +528,174 @@ class WkbDocument:
             return False
         return True
 
+    def _recovery_matches(self, current, baseline, children):
+        saved = self._last_recovery
+        if saved is None or self.recovery_path != self._last_recovery_path:
+            return False
+        info = saved.states["recovery"]
+        if (info["original_path"] != str(self.path or "") or info["revision"] != self.revision
+                or children.keys() != info["children"].keys()):
+            return False
+        live = WorkspaceSnapshot(saved.workspace_type,
+            {key: frame for key, frame in saved.frames.items() if not key.startswith("__recovery__.")},
+            {key: state for key, state in saved.states.items() if key != "recovery"})
+        # These are read-only views of the last frozen successful write, never
+        # inputs to a restore. Compare before copying/packing another payload.
+        if (not same_snapshot(current, live)
+                or not same_snapshot(baseline, unpack_snapshot(saved, info["baseline"], copy=False))):
+            return False
+        for scope, child in children.items():
+            old = info["children"][scope]
+            if (bool(child.get("follow_source")) != old.get("follow_source", False)
+                    or any(not same_snapshot(child[role], unpack_snapshot(saved, old[role], copy=False))
+                           for role in ("baseline", "draft"))):
+                return False
+        # Missing, replaced or externally changed recovery files must not be
+        # treated as durable just because our in-memory draft is unchanged.
+        return file_revision(self.recovery_path) == saved.revision
+
+    @property
+    def recovery_pending(self):
+        return self._recovery_future is not None or self._recovery_again
+
+    @contextmanager
+    def pause_recovery(self):
+        pending = self.recovery_pending
+        self._recovery_pause_depth += 1
+        self._cancel_recovery()
+        try:
+            yield
+        finally:
+            self._recovery_pause_depth -= 1
+            pending = pending or self._recovery_again
+            if pending and self._recovery_pause_depth:
+                self._recovery_again = True
+            elif pending and self.timer.isActive():
+                self._recovery_again = False
+                self.request_recovery()
+
+    def _cancel_recovery(self):
+        future, self._recovery_future = self._recovery_future, None
+        self._recovery_again = False
+        self.recovery_poll.stop()
+        if future is not None:
+            from .recovery import discard_result
+            future.cancel()
+            future.add_done_callback(discard_result)
+
+    def request_recovery(self):
+        """Automatic recovery: capture once, then prepare a candidate off-thread."""
+        if getattr(self.window, "_managed_owner", None) is not None:
+            return
+        if self._recovery_pause_depth:
+            self._recovery_again = True
+            return
+        if self._recovery_future is not None:
+            self._recovery_again = True  # Never queue another full payload.
+            return
+        from .recovery import freeze_snapshot, submit_recovery
+        try:
+            source = (self.window.workspace_snapshot(readonly=True, validate=False)
+                      if self.window.workspace_type == "match_workbook" else self.window.workspace_snapshot())
+            current = freeze_snapshot(source)
+            baseline = freeze_snapshot(self.baseline) if self.baseline is not None else None
+            children = {scope: {"baseline": freeze_snapshot(saved["baseline"]),
+                                "draft": freeze_snapshot(saved["draft"]),
+                                "follow_source": bool(saved.get("follow_source"))}
+                        for scope, saved in getattr(self.window, "_recovered_children", {}).items()}
+            for child in getattr(self.window, "_stage_windows", ()):
+                if not hasattr(child, "document"):
+                    continue
+                children[child._managed_scope] = {
+                    "baseline": freeze_snapshot(child.document.baseline) if child.document.baseline is not None else None,
+                    "draft": freeze_snapshot(child.workspace_snapshot()), "open": True,
+                    "forced_dirty": child.document.forced_dirty,
+                    "follow_source": bool(getattr(child, "_use_workbook_data", False))}
+            target = Path(self.recovery_path).resolve()
+            previous = self._last_recovery if target == self._last_recovery_path else None
+            self._recovery_target = target
+            self._recovery_future = submit_recovery(target, current, baseline, children,
+                self.forced_dirty or baseline is None, str(self.path or ""), self.revision, previous)
+            self.recovery_poll.start()
+        except Exception as error:
+            self.last_warning = f"Recovery draft could not be saved: {error}"
+            self.window.statusBar().showMessage(self.last_warning, 8000)
+
+    def _finish_recovery(self):
+        future = self._recovery_future
+        if future is None or not future.done():
+            return
+        self._recovery_future = None
+        self.recovery_poll.stop()
+        again, self._recovery_again = self._recovery_again, False
+        prepared = None
+        try:
+            prepared = future.result()  # Already done: never wait on the GUI thread.
+            if Path(self.recovery_path).resolve() != self._recovery_target:
+                again = True
+            elif prepared.action == "write":
+                prepared.publish()
+                self.recovery_path = prepared.target
+                self._last_recovery = prepared.snapshot
+                self._last_recovery_path = prepared.target
+                self.last_warning = "; ".join(prepared.snapshot.warnings)
+            elif prepared.action == "remove":
+                # Don't delete a valid draft if an edit followed the capture.
+                if self._last_recovery is not None or self.recovery_path.exists():
+                    if self.has_changes():
+                        again = True
+                    else:
+                        self.remove_recovery()
+        except Exception as error:
+            self.last_warning = f"Recovery draft could not be saved: {error}"
+            self.window.statusBar().showMessage(self.last_warning, 8000)
+        finally:
+            if prepared is not None:
+                prepared.discard()
+        if again:
+            self.request_recovery()
+
     def write_recovery(self, *, exclude=None):
+        self._cancel_recovery()
         if getattr(self.window, "_managed_owner", None) is not None:
             return  # Only the owner writes one aggregate recovery.
         try:
-            remaining = (self.is_dirty() or bool(getattr(self.window, "_recovered_children", {}))
-                         or any(child is not exclude and hasattr(child, "document") and child.document.is_dirty()
-                                for child in getattr(self.window, "_stage_windows", ())))
+            current = self.window.workspace_snapshot()
+            children = dict(getattr(self.window, "_recovered_children", {}))
+            for child in getattr(self.window, "_stage_windows", ()):
+                if child is exclude or not hasattr(child, "document"):
+                    continue
+                draft = child.workspace_snapshot()
+                if child.document.is_dirty(draft):
+                    children[child._managed_scope] = {"baseline": child.document.baseline, "draft": draft,
+                        "follow_source": bool(getattr(child, "_use_workbook_data", False))}
+            remaining = self.is_dirty(current) or bool(children)
             if not remaining:
                 self.remove_recovery()
                 return
-            snapshot = deepcopy(self.window.workspace_snapshot())
+            baseline = self.baseline or current
+            if self._recovery_matches(current, baseline, children):
+                return
+            snapshot = deepcopy(current)
             info = {"payload_version": 2, "original_path": str(self.path or ""), "revision": self.revision,
-                    "baseline": pack_snapshot(snapshot, "baseline", self.baseline or self.window.workspace_snapshot()),
+                    "baseline": pack_snapshot(snapshot, "baseline", baseline),
                     "children": {}}
-            for scope, saved in getattr(self.window, "_recovered_children", {}).items():
+            for scope, saved in children.items():
                 info["children"][scope] = {role: pack_snapshot(snapshot, f"{scope}.{role}", saved[role])
                                            for role in ("baseline", "draft")}
                 info["children"][scope]["follow_source"] = bool(saved.get("follow_source"))
-            for child in getattr(self.window, "_stage_windows", ()):
-                if child is exclude or not hasattr(child, "document") or not child.document.is_dirty():
-                    continue
-                scope = child._managed_scope
-                info["children"][scope] = {
-                    "baseline": pack_snapshot(snapshot, f"{scope}.baseline", child.document.baseline),
-                    "draft": pack_snapshot(snapshot, f"{scope}.draft", child.workspace_snapshot()),
-                    "follow_source": bool(getattr(child, "_use_workbook_data", False))}
             snapshot.states["recovery"] = info
             self.recovery_path = save_workspace(self.recovery_path, snapshot, backup=False)
+            self._last_recovery = snapshot
+            self._last_recovery_path = self.recovery_path
         except Exception as error:
             self.last_warning = f"Recovery draft could not be saved: {error}"
             self.window.statusBar().showMessage(self.last_warning, 8000)
 
     def remove_recovery(self):
+        self._cancel_recovery()
+        self._last_recovery = None
+        self._last_recovery_path = None
         try:
             self.recovery_path.unlink(missing_ok=True)
         except OSError as error:
@@ -521,11 +705,14 @@ class WkbDocument:
             self.window.statusBar().showMessage(self.last_warning, 8000)
 
     def closed(self):
+        self._cancel_recovery()
         self.timer.stop()
         self.identity_timer.stop()
         DOCUMENTS.discard(self)
 
+    @recovery_decision
     def recover(self, path, snapshot=None):
+        self._cancel_recovery()
         snapshot = snapshot or load_workspace(path, expected_type=self.window.workspace_type)
         if "recovery" not in snapshot.states:
             raise ValueError("Select a recovery draft, or use Open to load a saved WKB.")

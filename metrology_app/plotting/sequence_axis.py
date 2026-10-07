@@ -30,6 +30,16 @@ def span_label_ticks(spans, limits, width, measure, *, optional_fields=True):
     Wafer ID is primary; optional Lot/PAD lines disappear before it is elided.
     Whole group names are thinned when their spans are too narrow to read.
     """
+    # Repeated wafer runs reuse the same IDs, metadata and ellipsis. Cache font
+    # widths only during this call so resizing/font changes cannot go stale.
+    widths = {}
+    renderer_measure = measure
+
+    def measure(text):
+        if text not in widths:
+            widths[text] = renderer_measure(text)
+        return widths[text]
+
     low, high = limits
     scale = width / max(1e-9, high - low)
     ticks, edge = [], -float("inf")

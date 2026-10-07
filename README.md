@@ -38,7 +38,7 @@ python -m PyInstaller --noconfirm --clean MetrologyWorkspace.spec
 
 ## 设置
 
-从主窗口左上角菜单打开 **Settings…**。这里可以设置主题、分辨率、默认色阶、字体、插值平滑、Min R²、边缘填充、共享色阶、点值、色条、等值线和测点样式。
+从主窗口左上角菜单打开 **Settings…**。这里可以设置主题、分辨率、默认色阶、字体、插值平滑、Min R²、边缘填充、共享色阶、点值、色条、等值线和测点样式。**Recovery interval** 设置恢复草稿检查周期，默认 120 秒，可改为 30–1800 秒；Save 后更新所有已打开的文档，Cancel 不改变原设置。周期越长，异常退出时可能丢失的最近编辑越多。
 
 点击 **Save** 后，源码版会把配置写入 `config/settings.yaml` 并立即生效。便携版仍保存到 EXE 旁边。**Load from YAML** 用于重新读取磁盘上的设置。浅色和深色主题都会同步应用到原生窗口标题栏。
 
@@ -125,7 +125,7 @@ CSV 按钮是 **Export CSV**，导出不表示文档已保存。Correlation/Tren
 
 新容器使用版本化状态与生成的 SQL 标识，能保存重复表头待修复草稿，并保留 `001`、`2.1000`、`NA` 和列/行顺序。载入后重新计算图表，不保存可执行对象或图片缓存。正常覆盖保留完整文件名加 `.bak` 的上一版，例如 `.wmap.bak`；同一文件在其他窗口更新后会拒绝过期覆盖，可重新打开或另存为。保存和副本导出会提交尚未失焦的编辑器，不强制 Draw。
 
-脏文档每 30 秒另写恢复草稿，不覆盖正式文件。Match 仅父窗口负责聚合恢复，包含正式基准和各子草稿；保存一个子窗口后，剩余草稿继续保留。父 **Recover Workbook Draft** 或独立工具 **Recover draft** 从 `%LOCALAPPDATA%/MetrologyWorkspace/recovery/` 恢复，恢复后仍需正式保存。新恢复 scope 使用版本 2，旧软件拒绝误读，正式容器仍为版本 1。所有有修改的窗口关闭时提供 Save/Discard/Cancel；应用退出先完成全部保存决策，后续取消/保存失败不会提前放弃其他文档。首次周期内或写盘失败的修改不能保证恢复。完整边界见 [当前存储方案](docs/plans/workspace-storage-v2-design.md) 和 [ADR 0003](docs/adr/0003-typed-workspaces-and-independent-copies.md)。
+脏文档按 **Settings → Recovery interval** 周期另写恢复草稿，不覆盖正式文件。自动 recovery 使用后台单写入者生成完整 SQLite 候选，保留校验、fsync、锁和最终 revision 检查；重复请求只保留最新待处理标记，Save/Open/Recover/关闭决策期间暂停，过期候选不发布。主线程仍负责安全快照采集与最终替换，不能保证任意数据量零停顿。Match 仅父窗口负责聚合恢复，包含正式基准和各子草稿；保存一个子窗口后，剩余草稿继续保留。父 **Recover Workbook Draft** 或独立工具 **Recover draft** 从 `%LOCALAPPDATA%/MetrologyWorkspace/recovery/` 恢复，恢复后仍需正式保存。新恢复 scope 使用版本 2，旧软件拒绝误读，正式容器仍为版本 1。所有有修改的窗口关闭时提供 Save/Discard/Cancel；应用退出先完成全部保存决策，后续取消/保存失败不会提前放弃其他文档。首次周期内或写盘失败的修改不能保证恢复。完整边界见 [当前存储方案](docs/plans/workspace-storage-v2-design.md) 和 [ADR 0003](docs/adr/0003-typed-workspaces-and-independent-copies.md)。
 
 当前 v2 已把 Preview/Final 作为顶部模式页，并将各自的 Raw Data 交给现有 Wafer Map 和 Radius Plot；独立 FullMap 输入页已移除。尚未实现的是按 Wafer ID、Slot ID、PAD Name 和坐标自动整理尚未对齐的 Reference；当前匹配数据仍按行序对应。
 

@@ -1,5 +1,7 @@
 """PyQtGraph navigation and frame rules shared by interactive plots."""
 
+from math import ceil
+
 import pyqtgraph as pg
 from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtGui import QWheelEvent
@@ -22,16 +24,26 @@ def place_legend_above_frame(plot, *, columns=2):
     legend.setColumnCount(max(1, int(columns)))
     if legend.parentItem() is not item:
         legend.setParentItem(item)
+    caption = getattr(plot, "title_label", None)
+    alignment = (Qt.AlignmentFlag.AlignBottom if caption is not None
+                 else Qt.AlignmentFlag.AlignVCenter)
     if getattr(plot, "_legend_in_header", None) is not legend:
         item.layout.addItem(
             legend, 0, 1,
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            Qt.AlignmentFlag.AlignLeft | alignment,
         )
         plot._legend_in_header = legend
     if legend.items:
         # Keep the entries side by side: a stretched legend would push the last
         # entry to the far edge, away from the one it belongs to.
         legend.setMaximumWidth(int(legend.preferredSize().width()))
+        legend.setMaximumHeight(ceil(legend.preferredSize().height()))
+    if caption is not None:
+        # Overlay captions and graphics legends need distinct vertical space,
+        # especially when a narrow plot cannot separate them horizontally.
+        plot._caption_header_height = max(46, ceil(caption.fontMetrics().height() + 4
+                                                  + legend.preferredSize().height() + 4))
+        item.layout.setRowFixedHeight(0, plot._caption_header_height)
     item.layout.invalidate()
     return legend
 
@@ -78,6 +90,11 @@ class InteractivePlotWidget(pg.PlotWidget):
         super().__init__(viewBox=view_box, **kwargs)
         self.secondary_views = []
         self.secondary_axes = []
+        # Graphics items are not QWidget parents. Their unparented native menus
+        # otherwise outlive a deleted plot through Qt signal connections.
+        for menu in (self.getPlotItem().getMenu(), view_box.getMenu(None)):
+            if menu is not None:
+                menu.setParent(self, menu.windowFlags())
         # AxisItems own the four frame lines. A second ViewBox border would
         # overlap them and make some edges appear heavier than others.
         self.view_box.setBorder(None)
@@ -99,6 +116,9 @@ class InteractivePlotWidget(pg.PlotWidget):
         axis.setTextPen(pg.mkPen(color))
         axis.setLabel(label, color=color)
         view = _PlotViewBox(auto_x_range=self.view_box._fixed_auto_x_range)
+        menu = view.getMenu(None)
+        if menu is not None:
+            menu.setParent(self, menu.windowFlags())
         view.setBorder(None)
         plot.scene().addItem(view)
         axis.linkToView(view)

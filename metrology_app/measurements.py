@@ -20,16 +20,30 @@ class Measurement:
 
 def wafer_identity_label(frame, wafer_column=None):
     """Wafer, Lot and PAD values only; source strings remain untouched."""
+    return wafer_identity_labels(frame, [range(len(frame))], wafer_column)[0]
+
+
+def wafer_identity_labels(frame, row_ranges, wafer_column=None):
+    """Prepare identity columns once for many contiguous sequence labels.
+
+    Interleaved measurements can have thousands of spans. Normalizing a pandas
+    slice for each one makes footer preparation much slower than the fit itself.
+    Only label text is normalized; the source frame and row positions are intact.
+    """
     names = {"".join(ch.lower() for ch in str(c) if ch.isalnum()): c for c in frame}
     fields = (("waferid", "wafer", "waferno"), ("lotid", "lot", "lotno"), ("padname", "pad"))
-    labels = []
+    values = []
     for index, aliases in enumerate(fields):
         column = wafer_column if index == 0 and wafer_column in frame else next(
             (names[name] for name in aliases if name in names), None)
         if column is not None:
-            values = frame[column].fillna("").astype(str).str.strip()
-            labels.append(", ".join(dict.fromkeys(value for value in values if value)))
-    return "\n".join(label for label in labels if label)
+            values.append(frame[column].fillna("").astype(str).str.strip().to_numpy())
+    labels = []
+    for rows in row_ranges:
+        fields = [", ".join(dict.fromkeys(column[row] for row in rows if column[row]))
+                  for column in values]
+        labels.append("\n".join(field for field in fields if field))
+    return labels
 
 
 def sequence_runs(values):
@@ -83,6 +97,7 @@ def detect_measurements(frame, wafer_column, group_columns=None, use_die_seq=Tru
     lot_col = find("lotid", "lot", "lotno")
     pad_col = find("padname", "pad")
     seq_col = find("dieseq", "diesequence", "diesequenceno")
+    sequence = frame[seq_col] if seq_col else None
     columns = ([c for c in (wafer_column, lot_col, pad_col) if c] if group_columns is None
                else [c for c in group_columns if c in frame])
     if not columns:
@@ -102,7 +117,7 @@ def detect_measurements(frame, wafer_column, group_columns=None, use_die_seq=Tru
         fields = dict(zip(columns, values))
         wafer = fields.get(wafer_column, values[0])
         lot, pad = fields.get(lot_col, ""), fields.get(pad_col, "")
-        runs = sequence_runs(frame.iloc[positions][seq_col]) if seq_col and use_die_seq else [np.arange(len(positions))]
+        runs = sequence_runs(sequence.iloc[positions]) if seq_col and use_die_seq else [np.arange(len(positions))]
         for ordinal, run in enumerate(runs, 1):
             rows = tuple(positions[i] for i in run)
             key = json.dumps([columns, values, ordinal], ensure_ascii=False)
@@ -119,7 +134,7 @@ def detect_measurements(frame, wafer_column, group_columns=None, use_die_seq=Tru
             details = [f"{column}: {fields[column] or '(blank)'}" for column in columns]
             details.append(f"Records: {len(rows)}")
             if seq_col:
-                seq = number(frame.iloc[list(rows)][seq_col]).dropna()
+                seq = number(sequence.iloc[list(rows)]).dropna()
                 if len(seq):
                     details.append(f"Die Seq: {seq.min():g}–{seq.max():g} ({seq.nunique()} unique)")
             if len(runs) > 1:

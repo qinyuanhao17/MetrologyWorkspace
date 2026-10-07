@@ -72,6 +72,18 @@ class SettingsDialog(QDialog):
         self.min_rsq.setSingleStep(0.05)
         form.addRow("Minimum R²", self.min_rsq)
 
+        self.recovery_interval = QDoubleSpinBox()
+        self.recovery_interval.setDecimals(0)
+        self.recovery_interval.setRange(30, 1800)
+        self.recovery_interval.setSingleStep(30)
+        self.recovery_interval.setSuffix(" s")
+        self.recovery_interval.setKeyboardTracking(False)
+        self.recovery_interval.setToolTip(
+            "Interval between recovery draft checks (30 seconds to 30 minutes). "
+            "This does not save the original file. A longer interval can lose more recent edits after a crash."
+        )
+        form.addRow("Recovery interval", self.recovery_interval)
+
         self.point_values = QCheckBox("Show point values by default")
         self.measurement_points = QCheckBox("Show measurement points by default")
         self.fill_edge = QCheckBox("Fill edge by default")
@@ -107,6 +119,7 @@ class SettingsDialog(QDialog):
         self.smoothing.setCurrentIndex(max(0, self.smoothing.findData(float(settings.get("smoothing", 0.06)))))
         self.opacity.setCurrentIndex(max(0, self.opacity.findData(int(settings.get("opacity", 100)))))
         self.min_rsq.setValue(float(settings.get("min_rsq", 0.50)))
+        self.recovery_interval.setValue(settings.get("recovery_interval_seconds", 120))
         self.point_values.setChecked(bool(settings.get("point_values", True)))
         self.measurement_points.setChecked(bool(settings.get("measurement_points", True)))
         self.fill_edge.setChecked(bool(settings.get("fill_edge", True)))
@@ -131,6 +144,7 @@ class SettingsDialog(QDialog):
             "smoothing": float(self.smoothing.currentData()),
             "opacity": int(self.opacity.currentData()),
             "min_rsq": round(self.min_rsq.value(), 2),
+            "recovery_interval_seconds": int(self.recovery_interval.value()),
             "point_values": self.point_values.isChecked(),
             "measurement_points": self.measurement_points.isChecked(),
             "fill_edge": self.fill_edge.isChecked(),
@@ -142,6 +156,8 @@ class SettingsDialog(QDialog):
 
     def save(self):
         save_settings(self._collect())
+        from .workspace_document import apply_recovery_settings
+        apply_recovery_settings()
         self.accept()
 
 

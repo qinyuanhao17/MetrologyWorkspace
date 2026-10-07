@@ -89,6 +89,7 @@ class CorrelationWindow(DataWorkspaceWindow):
         self._reset_reference_selection = True
         self.reference_measurements = []
         self._loading_workbook_sources = False
+        self._restoring_source_tables = False
         self._match_groups = None
         self._group_plan = None
         super().__init__()
@@ -173,14 +174,24 @@ class CorrelationWindow(DataWorkspaceWindow):
             snapshot.states["match_groups"] = deepcopy(self._match_groups)
         return snapshot
 
-    def restore_workspace(self, snapshot):
-        super().restore_workspace(snapshot)
+    def _restore_workspace_tables(self, snapshot):
+        # Old selections refer to the previous source/Group keys. Drawing them
+        # between the two table loads is both wasteful and temporarily wrong.
+        self._restoring_source_tables = True
+        try:
+            super()._restore_workspace_tables(snapshot)
+        finally:
+            self._restoring_source_tables = False
         self._match_groups = deepcopy(snapshot.states.get("match_groups"))
-        if self._match_groups:
-            self._refresh_group_results()
-            self.update_plan()
-            # Grouped curve keys exist only after rebuilding the saved plan.
-            self.restore_selection(snapshot.states.get("ui", {}).get("selection", {}))
+        # Install the saved sidebar choices before any derived source plan.
+        # A wide Raw table may contain dozens of useful but unselected columns.
+        self._apply_selection_state(snapshot.states.get("ui", {}).get("selection", {}))
+        if not self.raw_model.duplicate_header_count() and not self.reference_model.duplicate_header_count():
+            raw, reference = self.raw_model.frame(), self.reference_model.frame()
+            if not raw.empty and not reference.empty and len(raw) == len(reference):
+                self._rebuild_source_analysis()
+        # The base restore now applies the full UI once, after Group keys exist:
+        # overlays, pending Draw choices, page index and saved boxes included.
 
     def _grouped_trend_selection(self, selection):
         if not self._match_groups or self._group_plan is None or not self._group_plan.enabled:
@@ -189,28 +200,39 @@ class CorrelationWindow(DataWorkspaceWindow):
         split = len(self.reference_model.frame())
         grouped = {**selection, "wafers": [], "groups": {}, "labels": {},
                    "group_labels": {}, "available_cells": set()}
+        metrics_by_key = {}
+        for old_key, metric in selection["available_cells"]:
+            metrics_by_key.setdefault(old_key, []).append(metric)
+        spans = plan.trend_spans()
         source_keys = {}
         for source in selection["sources"]:
             name = source["name"]
             offset = 0 if name == "Reference" else split
             source_keys[name] = []
-            for n, span in enumerate(plan.trend_spans()):
-                for old_key in selection["wafers"]:
-                    if old_key[0] != name:
-                        continue
-                    allowed = set(selection["groups"][old_key])
-                    rows = tuple(offset + row for row in span["rows"] if offset + row in allowed)
-                    if not rows:
-                        continue
+            keys = [key for key in selection["wafers"] if key[0] == name]
+            order = {key: index for index, key in enumerate(keys)}
+            owners = {}
+            for old_key in keys:
+                for row in set(selection["groups"][old_key]):
+                    owners.setdefault(row, []).append(old_key)
+            # Visit only wafers owning this span's rows. A checkbox must not
+            # scan every wafer and every parameter for every Group span.
+            for n, span in enumerate(spans):
+                matches = {}
+                for row in span["rows"]:
+                    position = offset + row
+                    for old_key in owners.get(position, ()):
+                        matches.setdefault(old_key, []).append(position)
+                for old_key in sorted(matches, key=order.__getitem__):
+                    rows = tuple(matches[old_key])
                     key = (name, f"group:{n}:{old_key[1]}")
                     grouped["wafers"].append(key)
                     grouped["groups"][key] = rows
                     grouped["labels"][key] = f"{name} · {span['label']}"
                     grouped["group_labels"][key] = plan.label(span["group"], multiline=True)
                     source_keys[name].append(key)
-                    for old_cell, metric in selection["available_cells"]:
-                        if old_cell == old_key:
-                            grouped["available_cells"].add((key, metric))
+                    for metric in metrics_by_key.get(old_key, ()):
+                        grouped["available_cells"].add((key, metric))
         grouped["sources"] = tuple({**source, "keys": tuple(source_keys[source["name"]])} for source in selection["sources"])
         grouped["preserve_group_order"] = True
         return grouped
@@ -484,7 +506,7 @@ class CorrelationWindow(DataWorkspaceWindow):
              if normalize(column) in {"waferid", "wafer", "waferno"}),
             chosen_groups[0] if chosen_groups else None,
         )
-        if primary:
+        if primary and primary != detected_wafer:
             _wafer, counts, _metrics = inspect_table(frame, primary)
         self.reference_measurements = detect_measurements(
             frame, primary, chosen_groups, use_die_seq=False
@@ -561,6 +583,9 @@ class CorrelationWindow(DataWorkspaceWindow):
         if self.raw_model.duplicate_header_count():
             self._populate_reference_choices()
             return
+        if self._restoring_source_tables:
+            self._populate_reference_choices()
+            return
         raw = self.raw_model.frame()
         if not frame.empty and len(frame) == len(raw):
             self._rebuild_source_analysis()
@@ -595,6 +620,7 @@ class CorrelationWindow(DataWorkspaceWindow):
             self._analysis_frame = pd.DataFrame()
         super().set_table(frame, source, **kwargs)
         if (not self._loading_workbook_sources
+                and not self._restoring_source_tables
                 and hasattr(self, "reference_model")
                 and not self.model.duplicate_header_count()
                 and not self.reference_model.duplicate_header_count()
@@ -627,8 +653,15 @@ class CorrelationWindow(DataWorkspaceWindow):
             self._loading_workbook_sources = False
         self._workbook_sources = True
         self._rebuild_source_analysis()
+        # Loading Reference schedules the ordinary edit debounce, but both
+        # sources have just been recognized synchronously. Do not recognize
+        # them again after the new window becomes usable; later edits restart
+        # this same timer normally.
+        self.refresh_timer.stop()
         self.tabs.setCurrentIndex(0)
         self.setWindowTitle(f"{mode} Correlation and Trend")
+        self.document.identity_timer.stop()
+        self.document.refresh_identity()
 
     @staticmethod
     def _encoded_draw_state(page):
@@ -695,14 +728,13 @@ class CorrelationWindow(DataWorkspaceWindow):
             "trend_axis_mode": self.sequence_page.axis_mode_value(),
         }
 
-    def restore_selection(self, state):
-        """Restore WKB choices, then redraw pages that succeeded previously."""
-        if not isinstance(state, dict) or not hasattr(
-            self, "reference_wafer_list"
-        ):
+    def _apply_selection_state(self, state):
+        """Apply source choices without publishing a plan or drawing a page."""
+        if not isinstance(state, dict):
             return
-        if "reference" not in state and "raw" not in state:
-            super().restore_selection(state)
+        if (not hasattr(self, "reference_wafer_list")
+                or ("reference" not in state and "raw" not in state)):
+            super()._apply_selection_state(state)
             return
         reference = state.get("reference", {})
         raw = state.get("raw", {})
@@ -722,6 +754,17 @@ class CorrelationWindow(DataWorkspaceWindow):
         self._set_checked_values(
             self.parameter_list, raw.get("metrics", ())
         )
+
+    def restore_selection(self, state):
+        """Restore WKB choices, then redraw pages that succeeded previously."""
+        if self._restoring_source_tables:
+            return
+        if not isinstance(state, dict) or not hasattr(self, "reference_wafer_list"):
+            return
+        if "reference" not in state and "raw" not in state:
+            super().restore_selection(state)
+            return
+        self._apply_selection_state(state)
         self.update_plan()
         self.sequence_page.restore_axis_ratio(state.get("trend_axis_ratio"))
         self.sequence_page.restore_axis_mode(state.get("trend_axis_mode", "auto"))
@@ -798,6 +841,8 @@ class CorrelationWindow(DataWorkspaceWindow):
         super().recognize()
 
     def update_plan(self, *_args):
+        if self._restoring_source_tables:
+            return  # No provisional selection/plots between the two table loads.
         if not self._workbook_sources:
             super().update_plan()
             if hasattr(self, "correlation_page"):

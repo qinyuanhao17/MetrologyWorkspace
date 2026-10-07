@@ -376,6 +376,35 @@ class PlotWorkspaceTests(unittest.TestCase):
         self.assertEqual(page.scroll.horizontalScrollBar().value(), 120)
         self.assertEqual(page.scroll.verticalScrollBar().value(), 260)
 
+    def test_explicit_view_restore_wins_over_deferred_canvas_resize(self):
+        """A late canvas settling pass cannot recenter a restored user view."""
+        self.unique_fixture()
+        w, page = self.window, self.window.plot_page
+        w.check_all(w.wafer_list, True)
+        w.tabs.setCurrentIndex(1)
+        page.selector.selectAll()
+        page.draw_maps()
+        self.wait_render()
+        page.zoom.setCurrentText("200%")
+        QTest.qWait(50)
+        page.scroll.horizontalScrollBar().setValue(70)
+        page.scroll.verticalScrollBar().setValue(90)
+        saved = page.capture_view()
+        self.assertEqual((saved["h"], saved["v"]), (70, 90))
+        # Force the size transition that occurs when a resized canvas is
+        # delivered around a background refresh, without mocking interpolation.
+        page.canvas.setFixedSize(page.canvas.width() + 20, page.canvas.height() + 20)
+        page.refresh_canvas()
+        page.restore_view(saved)
+        # A later workspace layout/visibility resize must not apply Fit-width
+        # centering to an explicit percentage zoom with restored offsets.
+        w.resize(w.width() + 40, w.height() + 40)
+        QTest.qWait(50)
+        APP.processEvents()
+        self.assertEqual(page.scroll.horizontalScrollBar().value(), 70)
+        self.assertEqual(page.scroll.verticalScrollBar().value(), 90)
+        self.assertAlmostEqual(page.scroll.transform().m11(), saved["scale"])
+
     def test_canvas_shrinks_to_the_drawn_boxes(self):
         """A sub-block selection must not leave the rest of the array as blank canvas."""
         w, page = self.window, self.window.plot_page

@@ -58,6 +58,8 @@ class PlotPage(QWidget):
         self.signature = None
         self.dirty = True
         self.revision = 0
+        self._center_timer = QTimer(self, singleShot=True)
+        self._center_timer.timeout.connect(self.center_canvas)
         self.worker = None
         self.pending_fill_refresh = False
         self.pending_input_refresh = False
@@ -756,7 +758,7 @@ class PlotPage(QWidget):
         self.scroll.scale(display_scale / render_scale, display_scale / render_scale)
         # The transformed scene's scrollbar range is finalized on the next
         # event-loop pass. Centering before then can use the previous range.
-        QTimer.singleShot(0, self.center_canvas)
+        self._center_timer.start(0)
 
     def center_canvas(self):
         """Center the plot array horizontally without losing its vertical row."""
@@ -777,6 +779,10 @@ class PlotPage(QWidget):
         """Re-apply a captured view after the canvas has been re-rendered."""
         if self.zoom.currentText() != saved["zoom"]:
             self.zoom.setCurrentText(saved["zoom"])
+        # An explicit restore supersedes the fit/centering queued by rendering.
+        # Also prevent settle_canvas from scheduling a second late recenter.
+        self._center_timer.stop()
+        self._canvas_resized = False
         self.scroll.resetTransform()
         self.scroll.scale(saved["scale"], saved["scale"])
         horizontal = self.scroll.horizontalScrollBar()
@@ -968,7 +974,10 @@ class PlotPage(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        QTimer.singleShot(0, self.resize_canvas)
+        # Percentage zoom does not depend on viewport width. A late layout
+        # resize must not recenter a previously restored/user-scrolled view.
+        if self.zoom.currentText() == "Fit width":
+            QTimer.singleShot(0, self.resize_canvas)
 
     def hover_point(self, event):
         if event.x is None or event.inaxes is None:

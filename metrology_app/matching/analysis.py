@@ -12,7 +12,7 @@ import sqlite3
 import numpy as np
 import pandas as pd
 
-from ..measurements import default_identity_columns, detect_measurements, wafer_identity_label
+from ..measurements import default_identity_columns, detect_measurements, wafer_identity_labels
 from ..trend import parse_unit
 
 
@@ -295,6 +295,7 @@ class MatchAnalysisResult:
         self.bias_mode = bias_mode
         self.match_type = match_type
         self._mapping_by_name = {mapping.name: mapping for mapping in mappings}
+        self._measurements = {}
         self.summary = pd.DataFrame([
             {
                 "Parameter": mapping.name,
@@ -505,16 +506,21 @@ class MatchAnalysisResult:
     def measurement_spans(self, wafer_column=None):
         """Identity values and contiguous half-edge spans on the plotted row axis."""
         source, measurements = self._measurement_groups(wafer_column)
-        spans = []
+        runs = []
         for measurement in measurements:
             rows = np.asarray(measurement.rows, dtype=int)
             for run in np.split(rows, np.flatnonzero(np.diff(rows) != 1) + 1):
                 if len(run):
-                    spans.append((float(run[0]) + .5, float(run[-1]) + 1.5,
-                                  wafer_identity_label(source.iloc[run], wafer_column)))
-        return sorted(spans)
+                    runs.append(run)
+        labels = wafer_identity_labels(source, runs, wafer_column)
+        return sorted((float(run[0]) + .5, float(run[-1]) + 1.5, label)
+                      for run, label in zip(runs, labels))
 
     def _measurement_groups(self, wafer_column=None):
+        # Analysis owns its paired source slices. Metadata is shared by its
+        # parameters, but never by a later analysis or a newly created scope.
+        if wafer_column in self._measurements:
+            return self._measurements[wafer_column]
         source, column = _wafer_groups(self._reference, self._raw, wafer_column)
         names = {_normalized(candidate): candidate for candidate in source.columns}
         lot_column = next(
@@ -534,6 +540,7 @@ class MatchAnalysisResult:
             identity,
             use_die_seq=False,
         )
+        self._measurements[wafer_column] = source, measurements
         return source, measurements
 
 class MatchWorkbook:

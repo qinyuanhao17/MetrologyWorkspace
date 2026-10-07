@@ -85,7 +85,10 @@ def flag_value(value):
 
 
 def group_state(state=None):
-    state = deepcopy(state or {})
+    source = state or {}
+    # Normalize the accepted state separately below: copying it here and again
+    # recursively doubles the largest participation/Mark lists on every edit.
+    state = deepcopy({key: value for key, value in source.items() if key != "applied"})
     state.setdefault("enabled", False)
     # Old workbooks used Old/New unconditionally; files that never stored Mark
     # data must not switch Mark on by themselves.
@@ -131,7 +134,9 @@ def group_state(state=None):
             raise ValueError("Invalid source row identities.")
         ids = [record["id"] for record in records]
         keys = [record["key"] for record in records]
-        if len(ids) != len(set(ids)) or len(keys) != len(set(keys)) or any(value not in ids for value in selection["excluded"]):
+        id_set = set(ids)
+        if (len(ids) != len(id_set) or len(keys) != len(set(keys))
+                or any(not isinstance(value, str) or value not in id_set for value in selection["excluded"])):
             raise ValueError("Data participation needs unique source row identities.")
     mark_ids = {*(spec["id"] for spec in state["mark_values"]), "All"}
     seen_ids, seen_names = set(), set()
@@ -153,8 +158,8 @@ def group_state(state=None):
             if spec.get("values") is not None:
                 names = {spec["id"]: spec["name"] for spec in state["mark_values"]}
                 spec["values"] = [names.get(value, value) for value in spec["values"]]
-    if "applied" in state:
-        state["applied"] = group_state(state["applied"])
+    if "applied" in source:
+        state["applied"] = group_state(source["applied"])
     return state
 
 
@@ -399,14 +404,14 @@ class GroupPlan:
             return spans
         names = {normalized(c): c for c in self.raw}
         die = names.get("dieseq")
+        die_values = pd.to_numeric(self.raw[die], errors="coerce").to_numpy(float) if die else None
         spans = []
         for group in self.group_keys:
             group_rows = set(self.rows(group)) & allowed
             for measurement in self.measurements:
                 rows = [i for i in measurement.rows if i in group_rows]
-                if die and rows:
-                    seq = pd.to_numeric(self.raw.iloc[rows][die], errors="coerce")
-                    rows = [rows[i] for i in np.argsort(seq.to_numpy(float), kind="stable")]
+                if die_values is not None and rows:
+                    rows = [rows[i] for i in np.argsort(die_values[rows], kind="stable")]
                 if rows:
                     spans.append({"group": group, "label": f"{self.label(group)}\n{measurement.label}", "rows": rows})
         return spans

@@ -1741,6 +1741,13 @@ class MatchingWindowTests(unittest.TestCase):
                     trend.getViewBox().sceneBoundingRect().top() + 1,
                     "legend must stay above the plot frame",
                 )
+                for checked in (False, True):
+                    trend.card_checkbox.setChecked(checked)
+                    APP.processEvents()
+                    title_rect = trend.title_label.geometry()
+                    legend_top = trend.mapFromScene(legend.sceneBoundingRect().topLeft()).y()
+                    self.assertLessEqual(title_rect.bottom(), legend_top,
+                                         "Trend title and legend need separate header rows after Card toggles")
 
     def test_all_match_trends_use_raw_column_titles_and_instrument_legends(self):
         """KLA / NOVA / TEM trends label the Reference curve with the match type."""

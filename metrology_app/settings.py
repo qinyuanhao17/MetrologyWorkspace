@@ -34,6 +34,7 @@ DEFAULTS = {
     "smoothing": 0.06,
     "opacity": 100,
     "min_rsq": 0.50,
+    "recovery_interval_seconds": 120,
     "shell_splitter_sizes": None,
     "recent_wkbs": [],
     "trend_overlay": {},
@@ -46,6 +47,12 @@ _current = dict(DEFAULTS)
 # a helper script or a test would replace the saved theme and recent WKB list
 # with defaults.
 _loaded_path = None
+
+
+def _normalize_recovery_interval():
+    value = _current.get("recovery_interval_seconds")
+    if type(value) is not int or not 30 <= value <= 1800:
+        _current["recovery_interval_seconds"] = DEFAULTS["recovery_interval_seconds"]
 
 
 def load_settings(path=SETTINGS_PATH):
@@ -61,6 +68,7 @@ def load_settings(path=SETTINGS_PATH):
                 _current.update({key: value for key, value in data.items() if key in DEFAULTS})
         except (OSError, yaml.YAMLError):
             pass
+    _normalize_recovery_interval()
     _loaded_path = path
     return dict(_current)
 
@@ -73,6 +81,7 @@ def save_settings(data, path=SETTINGS_PATH):
     for key in DEFAULTS:
         if key in data:
             _current[key] = data[key]
+    _normalize_recovery_interval()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(_current, sort_keys=False, allow_unicode=True), encoding="utf-8")
     return dict(_current)

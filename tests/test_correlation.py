@@ -1996,6 +1996,46 @@ class CorrelationTests(unittest.TestCase):
             window.model.undo.setClean()
             window.close()
 
+    def test_large_trend_export_fonts_keep_titles_and_wafer_metadata_in_separate_rows(self):
+        window, page = self._overlay_page()
+        try:
+            frame = window.model.frame()
+            frame["Lot ID"], frame["PAD Name"] = "LOT001", "ARRAY"
+            window.set_table(frame, "Three-line wafer labels")
+            self.select_parameters(window, {"DP [nm]", "EW [V]"})
+            page.selector.selectAll()
+            page.draw_plot()
+            self.assertTrue(page.set_overlay("DP [nm]", "EW [V]"))
+            for size in (8, 16, 20):
+                page.font_size.setCurrentText(str(size))
+                page.ensure_export_figure()
+                page.figure.canvas.draw()
+                axes = [axis for axis in page.figure.axes if axis.get_title()]
+                self.assertEqual(len(axes), 2)
+                height = page.figure.bbox.height
+                renderer = page.figure.canvas.get_renderer()
+                for axis in axes:
+                    title = axis.title.get_window_extent(renderer)
+                    self.assertGreaterEqual(title.y0, 0)
+                    self.assertLessEqual(title.y1, height)
+                    for text in axis._wafer_group_labels:
+                        if text.get_visible():
+                            box = text.get_window_extent(renderer)
+                            self.assertGreaterEqual(box.y0, 0)
+                            self.assertLessEqual(box.y1, height)
+                next_title = axes[1].title.get_window_extent(renderer)
+                self.assertTrue(all(text.get_window_extent(renderer).y0 > next_title.y1 + 4
+                                    for text in axes[0]._wafer_group_labels if text.get_visible()))
+                lines = [line for axis in page.figure.axes for line in axis.lines
+                         if line.get_label() in {"DP [nm]", "EW [V]"}]
+                self.assertTrue(lines)
+                self.assertTrue(all(len(line.get_xdata()) == 8 for line in lines))
+        finally:
+            window.document.force_close = True
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
     def test_workbook_compare_keeps_source_parameter_labels_and_base_colours(self):
         reference = pd.DataFrame({
             "Wafer ID": ["old"] * 3, "Die Seq": [1, 2, 3],

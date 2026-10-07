@@ -410,6 +410,8 @@ class MainWindow(QMainWindow):
             self.apply_settings()
 
     def apply_settings(self):
+        from .workspace_document import apply_recovery_settings
+        apply_recovery_settings()
         theme = get_settings()["theme"]
         apply_theme(self, theme)
         set_theme_palette(theme)

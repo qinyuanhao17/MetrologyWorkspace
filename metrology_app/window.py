@@ -24,7 +24,7 @@ from .measurements import default_identity_columns, detect_measurements
 from .appearance import fit_window_to_screen, help_title_label
 from .settings import apply_theme, recent_wkb_paths
 from .workspace_store import EXTENSIONS, WORKSPACE_FILTER, WORKSPACE_LABELS, WorkspaceSnapshot, file_revision, load_workspace
-from .workspace_document import WkbDocument, analysis_state, restore_analysis_state, recovery_directory
+from .workspace_document import WkbDocument, analysis_state, restore_analysis_state, recovery_decision, recovery_directory
 
 
 DEFAULT_UNCHECKED_PARAMETERS = {"mse", "gof", "ngof", "lbh", "regiter", "reglter", "cindex"}
@@ -239,6 +239,11 @@ class MainWindow(QMainWindow):
                     "group_bools": deepcopy(saved_view.get("group_bools", [])),
                     "show": str(saved_view.get("show", "all")),
                 }
+        self._restore_workspace_tables(snapshot)
+        restore_analysis_state(self, snapshot.states.get("ui", {}))
+
+    def _restore_workspace_tables(self, snapshot):
+        """Install source tables before restoring controls and drawn results."""
         if self.workspace_type == "correlation_trend":
             self.set_table(snapshot.frames["raw_data"], "WKB Raw Data")
             self.set_reference_table(snapshot.frames["reference_data"], "WKB Ref Data")
@@ -249,8 +254,8 @@ class MainWindow(QMainWindow):
             # WKB already contains the editable sheet, including invalid drafts.
             # Do not run import-time Dynamic inference over saved measurements.
             MainWindow.set_table(self, frame, "WKB workspace")
-        restore_analysis_state(self, snapshot.states.get("ui", {}))
 
+    @recovery_decision
     def load_workspace(self, path):
         snapshot = load_workspace(path, expected_type=self.workspace_type)
         owner = getattr(self, "_managed_owner", None)
@@ -723,7 +728,7 @@ class MainWindow(QMainWindow):
             # The table keeps the loaded values; the Card option only changes
             # what the plots and their statistics are computed from.
             frame = self.carded_frame(frame)
-            detected_wafer, _, metrics = inspect_table(
+            detected_wafer, counts, metrics = inspect_table(
                 frame, include_fit_quality=self.include_fit_quality
             )
             normalize = lambda name: "".join(ch.lower() for ch in str(name) if ch.isalnum())
@@ -751,7 +756,10 @@ class MainWindow(QMainWindow):
                 self.set_group_columns([(c, c in chosen_groups) for c in candidates])
             primary = next((c for c in chosen_groups if normalize(c) in {"waferid", "wafer", "waferno"}),
                            chosen_groups[0] if chosen_groups else None)
-            _, counts, _ = inspect_table(frame, primary) if primary else (None, {}, metrics)
+            if not primary:
+                counts = {}
+            elif primary != detected_wafer:
+                _, counts, _ = inspect_table(frame, primary)
             self.measurements = detect_measurements(frame, primary, chosen_groups, use_die_seq=False)
             self._frame = frame
             self.warning_banner.hide()

@@ -337,10 +337,88 @@ Feature: Build a card matching workbook
       When the engineer also disables Mark
       Then the workbook has no groups
 
+  Rule: Source edits preserve participation
+
+    # Executed by tests.test_performance_regressions.WorkbookPerformanceTests.
+    Scenario: Keep excluded source rows when classification is disabled
+      Given Head groups and Mark are disabled
+      And Data selection excludes records in the middle and at the end of Raw Data
+      When the engineer clears the cells of either excluded record
+      Then the source row count and participation identities are unchanged
+      And the record remains excluded from analysis
+      When the engineer undoes the clear
+      Then the original values and exclusions are restored
+      When the engineer clears both excluded records before undoing either clear
+      Then each record retains its distinct participation identity
+      And both records remain excluded without disabling the analysis
+
+    Scenario: Reopen a source table with an empty final record
+      Given the final Raw Data record has been cleared but not deleted
+      And Data selection excludes that record
+      When the engineer saves and reopens the workbook
+      Then the empty record retains its position in Raw Data
+      And it remains excluded from analysis
+
   Rule: Approved results can leave the workbook
+
+    # Executed by test_export_immediately_after_edit_uses_current_data_and_card.
+    Scenario: Export immediately after editing Raw Data
+      Given a completed analysis with a fitted Card
+      When the engineer edits Raw Data and exports before the queued analysis runs
+      Then the exported source values and Summary use the same current revision
+      And the analysis keeps the applied Group settings
 
     Scenario: Export a customer-facing result
       Given a completed Preview or Final analysis
       When the engineer exports the result
       Then the workbook contains Summary, Reference, Raw Data, and result sheets
       And each analysis plot is saved as a separate image file
+
+  Rule: Large sources retain their analysis and editing behavior
+
+    # Executed by test_correlation_checkbox_changes_keep_exact_sources_and_are_prompt.
+    Scenario: Change independent Correlation source choices
+      Given 6000 paired records split across 600 wafers and three parameters
+      When the engineer unchecks and checks a Raw Data wafer or parameter
+      Then the Reference choices remain selected independently
+      And every remaining grouped row and available plot box belongs to the selected source
+      And plotting still waits for Draw selected
+
+    # Executed by test_saved_correlation_restores_complete_grouped_plots_promptly.
+    Scenario: Restore a previously drawn grouped Correlation workspace
+      Given a saved Correlation workspace with 6000 records and drawn Correlation and Trend plots
+      When the engineer restores that workspace over Workbook-derived source tables
+      Then the source tables and Group keys are restored before the saved plots are drawn
+      And the selected boxes, active tab and fitted values are retained
+
+    # Executed by test_hidden_group_plots_show_latest_replacement_and_undo_without_blocking_edit.
+    Scenario: Review Groups after consecutive source updates
+      Given a grouped workbook with 6000 Raw Data records
+      And the engineer is reviewing All parameter plots
+      When the engineer replaces Raw Data three times
+      Then the analysis uses the most recent source values
+      And opening Group plots displays every Group using those values
+      When the engineer undoes the last replacement
+      Then the Group plots and exported image use the restored values
+
+    # Executed by test_performance_regressions: grouped Trend and measurement spans.
+    Scenario: Plot a wide source with many wafers
+      Given 9000 Raw Data records with 33 columns and ordered wafer measurements
+      When the engineer runs a grouped analysis
+      Then the Trend retains all expected Reference values and Die Seq labels
+      And measurement spans retain their stable Die Seq order
+
+    # Executed by test_large_plot_selection_preserves_disabled_cells_and_exact_choices_promptly.
+    Scenario: Restore exact plot choices in a large selection
+      Given 16000 plot choices with some choices unavailable for their source
+      When the engineer restores three exact choices and then clears the choices
+      Then unavailable choices remain unselected
+      And no plot choices remain selected
+
+    # Executed by managed dirty/Undo and post-load responsiveness probes.
+    Scenario: Edit a Correlation source after initialization
+      Given a Correlation analysis with 6000 source records
+      When the engineer updates a Raw Data value after opening the analysis
+      Then the updated value reaches the Trend data
+      And undoing the update restores the accepted source values
+      And parent-owned axis settings do not become child-local edits

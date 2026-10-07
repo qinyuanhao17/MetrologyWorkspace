@@ -13,6 +13,8 @@ from .settings import get_settings
 
 
 HEADER_COLOURS = {"dark": ("#201629", "#d6b9f5"), "light": ("#f0f0f2", "#18181b")}
+CELL_FLAGS = (Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+              | Qt.ItemFlag.ItemIsEditable | Qt.ItemFlag.ItemNeverHasChildren)
 
 
 def header_colours():
@@ -43,11 +45,15 @@ class CellEdit(QUndoCommand):
         self.model = model
         self.before = {cell: model.cells.get(cell, "") for cell in changes}
         self.after = changes
+        self.before_rows = model._document_rows
+        self.after_rows = max(self.before_rows, max((row for (row, _), value in changes.items() if value), default=0))
 
     def redo(self):
+        self.model._document_rows = self.after_rows
         self.model.apply(self.after)
 
     def undo(self):
+        self.model._document_rows = self.before_rows
         self.model.apply(self.before)
 
 
@@ -73,6 +79,11 @@ class SheetModel(QAbstractTableModel):
     def __init__(self):
         super().__init__()
         self.cells = {}
+        self._document_rows = 0
+        self._preserves_record_positions = False
+        self._frames = {}
+        self._extent = None
+        self.changed.connect(self._invalidate_frames)
         self.height, self.width = 100, 26
         self.undo = QUndoStack(self)
 
@@ -104,7 +115,7 @@ class SheetModel(QAbstractTableModel):
                 return font
 
     def flags(self, index):
-        return super().flags(index) | Qt.ItemFlag.ItemIsEditable
+        return CELL_FLAGS if index.isValid() else Qt.ItemFlag.ItemIsEditable
 
     def setData(self, index, value, role=Qt.ItemDataRole.EditRole):
         if role != Qt.ItemDataRole.EditRole or not index.isValid():
@@ -117,7 +128,14 @@ class SheetModel(QAbstractTableModel):
         if changes:
             self.undo.push(CellEdit(self, changes))
 
+    @property
+    def preserves_record_positions(self):
+        """Cell edits keep record positions; explicit table replacement may reorder."""
+        return self._preserves_record_positions
+
     def apply(self, changes):
+        self._invalidate_frames()
+        self._preserves_record_positions = True
         rows = max(self.height, max(r for r, _ in changes) + 21)
         cols = max(self.width, max(c for _, c in changes) + 4)
         if rows > self.height:
@@ -133,6 +151,8 @@ class SheetModel(QAbstractTableModel):
                 self.cells[key] = value
             else:
                 self.cells.pop(key, None)
+        self._document_rows = max(self._document_rows,
+                                  max((row for (row, _), value in changes.items() if value), default=0))
         first = self.index(min(r for r, _ in changes), min(c for _, c in changes))
         last = self.index(max(r for r, _ in changes), max(c for _, c in changes))
         self.dataChanged.emit(first, last)
@@ -156,7 +176,12 @@ class SheetModel(QAbstractTableModel):
             self.undo.push(command)
 
     def snapshot(self):
-        return dict(self.cells), self.height, self.width
+        cells = dict(self.cells)
+        if self._document_rows:
+            # An empty final-row marker retains the three-field snapshot shape.
+            # It is document extent, not a value/extra scientific observation.
+            cells.setdefault((self._document_rows, 0), "")
+        return cells, self.height, self.width
 
     @staticmethod
     def state_from_matrix(matrix):
@@ -171,12 +196,17 @@ class SheetModel(QAbstractTableModel):
             for c, value in enumerate(row)
             if str(value)
         }
+        if len(matrix) > 1:
+            cells.setdefault((len(matrix) - 1, 0), "")
         return cells, max(100, len(matrix) + 20), max(26, width + 3)
 
     def restore(self, state, emit_changed=True):
+        self._invalidate_frames()
         cells, height, width = state
+        self._preserves_record_positions = False
         self.beginResetModel()
         self.cells = dict(cells)
+        self._document_rows = max((row for row, _ in cells), default=0)
         self.height = height
         self.width = width
         self.endResetModel()
@@ -184,30 +214,49 @@ class SheetModel(QAbstractTableModel):
             self.changed.emit()
 
     def frame(self):
+        if "analysis" in self._frames:
+            return self._frames["analysis"].copy()
         if not self.cells:
             return pd.DataFrame()
-        columns = max(c for _, c in self.cells) + 1
-        rows = max(r for r, _ in self.cells) + 1
+        rows, columns = self._cell_extent()
         headers = self.headers(columns)
         if len(set(headers)) != len(headers):
             raise ValueError("Duplicate column names in row 1. Rename them to continue.")
         matrix = [[self.cells.get((r, c), "") for c in range(columns)] for r in range(1, rows)]
-        return pd.DataFrame([row for row in matrix if any(v.strip() for v in row)], columns=headers)
+        frame = pd.DataFrame([row for row in matrix if any(v.strip() for v in row)], columns=headers)
+        self._frames["analysis"] = frame
+        return frame.copy()
+
+    def _invalidate_frames(self):
+        # Model edits, replacement and Undo invalidate together. Returned
+        # frames remain detached: callers cannot change a later Save snapshot.
+        self._frames.clear()
+        self._extent = None
+
+    def _cell_extent(self):
+        if self._extent is None:
+            self._extent = (max((row for row, _ in self.cells), default=-1) + 1,
+                            max((column for _, column in self.cells), default=-1) + 1)
+        return self._extent
 
     def document_frame(self):
         """Save a draft exactly, including duplicate headers and empty rows."""
+        if "document" in self._frames:
+            return self._frames["document"].copy()
         if not self.cells:
             return pd.DataFrame()
-        width = max(c for _, c in self.cells) + 1
-        height = max(r for r, _ in self.cells) + 1
+        height, width = self._cell_extent()
+        height = max(self._document_rows + 1, height)
         headers = [self.cells.get((0, c), "") for c in range(width)]
-        return pd.DataFrame([[self.cells.get((r, c), "") for c in range(width)]
+        frame = pd.DataFrame([[self.cells.get((r, c), "") for c in range(width)]
                              for r in range(1, height)], columns=headers)
+        self._frames["document"] = frame
+        return frame.copy()
 
     def headers(self, columns=None):
         """Row-1 header text, falling back to the column letter when it is blank."""
         if columns is None:
-            columns = max((c for _, c in self.cells), default=-1) + 1
+            columns = self._cell_extent()[1]
         return [self.cells.get((0, c), "").strip() or f"Column {column_letter(c)}"
                 for c in range(columns)]
 
@@ -405,6 +454,19 @@ class SheetView(QTableView):
         elif event.matches(QKeySequence.StandardKey.Redo):
             self.model().undo.redo()
         elif event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
-            self.model().edit({(i.row(), i.column()): "" for i in self.selectedIndexes()})
+            model = self.model()
+            if type(model).flags is SheetModel.flags:
+                # Uniform selectable flags: ranges describe the same selection
+                # without constructing a QModelIndex for every trailing blank.
+                bounds = [(r.top(), r.bottom(), r.left(), r.right())
+                          for r in self.selectionModel().selection()]
+                changes = {(row, column): "" for row, column in model.cells
+                           if any(top <= row <= bottom and left <= column <= right
+                                  for top, bottom, left, right in bounds)}
+            else:
+                # Projections and models with custom disabled cells retain Qt's
+                # own selectable-index semantics and source-row translation.
+                changes = {(i.row(), i.column()): "" for i in self.selectedIndexes()}
+            model.edit(changes)
         else:
             super().keyPressEvent(event)

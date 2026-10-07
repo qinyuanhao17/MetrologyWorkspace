@@ -19,6 +19,76 @@ APP = QApplication.instance() or QApplication([])
 
 
 class StorageV2Tests(unittest.TestCase):
+    def test_background_recovery_preserves_each_child_draft_and_its_accepted_basis(self):
+        from time import monotonic
+        self.match.preview_dynamic_frame = self.match.raw_frame.copy()
+        wafer = self.match.open_stage_workspace("preview")
+        dynamic = self.match.open_dynamic_workspace("preview")
+        self.match.save_workbook(self.folder / "project.wkb")
+        column = dynamic.model.document_frame().columns.get_loc("CD")
+        original_value = dynamic.model.document_frame().iloc[0, column]
+        dynamic.model.edit({(1, column): "99.0000"})
+        wafer.plot_page.font_size.setCurrentText("12")
+        self.match.document.recovery_path = self.folder / "draft.wkb"
+        self.match.document.request_recovery()
+        deadline = monotonic() + 5
+        while self.match.document.recovery_pending and monotonic() < deadline:
+            QTest.qWait(10)
+        self.assertFalse(self.match.document.recovery_pending)
+        restored = MatchingWindow()
+        try:
+            restored.document.recover(self.match.document.recovery_path)
+            reopened = restored.open_dynamic_workspace("preview")
+            self.assertEqual(reopened.model.document_frame().iloc[0, column], "99.0000")
+            recovered_wafer = restored.open_stage_workspace("preview")
+            self.assertEqual(recovered_wafer.plot_page.font_size.currentText(), "12")
+            with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Discard):
+                reopened.close()
+            reopened = restored.open_dynamic_workspace("preview")
+            self.assertEqual(reopened.model.document_frame().iloc[0, column], original_value)
+            self.assertTrue(recovered_wafer.document.is_dirty(), "Discarding Dynamic must keep the Map draft")
+        finally:
+            restored.document.force_close = True
+            restored.close()
+            restored.deleteLater()
+            APP.processEvents()
+
+    def test_recovery_interval_updates_managed_and_independent_windows_without_starting_child_writers(self):
+        from metrology_app.settings import get_settings, save_settings
+        from metrology_app.settings_dialog import SettingsDialog
+        before = get_settings()
+        child = self.match.open_stage_workspace("preview")
+        independent = MainWindow()
+        dialog = SettingsDialog()
+        try:
+            self.match.save_workbook(self.folder / "project.wkb")
+            dialog.recovery_interval.setValue(180)
+            dialog.save()
+            self.assertEqual(self.match.document.timer.interval(), 180_000)
+            self.assertEqual(independent.document.timer.interval(), 180_000)
+            self.assertEqual(child.document.timer.interval(), 180_000)
+            self.assertTrue(self.match.document.timer.isActive())
+            self.assertTrue(independent.document.timer.isActive())
+            self.assertFalse(child.document.timer.isActive(), "Only the Workbook owner may write aggregate recovery")
+            self.assertFalse(self.match.document.is_dirty(), "Global recovery settings are not document edits")
+            self.assertFalse(child.document.is_dirty())
+            reopened = MainWindow()
+            try:
+                self.assertEqual(reopened.document.timer.interval(), 180_000)
+            finally:
+                reopened.document.force_close = True
+                reopened.close()
+                reopened.deleteLater()
+        finally:
+            save_settings(before)
+            from metrology_app.workspace_document import apply_recovery_settings
+            apply_recovery_settings()
+            dialog.deleteLater()
+            independent.document.force_close = True
+            independent.close()
+            independent.deleteLater()
+            APP.processEvents()
+
     def setUp(self):
         self.scratch = tempfile.TemporaryDirectory()
         self.folder = Path(self.scratch.name).resolve()

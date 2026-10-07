@@ -195,7 +195,10 @@ class OrderModel(SheetModel):
         super().edit({key: value for key, value in changes.items() if key[1] == 0})
 
     def flags_frame(self, count=0):
-        extent = max(count, max((r for r, c in self.cells if c == 0), default=0))
+        # Order has only paired rows (or explicitly entered flags), not the
+        # empty final-row marker used by ordinary source-table snapshots.
+        extent = max(count, max((r for (r, c), value in self.cells.items()
+                                 if c == 0 and str(value).strip()), default=0))
         return pd.DataFrame({"TestFlag": [self.cells.get((r, 0), "") for r in range(1, extent + 1)]})
 
 
@@ -944,7 +947,10 @@ def set_group_axes(plot, result, data, *, show_wafers=False):
             wafer_tooltips.append("\n".join(detail))
             offset = end
     die_column = next((c for c in plan.raw if normalized(c) == "dieseq"), None)
-    die = [str(plan.raw.iloc[row][die_column]) if die_column else str(row + 1) for row in rows]
+    # Only this column is needed. Reading heterogeneous DataFrame rows here
+    # rebuilds a Series for every plotted point, repeated across all panels.
+    die_values = plan.raw[die_column].to_numpy() if die_column else None
+    die = [str(die_values[row]) if die_values is not None else str(row + 1) for row in rows]
     plot._group_tick_data = (die, spans, wafer_spans)
     for line in getattr(plot, "_group_boundaries", []):
         plot.removeItem(line)
@@ -1094,7 +1100,8 @@ def draw_group_trend(plot, result, parameter, key="all", card_mode="raw", *, gro
     plot._group_boundaries = boundaries
     die_column = next((c for c in plan.raw if normalized(c) == "dieseq"), None)
     rows = data["Source row"].tolist()
-    die = [str(plan.raw.iloc[row][die_column]) if die_column else str(row + 1) for row in rows]
+    die_values = plan.raw[die_column].to_numpy() if die_column else None
+    die = [str(die_values[row]) if die_values is not None else str(row + 1) for row in rows]
     positions = np.unique(np.linspace(0, max(0, len(rows) - 1), min(24, len(rows)), dtype=int)) if rows else []
     # Keep long wafer labels sparse at realistic screen widths.
     major = [labels[i] for i in np.unique(np.linspace(0, len(labels) - 1, min(5, len(labels)), dtype=int))] if labels else []
@@ -1347,6 +1354,7 @@ class GroupPlotPage(QWidget):
         self.scopes = {}
         self.block_order = []
         self._restored = None
+        self._render_pending = False
         layout = QVBoxLayout(self)
         self.card = QCheckBox("Apply Card to Trend")
         self.card.setChecked(True)
@@ -1374,6 +1382,7 @@ class GroupPlotPage(QWidget):
         self.card.toggled.connect(self.trend_card_changed)
 
     def set_result(self, result):
+        previous = self.result
         if self._restored is None and (self.result is None or self.result.result_mode != result.result_mode):
             self.card.blockSignals(True)
             self.card.setChecked(result.result_mode == "preview")
@@ -1381,9 +1390,35 @@ class GroupPlotPage(QWidget):
         self.result = result
         plan = result.group_plan
         keys = list(plan.plot_group_keys) if plan.enabled else []
+        structure_changed = (previous is None or previous.result_mode != result.result_mode
+                             or previous.match_type != result.match_type
+                             or previous.parameter_names != result.parameter_names
+                             or set(self.scopes) != set(keys))
         self.scopes = {key: (plan.label(key), plan.rows(key)) for key in keys}
         self._restored = None
+        if self._panels and not structure_changed and self.workbook_window.isVisible() and not self.isVisible():
+            # Keep the latest result, not a queue of obsolete hidden redraws.
+            # All scopes are still drawn on show/export; source analysis itself
+            # remains current while the engineer edits another results tab.
+            self._render_pending = True
+            owner = self.workbook_window
+            for key in self.scopes:
+                for parameter in result.parameter_names:
+                    owner._trend_card_state.setdefault(
+                        (result.result_mode, f"group-plots:{key}:{parameter}"), self.card.isChecked())
+            self._update_status()
+            return
         self.render()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._render_pending:
+            self.render()
+
+    def _update_status(self):
+        mode = "group" if self.use_group_card.isChecked() else "global"
+        count = len(self.scopes) * len(self.result.parameter_names)
+        self.status.setText(f"{count} plot blocks · Calibration: {mode} Card · Match fits only the displayed Group.")
 
     def card_source_changed(self, checked):
         controls = self.workbook_window.group_controls
@@ -1400,6 +1435,7 @@ class GroupPlotPage(QWidget):
     def render(self):
         if self.result is None:
             return
+        self._render_pending = False
         scroll = self.scroll.verticalScrollBar().value()
         owner = self.workbook_window
         parameters = owner._reconciled_parameter_order(self.result.parameter_names)
@@ -1423,25 +1459,32 @@ class GroupPlotPage(QWidget):
             if self.scopes and parameter not in self.parameter_sections:
                 self.parameter_sections[parameter] = owner._create_parameter_section(parameter)
                 self.plots.addWidget(self.parameter_sections[parameter])
+        # A scope fits every mapped parameter. Prepare it once per Group for
+        # this render, not once per Group × parameter; discard it next render
+        # so edited sources/Card mode cannot reuse stale coefficients.
+        scopes = {}
         for key, parameter in visible:
             section_layout = self.parameter_sections[parameter].layout()
             position = 1 + [cell for cell in visible if cell[1] == parameter].index((key, parameter))
             label, rows = self.scopes[key]
             show_wafers = key in self.result.group_plan.state["show_wafer_groups"]
-            scoped = self.result.plot_scope(rows, local_card=mode == "group", label=label)
-            scoped.group_plan.card_source_label = "Group Card" if mode == "group" else "All parameter plots Card"
+            if key not in scopes:
+                scopes[key] = self.result.plot_scope(rows, local_card=mode == "group", label=label)
+                scopes[key].group_plan.card_source_label = "Group Card" if mode == "group" else "All parameter plots Card"
+            scoped = scopes[key]
             data = scoped.group_series(parameter, trend=True, card_mode="global")
             owner = self.workbook_window
             card_key = (self.result.result_mode, f"group-plots:{key}:{parameter}")
             trend_card = owner._trend_card_state.get(card_key, self.card.isChecked())
             signature = (label, mode, trend_card, show_wafers, scoped.group_plan.state["trend_order"], scoped.group_plan.trend_spans(),
-                         owner._selected_bias_views(), owner.workbook.mappings, self.result.result_mode)
+                         owner._selected_bias_views(), owner.workbook.mappings, self.result.result_mode, self.result.match_type)
             previous = self._panels.get((key, parameter))
             if previous is not None and previous[1].equals(data) and previous[2] == signature:
                 section_layout.insertWidget(position, previous[0])
                 continue
             block = self.plot_groups.get((key, parameter))
-            if block is not None and (block["trend_card_key"][0] != self.result.result_mode or tuple(block["plots"]) != tuple(
+            if block is not None and (block["trend_card_key"][0] != self.result.result_mode
+                    or block["workbook"].match_type != owner.workbook.match_type or tuple(block["plots"]) != tuple(
                     ["match", "trend"] + (["bias"] if owner.absolute_bias.isChecked() else [])
                     + (["bias-percent"] if owner.percent_bias.isChecked() else []))):
                 section_layout.removeWidget(block["card"])
@@ -1480,7 +1523,7 @@ class GroupPlotPage(QWidget):
             section_layout.insertWidget(position, panel)
             self._panels[(key, parameter)] = (panel, data.copy(), deepcopy(signature))
         self.apply_parameter_order()
-        self.status.setText(f"{len(cells)} plot blocks · Calibration: {mode} Card · Match fits only the displayed Group.")
+        self._update_status()
         self.scroll.show()
         self.scroll.verticalScrollBar().setValue(scroll)
 
@@ -1540,5 +1583,7 @@ class GroupPlotPage(QWidget):
         self.card.blockSignals(False)
 
     def page_image(self):
+        if self._render_pending:
+            self.render()
         image, scale = widget_to_qimage(self.canvas, 2)
         return image.copy(0, 0, image.width(), min(image.height(), round(self.plots.sizeHint().height() * scale)))
