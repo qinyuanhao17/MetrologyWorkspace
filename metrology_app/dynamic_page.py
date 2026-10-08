@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pyqtgraph as pg
-from PyQt6.QtCore import QAbstractTableModel, QModelIndex, QRectF, Qt
+from PyQt6.QtCore import QAbstractTableModel, QItemSelection, QItemSelectionModel, QModelIndex, QRectF, Qt
 from PyQt6.QtGui import QFont, QKeySequence
 from PyQt6.QtWidgets import (
     QApplication, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel,
@@ -18,6 +18,7 @@ from .dynamic import (changed_dynamic_parameters, dynamic_pivot,
 from .plotting import InteractivePlotWidget
 from .settings import get_settings
 from .sheet import clipboard_rows
+from .table_clipboard import ClipboardRangeOutline, copy_selection, selection_bounds
 
 
 PLOT_WIDTH = 420
@@ -182,6 +183,11 @@ class DynamicPivotView(QTableView):
         self.setVerticalScrollMode(self.ScrollMode.ScrollPerPixel)
         self.setWordWrap(False)
         self.verticalHeader().setDefaultSectionSize(28)
+        self.clipboard_outline = ClipboardRangeOutline(self)
+        model.modelReset.connect(self.clipboard_outline.clear)
+        model.dataChanged.connect(self.clipboard_outline.clear)
+        if history is not None:
+            history.changed.connect(self.clipboard_outline.clear)
 
     def undo_stack(self):
         """The Data sheet's history, so one Ctrl+Z undoes one edit anywhere."""
@@ -197,29 +203,45 @@ class DynamicPivotView(QTableView):
             for row, line in enumerate(matrix)
             for column, value in enumerate(line)
         }
-        self.model().edit(changes)
+        if self.model().edit(changes):
+            # Only actual editable cells are marked; a derived row must not
+            # appear to have accepted clipboard input.
+            cells = [cell for cell in changes if cell in self.model().cell_sources]
+            self.clipboard_outline.clear()
+            self.selectionModel().select(
+                QItemSelection(self.model().index(min(r for r, _ in cells), min(c for _, c in cells)),
+                               self.model().index(max(r for r, _ in cells), max(c for _, c in cells))),
+                QItemSelectionModel.SelectionFlag.ClearAndSelect)
 
     def copy(self):
-        indexes = self.selectedIndexes()
-        if not indexes:
-            return
-        rows = range(min(i.row() for i in indexes), max(i.row() for i in indexes) + 1)
-        columns = range(
-            min(i.column() for i in indexes), max(i.column() for i in indexes) + 1
-        )
-        output = []
-        for row in rows:
-            output.append("\t".join(
-                self.model().data(self.model().index(row, column)) or ""
-                for column in columns
-            ))
-        QApplication.clipboard().setText("\n".join(output))
+        return copy_selection(self)
+
+    def cut(self):
+        bounds = selection_bounds(self)
+        if bounds is None:
+            return False
+        top, left, bottom, right = bounds
+        cells = [(row, column) for row in range(top, bottom + 1) for column in range(left, right + 1)]
+        model = self.model()
+        if (self.history is None or any(cell not in model.cell_sources for cell in cells)
+                or not copy_selection(self, cell_text=lambda row, column:
+                                      self.history.cells.get(model.cell_sources[(row, column)], ""))):
+            return False
+        if self.model().edit({cell: "" for cell in cells}):
+            self.clipboard_outline.show_range(bounds, "copy")
+            return True
+        return False
 
     def keyPressEvent(self, event):
         if event.matches(QKeySequence.StandardKey.Paste):
             self.paste()
         elif event.matches(QKeySequence.StandardKey.Copy):
             self.copy()
+        elif event.matches(QKeySequence.StandardKey.Cut):
+            self.cut()
+        elif event.key() == Qt.Key.Key_Escape:
+            self.clipboard_outline.clear()
+            super().keyPressEvent(event)
         elif event.matches(QKeySequence.StandardKey.Undo):
             stack = self.undo_stack()
             if stack is not None:

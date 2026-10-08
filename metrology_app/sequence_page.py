@@ -31,6 +31,7 @@ from .array_plot import drawn_axes
 from .data import number
 from .map_selector import MapSelector
 from .plotting import InteractivePlotWidget, PanelGrid, PlotPanel
+from .plotting.parameter_filter import ParameterFilterBar
 from .plotting.sequence_axis import DieSequenceAxis, SpanLabelAxis, fit_tick_labels, span_label_ticks
 from .plotting.curve import ResponsivePlotDataItem
 from .measurements import wafer_identity_label
@@ -236,6 +237,9 @@ class SequencePage(QWidget):
         options.addWidget(self.axis_ratio)
         options.addStretch()
         header.addLayout(options)
+        self.parameter_filter = ParameterFilterBar()
+        self.parameter_filter.changed.connect(self.set_parameter_filter)
+        header.addWidget(self.parameter_filter)
         layout.addLayout(header)
 
         self.figure = Figure(figsize=(11, 6.5), dpi=100, facecolor="white")
@@ -1052,7 +1056,7 @@ class SequencePage(QWidget):
     def ensure_export_figure(self):
         """Build the Matplotlib export mirror only when Export / Copy needs it."""
         if self._export_dirty or not self.figure.axes:
-            self.build_export_figure(self.panel_specs or [], self.view_groups or self.groups)
+            self.build_export_figure(self.display_panel_specs(), self.view_groups or self.groups)
             self._export_dirty = False
 
     def build_export_figure(self, panels, groups):
@@ -1238,6 +1242,47 @@ class SequencePage(QWidget):
             label.setMinimumSize(600, 360)
             self.plot_host = label
             self.interactive_scroll.setWidget(label)
+
+    @staticmethod
+    def panel_parameters(panel):
+        return (panel["metric"], *(comparison[1] if panel.get("source") is not None else comparison
+                                  for comparison in panel.get("comparisons", ())))
+
+    def display_panel_specs(self):
+        parameter = self.parameter_filter.parameter
+        return [panel for panel in self.panel_specs
+                if parameter is None or parameter in self.panel_parameters(panel)]
+
+    def set_parameter_filter(self, _parameter):
+        """Reparent existing panels only; curves, comparisons and zoom stay."""
+        if not self.panel_specs or not self.plot_widgets:
+            return
+        selected = self.display_panel_specs()
+        if not selected:
+            return
+        columns = min(int(self.columns.currentText()), len(selected))
+        rows = ceil(len(selected) / columns)
+        grid = PanelGrid(columns)
+        grid.set_minimum_row_height(rows, 320)
+        self.interactive_scroll.setUpdatesEnabled(False)
+        try:
+            for panel, host in zip(self.panel_specs, self.panel_hosts):
+                host.setParent(self)
+                host.hide()
+                if self.parameter_filter.parameter is None or self.parameter_filter.parameter in self.panel_parameters(panel):
+                    grid.add_panel(host)
+                    host.show()
+            previous = self.interactive_scroll.takeWidget()
+            if previous is not None:
+                previous.deleteLater()
+            self.plot_host = grid
+            self.interactive_scroll.setWidget(grid)
+        finally:
+            self.interactive_scroll.setUpdatesEnabled(True)
+        self.base_size = (columns * max(900, min(1900, 180 + 6 * sum(len(group["frame"]) for group in self.groups))),
+                          rows * 350 + 30)
+        self._export_dirty = True
+        self._copy_image = self._copy_dpi = None
 
     def render_interactive(self, panels, groups, columns, rows):
         """Render every base panel plus any explicit comparison curves."""
@@ -1425,6 +1470,9 @@ class SequencePage(QWidget):
         finally:
             self.interactive_scroll.setUpdatesEnabled(True)
         QTimer.singleShot(0, self.remember_home_views)
+        self.parameter_filter.set_parameters([name for panel in panels for name in self.panel_parameters(panel)])
+        if self.parameter_filter.parameter is not None:
+            self.set_parameter_filter(self.parameter_filter.parameter)
 
     def restore_page_scroll(self, value):
         """Put the panel list back where the engineer left it."""
@@ -1465,14 +1513,7 @@ class SequencePage(QWidget):
 
     def relayout(self, *_):
         if self.ready:
-            columns = min(int(self.columns.currentText()), len(self.panel_specs))
-            rows = ceil(len(self.panel_specs) / columns)
-            self.base_size = (columns * max(900, min(1900, 180 + 6 * sum(
-                len(group["frame"]) for group in self.groups))), rows * 350 + 30)
-            self._export_dirty = True
-            self._copy_image = None
-            self._copy_dpi = None
-            self.render_interactive(self.panel_specs, self.groups, columns, rows)
+            self.set_parameter_filter(self.parameter_filter.parameter)
 
     def restyle(self, *_):
         if not self.ready:

@@ -23,6 +23,7 @@ from .match_groups import (GroupPlan, applied_state, copy_group_state, flag_orde
                            row_ids)
 from .plotting import InteractivePlotWidget, place_legend_above_frame
 from .sheet import SheetModel, clipboard_rows
+from .table_clipboard import attach_copy_feedback
 
 
 class _ViewCells(Mapping):
@@ -128,16 +129,34 @@ class ProjectedSheetModel(QAbstractProxyModel):
             return str(self.source_row(section) + 1)
         return self.sourceModel().headerData(section, orientation, role)
 
+    def selection_extent(self):
+        rows, columns = self.sourceModel().selection_extent()
+        return (len(self.rows) + 1 if self.rows is not None and rows else rows), columns
+
     def setData(self, index, value, role=Qt.ItemDataRole.EditRole):
         return self.sourceModel().setData(self.mapToSource(index), value, role)
 
     def edit(self, changes):
+        self.sourceModel().edit(self._source_changes(changes))
+
+    def range_editable(self, bounds):
+        return self.sourceModel().range_editable(bounds)
+
+    def _source_changes(self, changes):
         if self.rows is not None and any(r > len(self.rows) for r, _ in changes):
             raise ValueError("Paste fits only within displayed rows. Clear filters/sort before appending records.")
-        self.sourceModel().edit({(self.source_row(r), c): value for (r, c), value in changes.items()})
+        return {(self.source_row(r), c): value for (r, c), value in changes.items()}
 
-    def replace_matrix(self, matrix):
-        self.sourceModel().replace_matrix(matrix)
+    def paste_cells(self, changes, *, bounds=None):
+        mapped = self._source_changes(changes)
+        if bounds is not None:
+            top, left, bottom, right = bounds
+            rows = [self.source_row(row) for row in range(top, bottom + 1)]
+            bounds = min(rows), left, max(rows), right
+        self.sourceModel().paste_cells(mapped, bounds=bounds)
+
+    def replace_matrix(self, matrix, *, report_paste=False):
+        self.sourceModel().replace_matrix(matrix, report_paste=report_paste)
 
 
 class OrderModel(SheetModel):
@@ -148,6 +167,10 @@ class OrderModel(SheetModel):
 
     def columnCount(self, parent=QModelIndex()):
         return 0 if parent.isValid() else 4
+
+    def selection_extent(self):
+        rows, columns = super().selection_extent()
+        return (max(rows, len(self.plan.raw) + 1), 4) if self.plan is not None else (rows, columns)
 
     def rowCount(self, parent=QModelIndex()):
         return 0 if parent.isValid() else max(self.height, len(self.plan.raw) + 1 if self.plan is not None else 2)
@@ -865,6 +888,7 @@ class GroupControls(QWidget):
         dialog.resize(640, 600)
         layout = QVBoxLayout(dialog)
         table = QTableWidget(len(matrix[0]), 2)
+        attach_copy_feedback(table)
         table.setHorizontalHeaderLabels(["Source column", "Destination"])
         pickers = []
         for i, name in enumerate(matrix[0]):
@@ -1125,18 +1149,21 @@ def draw_group_trend(plot, result, parameter, key="all", card_mode="raw", *, gro
               name="PMISH", connect="finite")
     place_legend_above_frame(plot)
     offset, labels, boundaries, previous_group = 0, [], [], None
-    for span in plan.trend_spans(key):
-        if offset:
-            is_group_boundary = groups[offset] != previous_group
-            if is_group_boundary:
-                line = _group_boundary(plot, offset + .5)
-            else:
-                line = pg.InfiniteLine(offset + .5, angle=90, pen=pg.mkPen("#929292", style=Qt.PenStyle.DashLine))
-                plot.addItem(line, ignoreBounds=True)
-            boundaries.append(line)
-        labels.append((offset + (len(span["rows"]) + 1) / 2, span["label"]))
-        offset += len(span["rows"])
-        previous_group = groups[offset - 1]
+    group_axes = group_only or plan.state["trend_order"] == "original" or bool(getattr(plan, "scope_label", ""))
+    # Group axes supply their own final boundaries. Do not create hundreds of
+    # wafer lines only to remove them again below before the first paint.
+    if not group_axes:
+        for span in plan.trend_spans(key):
+            if offset:
+                if groups[offset] != previous_group:
+                    boundaries.append(_group_boundary(plot, offset + .5))
+                else:
+                    line = pg.InfiniteLine(offset + .5, angle=90, pen=pg.mkPen("#929292", style=Qt.PenStyle.DashLine))
+                    plot.addItem(line, ignoreBounds=True)
+                    boundaries.append(line)
+            labels.append((offset + (len(span["rows"]) + 1) / 2, span["label"]))
+            offset += len(span["rows"])
+            previous_group = groups[offset - 1]
     plot._group_boundaries = boundaries
     die_column = next((c for c in plan.raw if normalized(c) == "dieseq"), None)
     rows = data["Source row"].tolist()

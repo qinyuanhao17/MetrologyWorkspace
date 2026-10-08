@@ -31,6 +31,7 @@ from .data import number
 from .map_selector import MapSelector
 from .plot import set_panel_title
 from .plotting import InteractivePlotWidget, PanelGrid, PlotPanel
+from .plotting.parameter_filter import ParameterFilterBar
 from .settings import get_settings
 
 
@@ -188,6 +189,8 @@ class CorrelationPage(QWidget):
         self.page_intent = "selector"
         self.plot_widgets = []
         self.panel_hosts = []
+        self._panel_cache = {}
+        self._visible_panel_keys = []
         self.skipped_count = 0
         self.base_size = (900, 650)
         self._pending_updates = set()
@@ -276,6 +279,9 @@ class CorrelationPage(QWidget):
         options.addWidget(self.resolution)
         options.addStretch()
         header.addLayout(options)
+        self.parameter_filter = ParameterFilterBar()
+        self.parameter_filter.changed.connect(self.set_parameter_filter)
+        header.addWidget(self.parameter_filter)
         layout.addLayout(header)
 
         self.figure = Figure(figsize=(9, 6.5), dpi=100, facecolor="white")
@@ -551,13 +557,24 @@ class CorrelationPage(QWidget):
 
     def page_count(self):
         size = int(self.page_size.currentText())
-        return ceil(len(self.fits) / size) if self.fits else 0
+        return ceil(len(self.display_fits()) / size)
+
+    def display_fits(self):
+        parameter = self.parameter_filter.parameter
+        return self.fits if parameter is None else [fit for fit in self.fits
+                                                   if parameter in (fit.x_name, fit.y_name)]
+
+    def set_parameter_filter(self, _parameter):
+        if self.ready:
+            self.page_index = self.user_page = 0
+            self.render_fits()
+            self.update_fit_status()
 
     def page_fits(self, index=None):
         size = int(self.page_size.currentText())
         index = self.page_index if index is None else index
         start = index * size
-        return self.fits[start:start + size]
+        return self.display_fits()[start:start + size]
 
     def update_pagination(self):
         pages = self.page_count()
@@ -571,19 +588,20 @@ class CorrelationPage(QWidget):
         self.next_page.setEnabled(bool(pages and self.page_index + 1 < pages))
 
     def update_fit_status(self):
-        if not self.fits:
+        fits = self.display_fits()
+        if not fits:
             return
         size = int(self.page_size.currentText())
         start = self.page_index * size + 1
-        end = min(start + size - 1, len(self.fits))
+        end = min(start + size - 1, len(fits))
         skipped = (
             f" · skipped {self.skipped_count} invalid pairs"
             if self.skipped_count else ""
         )
         self.status.setText(
-            f"{len(self.fits)} / {len(self.all_fits)} fits pass "
+            f"{len(fits)} / {len(self.all_fits)} fits pass "
             f"R² > {self.min_rsq.value():.2f} · highest R² first · "
-            f"showing {start}–{end} of {len(self.fits)}{skipped}"
+            f"showing {start}–{end} of {len(fits)}{skipped}"
         )
 
     def set_page(self, index):
@@ -613,6 +631,8 @@ class CorrelationPage(QWidget):
             return
         threshold = self.min_rsq.value()
         self.fits = [fit for fit in self.all_fits if fit.rsquared > threshold]
+        self.parameter_filter.set_parameters([name for name in self.drawn_metrics
+                                              if any(name in (fit.x_name, fit.y_name) for fit in self.fits)])
         self.page_index = 0
         if not self.fits:
             self.ready = False
@@ -715,7 +735,14 @@ class CorrelationPage(QWidget):
             self.build_export_figure()
             self.refresh_canvas()
 
-    def clear_interactive(self, message=None):
+    def clear_interactive(self, message=None, *, preserve_panels=False):
+        for cached in self._panel_cache.values():
+            cached["panel"].setParent(self)
+            cached["panel"].hide()
+            if not preserve_panels:
+                cached["panel"].deleteLater()
+        if not preserve_panels:
+            self._panel_cache.clear()
         if self.plot_host is not None:
             self.plot_host.setParent(None)
             self.plot_host.deleteLater()
@@ -723,6 +750,7 @@ class CorrelationPage(QWidget):
         self.plot_widgets = []
         self.panel_hosts = []
         self.home_views = []
+        self._visible_panel_keys = []
         if message:
             label = QLabel(message, objectName="subtitle")
             label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -731,14 +759,39 @@ class CorrelationPage(QWidget):
             self.plot_host = label
             self.interactive_scroll.setWidget(label)
 
+    @staticmethod
+    def panel_heading(fit, rank, base):
+        if isinstance(fit, SourcePairFit):
+            lines = []
+            for source in fit.sources:
+                values = source.fit
+                lines.append(f"{source.name}: y = {values.slope:.5g}x "
+                             f"{values.intercept:+.5g}   R² {values.rsquared:.5f}   n {len(values.x)}")
+            details = "<br>".join(escape(line) for line in lines)
+        else:
+            details = escape(f"y = {fit.slope:.5g}x {fit.intercept:+.5g}   "
+                             f"R² {fit.rsquared:.5f}   n {len(fit.x)}   rank {rank}")
+        return (f"<b>{escape(fit.y_name)} vs {escape(fit.x_name)}</b><br>"
+                f"<span style='font-size:{max(7, base - 1)}pt'>{details}</span>")
+
     def render_interactive(self, visible_fits, columns, rows, start_rank=1):
         """Build a resizable grid of independently zoomable PyQtGraph plots."""
-        self.clear_interactive()
+        self.clear_interactive(preserve_panels=True)
         base = int(self.font_size.currentText())
         panel_height = 350
         grid = PanelGrid(columns)
         grid.set_fixed_row_height(rows, panel_height)
         for rank, fit in enumerate(visible_fits, start=start_rank):
+            key = (id(fit), base)
+            cached = self._panel_cache.get(key)
+            if cached is not None:
+                cached["heading"].setText(self.panel_heading(fit, rank, base))
+                grid.add_panel(cached["panel"])
+                cached["panel"].show()
+                self.plot_widgets.append(cached["widget"])
+                self.panel_hosts.append(cached["panel"])
+                self._visible_panel_keys.append(key)
+                continue
             widget = InteractivePlotWidget(background="w", frame_tick_length=3)
             widget.setMinimumSize(180, 310)
             widget.setToolTip("Ctrl+scroll to zoom · Drag a box to zoom · Right-drag to pan · "
@@ -749,26 +802,7 @@ class CorrelationPage(QWidget):
             plot.showGrid(x=True, y=True, alpha=.18)
             plot.setLabel("bottom", fit.x_name, color="#30343b", size=f"{max(7, base - 1)}pt")
             plot.setLabel("left", fit.y_name, color="#30343b", size=f"{max(7, base - 1)}pt")
-            if isinstance(fit, SourcePairFit):
-                lines = []
-                for source in fit.sources:
-                    values = source.fit
-                    lines.append(
-                        f"{source.name}: y = {values.slope:.5g}x "
-                        f"{values.intercept:+.5g}   R² {values.rsquared:.5f}   "
-                        f"n {len(values.x)}"
-                    )
-                details = "<br>".join(escape(line) for line in lines)
-            else:
-                equation = f"y = {fit.slope:.5g}x {fit.intercept:+.5g}"
-                details = escape(
-                    f"{equation}   R² {fit.rsquared:.5f}   "
-                    f"n {len(fit.x)}   rank {rank}"
-                )
-            heading = panel_title_label(
-                f"<b>{escape(fit.y_name)} vs {escape(fit.x_name)}</b><br>"
-                f"<span style='font-size:{max(7, base - 1)}pt'>{details}</span>",
-                base + 1)
+            heading = panel_title_label(self.panel_heading(fit, rank, base), base + 1)
             # A QLabel keeps every title line in its own space; pyqtgraph's own
             # title reserves one line and printed the second over the plot.
             container = PlotPanel(heading, widget)
@@ -808,6 +842,16 @@ class CorrelationPage(QWidget):
             grid.add_panel(container)
             self.plot_widgets.append(widget)
             self.panel_hosts.append(container)
+            self._visible_panel_keys.append(key)
+            self._panel_cache[key] = {"widget": widget, "panel": container, "heading": heading, "home": None}
+        # Bound retained widgets to two pages. Unseen fits are created lazily;
+        # parameter/ALL toggles reuse existing curves without rerunning lmfit.
+        limit = max(24, 2 * int(self.page_size.currentText()))
+        for key in list(self._panel_cache):
+            if len(self._panel_cache) <= limit:
+                break
+            if key not in self._visible_panel_keys:
+                self._panel_cache.pop(key)["panel"].deleteLater()
         grid.complete_last_row(minimum_width=180)
         self.plot_host = grid
         self.interactive_scroll.setWidget(grid)
@@ -815,8 +859,12 @@ class CorrelationPage(QWidget):
 
     def remember_home_views(self):
         """Store the view each plot was drawn with, so Reset views can restore it exactly."""
-        self.home_views = [widget.getPlotItem().getViewBox().viewRange()
-                           for widget in self.plot_widgets]
+        self.home_views = []
+        for key in self._visible_panel_keys:
+            cached = self._panel_cache[key]
+            if cached["home"] is None:
+                cached["home"] = cached["widget"].getViewBox().viewRange()
+            self.home_views.append(cached["home"])
 
     def reset_views(self):
         """Restore every plot to the exact range it was drawn with."""

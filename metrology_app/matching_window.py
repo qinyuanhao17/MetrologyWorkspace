@@ -74,7 +74,8 @@ from .plotting.sequence_axis import SpanLabelAxis
 from .settings import (
     apply_theme, forget_recent_wkb, recent_wkb_paths, remember_recent_wkb,
 )
-from .sheet import DuplicateHeaderBanner, SheetModel, SheetView
+from .sheet import DuplicateHeaderBanner, PasteFeedbackBar, SheetModel, SheetView
+from .table_clipboard import attach_copy_feedback
 from .widgets import ScrollSafeComboBox
 from .workspace_store import WorkspaceSnapshot, file_revision, load_workspace, save_workspace, workspace_path
 from .workspace_document import WkbDocument, commit_editors, local_snapshot, local_ui, recovery_decision, recovery_directory, writable_path
@@ -604,6 +605,8 @@ class MatchingWindow(QMainWindow):
         self._primary_bias_mode = "absolute"
         self._auto_run_enabled = False
         self._auto_run_pending = False
+        self._raw_keyboard_timer = QTimer(self, interval=120, singleShot=True)
+        self._raw_keyboard_timer.timeout.connect(self._run_paste_analysis)
         self._pending_auto_view_state = None
         self._loading_input_sheets = False
         self._input_sheet_errors = {"reference": "", "raw": "", "final_raw": ""}
@@ -1282,6 +1285,8 @@ class MatchingWindow(QMainWindow):
          self.raw_duplicate_banner) = self._table_card(
             "Raw Data", "Rows are matched to Reference from top to bottom.", self.raw_model
         )
+        self.raw_paste_feedback = PasteFeedbackBar(self.raw_view)
+        self.raw_card.layout().insertWidget(2, self.raw_paste_feedback)
         inputs.addWidget(self.order_card)
         inputs.addWidget(self.reference_card)
         inputs.addWidget(self.raw_card)
@@ -1317,6 +1322,7 @@ class MatchingWindow(QMainWindow):
         heading.addWidget(self.analyze_button)
         mapping_layout.addLayout(heading)
         self.mapping_table = QTableWidget(0, 12)
+        attach_copy_feedback(self.mapping_table)
         self.mapping_table.setHorizontalHeaderLabels([
             "Use", "Parameter", "Reference column", "Raw Data column",
             "Slope", "Intercept", "R²", "Valid pairs", "Match type", "Result mode",
@@ -1385,6 +1391,7 @@ class MatchingWindow(QMainWindow):
             view = QTableView()
             duplicate_banner = None
             view.setModel(model)
+            attach_copy_feedback(view)
             view.setAlternatingRowColors(True)
             view.setWordWrap(False)
             view.setHorizontalScrollMode(QTableView.ScrollMode.ScrollPerPixel)
@@ -1549,7 +1556,8 @@ class MatchingWindow(QMainWindow):
 
     def paste_raw(self):
         try:
-            self.set_raw_frame(clipboard_frame(QApplication.clipboard().text()), "Clipboard")
+            self.set_raw_frame(clipboard_frame(QApplication.clipboard().text()), "Clipboard",
+                               report_paste=True)
         except Exception as error:
             QMessageBox.warning(self, "Raw Data", str(error))
 
@@ -1565,7 +1573,7 @@ class MatchingWindow(QMainWindow):
         self._populate_mappings(mapping_state)
         self._analysis_input_changed(view_state=view_state)
 
-    def set_raw_frame(self, frame, source="Raw Data"):
+    def set_raw_frame(self, frame, source="Raw Data", *, report_paste=False):
         if self.reference_frame.empty:
             raise ValueError("Paste the Reference table before Raw Data.")
         previous_raw = self._active_raw_frame()
@@ -1583,7 +1591,7 @@ class MatchingWindow(QMainWindow):
             self.raw_frame = stored
             model = self.raw_model
             error_key = "raw"
-        self._load_input_sheet(model, stored)
+        self._load_input_sheet(model, stored, report_paste=report_paste)
         flag_column = next((column for column in stored if "".join(c.lower() for c in column if c.isalnum()) == "testflag"), None)
         if mode == "preview" and flag_column is not None:
             self.group_controls.restore(
@@ -1597,10 +1605,10 @@ class MatchingWindow(QMainWindow):
         self._populate_mappings(mapping_state)
         self._analysis_input_changed(view_state=view_state)
 
-    def _load_input_sheet(self, model, frame):
+    def _load_input_sheet(self, model, frame, *, report_paste=False):
         self._loading_input_sheets = True
         try:
-            model.load(frame)
+            model.load(frame, report_paste=report_paste)
         finally:
             self._loading_input_sheets = False
 
@@ -1663,7 +1671,14 @@ class MatchingWindow(QMainWindow):
         if name != "reference":
             self._sync_selection_to_raw(previous_raw, preserve_positions=model.preserves_record_positions)
         self._refresh_selection_columns_warning()
-        self._populate_mappings(mapping_state)
+        changed = model.changed_cells
+        same_raw_schema = (name != "reference" and changed is not None
+                           and all(row > 0 for row, _ in changed)
+                           and getattr(self, "_mapping_schema", None) == (tuple(self.reference_frame.columns), tuple(frame.columns)))
+        # Raw value edits do not alter Reference numeric qualification or the
+        # name-based Raw suggestions. Keep the user's existing mapping controls.
+        if not same_raw_schema:
+            self._populate_mappings(mapping_state)
         controls = self.group_controls
         # With unchanged dimensions and no row projection/pending settings,
         # the queued post-run analysis can prepare the Group plan once.
@@ -1689,9 +1704,15 @@ class MatchingWindow(QMainWindow):
         match one fall back to the previous participation at the same position,
         so pasting a corrected table does not silently select everything again.
         """
-        from .match_groups import participation_ids, row_ids
+        from .match_groups import participation_ids, reuse_row_ids, row_ids
         current = self._active_raw_frame()
+        reuse_row_ids(previous_raw, current)
         old_keys, new_keys = row_ids(previous_raw), row_ids(current)
+        if old_keys == new_keys and all(
+                config.get("data_selection") is None and config.get("mark_rows") is not None
+                and "new_rows" not in config
+                for config in (self.group_controls.state, self.group_controls.state.get("applied", {}))):
+            return  # No record identity moved; Marks need no remapping.
         records = None
         for config in (self.group_controls.state, self.group_controls.state.get("applied", {})):
             selection = config.get("data_selection")
@@ -1818,7 +1839,7 @@ class MatchingWindow(QMainWindow):
         # One explicit column-assignment import; never infer duplicate Ref/Raw columns.
         self._auto_run_pending = False
         self.set_reference_frame(reference, "Combined clipboard")
-        self.set_raw_frame(raw, "Combined clipboard")
+        self.set_raw_frame(raw, "Combined clipboard", report_paste=True)
         explicit = [ParameterMapping(str(column), str(column), str(column)) for column in reference
                     if column in raw and pd.to_numeric(reference[column], errors="coerce").notna().any()]
         if explicit:
@@ -1857,12 +1878,26 @@ class MatchingWindow(QMainWindow):
 
     def _queue_auto_analysis(self):
         """Coalesce valid post-run edits into one layout-preserving analysis."""
-        if not self._auto_run_enabled or self._auto_run_pending or self.group_controls.pending:
+        if not self._auto_run_enabled or self.group_controls.pending:
             return
+        if self.raw_view.keyboard_editing:
+            self._auto_run_pending = True
+            self._raw_keyboard_timer.start()
+            return
+        if self._auto_run_pending:
+            if not self._raw_keyboard_timer.isActive():
+                return
+            # A non-keyboard action must not be held by the typing debounce.
+            self._raw_keyboard_timer.stop()
         self._auto_run_pending = True
         QTimer.singleShot(0, self._run_paste_analysis)
 
     def _run_paste_analysis(self):
+        if self._raw_keyboard_timer.isActive():
+            return  # An older zero-delay callback cannot bypass the latest keys.
+        if self.raw_view.keyboard_editing:
+            self._raw_keyboard_timer.start()  # A modal paste-size decision is still open.
+            return
         if not self._auto_run_pending:
             return  # An explicit analysis/export already covered this request.
         self._auto_run_pending = False
@@ -3262,6 +3297,7 @@ class MatchingWindow(QMainWindow):
         workspaces = tuple(self._stage_windows)
         if not workspaces:
             self._auto_run_pending = False
+            self._raw_keyboard_timer.stop()
             self._plot_layout_identity_timer.stop()
             self.document.closed()
             event.accept()
@@ -3280,6 +3316,7 @@ class MatchingWindow(QMainWindow):
             return
         event.accept()
         self._auto_run_pending = False
+        self._raw_keyboard_timer.stop()
         self._plot_layout_identity_timer.stop()
         self.document.closed()
 
@@ -3409,6 +3446,7 @@ class MatchingWindow(QMainWindow):
         )
 
     def run_analysis(self, *, apply_groups=True):
+        self._raw_keyboard_timer.stop()
         self._auto_run_pending = False
         self._pending_auto_view_state = None
         scroll_value = self.setup_scroll.verticalScrollBar().value()
@@ -3610,6 +3648,7 @@ class MatchingWindow(QMainWindow):
         wafer_model = _WaferMetricsModel(parent=wafer_card, quality_limits=self.metric_highlighting)
         wafer_view = _WaferMetricsView(objectName="waferMetricsTable")
         wafer_view.setModel(wafer_model)
+        attach_copy_feedback(wafer_view)
         uncheck_all = wafer_view.uncheck_all
         uncheck_all.clicked.connect(lambda: self._uncheck_all_wafers(parameter))
         wafer_model.modelReset.connect(wafer_view._position_uncheck_all)

@@ -65,6 +65,9 @@ def prepare_array(frame, selection, options, progress=lambda *_: None, cancelled
                                 if not xy.empty else (geometry, None))
     scenes = []
     pending = []
+    names = {"".join(ch.lower() for ch in str(column) if ch.isalnum()): column for column in frame}
+    die_column = next((names[name] for name in ("dieseq", "dieid", "diesequence", "diesequenceno")
+                       if name in names), None)
     # Small arrays can afford a near screen-resolution grid, which keeps the
     # displayed surface crisp; large arrays fall back to the cheaper grid.
     grid_resolution = 400 if len(selected) <= 12 else 300 if len(selected) <= 48 else 200
@@ -76,8 +79,13 @@ def prepare_array(frame, selection, options, progress=lambda *_: None, cancelled
             if (wafer, metric) not in selected:
                 scenes.append({"wafer": wafer, "metric": metric, "skip": True, "error": ""})
                 continue
-            layer = pd.DataFrame({"x": number(part[options.x]), "y": number(part[options.y]),
-                                  "value": number(part[metric])}).dropna(subset=["x", "y"])
+            fields = {"x": number(part[options.x]), "y": number(part[options.y]),
+                      "value": number(part[metric])}
+            if die_column is not None:
+                # Carry the source identifier through exactly the same invalid
+                # coordinate/value mask as the measured points, not row numbers.
+                fields["die"] = part[die_column].fillna("").astype(str)
+            layer = pd.DataFrame(fields).dropna(subset=["x", "y"])
             wafer_geometry, standard = per_wafer.get(wafer, (geometry, None))
             plot_options = PlotOptions(*wafer_geometry, labels=options.labels, points=options.points,
                                        fill_edge=options.fill_edge, resolution=grid_resolution,

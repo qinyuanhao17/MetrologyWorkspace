@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
 
 from .match_groups import participation_ids, participation_source_keys, row_ids, filter_mask
 from .match_group_ui import ColumnFilterDialog
+from .table_clipboard import attach_copy_feedback
 
 
 class ParticipationModel(QAbstractTableModel):
@@ -184,6 +185,7 @@ class SelectionDialog(QDialog):
         layout.addLayout(tools)
         self.table = ParticipationView()
         self.table.setModel(self.model)
+        attach_copy_feedback(self.table)
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)

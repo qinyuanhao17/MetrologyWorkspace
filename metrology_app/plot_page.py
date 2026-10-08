@@ -1,5 +1,6 @@
 """Plot-tab controls, background interpolation and a scrollable Matplotlib canvas."""
 from io import BytesIO
+from html import escape
 from pathlib import Path
 
 import numpy as np
@@ -7,13 +8,13 @@ from matplotlib import rcParams
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from PyQt6.QtCore import QEvent, QPointF, Qt, QThread, QTimer, pyqtSignal
-from PyQt6.QtGui import QImage, QKeySequence, QPainter, QShortcut
+from PyQt6.QtGui import QCursor, QImage, QKeySequence, QPainter, QShortcut
 from matplotlib import colormaps
 
 from PyQt6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QGraphicsScene,
     QGraphicsView, QHBoxLayout, QLabel, QPushButton, QSpinBox, QStackedWidget, QVBoxLayout,
-    QWidget,
+    QToolTip, QWidget,
 )
 
 from .array_plot import ArrayOptions, draw_array, drawn_axes, prepare_array
@@ -991,17 +992,25 @@ class PlotPage(QWidget):
 
     def hover_point(self, event):
         if event.x is None or event.inaxes is None:
+            QToolTip.hideText()
             return
         for plot, scene in self.artists:
-            if event.inaxes is plot.axes:
+            if (event.inaxes is plot.axes and len(plot.positions)
+                    and plot.point_markers.get_visible()):
                 distance = np.linalg.norm(plot.axes.transData.transform(plot.positions) - [event.x, event.y], axis=1)
                 index = int(distance.argmin())
                 if distance[index] < 12:
                     point = scene["layer"].iloc[index]
                     name = scene.get('label', scene['wafer']).replace('\n', ' · ')
-                    self.status.setText(f"{name} · {scene['metric']} = {point.value:.8g} · "
-                                        f"X = {point.x:.6g}, Y = {point.y:.6g}")
+                    die = str(point.get("die", "")).strip()
+                    identity = f" · Die {die}" if die else ""
+                    text = (f"{name}{identity} · {scene['metric']} = {point.value:.8g} · "
+                            f"X = {point.x:.6g}, Y = {point.y:.6g}")
+                    self.status.setText(text)
+                    QToolTip.showText(QCursor.pos(), f"<span>{escape(text)}</span>", self.canvas)
+                    return
                 break
+        QToolTip.hideText()
 
     def export_image(self):
         """Write the complete array as PNG (chosen quality) or as SVG / PDF vector."""

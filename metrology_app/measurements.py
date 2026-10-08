@@ -1,10 +1,14 @@
 """Identify measurement sets without modifying, dropping or averaging samples."""
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 
 import numpy as np
+import pandas as pd
 
 from .data import number
+
+
+_MEASUREMENT_CACHE = []  # Four owned metadata snapshots, never measurement values.
 
 
 @dataclass
@@ -102,6 +106,19 @@ def detect_measurements(frame, wafer_column, group_columns=None, use_die_seq=Tru
                else [c for c in group_columns if c in frame])
     if not columns:
         return []
+    signature = (wafer_column, tuple(columns), lot_col, pad_col, seq_col, use_die_seq)
+    # These are every input used below: normalized grouping strings and parsed
+    # Die Seq. Numeric parameter edits do not change measurement membership or
+    # labels. Compare owned input values, so in-place caller edits cannot hit an
+    # old cache merely because the pandas object has the same identity.
+    metadata = pd.DataFrame({index: frame[column].fillna("").astype(str).str.strip().reset_index(drop=True)
+                             for index, column in enumerate(columns)})
+    if seq_col:
+        metadata[len(columns)] = number(sequence).reset_index(drop=True)
+    for index, (saved_signature, saved, measurements) in enumerate(_MEASUREMENT_CACHE):
+        if signature == saved_signature and metadata.equals(saved):
+            _MEASUREMENT_CACHE.insert(0, _MEASUREMENT_CACHE.pop(index))
+            return [replace(measurement) for measurement in measurements]
     identity = [frame[column].fillna("").astype(str).str.strip().tolist() for column in columns]
     buckets = {}
     for position, values in enumerate(zip(*identity)):
@@ -140,4 +157,6 @@ def detect_measurements(frame, wafer_column, group_columns=None, use_die_seq=Tru
             if len(runs) > 1:
                 details.append(f"Run {ordinal} / {len(runs)} inferred from an increasing Die Seq restart.")
             result.append(Measurement(key, wafer, lot, pad, rows, "\n".join(lines), "\n".join(details)))
+    _MEASUREMENT_CACHE.insert(0, (signature, metadata, tuple(replace(item) for item in result)))
+    del _MEASUREMENT_CACHE[4:]
     return result

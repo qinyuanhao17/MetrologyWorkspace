@@ -216,6 +216,22 @@ def _remember_row_ids(frame, ids):
     del _ROW_IDS_CACHE[_ROW_IDS_CACHE_LIMIT:]
 
 
+def row_identity_columns(raw):
+    aliases = {normalized(c): c for c in raw}
+    columns = [aliases[key] for key in ("waferid", "lotid", "padname", "dieseq") if key in aliases]
+    return columns or [c for c in raw if normalized(c) == "cursmefilepath"]
+
+
+def reuse_row_ids(previous, current):
+    """Reuse immutable positional identities only after comparing their inputs."""
+    if len(previous) != len(current) or not previous.columns.equals(current.columns):
+        return
+    columns = row_identity_columns(current)
+    if columns and not previous[columns].equals(current[columns]):
+        return
+    _remember_row_ids(current, row_ids(previous))
+
+
 def row_ids(raw):
     """Identity plus occurrence preserves assignments across regrouping and Final.
 
@@ -227,10 +243,7 @@ def row_ids(raw):
     cached = _cached_row_ids(raw)
     if cached is not None:
         return cached
-    aliases = {normalized(c): c for c in raw}
-    columns = [aliases[key] for key in ("waferid", "lotid", "padname", "dieseq") if key in aliases]
-    if not columns:
-        columns = [c for c in raw if normalized(c) == "cursmefilepath"]
+    columns = row_identity_columns(raw)
     seen, ids = Counter(), []
     for position, values in enumerate(raw[columns].fillna("").astype(str).values):
         key = tuple(str(v).strip() for v in values) if columns else ("row", str(position))

@@ -9,7 +9,7 @@ from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
     QApplication, QCheckBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
-    QLayout, QLineEdit, QPushButton, QScrollArea, QSplitter, QTreeWidgetItem,
+    QLayout, QLineEdit, QMessageBox, QPushButton, QScrollArea, QSplitter, QTreeWidgetItem,
     QVBoxLayout, QWidget,
 )
 
@@ -17,6 +17,7 @@ from .appearance import help_title_label
 from .correlation_page import CorrelationPage
 from .data import inspect_table, read_table
 from .measurements import default_identity_columns, detect_measurements
+from .metadata_locks import MetadataLocksPanel
 from .matching import MatchWorkbook, ParameterMapping
 from .match_groups import row_ids, participation_source_keys
 from .sequence_page import SequencePage
@@ -266,6 +267,8 @@ class CorrelationWindow(DataWorkspaceWindow):
         side_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         side_layout.setContentsMargins(0, 0, 0, 0)
         side_layout.setSpacing(14)
+        self.reference_metadata_locks_panel = MetadataLocksPanel(self.reference_model)
+        side_layout.addWidget(self.reference_metadata_locks_panel)
         side_layout.addWidget(self._build_reference_wafer_card(), 2)
         side_layout.addWidget(self._build_reference_parameter_card(), 3)
         side.setMinimumWidth(340)
@@ -401,9 +404,12 @@ class CorrelationWindow(DataWorkspaceWindow):
             return
         width = max(map(len, matrix))
         matrix = [row + [""] * (width - len(row)) for row in matrix]
-        self.set_reference_table(
-            pd.DataFrame(matrix[1:], columns=matrix[0]), "Clipboard"
-        )
+        try:
+            self.set_reference_table(
+                pd.DataFrame(matrix[1:], columns=matrix[0]), "Clipboard", report_paste=True
+            )
+        except ValueError as error:
+            QMessageBox.warning(self, "Unable to paste", str(error))
 
     def save_reference_csv(self):
         path, _ = QFileDialog.getSaveFileName(
@@ -580,9 +586,13 @@ class CorrelationWindow(DataWorkspaceWindow):
         self._reset_reference_selection = False
         self._filter_reference_parameters()
 
-    def set_reference_table(self, frame, source="Ref Data"):
+    def set_reference_table(self, frame, source="Ref Data", *, report_paste=False):
+        if report_paste:
+            frame = self.reference_model.merge_clipboard_frame(frame)
         self._reset_reference_selection = True
-        self.reference_model.load(frame.reset_index(drop=True))
+        self.reference_model.load(frame.reset_index(drop=True), report_paste=report_paste)
+        if report_paste and len(frame.columns):
+            self.reference_sheet.mark_pasted_range((0, 0, len(frame), len(frame.columns) - 1))
         self.reference_footer.setText(
             f"{len(frame):,} rows × {len(frame.columns)} columns")
         self.tabs.setCurrentWidget(self.reference_page)
@@ -624,6 +634,8 @@ class CorrelationWindow(DataWorkspaceWindow):
         return [metric for metric in metrics if parameter_checked_by_default(metric)]
 
     def set_table(self, frame, source, **kwargs):
+        if kwargs.get("report_paste"):
+            self.model.validate_clipboard_frame(frame)
         if not self._loading_workbook_sources:
             self._match_groups = None
             self._group_plan = None

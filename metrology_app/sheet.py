@@ -1,18 +1,24 @@
 """Small spreadsheet model: editable cells, range clipboard and undo/redo."""
 import csv
+from collections import Counter
+from collections.abc import Mapping
+from dataclasses import dataclass
+from html import escape
 from io import StringIO
+from types import MappingProxyType
 
 import pandas as pd
 from PyQt6.QtCore import (
-    QAbstractTableModel, QItemSelection, QItemSelectionModel, QModelIndex, Qt, pyqtSignal,
+    QAbstractProxyModel, QAbstractTableModel, QItemSelection, QItemSelectionModel, QModelIndex, Qt, pyqtSignal,
 )
 from PyQt6.QtGui import QColor, QCursor, QFont, QKeySequence, QUndoCommand, QUndoStack
 from PyQt6.QtWidgets import (
     QApplication, QFrame, QHeaderView, QHBoxLayout, QLabel, QMessageBox, QPushButton,
-    QStyle, QStyleOptionHeader, QTableView,
+    QSizePolicy, QStyle, QStyleOptionHeader, QTableView, QToolButton,
 )
 
 from .settings import get_settings
+from .table_clipboard import ClipboardRangeOutline, copy_selection, selection_bounds
 
 
 HEADER_COLOURS = {"dark": ("#201629", "#d6b9f5"), "light": ("#f0f0f2", "#18181b")}
@@ -40,6 +46,40 @@ def clipboard_rows(text):
     except csv.Error:
         delimiter = "\t"
     return list(csv.reader(StringIO(text), delimiter=delimiter))
+
+
+@dataclass(frozen=True)
+class PasteReport:
+    """Last clipboard transaction, in source coordinates; never document state."""
+
+    changes: Mapping[tuple[int, int], tuple[str, str]]
+    columns: tuple[tuple[int, str, int], ...]
+    rows_added: int = 0
+    rows_removed: int = 0
+    bounds: tuple[int, int, int, int] | None = None
+
+    @property
+    def summary(self):
+        if not self.changes and not (self.rows_added or self.rows_removed):
+            return "No changes — pasted values match the existing table."
+        count = len(self.changes)
+        parts = [f"Paste complete — {count:,} {'cell' if count == 1 else 'cells'} changed"]
+        rows = len({row for row, _ in self.changes if row > 0})
+        if rows:
+            parts.append(f"{rows:,} data {'row' if rows == 1 else 'rows'}")
+        headers = sum(row == 0 for row, _ in self.changes)
+        if headers:
+            parts.append(f"{headers:,} {'header' if headers == 1 else 'headers'} changed")
+        if self.rows_added:
+            parts.append(f"{self.rows_added:,} {'row' if self.rows_added == 1 else 'rows'} added")
+        if self.rows_removed:
+            parts.append(f"{self.rows_removed:,} {'row' if self.rows_removed == 1 else 'rows'} removed")
+        names = [f"{name} ({count:,})" for _, name, count in self.columns[:3]]
+        if len(self.columns) > 3:
+            names.append(f"+{len(self.columns) - 3} more columns")
+        if names:
+            parts.append(", ".join(names))
+        return " · ".join(parts)
 
 
 class CellEdit(QUndoCommand):
@@ -78,6 +118,8 @@ class TableReplace(QUndoCommand):
 
 class SheetModel(QAbstractTableModel):
     changed = pyqtSignal()
+    paste_report_changed = pyqtSignal()
+    metadata_locks_changed = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -86,7 +128,12 @@ class SheetModel(QAbstractTableModel):
         self._preserves_record_positions = False
         self._frames = {}
         self._extent = None
+        self._selection_extent = None
+        self._frame_change = None
+        self.paste_report = None
+        self.clipboard_locks = frozenset()
         self.changed.connect(self._invalidate_frames)
+        self.changed.connect(self.clear_paste_report)
         self.height, self.width = 100, 26
         self.undo = QUndoStack(self)
         self._revision = 0
@@ -110,6 +157,12 @@ class SheetModel(QAbstractTableModel):
         if not index.isValid():
             return None
         value = self.cells.get((index.row(), index.column()), "")
+        change = (self.paste_report.changes.get((index.row(), index.column()))
+                  if self.paste_report is not None else None)
+        if change is not None:
+            if role == Qt.ItemDataRole.ToolTipRole:
+                before, after = (escape(text) if text else "(blank)" for text in change)
+                return f"<b>Pasted update</b><br>Before: {before}<br>After: {after}"
         if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole, Qt.ItemDataRole.ToolTipRole):
             return value
         if index.row() == 0:
@@ -124,7 +177,56 @@ class SheetModel(QAbstractTableModel):
                 return font
 
     def flags(self, index):
+        if index.isValid() and self.cells.get((0, index.column()), "") in self.clipboard_locks:
+            return CELL_FLAGS & ~Qt.ItemFlag.ItemIsEditable
         return CELL_FLAGS if index.isValid() else Qt.ItemFlag.ItemIsEditable
+
+    def set_clipboard_locks(self, names):
+        """Lock named metadata without modifying source values or row identity."""
+        headers = set(self.source_headers())
+        names = frozenset(name for name in names if name in headers)
+        if names != self.clipboard_locks:
+            self.clipboard_locks = names
+            self.metadata_locks_changed.emit()
+
+    def range_editable(self, bounds):
+        _top, left, _bottom, right = bounds
+        return not any(self.cells.get((0, column), "") in self.clipboard_locks
+                       for column in range(left, right + 1))
+
+    def merge_clipboard_frame(self, frame):
+        """Preserve locked source strings by row position, never infer a join.
+
+        A different row count or ambiguous headers cannot safely carry coordinates
+        forward. Reject before changing the source, its Undo history or UI state.
+        Explicit file/workbook loads do not use this clipboard-only contract.
+        """
+        if not self.clipboard_locks:
+            return frame
+        self.validate_clipboard_frame(frame)
+        current = self.document_frame()
+        merged = frame.reset_index(drop=True).copy()
+        for column in current.columns:
+            if column in self.clipboard_locks:
+                merged[column] = current[column].to_numpy(copy=True)
+        return merged
+
+    def validate_clipboard_frame(self, frame):
+        if self.clipboard_locks:
+            if len(frame) != self._document_rows:
+                raise ValueError("Unlock metadata before pasting a different number of rows.")
+            headers = self.source_headers()
+            if not frame.columns.is_unique or len(set(headers)) != len(headers):
+                raise ValueError("Unlock metadata or fix duplicate column names before pasting.")
+
+    def _merge_clipboard_matrix(self, matrix):
+        if not self.clipboard_locks:
+            return matrix
+        width = max((len(row) for row in matrix), default=0)
+        padded = [list(row) + [""] * (width - len(row)) for row in matrix]
+        frame = pd.DataFrame(padded[1:], columns=padded[0]) if padded else pd.DataFrame()
+        frame = self.merge_clipboard_frame(frame)
+        return [list(frame.columns), *frame.values.tolist()]
 
     @property
     def uniform_selectable(self):
@@ -133,13 +235,62 @@ class SheetModel(QAbstractTableModel):
     def setData(self, index, value, role=Qt.ItemDataRole.EditRole):
         if role != Qt.ItemDataRole.EditRole or not index.isValid():
             return False
+        if not self.flags(index) & Qt.ItemFlag.ItemIsEditable:
+            return False
         self.edit({(index.row(), index.column()): str(value)})
         return True
 
     def edit(self, changes):
-        changes = {key: value for key, value in changes.items() if self.cells.get(key, "") != value}
+        changes = {key: value for key, value in changes.items()
+                   if self.cells.get((0, key[1]), "") not in self.clipboard_locks
+                   and self.cells.get(key, "") != value}
         if changes:
             self.undo.push(CellEdit(self, changes))
+
+    def paste_cells(self, changes, *, bounds=None):
+        """Paste over a range and report actual edits, not the clipboard size."""
+        if self.clipboard_locks:
+            if any(row > self._document_rows for row, _ in changes):
+                raise ValueError("Unlock metadata before pasting additional rows.")
+            changes = {key: value for key, value in changes.items()
+                       if self.cells.get((0, key[1]), "") not in self.clipboard_locks}
+        before = {key: self.cells.get(key, "") for key, value in changes.items()
+                  if self.cells.get(key, "") != value}
+        rows = self._document_rows
+        headers = {column: self.cells.get((0, column), "") for _, column in before}
+        self.edit({key: changes[key] for key in before})
+        if bounds is None and changes:
+            bounds = (min(r for r, _ in changes), min(c for _, c in changes),
+                      max(r for r, _ in changes), max(c for _, c in changes))
+        self._report_paste(before, rows, headers, bounds)
+
+    def clear_paste_report(self):
+        if self.paste_report is not None:
+            self.paste_report = None
+            self.paste_report_changed.emit()
+
+    def _replacement_paste_before(self, state):
+        cells, _, _ = state
+        before = {key: self.cells.get(key, "") for key, value in cells.items()
+                  if self.cells.get(key, "") != value}
+        before.update((key, value) for key, value in self.cells.items()
+                      if value and key not in cells)
+        headers = {column: self.cells.get((0, column), "") for _, column in before}
+        return before, self._document_rows, headers
+
+    def _report_paste(self, before, rows, headers, bounds=None):
+        changes = {key: (value, self.cells.get(key, "")) for key, value in before.items()
+                   if value != self.cells.get(key, "")}
+        counts = Counter(column for _, column in changes)
+        columns = tuple((column, self.cells.get((0, column), "") or headers[column]
+                         or f"Column {column_letter(column)}", counts[column])
+                        for column in sorted(counts))
+        self.paste_report = PasteReport(
+            MappingProxyType(changes), columns,
+            max(0, self._document_rows - rows), max(0, rows - self._document_rows), bounds)
+        # Presentation only: do not increment revisions, invalidate analysis,
+        # mark dirty or persist the receipt in WKB/recovery snapshots.
+        self.paste_report_changed.emit()
 
     @property
     def preserves_record_positions(self):
@@ -147,6 +298,23 @@ class SheetModel(QAbstractTableModel):
         return self._preserves_record_positions
 
     def apply(self, changes):
+        previous = self._frame_change
+        self._frame_change = changes
+        try:
+            self._apply_cells(changes)
+        finally:
+            self._frame_change = previous
+
+    @property
+    def changed_cells(self):
+        """Read-only edit context during a cell-change notification, else None.
+
+        Replacement/load and untracked notifications use the full refresh path.
+        Receivers must consume this on the GUI thread, not retain it in a worker.
+        """
+        return MappingProxyType(self._frame_change) if self._frame_change is not None else None
+
+    def _apply_cells(self, changes):
         self._invalidate_frames()
         self._revision += 1
         self._preserves_record_positions = True
@@ -172,22 +340,38 @@ class SheetModel(QAbstractTableModel):
         self.dataChanged.emit(first, last)
         self.changed.emit()
 
-    def load(self, frame):
+    def load(self, frame, *, report_paste=False):
         matrix = [list(frame.columns)] + frame.fillna("").astype(str).values.tolist() if len(frame.columns) else []
-        self.load_matrix(matrix)
+        self.load_matrix(matrix, report_paste=report_paste)
 
-    def load_matrix(self, matrix):
+    def load_matrix(self, matrix, *, report_paste=False):
         """Replace every cell with a rectangular clipboard matrix."""
-        self.restore(self.state_from_matrix(matrix), emit_changed=False)
+        if report_paste:
+            matrix = self._merge_clipboard_matrix(matrix)
+        state = self.state_from_matrix(matrix)
+        before = self._replacement_paste_before(state) if report_paste else None
+        self.restore(state, emit_changed=False)
         self.undo.clear()
         self.undo.setClean()
         self.changed.emit()
+        if before is not None:
+            self._report_paste(*before, self._matrix_bounds(matrix))
 
-    def replace_matrix(self, matrix):
+    def replace_matrix(self, matrix, *, report_paste=False):
         """Replace the table as one user-visible, undoable operation."""
+        if report_paste:
+            matrix = self._merge_clipboard_matrix(matrix)
         command = TableReplace(self, matrix)
+        before = self._replacement_paste_before(command.after) if report_paste else None
         if command.before != command.after:
             self.undo.push(command)
+        if before is not None:
+            self._report_paste(*before, self._matrix_bounds(matrix))
+
+    @staticmethod
+    def _matrix_bounds(matrix):
+        width = max((len(row) for row in matrix), default=0)
+        return (0, 0, len(matrix) - 1, width - 1) if matrix and width else None
 
     def snapshot(self):
         cells = dict(self.cells)
@@ -215,6 +399,8 @@ class SheetModel(QAbstractTableModel):
         return cells, max(100, len(matrix) + 20), max(26, width + 3)
 
     def restore(self, state, emit_changed=True):
+        self._frame_change = None
+        self.clear_paste_report()
         self._invalidate_frames()
         self._revision += 1
         cells, height, width = state
@@ -225,6 +411,10 @@ class SheetModel(QAbstractTableModel):
         self.height = height
         self.width = width
         self.endResetModel()
+        if self.clipboard_locks:
+            # New/Open may remove fields entirely. Do not leave hidden locks
+            # that make an empty table impossible to paste into or unlock.
+            self.set_clipboard_locks(self.clipboard_locks)
         if emit_changed:
             self.changed.emit()
 
@@ -243,16 +433,52 @@ class SheetModel(QAbstractTableModel):
         return frame.copy()
 
     def _invalidate_frames(self):
-        # Model edits, replacement and Undo invalidate together. Returned
-        # frames remain detached: callers cannot change a later Save snapshot.
+        changes = self._frame_change
+        if (changes and self._extent is not None
+                and all(row > 0 and isinstance(value, str) and value.strip() and (row, column) in self.cells
+                        for (row, column), value in changes.items())):
+            # Existing nonblank data cells cannot change headers, row inclusion
+            # or extent. Patch only module-owned string frames; public reads
+            # still return detached copies, including accepted Save snapshots.
+            width = self._extent[1]
+            columns = {}
+            for (row, column), value in changes.items():
+                columns.setdefault(column, []).append((row - 1, value))
+            for kind, frame in list(self._frames.items()):
+                if (len(frame) == self._document_rows and len(frame.columns) == width
+                        and all(dtype == object for dtype in frame.dtypes)):
+                    for column, updates in columns.items():
+                        if len(updates) == 1:
+                            row, value = updates[0]
+                            frame.iat[row, column] = value
+                        else:
+                            frame.iloc[[row for row, _ in updates], column] = [value for _, value in updates]
+                else:
+                    # Analysis frames with omitted blank rows have a different
+                    # positional map. Keep their original full rebuild behavior.
+                    del self._frames[kind]
+            return
+        # Headers, blanks, growth, replacement and unknown notifications retain
+        # full invalidation. No change summary is inferred from an old revision.
         self._frames.clear()
         self._extent = None
+        self._selection_extent = None
 
     def _cell_extent(self):
         if self._extent is None:
             self._extent = (max((row for row, _ in self.cells), default=-1) + 1,
                             max((column for _, column in self.cells), default=-1) + 1)
         return self._extent
+
+    def selection_extent(self):
+        """Occupied rectangle, excluding reserved cells and empty tail markers."""
+        if self._selection_extent is None:
+            rows = columns = 0
+            for (row, column), value in self.cells.items():
+                if value:
+                    rows, columns = max(rows, row + 1), max(columns, column + 1)
+            self._selection_extent = rows, columns
+        return self._selection_extent
 
     def document_frame(self):
         """Save a draft exactly, including duplicate headers and empty rows."""
@@ -274,6 +500,10 @@ class SheetModel(QAbstractTableModel):
             columns = self._cell_extent()[1]
         return [self.cells.get((0, c), "").strip() or f"Column {column_letter(c)}"
                 for c in range(columns)]
+
+    def source_headers(self):
+        """Literal document names for clipboard protection, not analysis aliases."""
+        return [self.cells.get((0, column), "") for column in range(self._cell_extent()[1])]
 
     def duplicate_header_count(self):
         """How many row-1 names repeat (0 when every header is unique)."""
@@ -422,9 +652,13 @@ class _SheetHeader(QHeaderView):
 
 class SheetView(QTableView):
     table_pasted = pyqtSignal()
+    paste_report_changed = pyqtSignal()
 
     def __init__(self, model):
         super().__init__()
+        self._paste_source = None
+        self.keyboard_editing = False
+        self.clipboard_outline = ClipboardRangeOutline(self)
         self.setHorizontalHeader(_SheetHeader(Qt.Orientation.Horizontal, self))
         self.setVerticalHeader(_SheetHeader(Qt.Orientation.Vertical, self))
         for header in (self.horizontalHeader(), self.verticalHeader()):
@@ -441,11 +675,52 @@ class SheetView(QTableView):
         self.horizontalHeader().setMinimumSectionSize(48)
         self.verticalHeader().setMinimumWidth(44)
 
+    @staticmethod
+    def source_cell(index):
+        model = index.model()
+        while isinstance(model, QAbstractProxyModel):
+            index = model.mapToSource(index)
+            model = model.sourceModel()
+        return model, (index.row(), index.column())
+
+    def setModel(self, model):
+        previous_model = self.model()
+        if previous_model is not None:
+            previous_model.modelReset.disconnect(self.clipboard_outline.clear)
+            previous_model.dataChanged.disconnect(self.clipboard_outline.clear)
+        self.clipboard_outline.clear()
+        previous = getattr(self, "_paste_source", None)
+        source = model
+        while isinstance(source, QAbstractProxyModel):
+            source = source.sourceModel()
+        if previous is not source and previous is not None:
+            previous.paste_report_changed.disconnect(self._paste_feedback_changed)
+        super().setModel(model)
+        model.modelReset.connect(self.clipboard_outline.clear)
+        model.dataChanged.connect(self.clipboard_outline.clear)
+        self._paste_source = source if isinstance(source, SheetModel) else None
+        if self._paste_source is not None and previous is not source:
+            source.paste_report_changed.connect(self._paste_feedback_changed)
+        self._paste_feedback_changed()
+
+    @property
+    def paste_report(self):
+        return getattr(self._paste_source, "paste_report", None)
+
+    def _paste_feedback_changed(self):
+        self.viewport().update()
+        self.paste_report_changed.emit()
+
+    def clear_paste_report(self):
+        if self._paste_source is not None:
+            self._paste_source.clear_paste_report()
+
     def selectAll(self):
         """Select in one batched change so Qt does not repaint in stages."""
         model = self.model()
-        rows, columns = model.rowCount(), model.columnCount()
+        rows, columns = model.selection_extent()
         if rows <= 0 or columns <= 0:
+            self.clearSelection()
             return
         selection = QItemSelection(model.index(0, 0), model.index(rows - 1, columns - 1))
         self.setUpdatesEnabled(False)
@@ -503,43 +778,80 @@ class SheetView(QTableView):
         row, column = (index.row(), index.column()) if index.isValid() else (0, 0)
         if not replace and (row, column) == (0, 0) and not was_empty and len(matrix) > 1:
             pasted = (max(len(line) for line in matrix), len(matrix) - 1)
-            current = self._data_size(model)
-            if pasted[0] < current[0] or pasted[1] < current[1]:
-                choice = self.mismatched_paste_choice(pasted, current)
-                if choice == "cancel":
-                    return
-                replace = choice == "replace"
+            # Document bounds are an upper bound on occupied data rows. An
+            # equal/larger rectangle cannot leave old cells outside it; only
+            # potentially smaller pastes need the exact nonblank-row scan.
+            covers_document = (isinstance(model, SheetModel)
+                               and pasted[0] >= model._cell_extent()[1]
+                               and pasted[1] >= model._document_rows)
+            if not covers_document:
+                current = self._data_size(model)
+                if pasted[0] < current[0] or pasted[1] < current[1]:
+                    choice = self.mismatched_paste_choice(pasted, current)
+                    if choice == "cancel":
+                        return
+                    replace = choice == "replace"
         if replace:
             # Explicit Ctrl+Shift+V replacement: clear the rest of the table so
             # no stale cells from a previously pasted file survive.
-            model.replace_matrix(matrix)
+            model.replace_matrix(matrix, report_paste=True)
         else:
-            model.edit({(row + r, column + c): v for r, line in enumerate(matrix) for c, v in enumerate(line)})
+            model.paste_cells(
+                {(row + r, column + c): v for r, line in enumerate(matrix) for c, v in enumerate(line)},
+                bounds=(row, column, row + len(matrix) - 1, column + max(map(len, matrix)) - 1))
+        top, left = (0, 0) if replace else (row, column)
+        self.mark_pasted_range((top, left, top + len(matrix) - 1,
+                                left + max(map(len, matrix)) - 1))
         if matrix and (was_empty or replace):
             # The first paste into an empty sheet replaces the table, so the
             # window should re-run automatic wafer/parameter identification.
             self.table_pasted.emit()
 
+    def mark_pasted_range(self, bounds):
+        self.clipboard_outline.clear()
+        top, left, bottom, right = bounds
+        model = self.model()
+        self.selectionModel().select(
+            QItemSelection(model.index(top, left), model.index(bottom, right)),
+            QItemSelectionModel.SelectionFlag.ClearAndSelect)
+
     def copy(self):
-        if getattr(self.model(), 'uniform_selectable', False):
-            ranges = self.selectionModel().selection()
-            if not ranges:
-                return
-            rows = range(min(r.top() for r in ranges), max(r.bottom() for r in ranges) + 1)
-            columns = range(min(r.left() for r in ranges), max(r.right() for r in ranges) + 1)
-        else:
-            indexes = self.selectedIndexes()
-            if not indexes:
-                return
-            rows = range(min(i.row() for i in indexes), max(i.row() for i in indexes) + 1)
-            columns = range(min(i.column() for i in indexes), max(i.column() for i in indexes) + 1)
-        output = StringIO()
-        writer = csv.writer(output, delimiter="\t", lineterminator="\n")
-        for row in rows:
-            writer.writerow([self.model().cells.get((row, c), "") for c in columns])
-        QApplication.clipboard().setText(output.getvalue())
+        return copy_selection(self, Qt.ItemDataRole.EditRole)
+
+    def cut(self):
+        bounds = selection_bounds(self)
+        if bounds is None:
+            return False
+        top, left, bottom, right = bounds
+        model = self.model()
+        if hasattr(model, "range_editable") and not model.range_editable(bounds):
+            return False
+        if not getattr(model, "uniform_selectable", False) and any(
+                not model.flags(model.index(row, column)) & Qt.ItemFlag.ItemIsEditable
+                for row in range(top, bottom + 1) for column in range(left, right + 1)):
+            return False
+        if not self.copy():
+            return False
+        # Copy succeeded first. One normal edit owns the clear and Undo; no
+        # pending move can later delete a different source or hidden record.
+        changes = {(row, column): "" for row, column in model.cells
+                   if top <= row <= bottom and left <= column <= right}
+        model.edit(changes)
+        self.clipboard_outline.show_range(bounds, "copy")
+        return True
 
     def keyPressEvent(self, event):
+        # The owning workbook can coalesce rapid keyboard paste/Undo analysis,
+        # while the Qt model, Undo stack and table values still update now.
+        self.keyboard_editing = True
+        try:
+            self._handle_key_press(event)
+        except ValueError as error:
+            QMessageBox.warning(self, "Unable to paste", str(error))
+        finally:
+            self.keyboard_editing = False
+
+    def _handle_key_press(self, event):
         if (event.key() == Qt.Key.Key_V
                 and event.modifiers() == (Qt.KeyboardModifier.ControlModifier
                                           | Qt.KeyboardModifier.ShiftModifier)):
@@ -548,6 +860,11 @@ class SheetView(QTableView):
             self.paste()
         elif event.matches(QKeySequence.StandardKey.Copy):
             self.copy()
+        elif event.matches(QKeySequence.StandardKey.Cut):
+            self.cut()
+        elif event.key() == Qt.Key.Key_Escape:
+            self.clipboard_outline.clear()
+            super().keyPressEvent(event)
         elif event.matches(QKeySequence.StandardKey.Undo):
             self.model().undo.undo()
         elif event.matches(QKeySequence.StandardKey.Redo):
@@ -569,3 +886,39 @@ class SheetView(QTableView):
             model.edit(changes)
         else:
             super().keyPressEvent(event)
+
+
+class PasteFeedbackBar(QFrame):
+    """Small, non-modal receipt for the view's current source/stage."""
+
+    def __init__(self, view, parent=None):
+        super().__init__(parent)
+        self.view = view
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 4, 0, 4)
+        self.message = QLabel()
+        self.message.setTextFormat(Qt.TextFormat.PlainText)
+        self.message.setWordWrap(True)
+        layout.addWidget(self.message, 1)
+        self.clear_button = QToolButton()
+        self.clear_button.setText("×")
+        self.clear_button.setAccessibleName("Clear paste feedback")
+        self.clear_button.setToolTip("Dismiss the receipt; keep the pasted data.")
+        self.clear_button.clicked.connect(view.clear_paste_report)
+        layout.addWidget(self.clear_button)
+        view.paste_report_changed.connect(self._refresh)
+        self._refresh()
+
+    def _refresh(self):
+        report = self.view.paste_report
+        self.setVisible(report is not None)
+        if report is None:
+            self.message.clear()
+            return
+        self.message.setText(report.summary)
+        columns = "\n".join(f"{column_letter(column)} — {name}: {count:,} changed cells"
+                            for column, name, count in report.columns)
+        self.message.setToolTip(
+            f"{escape(columns).replace(chr(10), '<br>')}<br>Only pasted values are reported, not analysis completion."
+            "<br>Feedback clears on the next edit, Undo, table reload, or ×.")

@@ -152,6 +152,10 @@ def analysis_state(window):
     """Capture only editable document controls, never graphics objects or caches."""
     state = {"selection": window.selection_state(), "grouping": window.group_columns(),
              "card": window.card_check.isChecked(), "tab": window.tabs.currentIndex(), "pages": {}}
+    state["metadata_locks"] = {name: sorted(model.clipboard_locks)
+                               for name in ("model", "reference_model")
+                               if (model := getattr(window, name, None)) is not None
+                               and hasattr(model, "clipboard_locks")}
     if hasattr(window, "reference_model"):
         state["reference_grouping"] = window._reference_group_columns()
     for name in PAGE_NAMES:
@@ -168,6 +172,8 @@ def analysis_state(window):
             elif isinstance(control, (QSpinBox, QDoubleSpinBox)):
                 controls[field] = control.value()
         saved = {"controls": controls}
+        if hasattr(page, "parameter_filter"):
+            saved["parameter_filter"] = page.parameter_filter.parameter
         if hasattr(page, "selector"):
             saved["boxes"] = [[wafer, metric] for wafer, metric in sorted(
                 page.selector.selected_cells(), key=str)]
@@ -195,6 +201,11 @@ def analysis_state(window):
 def restore_analysis_state(window, state):
     if not isinstance(state, dict):
         raise ValueError("Invalid analysis workspace state.")
+    locks = state.get("metadata_locks", {})
+    for name in ("model", "reference_model"):
+        model = getattr(window, name, None)
+        if model is not None and hasattr(model, "set_clipboard_locks"):
+            model.set_clipboard_locks(locks.get(name, []))
     for checks, field in ((window.group_checks, "grouping"),
                           (getattr(window, "reference_group_checks", {}), "reference_grouping")):
         if field not in state:
@@ -259,6 +270,10 @@ def restore_analysis_state(window, state):
         if hasattr(page, "selector"):
             page.selector.set_selected_cells({(_key(w), m) for w, m in saved.get("boxes", [])}, notify=False)
             page.selector.pending_draw = bool(saved.get("pending_draw"))
+        if hasattr(page, "parameter_filter"):
+            parameter = saved.get("parameter_filter")
+            if parameter in page.parameter_filter.buttons:
+                page.parameter_filter.buttons[parameter].click()
         if name == "correlation_page":
             page.set_page(int(saved.get("page_index", 0)))
     window.tabs.setCurrentIndex(min(max(0, int(state.get("tab", 0))), window.tabs.count() - 1))
@@ -324,6 +339,12 @@ class WkbDocument:
             model = getattr(window, name, None)
             if model is not None and hasattr(model, "changed"):
                 model.changed.connect(lambda *_: self.identity_timer.start())
+                if hasattr(model, "metadata_locks_changed"):
+                    model.metadata_locks_changed.connect(lambda *_: self.identity_timer.start())
+        for name in PAGE_NAMES:
+            page = getattr(window, name, None)
+            if page is not None and hasattr(page, "parameter_filter"):
+                page.parameter_filter.changed.connect(lambda *_: self.identity_timer.start())
         if hasattr(window, "selection_changed"):
             window.selection_changed.connect(lambda *_: self.identity_timer.start())
 
@@ -351,9 +372,15 @@ class WkbDocument:
         # Comparison is read-only. Normalize only the managed Correlation UI,
         # without copying its source tables and classification context twice.
         if snapshot is None:
-            snapshot = (self.window.workspace_snapshot(readonly=True)
-                        if self.window.workspace_type in ("match_workbook", "correlation_trend")
-                        else self.window.workspace_snapshot())
+            if self.window.workspace_type == "match_workbook":
+                # Equality needs current values, not a second reconstruction of
+                # a validated MatchWorkbook. Formal Save/recovery captures keep
+                # their full validation; no candidate is accepted on this path.
+                snapshot = self.window.workspace_snapshot(readonly=True, validate=False)
+            elif self.window.workspace_type == "correlation_trend":
+                snapshot = self.window.workspace_snapshot(readonly=True)
+            else:
+                snapshot = self.window.workspace_snapshot()
         current, baseline = snapshot, self.baseline
         if (getattr(self.window, "_managed_owner", None) is not None
                 and self.window.workspace_type == "correlation_trend"):

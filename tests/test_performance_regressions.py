@@ -11,6 +11,160 @@ from metrology_app.matching import MatchWorkbook, ParameterMapping
 
 
 class WorkbookPerformanceTests(unittest.TestCase):
+    def test_grouped_trend_avoids_discarded_wafer_items_and_keeps_all_data(self):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QApplication
+        import pyqtgraph as pg
+        from metrology_app.match_group_ui import draw_group_trend
+        from metrology_app.plotting import InteractivePlotWidget
+        app = QApplication.instance() or QApplication([])
+        raw = pd.DataFrame({"Wafer ID": np.repeat([f"W{i:03}" for i in range(40)], 20),
+                            "Die Seq": list(range(1, 21)) * 40, "CD": np.arange(800.)})
+        reference = pd.DataFrame({"CD Reference": raw["CD"] * 2 + 1})
+        result = MatchWorkbook(reference, raw, [ParameterMapping("CD", "CD Reference", "CD")],
+                               test_flags=pd.DataFrame({"TestFlag": [0] * 400 + [1] * 400}),
+                               grouping_state={"enabled": True}).analyze()
+        plot = InteractivePlotWidget(background="white")
+        try:
+            plot.resize(900, 420)
+            # Instrument construction, never replace the renderer or its pens.
+            with patch("metrology_app.match_group_ui.pg.InfiniteLine", wraps=pg.InfiniteLine) as edges:
+                data = draw_group_trend(plot, result, "CD", group_only=True)
+            self.assertLessEqual(edges.call_count, 2, "Discarded wafer edges are still constructed")
+            self.assertEqual([line.value() for line in plot._group_boundaries], [400.5])
+            np.testing.assert_array_equal(plot.listDataItems()[0].yData, data["Reference"])
+            np.testing.assert_array_equal(plot.listDataItems()[1].yData, data["Trend value"])
+            plot.show()
+            app.processEvents()
+            draw_group_trend(plot, result, "CD")
+            self.assertEqual([line.value() for line in plot._group_boundaries],
+                             [i + .5 for i in range(20, 800, 20)])
+            self.assertTrue(all(isinstance(line, pg.InfiniteLine) for line in plot._group_boundaries))
+            plot.setXRange(200.5, 600.5, padding=0)
+            app.processEvents()
+            np.testing.assert_array_equal(plot.listDataItems()[0].yData, data["Reference"])
+            np.testing.assert_array_equal(plot.listDataItems()[1].yData, data["Trend value"])
+            pd.testing.assert_frame_equal(result.group_plan.raw, raw)
+        finally:
+            plot.close()
+            plot.deleteLater()
+            app.processEvents()
+
+    def test_measurement_metadata_reuses_numeric_updates_without_stale_identities(self):
+        from metrology_app.measurements import detect_measurements
+        raw = pd.DataFrame({"Wafer ID": np.repeat([f"W{i:03}" for i in range(400)], 20),
+                            "Lot ID": ["L1"] * 8000, "Die Seq": list(range(1, 21)) * 400,
+                            "CD": np.arange(8000.)})
+        expected = detect_measurements(raw, "Wafer ID", ["Wafer ID"], use_die_seq=False)
+        start = perf_counter()
+        for index in range(5):
+            current = raw.copy()
+            current.loc[0, "CD"] = 100 + index
+            result = detect_measurements(current, "Wafer ID", ["Wafer ID"], use_die_seq=False)
+            self.assertEqual(result, expected)
+        elapsed = perf_counter() - start
+        result[0].label = "caller mutation"
+        current.loc[0, "Wafer ID"] = "Changed"
+        rebuilt = detect_measurements(current, "Wafer ID", ["Wafer ID"], use_die_seq=False)
+        self.assertEqual(rebuilt[0].wafer, "Changed")
+        self.assertEqual(rebuilt[0].rows, (0,))
+        current.loc[0, "Die Seq"] = 99
+        rebuilt = detect_measurements(current, "Wafer ID", ["Wafer ID"], use_die_seq=False)
+        self.assertIn("99–99", rebuilt[0].detail)
+        self.assertEqual(expected[0].label, "W000")
+        self.assertLess(elapsed, .15, f"Repeated metadata preparation stalled: {elapsed:.3f}s")
+
+    def test_raw_paste_and_repeated_keyboard_undo_publish_latest_data_promptly(self):
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtTest import QTest
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.matching_window import MatchingWindow
+        from metrology_app.match_groups import row_ids
+        from metrology_app.appearance import configure_fonts
+        app = QApplication.instance() or QApplication([])
+        previous_font, previous_palette = app.font(), app.palette()
+        configure_fonts(app)  # Match the real app, not offscreen missing-glyph fallback.
+        window = MatchingWindow()
+        try:
+            raw = pd.DataFrame({"Wafer ID": np.repeat([f"W{i:03}" for i in range(400)], 20),
+                                "Die Seq": list(range(1, 21)) * 400,
+                                "CD": [f"{value}.000" for value in range(1, 8001)],
+                                **{f"Metadata {i}": ["retained"] * 8000 for i in range(30)}}).astype(str)
+            window.set_reference_frame(pd.DataFrame({"CD Reference": np.arange(1, 8001.) * 2 + 1}))
+            window.set_raw_frame(raw)
+            window.group_controls.restore({"enabled": True, "mark_enabled": True,
+                                           "new_rows": row_ids(raw)[4000:]},
+                                          pd.DataFrame({"TestFlag": ["0"] * 4000 + ["1"] * 4000}))
+            window.run_analysis()
+            saved_marks = {key: list(ids) for key, ids in window.group_controls.state["mark_rows"].items()}
+            window.resize(1500, 950)
+            window.show()
+            app.processEvents()
+            view = window.raw_view
+            for row in range(1, 6):
+                view.setCurrentIndex(view.model().index(row, 2))
+                app.clipboard().setText("99.500")
+                QTest.keyClick(view, Qt.Key.Key_V, Qt.KeyboardModifier.ControlModifier)
+            QTest.qWait(150)
+            start = perf_counter()
+            key_times = []
+            step_times = []
+            for row in range(5, 0, -1):
+                step_start = perf_counter()
+                QTest.keyClick(view, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
+                key_times.append(perf_counter() - step_start)
+                self.assertEqual(window.raw_model.cells[(row, 2)], f"{row}.000")
+                QTest.qWait(10)  # Let Qt process native input/paint between keys.
+                step_times.append(perf_counter() - step_start)
+            deadline = start + 2
+            while (abs(window.result.card("CD").slope - 2) > 1e-10
+                   or window.result.series("CD")["Raw"].iloc[0] != 1):
+                self.assertLess(perf_counter(), deadline, "Latest Undo result never became current")
+                QTest.qWait(5)
+            app.processEvents()
+            elapsed = perf_counter() - start
+            pd.testing.assert_frame_equal(window.raw_model.document_frame(), raw)
+            self.assertTrue(window.raw_model.undo.isClean())
+            self.assertAlmostEqual(window.result.card("CD").intercept, 1)
+            self.assertEqual(window.result.source_rows, tuple(range(8000)))
+            self.assertEqual(window.group_controls.state["mark_rows"], saved_marks)
+            self.assertLess(elapsed, .65, f"Five keyboard Undo refreshes stalled: {elapsed:.3f}s; keys={key_times}; steps={step_times}")
+        finally:
+            window.document.force_close = True
+            window.close()
+            window.deleteLater()
+            app.setFont(previous_font)
+            app.setPalette(previous_palette)
+            app.processEvents()
+
+    def test_repeated_raw_cell_edit_and_undo_refresh_exact_detached_sources_promptly(self):
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.sheet import SheetModel
+        app = QApplication.instance() or QApplication([])
+        model = SheetModel()
+        raw = pd.DataFrame({"Wafer ID": ["001"] * 8000, "CD": ["1.000"] * 8000,
+                            **{f"Metadata {i}": ["retained"] * 8000 for i in range(31)}})
+        model.load(raw)
+        accepted = model.document_frame()
+        model.frame()
+        started = perf_counter()
+        for index in range(5):
+            model.setData(model.index(index + 1, 1), "2.1000")
+            current = model.document_frame()
+            self.assertEqual(current.iloc[index, 1], "2.1000")
+            model.undo.undo()
+            restored = model.document_frame()
+            self.assertEqual(restored.iloc[index, 1], "1.000")
+            self.assertEqual(current.iloc[index, 1], "2.1000")
+        elapsed = perf_counter() - started
+        pd.testing.assert_frame_equal(restored, raw)
+        pd.testing.assert_frame_equal(accepted, raw)
+        current.iloc[0, 1] = "caller mutation"
+        pd.testing.assert_frame_equal(model.document_frame(), raw)
+        self.assertLess(elapsed, .15, f"Repeated single-cell source refresh stalled: {elapsed:.3f}s")
+        model.deleteLater()
+        app.processEvents()
+
     def test_restore_disabled_trend_does_not_run_old_queued_draw(self):
         from PyQt6.QtTest import QTest
         from PyQt6.QtWidgets import QApplication
@@ -563,7 +717,7 @@ class WorkbookPerformanceTests(unittest.TestCase):
             app.processEvents()
             QTest.keyClick(view, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
             ranges = view.selectionModel().selection()
-            self.assertEqual(sum(cell.width() * cell.height() for cell in ranges), model.rowCount() * model.columnCount())
+            self.assertEqual(sum(cell.width() * cell.height() for cell in ranges), (len(raw) + 1) * len(raw.columns))
             start = perf_counter()
             QTest.keyClick(view, Qt.Key.Key_Delete)
             elapsed = perf_counter() - start

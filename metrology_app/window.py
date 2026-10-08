@@ -17,11 +17,12 @@ from PyQt6.QtWidgets import QApplication
 from .data import inspect_table, read_table
 from .diagnostics import get_logger
 from .sheet import (
-    DuplicateHeaderBanner, SheetModel, SheetView, clipboard_rows, column_letter,
+    DuplicateHeaderBanner, PasteFeedbackBar, SheetModel, SheetView, clipboard_rows, column_letter,
 )
 from .plot_page import PlotPage
 from .radius_page import RadiusPage
 from .measurements import default_identity_columns, detect_measurements
+from .metadata_locks import MetadataLocksPanel
 from .appearance import fit_window_to_screen, help_title_label
 from .settings import apply_theme, recent_wkb_paths
 from .workspace_store import EXTENSIONS, WORKSPACE_FILTER, WORKSPACE_LABELS, WorkspaceSnapshot, file_revision, load_workspace
@@ -408,6 +409,9 @@ class MainWindow(QMainWindow):
         right.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         right.setContentsMargins(0, 0, 0, 0)
         right.setSpacing(14)
+        if self.workspace_type in ("wafer_map", "correlation_trend"):
+            self.metadata_locks_panel = MetadataLocksPanel(self.model)
+            right.addWidget(self.metadata_locks_panel)
         right.addWidget(self.build_wafer_card(), 2)
         right.addWidget(self.build_parameter_card(), 3)
         side.setMinimumWidth(340)
@@ -520,6 +524,8 @@ class MainWindow(QMainWindow):
         layout.addLayout(formula)
         self.sheet = SheetView(self.model)
         self.sheet.table_pasted.connect(self.mark_table_pasted)
+        self.paste_feedback = PasteFeedbackBar(self.sheet)
+        layout.addWidget(self.paste_feedback)
         layout.addWidget(self.sheet, 1)
         footer = QHBoxLayout()
         footer.addWidget(self.file_label)
@@ -1024,8 +1030,10 @@ class MainWindow(QMainWindow):
             self._pending_selection_state = self.selection_state()
         self._reset_selection = True
 
-    def set_table(self, frame, source, *, keep_local_selection=False):
+    def set_table(self, frame, source, *, keep_local_selection=False, report_paste=False):
         from .match_groups import participation_source_keys
+        if report_paste:
+            frame = self.model.merge_clipboard_frame(frame)
         previous_selection = self.selection_state()
         had_table = not self._frame.empty
         previous_keys = []
@@ -1039,11 +1047,13 @@ class MainWindow(QMainWindow):
         self.file_label.setText(Path(source).name or "Untitled")
         self.file_label.setToolTip(str(source))
         self._reset_selection = True
-        self.model.load(frame)
+        self.model.load(frame, report_paste=report_paste)
         for i, column in enumerate(frame.columns):
             width = 158 if column in ("Wafer ID", "PAD Name") else 118
             self.sheet.setColumnWidth(i, width)
         self.sheet.setCurrentIndex(self.model.index(0, 0))
+        if report_paste and len(frame.columns):
+            self.sheet.mark_pasted_range((0, 0, len(frame), len(frame.columns) - 1))
         self.tabs.setCurrentIndex(0)
         self.recognize()
         if keep_local_selection and previous_keys and previous_excluded:
@@ -1112,7 +1122,10 @@ class MainWindow(QMainWindow):
             return
         width = max(map(len, matrix))
         matrix = [row + [""] * (width - len(row)) for row in matrix]
-        self.set_table(pd.DataFrame(matrix[1:], columns=matrix[0]), "Clipboard")
+        try:
+            self.set_table(pd.DataFrame(matrix[1:], columns=matrix[0]), "Clipboard", report_paste=True)
+        except ValueError as error:
+            QMessageBox.warning(self, "Unable to paste", str(error))
 
     def save_table(self):
         try:

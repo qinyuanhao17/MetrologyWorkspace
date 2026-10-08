@@ -2,12 +2,15 @@
 from PyQt6.QtCore import QItemSelection, QItemSelectionModel, Qt, pyqtSignal
 from PyQt6.QtWidgets import QAbstractItemView, QHeaderView, QTableWidget, QTableWidgetItem
 
+from .table_clipboard import attach_copy_feedback
+
 
 class MapSelector(QTableWidget):
     changed = pyqtSignal()
 
     def __init__(self):
         super().__init__(objectName="mapSelector")
+        attach_copy_feedback(self)
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
