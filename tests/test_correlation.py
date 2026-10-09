@@ -1124,12 +1124,13 @@ class CorrelationTests(unittest.TestCase):
             APP.processEvents()
             self.assertTrue(page.plot_widgets)
             for host, widget in zip(page.panel_hosts, page.plot_widgets):
-                heading = host.layout().itemAt(0).widget()
+                title_area = host.layout().itemAt(0).widget()
+                heading = title_area.findChild(QLabel, "panelTitle")
                 self.assertIn("vs", heading.text())
-                self.assertGreaterEqual(heading.geometry().bottom(),
-                                        heading.sizeHint().height() - 2)
+                self.assertGreaterEqual(title_area.geometry().bottom(),
+                                        title_area.sizeHint().height() - 2)
                 # The heading sits completely above the plot widget.
-                self.assertLessEqual(heading.geometry().bottom(), widget.geometry().top())
+                self.assertLessEqual(title_area.geometry().bottom(), widget.geometry().top())
                 self.assertGreaterEqual(widget.geometry().height(),
                                         widget.minimumHeight())
         finally:
@@ -1453,7 +1454,7 @@ class CorrelationTests(unittest.TestCase):
             self.assertEqual(len(page.plot_widgets), 3)
             self.assertEqual(page.page_label.text(), "Page 2 / 2")
             self.assertIn("showing 13–15 of 15", page.status.text())
-            heading = page.panel_hosts[0].layout().itemAt(0).widget().text()
+            heading = page.panel_hosts[0].findChild(QLabel, "panelTitle").text()
             self.assertIn("rank 13", heading)
 
             page.page_size.setCurrentText("6")

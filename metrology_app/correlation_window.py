@@ -108,6 +108,7 @@ class CorrelationWindow(DataWorkspaceWindow):
         self.tabs.insertTab(0, self.reference_page, "1. Ref Data")
         self.reference_model.changed.connect(self.refresh_timer.start)
         self.correlation_page = CorrelationPage()
+        self.correlation_page.axes_changed.connect(self.document.identity_timer.start)
         self.tabs.addTab(self.correlation_page, "3. Correlation")
         self.sequence_page = SequencePage()
         self.tabs.addTab(self.sequence_page, "4. Trend")

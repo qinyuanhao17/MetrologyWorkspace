@@ -16,11 +16,11 @@ import pyqtgraph as pg
 from lmfit.models import LinearModel
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QDoubleSpinBox, QFileDialog, QFrame, QHBoxLayout,
-    QLabel, QPushButton, QScrollArea, QStackedWidget, QVBoxLayout, QWidget,
+    QLabel, QPushButton, QScrollArea, QStackedWidget, QToolButton, QVBoxLayout, QWidget,
 )
 
 from .appearance import (MAX_COPY_PIXELS, MAX_EXPORT_PIXELS, configure_resolution_combo,
@@ -96,6 +96,18 @@ def _fit_numeric_values(x, y, x_name, y_name, model=None):
     return LinearFit(x_name, y_name, x, y, predicted,
                      float(result.params["slope"].value),
                      float(result.params["intercept"].value), rsquared)
+
+
+def swap_fit_axes(fit):
+    """Refit the same paired observations in the opposite OLS direction.
+
+    Reversing the old equation is not regression of X on Y for noisy data.
+    Source populations remain separate, with their original order and colours.
+    """
+    if isinstance(fit, SourcePairFit):
+        return SourcePairFit(fit.y_name, fit.x_name, tuple(
+            SourceFit(source.name, source.color, swap_fit_axes(source.fit)) for source in fit.sources))
+    return _fit_numeric_values(fit.y, fit.x, fit.y_name, fit.x_name)
 
 
 def pairwise_linear_fits(frame, metrics, groups=None, cells=None):
@@ -174,6 +186,8 @@ def source_pairwise_linear_fits(frame, metrics, sources, groups, cells):
 
 
 class CorrelationPage(QWidget):
+    axes_changed = pyqtSignal()
+
     def __init__(self):
         super().__init__(objectName="correlationPage")
         settings = get_settings()
@@ -191,6 +205,8 @@ class CorrelationPage(QWidget):
         self.panel_hosts = []
         self._panel_cache = {}
         self._visible_panel_keys = []
+        self._axis_directions = {}
+        self._reversed_fits = {}
         self.skipped_count = 0
         self.base_size = (900, 650)
         self._pending_updates = set()
@@ -426,6 +442,7 @@ class CorrelationPage(QWidget):
         self._pending_updates.clear()
         self.ready = False
         self.all_fits = []
+        self._reversed_fits.clear()
         self.fits = []
         self.page_index = 0
         self.skipped_count = 0
@@ -505,6 +522,7 @@ class CorrelationPage(QWidget):
                 # to render, so leave without touching another wrapped object.
                 return
             sources = self.selection.get("sources")
+            self._reversed_fits.clear()
             if sources:
                 self.all_fits, errors = source_pairwise_linear_fits(
                     self.frame, drawn_metrics, sources, groups, cells
@@ -563,6 +581,89 @@ class CorrelationPage(QWidget):
         parameter = self.parameter_filter.parameter
         return self.fits if parameter is None else [fit for fit in self.fits
                                                    if parameter in (fit.x_name, fit.y_name)]
+
+    @staticmethod
+    def axis_key(fit):
+        sources = tuple(source.name for source in fit.sources) if isinstance(fit, SourcePairFit) else ()
+        return (sources, *sorted((fit.x_name, fit.y_name)))
+
+    def axis_state(self):
+        return [{"sources": list(sources), "x": x_name, "y": second if x_name == first else first}
+                for (sources, first, second), x_name in sorted(self._axis_directions.items())]
+
+    def restore_axis_state(self, state):
+        """Restore explicit predictor choices before the saved fit boxes draw."""
+        if not isinstance(state, list):
+            raise ValueError("Invalid correlation axis directions.")
+        directions = {}
+        for choice in state:
+            if not isinstance(choice, dict):
+                raise ValueError("Invalid correlation axis direction.")
+            sources, x_name, y_name = choice.get("sources"), choice.get("x"), choice.get("y")
+            if (not isinstance(sources, list) or not all(isinstance(name, str) for name in sources)
+                    or not isinstance(x_name, str) or not isinstance(y_name, str) or x_name == y_name):
+                raise ValueError("Invalid correlation axis direction.")
+            directions[(tuple(sources), *sorted((x_name, y_name)))] = x_name
+        if directions != self._axis_directions:
+            self._axis_directions = directions
+            if self.ready:
+                self.render_fits()
+            self.axes_changed.emit()
+
+    def oriented_fit(self, fit):
+        if self._axis_directions.get(self.axis_key(fit), fit.x_name) == fit.x_name:
+            return fit
+        if id(fit) not in self._reversed_fits:
+            self._reversed_fits[id(fit)] = swap_fit_axes(fit)
+        return self._reversed_fits[id(fit)]
+
+    def swap_axes(self, fit):
+        """Change one panel in place; unrelated fits/widgets/views stay intact."""
+        if not self.ready or not any(candidate is fit for candidate in self.all_fits):
+            return
+        key = self.axis_key(fit)
+        current = self.oriented_fit(fit)
+        if current.x_name == fit.x_name:
+            # Prepare before accepting state; a failed fit must not change axes.
+            try:
+                if id(fit) not in self._reversed_fits:
+                    self._reversed_fits[id(fit)] = swap_fit_axes(fit)
+            except ValueError as error:
+                self.status.setText(f"Unable to swap axes: {error}")
+                return
+            self._axis_directions[key] = fit.y_name
+        else:
+            self._axis_directions.pop(key, None)
+        updated = self.oriented_fit(fit)
+        base = int(self.font_size.currentText())
+        cache_key = (id(fit), base)
+        if cache_key in self._visible_panel_keys:
+            index = self._visible_panel_keys.index(cache_key)
+            rank = self.page_index * int(self.page_size.currentText()) + index + 1
+            self.update_panel_direction(self._panel_cache[cache_key], updated, rank, base)
+            self.home_views[index:index + 1] = [self._panel_cache[cache_key]["home"]]
+        self._export_dirty = True
+        self._copy_image = self._copy_dpi = None
+        self.axes_changed.emit()
+
+    def update_panel_direction(self, cached, fit, rank, base):
+        widget = cached["widget"]
+        plot, view = widget.getPlotItem(), widget.getViewBox()
+        previous = view.viewRange()
+        at_home = cached["home"] is None or np.allclose(previous, cached["home"])
+        plot.setLabel("bottom", fit.x_name, color="#30343b", size=f"{max(7, base - 1)}pt")
+        plot.setLabel("left", fit.y_name, color="#30343b", size=f"{max(7, base - 1)}pt")
+        values = [source.fit for source in fit.sources] if isinstance(fit, SourcePairFit) else [fit]
+        for (points, line), source in zip(cached["items"], values):
+            points.setData(source.x, source.y)
+            order = np.argsort(source.x)
+            line.setData(source.x[order], source.predicted[order])
+        cached["heading"].setText(self.panel_heading(fit, rank, base))
+        cached["fit"] = fit
+        view.autoRange(padding=HOME_PADDING)
+        cached["home"] = view.viewRange()
+        if not at_home:
+            view.setRange(xRange=previous[1], yRange=previous[0], padding=0)
 
     def set_parameter_filter(self, _parameter):
         if self.ready:
@@ -684,6 +785,7 @@ class CorrelationPage(QWidget):
         for rank, (ax, fit) in enumerate(
             zip(axes.flat, visible_fits), start=start_rank
         ):
+            fit = self.oriented_fit(fit)
             if isinstance(fit, SourcePairFit):
                 details = []
                 for source in fit.sources:
@@ -781,10 +883,13 @@ class CorrelationPage(QWidget):
         panel_height = 350
         grid = PanelGrid(columns)
         grid.set_fixed_row_height(rows, panel_height)
-        for rank, fit in enumerate(visible_fits, start=start_rank):
-            key = (id(fit), base)
+        for rank, original in enumerate(visible_fits, start=start_rank):
+            key = (id(original), base)
+            fit = self.oriented_fit(original)
             cached = self._panel_cache.get(key)
             if cached is not None:
+                if cached["fit"] is not fit:
+                    self.update_panel_direction(cached, fit, rank, base)
                 cached["heading"].setText(self.panel_heading(fit, rank, base))
                 grid.add_panel(cached["panel"])
                 cached["panel"].show()
@@ -803,32 +908,55 @@ class CorrelationPage(QWidget):
             plot.setLabel("bottom", fit.x_name, color="#30343b", size=f"{max(7, base - 1)}pt")
             plot.setLabel("left", fit.y_name, color="#30343b", size=f"{max(7, base - 1)}pt")
             heading = panel_title_label(self.panel_heading(fit, rank, base), base + 1)
+            title_row = QWidget()
+            title_layout = QHBoxLayout(title_row)
+            title_layout.setContentsMargins(0, 0, 4, 0)
+            title_layout.addWidget(heading, 1)
+            swap_button = QToolButton()
+            swap_button.setText("Swap X/Y")
+            swap_button.setStyleSheet(
+                "QToolButton { color: #30343b; background: #f3f4f6; border: 1px solid #cbd5e1; "
+                "border-radius: 4px; padding: 3px 7px; } "
+                "QToolButton:hover { background: #e2e8f0; } "
+                "QToolButton:pressed { background: #cbd5e1; } "
+                "QToolButton:focus { border-color: #356d91; }")
+            swap_button.setAccessibleName(f"Swap X and Y for {fit.y_name} versus {fit.x_name}")
+            swap_button.setToolTip("Swap this plot's axes and refit the same observations in the new direction.")
+            policy = swap_button.sizePolicy()
+            policy.setRetainSizeWhenHidden(True)
+            swap_button.setSizePolicy(policy)
+            swap_button.clicked.connect(lambda _checked=False, target=original: self.swap_axes(target))
+            title_layout.addWidget(swap_button)
             # A QLabel keeps every title line in its own space; pyqtgraph's own
             # title reserves one line and printed the second over the plot.
-            container = PlotPanel(heading, widget)
+            container = PlotPanel(title_row, widget)
+            items = []
             if isinstance(fit, SourcePairFit):
                 plot.addLegend(offset=(10, 8))
                 for source in fit.sources:
                     values = source.fit
-                    plot.plot(
+                    points = plot.plot(
                         values.x, values.y, pen=None, symbol="o", symbolSize=6,
                         symbolPen=pg.mkPen("#ffffff", width=.5),
                         symbolBrush=pg.mkBrush(source.color),
                         name=f"{source.name} points",
                     )
                     order = np.argsort(values.x)
-                    plot.plot(
+                    line = plot.plot(
                         values.x[order], values.predicted[order],
                         pen=pg.mkPen(source.color, width=2),
                         name=f"{source.name} fit",
                     )
+                    items.append((points, line))
             else:
-                plot.addItem(pg.ScatterPlotItem(fit.x, fit.y, size=6.5,
-                                                pen=pg.mkPen("#ffffff", width=.5),
-                                                brush=pg.mkBrush(53, 109, 145, 165)))
+                points = pg.ScatterPlotItem(fit.x, fit.y, size=6.5,
+                                           pen=pg.mkPen("#ffffff", width=.5),
+                                           brush=pg.mkBrush(53, 109, 145, 165))
+                plot.addItem(points)
                 order = np.argsort(fit.x)
-                plot.addItem(pg.PlotDataItem(fit.x[order], fit.predicted[order],
-                                             pen=pg.mkPen("#d1495b", width=2)))
+                line = pg.PlotDataItem(fit.x[order], fit.predicted[order], pen=pg.mkPen("#d1495b", width=2))
+                plot.addItem(line)
+                items.append((points, line))
             view = plot.getViewBox()
             # Left drag selects a region to zoom into; right drag pans.
             view.setMouseMode(pg.ViewBox.RectMode)
@@ -843,7 +971,8 @@ class CorrelationPage(QWidget):
             self.plot_widgets.append(widget)
             self.panel_hosts.append(container)
             self._visible_panel_keys.append(key)
-            self._panel_cache[key] = {"widget": widget, "panel": container, "heading": heading, "home": None}
+            self._panel_cache[key] = {"widget": widget, "panel": container, "heading": heading,
+                                      "fit": fit, "items": items, "home": None, "swap_button": swap_button}
         # Bound retained widgets to two pages. Unseen fits are created lazily;
         # parameter/ALL toggles reuse existing curves without rerunning lmfit.
         limit = max(24, 2 * int(self.page_size.currentText()))
@@ -976,12 +1105,19 @@ class CorrelationPage(QWidget):
         if not self.ready:
             return
         _scale, requested = resolution_settings(self.resolution)
-        cache_key = (requested, self.plot_host.width(), self.plot_host.height())
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         self.status.setText("Copying…")
-        QApplication.processEvents()
+        controls = []
         try:
+            QApplication.processEvents()
+            if not self.ready or self.plot_host is None:
+                return
+            cache_key = (requested, self.plot_host.width(), self.plot_host.height())
             if self._copy_image is None or self._copy_dpi != cache_key:
+                controls = [(self._panel_cache[key]["swap_button"],
+                             self._panel_cache[key]["swap_button"].isHidden()) for key in self._visible_panel_keys]
+                for control, _hidden in controls:
+                    control.hide()
                 self._copy_image, scale = widget_to_qimage(
                     self.plot_host, requested / 100, MAX_COPY_PIXELS)
                 self._copy_dpi = (requested, self.plot_host.width(), self.plot_host.height())
@@ -1000,4 +1136,6 @@ class CorrelationPage(QWidget):
         except Exception as error:
             self.status.setText(f"Copy failed: {error}")
         finally:
+            for control, hidden in controls:
+                control.setHidden(hidden)
             QApplication.restoreOverrideCursor()

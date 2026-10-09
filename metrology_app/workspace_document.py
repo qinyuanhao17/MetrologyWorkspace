@@ -182,6 +182,7 @@ def analysis_state(window):
             saved["color_range"] = list(page.color_range.range())
         if name == "correlation_page":
             saved["page_index"] = page.page_index
+            saved["axis_directions"] = page.axis_state()
         if name == "sequence_page":
             saved["overlay"] = deepcopy(page.overlay)
             saved["source_overlay"] = [
@@ -257,6 +258,8 @@ def restore_analysis_state(window, state):
             page._source_overlay_initialised = True
         if name == "dynamic_trend":
             page.selected_dies = dict(saved.get("selected_dies", {}))
+        if name == "correlation_page":
+            page.restore_axis_state(saved.get("axis_directions", []))
     selection = deepcopy(state.get("selection", {}))
     for name, field in (("plot_page", "map_draw"), ("radius_page", "radius_draw"),
                         ("correlation_page", "correlation_draw"), ("sequence_page", "trend_draw")):
