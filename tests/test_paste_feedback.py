@@ -8,7 +8,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QLabel
 import pandas as pd
 
 from metrology_app.sheet import SheetModel, SheetView
@@ -18,6 +18,10 @@ APP = QApplication.instance() or QApplication([])
 
 
 class PasteFeedbackTests(unittest.TestCase):
+    def assert_no_paste_receipt(self, window):
+        self.assertFalse(any(label.text().startswith(("Paste complete", "No changes"))
+                             for label in window.findChildren(QLabel)))
+
     def test_keyboard_paste_and_undo_keep_dirty_and_formal_source_roundtrip_correct(self):
         from PyQt6.QtTest import QTest
         from metrology_app.matching_window import MatchingWindow
@@ -275,7 +279,7 @@ class PasteFeedbackTests(unittest.TestCase):
         self.assertEqual(model.snapshot(), before)
         self.assertIs(model.paste_report, report)
 
-    def test_matching_raw_toolbar_and_grid_show_stage_specific_feedback(self):
+    def test_matching_raw_toolbar_and_grid_paste_without_receipts_and_keep_stage_values(self):
         from metrology_app.matching_window import MatchingWindow
 
         window = MatchingWindow()
@@ -284,20 +288,23 @@ class PasteFeedbackTests(unittest.TestCase):
             window.set_raw_frame(pd.DataFrame({"CD": ["1.00", "2.00"]}))
             APP.clipboard().setText("CD\n1.00\n2.50")
             window.paste_raw()
-            self.assertIn("1 cell changed", window.raw_paste_feedback.message.text())
+            self.assert_no_paste_receipt(window)
             self.assertEqual(window.raw_model.paste_report.changes, {(2, 0): ("2.00", "2.50")})
             self.assertEqual(window.raw_frame.CD.tolist(), ["1.00", "2.50"])
 
             window.result_mode.setCurrentText("Final")
-            self.assertTrue(window.raw_paste_feedback.isHidden())
+            self.assert_no_paste_receipt(window)
             window.set_raw_frame(pd.DataFrame({"CD": ["1.00", "2.00"]}))
             window.raw_view.setCurrentIndex(window.raw_view.model().index(1, 0))
             APP.clipboard().setText("1.10")
             window.raw_view.paste()
             self.assertEqual(window.final_raw_model.paste_report.changes, {(1, 0): ("1.00", "1.10")})
             self.assertEqual(window.final_match_frame.CD.tolist(), ["1.10", "2.00"])
+            self.assert_no_paste_receipt(window)
+            window.raw_view.paste()  # Identical paste must be silent too.
+            self.assert_no_paste_receipt(window)
             window.result_mode.setCurrentText("Preview")
-            self.assertIn("1 cell changed", window.raw_paste_feedback.message.text())
+            self.assert_no_paste_receipt(window)
             self.assertIs(window.raw_view.paste_report, window.raw_model.paste_report)
             window.raw_model.undo.undo()  # Toolbar replacement retains its existing load/Undo semantics.
             self.assertEqual(window.raw_frame.CD.tolist(), ["1.00", "2.50"])
@@ -306,7 +313,7 @@ class PasteFeedbackTests(unittest.TestCase):
             window.deleteLater()
             APP.processEvents()
 
-    def test_workspace_toolbar_receipt_does_not_leak_into_later_file_load(self):
+    def test_workspace_toolbar_pastes_without_receipts_and_keeps_later_file_load_correct(self):
         from metrology_app.window import MainWindow
 
         window = MainWindow()
@@ -314,15 +321,55 @@ class PasteFeedbackTests(unittest.TestCase):
             window.set_table(pd.DataFrame({"Wafer ID": ["001"], "CD": ["1.00"]}), "Fixture")
             APP.clipboard().setText("Wafer ID\tCD\n001\t1.25")
             window.paste_table()
-            self.assertIn("CD (1)", window.paste_feedback.message.text())
+            self.assert_no_paste_receipt(window)
+            window.paste_table()  # Identical full-table paste has no confirmation label.
+            self.assert_no_paste_receipt(window)
             self.assertEqual(window.model.cells[(1, 1)], "1.25")
             window.set_table(pd.DataFrame({"Wafer ID": ["002"], "CD": ["2.00"]}), "New file")
-            self.assertTrue(window.paste_feedback.isHidden())
+            self.assert_no_paste_receipt(window)
             self.assertIsNone(window.model.paste_report)
         finally:
             window.close()
             window.deleteLater()
             APP.processEvents()
+
+    def test_correlation_and_dynamic_data_tables_paste_silently_with_selection_and_undo(self):
+        from metrology_app.correlation_window import CorrelationWindow
+        from metrology_app.dynamic_window import DynamicWindow
+
+        for kind in (CorrelationWindow, DynamicWindow):
+            with self.subTest(workspace=kind.__name__):
+                window = kind()
+                try:
+                    window.set_table(pd.DataFrame({"Wafer ID": ["001"], "Die Seq": ["002"],
+                                                   "CD": ["1.00"]}), "Fixture")
+                    column = window.model.source_headers().index("CD")
+                    before = window.model.document_frame().copy(deep=True)
+                    cell = window.model.index(1, column)
+                    window.sheet.setCurrentIndex(cell)
+                    APP.clipboard().setText("1.25")
+                    window.sheet.paste()
+                    self.assert_no_paste_receipt(window)
+                    self.assertEqual(window.model.data(cell), "1.25")
+                    self.assertTrue(window.sheet.selectionModel().isSelected(cell))
+                    window.sheet.paste()
+                    self.assert_no_paste_receipt(window)
+                    window.model.undo.undo()
+                    pd.testing.assert_frame_equal(window.model.document_frame(), before)
+                    if isinstance(window, CorrelationWindow):
+                        window.set_reference_table(pd.DataFrame({"CD": ["1.00"]}))
+                        column = window.reference_model.source_headers().index("CD")
+                        cell = window.reference_model.index(1, column)
+                        window.reference_sheet.setCurrentIndex(cell)
+                        APP.clipboard().setText("1.50")
+                        window.reference_sheet.paste()
+                        self.assertEqual(window.reference_model.data(cell), "1.50")
+                        self.assert_no_paste_receipt(window)
+                finally:
+                    window.document.force_close = True
+                    window.close()
+                    window.deleteLater()
+                    APP.processEvents()
 
     def test_receipt_retains_changed_column_summary_without_navigation_control(self):
         from metrology_app.sheet import PasteFeedbackBar

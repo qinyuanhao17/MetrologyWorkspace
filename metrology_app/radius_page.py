@@ -19,6 +19,7 @@ from .data import number
 from .map_selector import MapSelector
 from .plot import infer_wafer_geometry, restyle_panel_title, set_panel_title
 from .settings import get_settings
+from .plotting.identity_labels import measurement_caption
 
 
 def signed_radius(x, y):
@@ -35,6 +36,7 @@ class RadiusPage(QWidget):
         settings = get_settings()
         self.frame = None
         self.selection = {}
+        self.identity_labels = {"pad": True, "lot": True}
         self.signature = None
         self.ready = False
         self.has_drawn_once = False
@@ -348,6 +350,9 @@ class RadiusPage(QWidget):
                     ax.axvline(0, color="#707070", linewidth=.7, zorder=0)
                     ax.set_xlim(-limit, limit)
                     set_panel_title(ax, metric, name, stats, base)
+                    ax._identity_classification = labels.get(wafer, wafer)
+                    ax._wafer_title_details[0].set_text(
+                        measurement_caption(ax._identity_classification, self.identity_labels).replace("\n", " · "))
                     ax.set_xlabel(f"Signed radius ({unit})", fontsize=max(6, base - 1))
                     ax.set_ylabel(metric, fontsize=max(6, base - 1))
                     ax.tick_params(direction="out", top=True, right=True, labelsize=max(5, base - 2))
@@ -377,6 +382,18 @@ class RadiusPage(QWidget):
             self.export_button.setEnabled(False)
             self.copy_button.setEnabled(False)
             self.status.setText(str(error))
+
+    def set_identity_labels(self, options):
+        """Caption updates do not rebuild scatter points or alter box choices."""
+        if self.identity_labels == options:
+            return
+        self.identity_labels = dict(options)
+        for ax in self.figure.axes:
+            if hasattr(ax, "_wafer_title_details"):
+                ax._wafer_title_details[0].set_text(
+                    measurement_caption(ax._identity_classification, options).replace("\n", " · "))
+        if self.ready:
+            self.canvas.draw_idle()
 
     def refresh_previous_selection(self):
         if not self.pending_input_refresh:

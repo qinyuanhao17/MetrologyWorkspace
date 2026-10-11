@@ -1,6 +1,7 @@
 """Source-preserving measurement classification and one paired row projection."""
 from collections import Counter
 from decimal import Decimal, InvalidOperation
+from functools import lru_cache
 import json
 from uuid import uuid4
 import weakref
@@ -138,8 +139,13 @@ def group_state(state=None):
     # order is still a row order, so keep it defined instead of resetting it.
     if state["trend_order"] == "table":
         state["trend_order"] = "original"
-    elif state["trend_order"] not in ("groups", "original"):
+    elif state["trend_order"] not in ("groups", "original", "wafers"):
         state["trend_order"] = "groups"
+    wafer_order = state.get("wafer_source_order", ())
+    if (not isinstance(wafer_order, (list, tuple))
+            or any(not isinstance(key, (list, tuple)) or len(key) != 3
+                   or any(not isinstance(value, str) for value in key) for key in wafer_order)):
+        raise ValueError("Invalid original Wafer source order.")
     state.setdefault("group_order", [])
     state.setdefault("use_group_card", False)
     state.setdefault("combined_groups", [])
@@ -216,6 +222,19 @@ def _remember_row_ids(frame, ids):
     del _ROW_IDS_CACHE[_ROW_IDS_CACHE_LIMIT:]
 
 
+def wafer_identity_keys(raw):
+    """Wafer / Lot / PAD presentation identities, never participation IDs."""
+    names = {normalized(c): c for c in raw}
+    columns = [next((names[name] for name in aliases if name in names), None)
+               for aliases in (("waferid", "wafer", "waferno"),
+                               ("lotid", "lot", "lotno"), ("padname", "pad"))]
+    if columns[0] is None:
+        return None
+    values = [raw[column].fillna("").astype(str).str.strip().to_numpy()
+              if column is not None else [""] * len(raw) for column in columns]
+    return tuple(zip(*values))
+
+
 def row_identity_columns(raw):
     aliases = {normalized(c): c for c in raw}
     columns = [aliases[key] for key in ("waferid", "lotid", "padname", "dieseq") if key in aliases]
@@ -232,6 +251,17 @@ def reuse_row_ids(previous, current):
     _remember_row_ids(current, row_ids(previous))
 
 
+@lru_cache(maxsize=6)
+def _encoded_row_ids(columns, values):
+    """Bounded immutable identities shared by equal source snapshots."""
+    seen, ids = Counter(), []
+    for key in values:
+        ordinal = seen[key]
+        seen[key] += 1
+        ids.append(json.dumps([columns, key, ordinal], ensure_ascii=False))
+    return tuple(ids)
+
+
 def row_ids(raw):
     """Identity plus occurrence preserves assignments across regrouping and Final.
 
@@ -244,13 +274,9 @@ def row_ids(raw):
     if cached is not None:
         return cached
     columns = row_identity_columns(raw)
-    seen, ids = Counter(), []
-    for position, values in enumerate(raw[columns].fillna("").astype(str).values):
-        key = tuple(str(v).strip() for v in values) if columns else ("row", str(position))
-        ordinal = seen[key]
-        seen[key] += 1
-        ids.append(json.dumps([columns, key, ordinal], ensure_ascii=False))
-    ids = tuple(ids)
+    values = tuple(tuple(str(v).strip() for v in row) if columns else ("row", str(position))
+                   for position, row in enumerate(raw[columns].fillna("").astype(str).values))
+    ids = _encoded_row_ids(tuple(columns), values)
     _remember_row_ids(raw, ids)
     return ids
 
@@ -275,14 +301,19 @@ def participation_ids(raw, selection):
     return tuple(previous.get(key) or uuid4().hex for key in row_ids(raw))
 
 
+@lru_cache(maxsize=6)
+def _encoded_source_keys(keys, paths):
+    return tuple(json.dumps([key, path], ensure_ascii=False) for key, path in zip(keys, paths))
+
+
 def participation_source_keys(frame):
     """A file path, when present, distinguishes separately imported measurements."""
     keys = row_ids(frame)
     path = next((column for column in frame if normalized(column) == "cursmefilepath"), None)
     if path is None:
         return keys
-    values = frame[path].fillna("").astype(str).str.strip()
-    return tuple(json.dumps([key, value], ensure_ascii=False) for key, value in zip(keys, values))
+    values = tuple(frame[path].fillna("").astype(str).str.strip())
+    return _encoded_source_keys(keys, values)
 
 
 def participation_rows(raw, selection):
@@ -450,17 +481,49 @@ class GroupPlan:
             return tuple(i for i in self.included_rows if self.marks[i] == key)
         return tuple(i for i in self.included_rows if self.row_groups[i] == key)
 
-    def trend_spans(self, key="all"):
-        """One continuous ordinal axis, with source-aligned wafer and group spans."""
+    def trend_spans(self, key="all", *, collect_wafers=False):
+        """One continuous ordinal axis, with source-aligned wafer and group spans.
+
+        ``collect_wafers`` draws the readable Wafer order without changing the
+        saved Trend order; an expanded panel uses it for its own display.
+        """
         allowed = set(self.rows(key))
         if not allowed:
             return []
-        order = self.state["trend_order"]
+        order = "wafers" if collect_wafers else self.state["trend_order"]
+        if order == "wafers":
+            buckets = {}
+            keys = wafer_identity_keys(self.raw)
+            if keys is not None:
+                # Scan the complete source: excluding a first observation must
+                # not change the original order of its Wafer identity.
+                for row, identity in enumerate(keys):
+                    buckets.setdefault(identity, []).append(row)
+            else:
+                buckets[()] = list(self.included_rows)
+            source_order = {tuple(key): index for index, key in enumerate(self.state.get("wafer_source_order", ()))}
+            identities = sorted(buckets, key=lambda key: source_order.get(key, len(source_order))) if source_order else buckets
+            spans, previous = [], None
+            for identity in identities:
+                rows = buckets[identity]
+                for row in rows:
+                    if row not in allowed:
+                        continue
+                    group = self.row_groups[row]
+                    boundary = (identity, group if self.enabled else "")
+                    if not spans or previous != boundary:
+                        wafer = identity[0] if identity else ""
+                        spans.append({"group": group,
+                                      "label": self.label(group) + ("\n" + wafer if wafer else ""),
+                                      "rows": []})
+                    spans[-1]["rows"].append(row)
+                    previous = boundary
+            return spans
         if order == "original":
             rows = [i for i in self.included_rows if i in allowed]
             spans = []
-            identities = ({row: (measurement.key, measurement.label) for measurement in self.measurements for row in measurement.rows}
-                          if getattr(self, "scope_label", "") else {})
+            identities = {row: (measurement.key, measurement.label)
+                          for measurement in self.measurements for row in measurement.rows}
             previous = None
             for row in rows:
                 label = self.row_groups[row]

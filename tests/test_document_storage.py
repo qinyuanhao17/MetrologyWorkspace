@@ -677,7 +677,7 @@ class DocumentStorageTests(unittest.TestCase):
                         window.close()
                         window.deleteLater()
                         path = save_workspace(Path(directory) / (snapshot.workspace_type + ".wkb"), snapshot)
-                        if factory is MatchingWindow:
+                        if factory is MatchingWindow and not snapshot.states["match"].get("draft"):
                             QTimer.singleShot(0, lambda: APP.activeModalWidget().confirm_button.click())
                         opened = shell.load_path(path)
                         self.assertIsInstance(opened, factory)

@@ -466,10 +466,12 @@ class MatchAnalysisResult:
         return (self._reference.iloc[indices].reset_index(drop=True).copy(),
                 self._raw.iloc[indices].reset_index(drop=True).copy())
 
-    def group_series(self, parameter, key="all", *, trend=False, card_mode="raw"):
+    def group_series(self, parameter, key="all", *, trend=False, card_mode="raw",
+                     collect_wafers=False):
         data = self.series(parameter)
         lookup = {row: i for i, row in enumerate(self.source_rows)}
-        rows = ([row for span in self.group_plan.trend_spans(key) for row in span["rows"]]
+        rows = ([row for span in self.group_plan.trend_spans(key, collect_wafers=collect_wafers)
+                 for row in span["rows"]]
                 if trend else self.group_plan.rows(key))
         output = data.iloc[[lookup[row] for row in rows]].copy()
         output["Source row"] = rows
@@ -507,16 +509,31 @@ class MatchAnalysisResult:
             if measurement.rows
         )
 
-    def measurement_spans(self, wafer_column=None):
-        """Identity values and contiguous half-edge spans on the plotted row axis."""
+    def measurement_spans(self, wafer_column=None, *, show_pad=True, show_lot=True,
+                          collect_wafers=False):
+        """Identity values and contiguous half-edge spans on the plotted row axis.
+
+        ``collect_wafers`` describes the row axis of an expanded panel: each
+        Wafer identity occupies one range, exactly as it is drawn there.
+        """
         source, measurements = self._measurement_groups(wafer_column)
         runs = []
-        for measurement in measurements:
-            rows = np.asarray(measurement.rows, dtype=int)
-            for run in np.split(rows, np.flatnonzero(np.diff(rows) != 1) + 1):
-                if len(run):
-                    runs.append(run)
-        labels = wafer_identity_labels(source, runs, wafer_column)
+        if collect_wafers or self.group_plan.state["trend_order"] == "wafers":
+            spans = self.group_plan.trend_spans(collect_wafers=collect_wafers)
+            lookup = {row: index for index, row in enumerate(self.source_rows)}
+            source = source.iloc[[lookup[row] for span in spans for row in span["rows"]]].reset_index(drop=True)
+            offset = 0
+            for span in spans:
+                runs.append(np.arange(offset, offset + len(span["rows"])))
+                offset += len(span["rows"])
+        else:
+            for measurement in measurements:
+                rows = np.asarray(measurement.rows, dtype=int)
+                for run in np.split(rows, np.flatnonzero(np.diff(rows) != 1) + 1):
+                    if len(run):
+                        runs.append(run)
+        labels = wafer_identity_labels(source, runs, wafer_column,
+                                       show_pad=show_pad, show_lot=show_lot)
         return sorted((float(run[0]) + .5, float(run[-1]) + 1.5, label)
                       for run, label in zip(runs, labels))
 

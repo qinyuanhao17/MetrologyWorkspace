@@ -17,12 +17,11 @@ from PyQt6.QtWidgets import QApplication
 from .data import inspect_table, read_table
 from .diagnostics import get_logger
 from .sheet import (
-    DuplicateHeaderBanner, PasteFeedbackBar, SheetModel, SheetView, clipboard_rows, column_letter,
+    DuplicateHeaderBanner, SheetModel, SheetView, clipboard_rows, column_letter,
 )
 from .plot_page import PlotPage
 from .radius_page import RadiusPage
 from .measurements import default_identity_columns, detect_measurements
-from .metadata_locks import MetadataLocksPanel
 from .appearance import fit_window_to_screen, help_title_label
 from .settings import apply_theme, recent_wkb_paths
 from .workspace_store import EXTENSIONS, WORKSPACE_FILTER, WORKSPACE_LABELS, WorkspaceSnapshot, file_revision, load_workspace
@@ -135,6 +134,7 @@ class MainWindow(QMainWindow):
         self._local_selection_excluded = set()
         self._local_view = {"filters": [], "row_bools": [], "group_bools": [], "show": "all"}
         self._workbook_selection_applies = True
+        self._copy_from_wkb = False
         self.source_path = ""
         self.refresh_timer = QTimer(self, interval=250, singleShot=True)
         self.refresh_timer.timeout.connect(self.recognize)
@@ -171,6 +171,13 @@ class MainWindow(QMainWindow):
         self.recent_workspace_menu.aboutToShow.connect(self.refresh_recent_workspaces)
         self.file_menu.addSeparator()
         self.data_menu = self.menuBar().addMenu("Data")
+        if self.workspace_type in ("wafer_map", "correlation_trend"):
+            self.copy_from_wkb_action = self.data_menu.addAction("Copy from WKB")
+            self.copy_from_wkb_action.setCheckable(True)
+            self.copy_from_wkb_action.setEnabled(False)
+            self.copy_from_wkb_action.setToolTip("Copy input from the owning Match Workbook; uncheck to clear unlocked input. Locked metadata stays in place.")
+            self.copy_from_wkb_action.toggled.connect(self._copy_from_wkb_changed)
+            self.data_menu.addSeparator()
         self.selection_scope_group = QActionGroup(self)
         self.selection_scope_group.setExclusive(True)
         self.workbook_selection_action = QAction("Match Workbook selection", self, checkable=True)
@@ -213,7 +220,7 @@ class MainWindow(QMainWindow):
                       if hasattr(self, "reference_model") else pd.DataFrame()}
         states = {"ui": analysis_state(self)}
         if getattr(self, "_participation_excluded", None):
-            states["workbook_participation"] = list(self._participation_excluded)
+            states["workbook_participation"] = sorted(self._participation_excluded)
         states["data_selection"] = {
             "excluded": sorted(getattr(self, "_local_selection_excluded", set())),
             "follow_workbook": bool(getattr(self, "_workbook_selection_applies", True)),
@@ -235,9 +242,10 @@ class MainWindow(QMainWindow):
             if isinstance(saved_excluded, list) and all(isinstance(key, str) for key in saved_excluded):
                 self._local_selection_excluded = set(saved_excluded)
             self._workbook_selection_applies = bool(local.get("follow_workbook", True))
-            with QSignalBlocker(self.workbook_selection_action), QSignalBlocker(self.full_data_action):
-                self.workbook_selection_action.setChecked(self._workbook_selection_applies)
-                self.full_data_action.setChecked(not self._workbook_selection_applies)
+            # Keep QActionGroup's exclusive checked action in sync. These
+            # programmatic changes never trigger the user-only data reload.
+            self.workbook_selection_action.setChecked(self._workbook_selection_applies)
+            self.full_data_action.setChecked(not self._workbook_selection_applies)
             saved_view = local.get("view", {})
             if isinstance(saved_view, dict):
                 self._local_view = {
@@ -355,6 +363,7 @@ class MainWindow(QMainWindow):
             self._update_workbook_data_action()
             self.document.refresh_identity()
             return
+        selection_applies = self._workbook_selection_applies
         self._managed_owner, self._managed_scope = owner, scope
         self.document.timer.stop()
         self.file_menu.removeAction(self.open_workspace_action)
@@ -369,23 +378,82 @@ class MainWindow(QMainWindow):
         action.triggered.connect(lambda: self.export_standalone_copy())
         action = self.file_menu.addAction("Show Match Workbook")
         action.triggered.connect(lambda: (owner.show(), owner.raise_(), owner.activateWindow()))
-        self.use_workbook_data_action = self.file_menu.addAction("Use Workbook Data…")
-        self.use_workbook_data_action.triggered.connect(lambda: owner.reset_child_to_workbook(self))
+        if not hasattr(self, "copy_from_wkb_action"):
+            # Dynamic has no Copy checkbox; retain its only explicit reset.
+            self.use_workbook_data_action = self.file_menu.addAction("Use Workbook Data…")
+            self.use_workbook_data_action.triggered.connect(lambda: owner.reset_child_to_workbook(self))
         owner.match_type.currentTextChanged.connect(self._update_workbook_data_action)
         self._update_workbook_data_action()
+        if hasattr(self, "copy_from_wkb_action"):
+            # TEM Map data starts independent, but explicit Copy remains usable.
+            copy_default = self.copy_from_wkb_action.isEnabled() and (
+                self.workspace_type != "wafer_map" or owner._workspace_data_follows_workbook())
+            # Correlation sources may already have been prepared in the saved
+            # Full data scope. Binding ownership must not replace that choice.
+            self._workbook_selection_applies = copy_default and selection_applies
+            self.set_copy_from_wkb(copy_default)
         self.document.refresh_identity()
 
     def _update_workbook_data_action(self, *_):
-        # TEM Map/Radius and Dynamic have no Workbook-derived input table.
+        # TEM Map/Radius permits an explicit Raw copy, never an automatic reload.
+        # Dynamic retains its existing independent-table contract.
         kind = self._managed_scope.split(".", 1)[0]
-        available = kind == "correlation" or self._managed_owner._workspace_data_follows_workbook()
-        self.use_workbook_data_action.setVisible(available)
-        self.use_workbook_data_action.setEnabled(available)
+        available = kind in ("correlation", "map") or self._managed_owner._workspace_data_follows_workbook()
+        if hasattr(self, "use_workbook_data_action"):
+            self.use_workbook_data_action.setVisible(available)
+            self.use_workbook_data_action.setEnabled(available)
+        if hasattr(self, "copy_from_wkb_action"):
+            self.copy_from_wkb_action.setEnabled(available)
+            if not available:
+                self.set_copy_from_wkb(False)
+        self._update_workbook_selection_actions(available)
+
+    def _update_workbook_selection_actions(self, available):
+        has_copy = hasattr(self, "copy_from_wkb_action")
+        enabled = available and (self.workspace_type == "wafer_map" or not has_copy or self._copy_from_wkb)
         for action in (self.workbook_selection_action, self.full_data_action):
-            action.setVisible(available)
-        if available and not (self.workbook_selection_action.isChecked()
-                              or self.full_data_action.isChecked()):
-            self.workbook_selection_action.setChecked(True)
+            action.setVisible(bool(getattr(self, "_managed_owner", None)) if has_copy else available)
+            action.setEnabled(enabled)
+        if has_copy and not enabled:
+            self._workbook_selection_applies = False
+        # QActionGroup must see checked-state changes to maintain exclusivity.
+        # setChecked does not trigger the user-only scope reload handler.
+        self.workbook_selection_action.setChecked(enabled and self._workbook_selection_applies)
+        self.full_data_action.setChecked(enabled and not self._workbook_selection_applies)
+
+    def set_copy_from_wkb(self, checked):
+        """Restore the input choice without copying or clearing source tables."""
+        self._copy_from_wkb = bool(checked)
+        if hasattr(self, "copy_from_wkb_action"):
+            with QSignalBlocker(self.copy_from_wkb_action):
+                self.copy_from_wkb_action.setChecked(self._copy_from_wkb)
+            self._update_workbook_selection_actions(self.copy_from_wkb_action.isEnabled())
+
+    def _copy_from_wkb_changed(self, checked):
+        owner = getattr(self, "_managed_owner", None)
+        if owner is None:
+            self.set_copy_from_wkb(self._copy_from_wkb)
+            return
+        if checked:
+            populated = any(not frame.empty for frame in self.workspace_snapshot().frames.values())
+            if not owner.reset_child_to_workbook(self, confirm=populated):
+                self.set_copy_from_wkb(False)
+            return
+        with self.input_update():
+            if hasattr(self, "reference_model"):
+                self.set_reference_table(pd.DataFrame())
+            if self.model.clipboard_locks:
+                # Preserve locked headers, values and row slots even when the
+                # Workbook copy is switched off. edit clears only unlocked cells.
+                self.model.edit({cell: "" for cell in self.model.cells})
+                self.recognize()
+            else:
+                self.set_table(pd.DataFrame(), "Manual input")
+        self._workbook_selection_applies = False
+        self.set_copy_from_wkb(False)
+        self._use_workbook_data = False
+        self._independent_data = True
+        self.document.refresh_identity()
 
     def build_data_page(self):
         page = QWidget(objectName="dataPage")
@@ -409,9 +477,6 @@ class MainWindow(QMainWindow):
         right.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         right.setContentsMargins(0, 0, 0, 0)
         right.setSpacing(14)
-        if self.workspace_type in ("wafer_map", "correlation_trend"):
-            self.metadata_locks_panel = MetadataLocksPanel(self.model)
-            right.addWidget(self.metadata_locks_panel)
         right.addWidget(self.build_wafer_card(), 2)
         right.addWidget(self.build_parameter_card(), 3)
         side.setMinimumWidth(340)
@@ -522,10 +587,8 @@ class MainWindow(QMainWindow):
         formula.addWidget(self.undo_button)
         formula.addWidget(self.redo_button)
         layout.addLayout(formula)
-        self.sheet = SheetView(self.model)
+        self.sheet = SheetView(self.model, metadata_locks=self.workspace_type == "wafer_map")
         self.sheet.table_pasted.connect(self.mark_table_pasted)
-        self.paste_feedback = PasteFeedbackBar(self.sheet)
-        layout.addWidget(self.paste_feedback)
         layout.addWidget(self.sheet, 1)
         footer = QHBoxLayout()
         footer.addWidget(self.file_label)
@@ -579,7 +642,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(record_row)
         layout.addWidget(self.wafer_list, 1)
         self.wafer_list.itemChanged.connect(self.update_plan)
-        self.wafer_count = label("No wafers detected", "hint")
+        self.wafer_count = label("No Wafers detected", "hint")
         layout.addWidget(self.wafer_count)
         return card
 
@@ -901,7 +964,8 @@ class MainWindow(QMainWindow):
         if self.workspace_type != "correlation_trend" and not any(
                 "".join(c.lower() for c in str(column) if c.isalnum()) in ("waferid", "cursmefilepath") for column in source):
             self._participation_excluded = set()
-        if book.match_type == "TEM" and self.workspace_type != "correlation_trend":
+        if (book.match_type == "TEM" and self.workspace_type != "correlation_trend"
+                and not (self.workspace_type == "wafer_map" and self._workbook_selection_applies)):
             self._participation_excluded = set()  # TEM Map/Dynamic inputs have no paired-source provenance.
         self._refresh_selection_badge()
         self.update_plan()
@@ -1036,22 +1100,25 @@ class MainWindow(QMainWindow):
             frame = self.model.merge_clipboard_frame(frame)
         previous_selection = self.selection_state()
         had_table = not self._frame.empty
+        previous_excluded = set(getattr(self, "_local_selection_excluded", set()))
         previous_keys = []
-        if had_table:
+        if had_table and keep_local_selection and previous_excluded:
             try:
                 previous_keys = list(participation_source_keys(self.model.frame()))
             except ValueError:
                 previous_keys = []
-        previous_excluded = set(getattr(self, "_local_selection_excluded", set()))
         self.source_path = str(source)
         self.file_label.setText(Path(source).name or "Untitled")
         self.file_label.setToolTip(str(source))
         self._reset_selection = True
-        self.model.load(frame, report_paste=report_paste)
+        headers_updated = (keep_local_selection and not report_paste and self.model.update_headers(frame))
+        if not headers_updated:
+            self.model.load(frame, report_paste=report_paste)
         for i, column in enumerate(frame.columns):
             width = 158 if column in ("Wafer ID", "PAD Name") else 118
             self.sheet.setColumnWidth(i, width)
-        self.sheet.setCurrentIndex(self.model.index(0, 0))
+        if not headers_updated:
+            self.sheet.setCurrentIndex(self.model.index(0, 0))
         if report_paste and len(frame.columns):
             self.sheet.mark_pasted_range((0, 0, len(frame), len(frame.columns) - 1))
         self.tabs.setCurrentIndex(0)

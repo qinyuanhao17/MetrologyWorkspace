@@ -1,6 +1,7 @@
 """Workbook group controls and source-mapped editable sheet projections."""
 from copy import deepcopy
 from collections.abc import Mapping
+from itertools import chain
 from math import ceil
 import json
 from uuid import uuid4
@@ -22,7 +23,8 @@ from .match_groups import (GroupPlan, applied_state, copy_group_state, flag_orde
                            flag_value, group_state, normalized, participation_ids,
                            row_ids)
 from .plotting import InteractivePlotWidget, place_legend_above_frame
-from .sheet import SheetModel, clipboard_rows
+from .plotting.identity_labels import measurement_caption
+from .sheet import SheetModel, clipboard_rows, nonempty_cell_bounds
 from .table_clipboard import attach_copy_feedback
 
 
@@ -69,15 +71,19 @@ class ProjectedSheetModel(QAbstractProxyModel):
         self.setSourceModel(source)
         self.cells = _ViewCells(self)
         self.undo = source.undo
+        self._bounds_revision = None
+        self._bounds = None
         source.changed.connect(self.refresh)
 
     def refresh(self):
+        self._bounds_revision = None
         self.beginResetModel()
         self.endResetModel()
 
     def set_rows(self, rows):
         rows = None if rows is None else tuple(int(row) + 1 for row in rows)
         if rows != self.rows:
+            self._bounds_revision = None
             self.beginResetModel()
             self.rows = rows
             self.endResetModel()
@@ -130,8 +136,20 @@ class ProjectedSheetModel(QAbstractProxyModel):
         return self.sourceModel().headerData(section, orientation, role)
 
     def selection_extent(self):
-        rows, columns = self.sourceModel().selection_extent()
-        return (len(self.rows) + 1 if self.rows is not None and rows else rows), columns
+        bounds = self.selection_bounds()
+        return (bounds[2] + 1, bounds[3] + 1) if bounds else (0, 0)
+
+    def selection_bounds(self):
+        if self.rows is None:
+            return self.sourceModel().selection_bounds()
+        source = self.sourceModel()
+        if self._bounds_revision != source.revision:
+            positions = {row: position + 1 for position, row in enumerate(self.rows)}
+            # Traverse each source cell once; Mapping.items() otherwise maps the
+            # visible row back to its source again for every value lookup.
+            self._bounds = nonempty_cell_bounds(source.cells.items(), positions)
+            self._bounds_revision = source.revision
+        return self._bounds
 
     def setData(self, index, value, role=Qt.ItemDataRole.EditRole):
         return self.sourceModel().setData(self.mapToSource(index), value, role)
@@ -172,6 +190,16 @@ class OrderModel(SheetModel):
         rows, columns = super().selection_extent()
         return (max(rows, len(self.plan.raw) + 1), 4) if self.plan is not None else (rows, columns)
 
+    def selection_bounds(self):
+        if self._selection_bounds is None:
+            # Head/Mark/Group are visible calculated cells, not stored flags.
+            rows = len(self.plan.raw) + 1 if self.plan is not None else 1
+            calculated = (((row, column), self.data(self.index(row, column)))
+                          for row in range(rows) for column in range(1, 4))
+            flags = ((key, value) for key, value in self.cells.items() if key[1] == 0)
+            self._selection_bounds = nonempty_cell_bounds(chain(flags, calculated))
+        return self._selection_bounds
+
     def rowCount(self, parent=QModelIndex()):
         return 0 if parent.isValid() else max(self.height, len(self.plan.raw) + 1 if self.plan is not None else 2)
 
@@ -185,6 +213,7 @@ class OrderModel(SheetModel):
         super().restore((cells, self._row_count(cells, None), 4), emit_changed)
 
     def apply(self, changes):
+        self._selection_bounds = self._selection_extent = None
         cells = dict(self.cells)
         for key, value in changes.items():
             if key[1] == 0:
@@ -204,6 +233,7 @@ class OrderModel(SheetModel):
         self.changed.emit()
 
     def set_plan(self, plan):
+        self._selection_bounds = self._selection_extent = None
         reset = self._row_count(self.cells, plan) != self.rowCount()
         if reset:
             self.beginResetModel()
@@ -344,18 +374,14 @@ class GroupControls(QWidget):
         form.setSpacing(10)
         self.enabled = QCheckBox("Head groups")
         self.mark_enabled = QCheckBox("Mark")
-        self.mark_enabled.setToolTip("Optional per-wafer classification; disabling it groups by head only and retains every Mark.")
+        self.mark_enabled.setToolTip("Optional per-Wafer classification; disabling it groups by head only and retains every Mark.")
         self.names_button = QPushButton("Head names…")
         self.names_button.setEnabled(False)
         self.new_button = QPushButton("Marks…")
         self.order = QComboBox()
-        for label, value in (("Group → wafer → Die Seq", "groups"), ("Original row order", "original")):
-            self.order.addItem(label, value)
-        for index, tip in enumerate(("Arrange by Group, wafer and Die Seq.",
-                                    "Keep the original input row order, ignoring table sorting.")):
-            self.order.setItemData(index, tip, Qt.ItemDataRole.ToolTipRole)
-        self.order.setToolTip("Original row order keeps the input order and marks each wafer\n"
-                             "boundary with a thin grey dashed line; only Die Seq is labelled.")
+        self.order.setToolTip("Choose original row order or collect Wafer / Lot / PAD identities\n"
+                             "in their first source order without changing source tables.")
+        self._refresh_order_choices()
         self.group_order_button = QPushButton("Group order…")
         self.card = QCheckBox("Use group Card")
         self.card.setToolTip(
@@ -413,6 +439,7 @@ class GroupControls(QWidget):
         self.refresh()
 
     def refresh(self):
+        self._refresh_order_choices()
         try:
             state = {key: value for key, value in self.state.items() if key != 'applied'}
             cached = next((plan for ref, raw, saved, plan in self._source_plans
@@ -436,6 +463,31 @@ class GroupControls(QWidget):
         self.names_button.setEnabled(bool(self.entered_flags()))
         self.card.setEnabled(self.plan is not None and self.plan.enabled)
         self.new_button.setEnabled(self.state["mark_enabled"] and self.plan is not None)
+
+    def _refresh_order_choices(self):
+        classified = self.state["enabled"] or self.state["mark_enabled"]
+        if not classified and self.state["trend_order"] == "groups":
+            self.state["trend_order"] = "original"
+            applied = self.state.get("applied", {})
+            if (not (applied.get("enabled") or applied.get("mark_enabled"))
+                    and applied.get("trend_order") == "groups"):
+                applied["trend_order"] = "original"
+        choices = [
+            ("Original row order", "original", "Keep the original input row order, ignoring table sorting."),
+            ("Original Wafer order", "wafers", "Collect Wafer / Lot / PAD identities in first source order; keep original rows within each identity."),
+        ]
+        if classified:
+            choices.insert(0, ("Group → Wafer → Die Seq", "groups", "Arrange by Group, Wafer and Die Seq."))
+        value = self.state["trend_order"]
+        if value not in [choice[1] for choice in choices]:
+            value = "original"
+        with QSignalBlocker(self.order):
+            if [self.order.itemData(i) for i in range(self.order.count())] != [choice[1] for choice in choices]:
+                self.order.clear()
+                for label, data, tip in choices:
+                    self.order.addItem(label, data)
+                    self.order.setItemData(self.order.count() - 1, tip, Qt.ItemDataRole.ToolTipRole)
+            self.order.setCurrentIndex(self.order.findData(value))
 
     def flags_frame(self):
         return self.order_model.flags_frame(max(len(self.raw), len(self.reference)))
@@ -607,14 +659,14 @@ class GroupControls(QWidget):
             action.setChecked(column in self.plan.identity_columns)
         picker.setMenu(menu)
         layout.addWidget(picker)
-        search = QLineEdit(placeholderText="Find wafer / lot / PAD…", objectName="markSearch")
+        search = QLineEdit(placeholderText="Find Wafer / Lot / PAD…", objectName="markSearch")
         layout.addWidget(search)
         # The first Mark also catches wafers without an explicit assignment, so a
         # two-name vocabulary is still a binary classification.
         marks = QTreeWidget(objectName="markValues")
         marks.setColumnCount(2)
         marks.setHeaderLabels(["Mark", "Fallback"])
-        marks.setToolTip("One Mark per wafer. The ✓ row also catches wafers without an explicit "
+        marks.setToolTip("One Mark per Wafer. The ✓ row also catches Wafers without an explicit "
                          "assignment; rename it to label that bucket.")
         marks.setRootIsDecorated(False)
         marks.setUniformRowHeights(True)
@@ -1005,7 +1057,10 @@ def set_group_axes(plot, result, data, *, show_wafers=False):
                 if column is not None:
                     values = plan.raw.iloc[span["rows"]][column].fillna("").astype(str).str.strip()
                     text = ", ".join(dict.fromkeys(value or "(blank)" for value in values))
-                    labels.append(text)
+                    options = getattr(plot, "_identity_labels", {})
+                    field = {"Lot ID": "lot", "PAD Name": "pad"}.get(label)
+                    if field is None or options.get(field, True):
+                        labels.append(f"{field.upper()}: {text}" if field else text)
                     detail.append(f"{label}: {text}")
             wafer_spans.append((offset + .5, end + .5, "\n".join(labels)))
             wafer_tooltips.append("\n".join(detail))
@@ -1074,6 +1129,13 @@ def set_group_axes(plot, result, data, *, show_wafers=False):
         def refresh(*_):
             die, spans, wafer_spans = plot._group_tick_data
             low, high = plot.getViewBox().viewRange()[0]
+            spacing = getattr(plot, "_wafer_spacing", None)
+            source_low, source_high = spacing.inverse([low, high]) if spacing is not None else (low, high)
+            if spacing is not None:
+                spans, wafer_spans = spacing.spans(spans), spacing.spans(wafer_spans)
+            for target, captions in ((plot._group_axis, spans), (plot._wafer_axis, wafer_spans)):
+                target.boundaries = sorted({value for start, end, _ in captions for value in (start, end)})
+                target.update()
             width = max(1., plot.getViewBox().sceneBoundingRect().width())
             scale = width / max(1e-9, high - low)
             metrics = QFontMetrics(plot.font())
@@ -1086,13 +1148,14 @@ def set_group_axes(plot, result, data, *, show_wafers=False):
                         kept.append((position, label))
                         edge = pixel + half
                 return kept
-            first, last = max(0, ceil(low) - 1), min(len(die) - 1, int(high) - 1)
+            first, last = max(0, ceil(source_low) - 1), min(len(die) - 1, int(source_high) - 1)
             count = min(max(0, last - first + 1), max(2, int(width / 45)))
             indices = np.unique(np.linspace(first, last, count, dtype=int)) if count else []
-            ticks = sparse([(int(i) + 1, die[i]) for i in indices])
+            position = lambda value: float(spacing.forward(value)) if spacing is not None else value
+            ticks = sparse([(position(int(i) + 1), die[i]) for i in indices])
             if count and not ticks:
                 middle = (first + last) // 2
-                ticks = sparse([(middle + 1, die[middle])])
+                ticks = sparse([(position(middle + 1), die[middle])])
             bottom.setTicks([ticks])
             labels = []
             for start, end, label in spans:
@@ -1136,16 +1199,16 @@ def draw_group_trend(plot, result, parameter, key="all", card_mode="raw", *, gro
     data = result.group_series(parameter, key, trend=True, card_mode=card_mode)
     plan = result.group_plan
     x = np.arange(1, len(data) + 1, dtype=float)
-    reference = plot.plot(x, data["Reference"].to_numpy(float), pen=pg.mkPen("#ed7d31", width=1.5),
-              symbol="o", symbolSize=4, symbolBrush="#ed7d31", symbolPen=None,
+    reference = plot.plot(x, data["Reference"].to_numpy(float), pen=pg.mkPen("#ed7d31", width=2.2),
+              symbol="o", symbolSize=5, symbolBrush="#ed7d31", symbolPen=None,
               name=str(result.match_type), connect="finite")
     reference.setZValue(5)  # Reference stays visible above overlapping Raw/Card curves.
     # Boundaries annotate the ordinal sequence; only missing observations break it.
     groups = data["Group"].tolist()
     starts = [0] + [i for i in range(1, len(groups)) if groups[i] != groups[i - 1]] + [len(groups)]
     plot.plot(x, data["Trend value"].to_numpy(float),
-              pen=pg.mkPen("#5b9bd5", width=1.5, style=Qt.PenStyle.DashLine),
-              symbol="s", symbolSize=4, symbolBrush="#5b9bd5", symbolPen=None,
+              pen=pg.mkPen("#5b9bd5", width=2.2),
+              symbol="o", symbolSize=5, symbolBrush="#5b9bd5", symbolPen=None,
               name="PMISH", connect="finite")
     place_legend_above_frame(plot)
     offset, labels, boundaries, previous_group = 0, [], [], None
@@ -1161,7 +1224,8 @@ def draw_group_trend(plot, result, parameter, key="all", card_mode="raw", *, gro
                     line = pg.InfiniteLine(offset + .5, angle=90, pen=pg.mkPen("#929292", style=Qt.PenStyle.DashLine))
                     plot.addItem(line, ignoreBounds=True)
                     boundaries.append(line)
-            labels.append((offset + (len(span["rows"]) + 1) / 2, span["label"]))
+            labels.append((offset + (len(span["rows"]) + 1) / 2,
+                           measurement_caption(span["label"], getattr(plot, "_identity_labels", {}))))
             offset += len(span["rows"])
             previous_group = groups[offset - 1]
     plot._group_boundaries = boundaries
@@ -1189,11 +1253,9 @@ def draw_group_trend(plot, result, parameter, key="all", card_mode="raw", *, gro
     group_axis.setPen(pg.mkPen(QColor(0, 0, 0, 0)))
     group_axis.setTextPen(pen)
     plot.setLabel("bottom", "Measurement order · Die Seq")
-    # The Trend title is the Raw Data column and the Y axis never carries a
-    # label; the block heading and the status row already name the scope.
-    plot.setLabel("left", "")
     unavailable = data["Trend value"].isna().sum() if card_mode == "group" else 0
-    title = result.raw_column(parameter) + (f" · {unavailable} unavailable/missing" if unavailable else "")
+    title = parameter + (f" · {unavailable} unavailable/missing" if unavailable else "")
+    plot.setLabel("left", title)
     if hasattr(plot, "set_scope_title"):
         plot.set_scope_title(title)
     else:
@@ -1212,7 +1274,7 @@ class _GroupTree(QTreeWidget):
     """Separate native check columns; names retain double-click editing."""
     def __init__(self, parent=None, **kwargs):
         super().__init__(parent, **kwargs)
-        self.setHeaderLabels(["Group", "Show wafer"])
+        self.setHeaderLabels(["Group", "Show Wafer"])
         self.setRootIsDecorated(False)
         self.header().setStretchLastSection(False)
         self.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
@@ -1449,6 +1511,19 @@ class GroupPlotPage(QWidget):
         self.card.toggled.connect(self.trend_card_changed)
 
     def set_result(self, result):
+        if result is None:
+            self.result = None
+            self.scopes.clear()
+            self._panels.clear()
+            self.plot_groups.clear()
+            for section in self.parameter_sections.values():
+                self.plots.removeWidget(section)
+                section.deleteLater()
+            self.parameter_sections.clear()
+            self._render_pending = False
+            self.scroll.hide()
+            self.status.clear()
+            return
         if self._restored is None and (self.result is None or self.result.result_mode != result.result_mode):
             self.card.blockSignals(True)
             self.card.setChecked(result.result_mode == "preview")
@@ -1539,7 +1614,8 @@ class GroupPlotPage(QWidget):
             card_key = (self.result.result_mode, f"group-plots:{key}:{parameter}")
             trend_card = owner._trend_card_state.get(card_key, self.card.isChecked())
             signature = (label, mode, trend_card, show_wafers, scoped.group_plan.state["trend_order"], scoped.group_plan.trend_spans(),
-                         owner._selected_bias_views(), owner.workbook.mappings, self.result.result_mode, self.result.match_type)
+                         owner._selected_bias_views(), owner.workbook.mappings, self.result.result_mode, self.result.match_type,
+                         tuple(owner._plot_label_options["trend"].items()) if show_wafers else ())
             previous = self._panels.get((key, parameter))
             if previous is not None and previous[1].equals(data) and previous[2] == signature:
                 section_layout.insertWidget(position, previous[0])
@@ -1557,7 +1633,7 @@ class GroupPlotPage(QWidget):
                 self.plot_groups[(key, parameter)] = block
                 block["card"].workspace = self
                 block["plot_area"].layoutChanged.connect(
-                    lambda target=block: target["card"].setFixedHeight(54 + target["plot_area"].height()))
+                    lambda target=block: target["card"].setFixedHeight(54 + target["plot_scroll"].height()))
                 checkbox = block["plots"]["trend"].card_checkbox
                 checkbox.toggled.connect(lambda checked, target=block, name=parameter:
                     self.block_card_changed(name, target, checked))
@@ -1577,11 +1653,11 @@ class GroupPlotPage(QWidget):
             owner._draw_parameter_group(parameter, block)
             wafers = [measurement.label.replace("\n", " / ") for measurement in scoped.group_plan.measurements
                       if set(measurement.rows) & set(scoped.source_rows)]
-            block["note"].setText(f"{len(data):,} rows · {len(wafers)} wafers · {mode} Card")
+            block["note"].setText(f"{len(data):,} rows · {len(wafers)} Wafers · {mode} Card")
             if not np.isfinite(block["fit_card"].slope):
                 block["note"].setText(block["note"].text() + " · Fit unavailable")
             block["note"].setToolTip("\n".join(wafers))
-            panel.setFixedHeight(54 + block["plot_area"].height())
+            panel.setFixedHeight(54 + block["plot_scroll"].height())
             section_layout.insertWidget(position, panel)
             self._panels[(key, parameter)] = (panel, data.copy(), deepcopy(signature))
         self.apply_parameter_order()
@@ -1592,6 +1668,7 @@ class GroupPlotPage(QWidget):
     def block_card_changed(self, parameter, block, checked):
         self.workbook_window._trend_card_state[block["trend_card_key"]] = bool(checked)
         self.workbook_window._draw_trend_plot(parameter, block)
+        self.workbook_window._expand_parameter_group(block)
         self.changed.emit()
 
     def trend_card_changed(self, checked):

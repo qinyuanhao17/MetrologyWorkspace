@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from copy import deepcopy
+from collections import Counter
 
 import numpy as np
 import pandas as pd
@@ -17,7 +18,6 @@ from .appearance import help_title_label
 from .correlation_page import CorrelationPage
 from .data import inspect_table, read_table
 from .measurements import default_identity_columns, detect_measurements
-from .metadata_locks import MetadataLocksPanel
 from .matching import MatchWorkbook, ParameterMapping
 from .match_groups import row_ids, participation_source_keys
 from .sequence_page import SequencePage
@@ -48,7 +48,7 @@ def _first_column(frame, aliases):
     return next((columns[alias] for alias in aliases if alias in columns), None)
 
 
-def _aligned_reference_frame(reference, raw, mappings):
+def _aligned_reference_frame(reference, raw):
     """Keep Reference values while taking row identity from aligned Raw Data."""
     reference = reference.reset_index(drop=True).copy()
     raw = raw.reset_index(drop=True)
@@ -61,11 +61,6 @@ def _aligned_reference_frame(reference, raw, mappings):
         if source is not None
     }
     values = reference.drop(columns=list(identity_names), errors="ignore")
-    values = values.rename(columns={
-        mapping.reference_column: mapping.name
-        for mapping in mappings
-        if mapping.reference_column in values
-    })
     aligned = pd.DataFrame(index=reference.index)
     for target, aliases in IDENTITY_COLUMNS:
         source = _first_column(raw, aliases)
@@ -118,24 +113,51 @@ class CorrelationWindow(DataWorkspaceWindow):
 
     def set_workbook_groups(self, book):
         """Classification belongs to exact source records, not just wafer names."""
-        from .match_groups import applied_state
+        from .match_groups import applied_state, participation_rows, wafer_identity_keys
         effective = applied_state(book.grouping_state)
-        if not (effective["enabled"] or effective["mark_enabled"]) and effective["data_selection"] is None:
+        applies = getattr(self, "_workbook_selection_applies", True)
+        if (not (effective["enabled"] or effective["mark_enabled"])
+                and effective["trend_order"] == "groups"
+                and (effective["data_selection"] is None or not applies)):
             self._match_groups = None
             self._group_plan = None
+            self._group_result_cache = None
+            self.update_plan()
             return
         state = deepcopy(book.grouping_state)
+        raw = self.raw_model.frame()
+        identities = list(row_ids(raw))
+        flags = (book.test_flags.iloc[:, 0].astype(object).reset_index(drop=True).reindex(range(len(book.raw)))
+                 if book.test_flags is not None and len(book.test_flags.columns) else pd.Series([""] * len(book.raw)))
+        flags = flags.where(flags.notna(), "")
+        if applies and len(raw) != len(book.raw):
+            rows = list(participation_rows(book.raw, effective["data_selection"]))
+            source = book.raw.iloc[rows].reset_index(drop=True).fillna("").astype(str)
+            if raw.equals(source):
+                flags = flags.iloc[rows]
+        full_selection = None
+        if not applies and (effective["data_selection"] is not None or effective["filters"]):
+            known_ids = {record["key"]: record["id"] for record in
+                         (effective["data_selection"] or {}).get("records", ())}
+            full_selection = {"records": [{"id": known_ids.get(key, key), "key": key}
+                                          for key in identities], "excluded": []}
         for config in (state, state.get("applied", {})):
-            for spec in (*config.get("filters", []), *config.get("sort", [])):
-                if spec.get("table") == "reference":
-                    mapping = next((m for m in book.mappings if m.reference_column == spec.get("column")), None)
-                    if mapping is not None:
-                        spec["column"] = mapping.name
+            if config.get("trend_order") == "wafers":
+                # Selected child tables omit rows, not the parent's original
+                # first-appearance order. Retain only identity metadata here.
+                config["wafer_source_order"] = list(dict.fromkeys(wafer_identity_keys(book.raw) or ()))
+            if "flags" in config:
+                config["flags"] = flags.tolist()
+            if not applies:
+                # Full data ignores the parent's participation restriction, not
+                # its classification. Explicit all-record participation also
+                # keeps legacy display filters from excluding plotted rows.
+                config["data_selection"] = deepcopy(full_selection)
         self._match_groups = {"grouping": state,
-                              "flags": book.test_flags.iloc[:, 0].tolist() if book.test_flags is not None else [],
-                              "identities": list(row_ids(self.raw_model.frame())),
-                              "provenance": list(participation_source_keys(self.raw_model.frame())),
-                              "mappings": [{"name": m.name, "reference_column": m.name, "raw_column": m.raw_column} for m in book.mappings],
+                              "flags": flags.tolist(),
+                              "identities": identities,
+                              "provenance": list(participation_source_keys(raw)),
+                              "mappings": [{"name": m.name, "reference_column": m.reference_column, "raw_column": m.raw_column} for m in book.mappings],
                               "result_mode": book.result_mode, "match_type": book.match_type}
         self._refresh_group_results()
         self.update_plan()
@@ -173,6 +195,9 @@ class CorrelationWindow(DataWorkspaceWindow):
         if self._match_groups:
             from .match_groups import applied_state
             selection = applied_state(book.grouping_state)["data_selection"]
+            if not getattr(self, "_workbook_selection_applies", True):
+                existing = applied_state(self._match_groups["grouping"])["data_selection"]
+                selection = {**deepcopy(existing), "excluded": []} if existing is not None else None
             configs = self._match_groups["grouping"]
             configs["data_selection"] = deepcopy(selection)
             configs.setdefault("applied", {})["data_selection"] = deepcopy(selection)
@@ -184,6 +209,114 @@ class CorrelationWindow(DataWorkspaceWindow):
         if self._match_groups:
             snapshot.states["match_groups"] = self._match_groups if readonly else deepcopy(self._match_groups)
         return snapshot
+
+    def restore_linked_workspace(self, snapshot):
+        """Restore plot choices with the already prepared Workbook classification."""
+        self._restore_reference_column_names(snapshot)
+        previous = snapshot.states.pop("match_groups", None)
+        current = self._match_groups
+        if current is not None:
+            snapshot.states["match_groups"] = deepcopy(current)
+        if previous != current or current is not None:
+            def measurement_key(key):
+                parts = str(key).split(":", 2)
+                return parts[2] if len(parts) == 3 and parts[0] == "group" and parts[1].isdigit() else key
+            # Group span numbers are presentation keys, not source identities.
+            # Reconcile to the same source measurement before applying boxes.
+            available = {}
+            for wafer in self.sequence_page.selection.get("wafers", ()):
+                if isinstance(wafer, (tuple, list)) and len(wafer) == 2:
+                    source, key = wafer
+                    available.setdefault((source, measurement_key(key)), []).append(key)
+            def keys(source, key):
+                base = measurement_key(key)
+                return available.get((source, base), [base if not self._group_plan or not self._group_plan.enabled else key])
+            ui = snapshot.states["ui"]
+            draw = ui.get("selection", {}).get("trend_draw", {})
+            draw["cells"] = list(dict.fromkeys(
+                (source, replacement, metric)
+                for source, key, metric in draw.get("cells", ())
+                for replacement in keys(source, key)))
+            page = ui.get("pages", {}).get("sequence_page", {})
+            boxes = []
+            for wafer, metric in page.get("boxes", ()):
+                if isinstance(wafer, (tuple, list)) and len(wafer) == 2:
+                    boxes.extend(((wafer[0], key), metric) for key in keys(*wafer))
+                else:
+                    boxes.append((wafer, metric))
+            page["boxes"] = list(dict.fromkeys(boxes))
+        self.restore_workspace(snapshot)
+
+    def _restore_reference_column_names(self, snapshot):
+        """Migrate linked legacy aliases without renaming Raw or changing any values."""
+        ui = snapshot.states["ui"]
+        selection = ui.get("selection", {})
+        if selection.get("reference_column_names"):
+            return
+        current = self.reference_model.document_frame()
+        aliases = {mapping.name: mapping.reference_column for mapping in self._source_mappings
+                   if mapping.name not in current.columns and mapping.reference_column in current.columns}
+        stored = snapshot.frames.get("reference_data")
+        if stored is not None and stored.shape == current.shape and stored.columns.is_unique:
+            # Earlier linked snapshots lack explicit header provenance. Only
+            # reconcile positional aliases when the entire literal column is
+            # unchanged; never infer a correspondence from numeric similarity.
+            for old, original in zip(stored.columns, current.columns):
+                if (old not in current.columns and original not in stored.columns
+                        and stored[old].equals(current[original])):
+                    aliases[old] = original
+        if stored is not None and aliases:
+            renamed = stored.rename(columns=aliases)
+            if not renamed.columns.is_unique:
+                raise ValueError("Legacy Reference aliases are ambiguous; copy Workbook data again.")
+            snapshot.frames["reference_data"] = renamed
+        selection["reference_column_names"] = True
+        if not aliases:
+            return
+
+        def metric(source, name):
+            return aliases.get(name, name) if source == "Reference" else name
+
+        reference = selection.get("reference", {})
+        if "metrics" in reference:
+            reference["metrics"] = list(dict.fromkeys(aliases.get(name, name) for name in reference["metrics"]))
+        for field in ("correlation_draw", "trend_draw"):
+            draw = selection.get(field, {})
+            if "cells" in draw:
+                draw["cells"] = list(dict.fromkeys((source, key, metric(source, name))
+                                                   for source, key, name in draw["cells"]))
+        raw_columns = set(self.raw_model.document_frame().columns)
+        for field in ("correlation_page", "sequence_page"):
+            page = ui.get("pages", {}).get(field, {})
+            if "boxes" in page:
+                page["boxes"] = [[wafer, metric(wafer[0], name)]
+                                 if isinstance(wafer, (list, tuple)) and len(wafer) == 2 else [wafer, name]
+                                 for wafer, name in page["boxes"]]
+            active = page.get("parameter_filter")
+            if active is not None:
+                names = [active] if isinstance(active, str) else active
+                updated = []
+                for name in names:
+                    updated.append(aliases.get(name, name))
+                    if name in aliases and name in raw_columns:
+                        updated.append(name)  # The former filter also matched this Raw parameter.
+                updated = list(dict.fromkeys(updated))
+                page["parameter_filter"] = updated[0] if len(updated) == 1 else updated
+            for panel in page.get("source_overlay", []):
+                panel["metric"] = metric(panel["source"], panel["metric"])
+                for compare in panel.get("comparisons", []):
+                    compare["metric"] = metric(compare["source"], compare["metric"])
+            if "axis_directions" in page:
+                directions = []
+                for choice in page["axis_directions"]:
+                    sources = choice["sources"]
+                    if "Reference" in sources and (choice["x"] in aliases or choice["y"] in aliases):
+                        directions.append({"sources": ["Reference"], "x": aliases.get(choice["x"], choice["x"]),
+                                           "y": aliases.get(choice["y"], choice["y"])})
+                        sources = [source for source in sources if source != "Reference"]
+                    if sources:
+                        directions.append({**choice, "sources": sources})
+                page["axis_directions"] = directions
 
     def _restore_workspace_tables(self, snapshot):
         # Old selections refer to the previous source/Group keys. Drawing them
@@ -208,9 +341,11 @@ class CorrelationWindow(DataWorkspaceWindow):
         # overlays, pending Draw choices, page index and saved boxes included.
 
     def _grouped_trend_selection(self, selection):
-        if not self._match_groups or self._group_plan is None or not self._group_plan.enabled:
+        if not self._match_groups or self._group_plan is None:
             return selection
         plan = self._group_plan
+        if not plan.enabled and plan.state["trend_order"] == "groups":
+            return selection
         split = len(self.reference_model.frame())
         grouped = {**selection, "wafers": [], "groups": {}, "labels": {},
                    "group_labels": {}, "available_cells": set()}
@@ -231,15 +366,20 @@ class CorrelationWindow(DataWorkspaceWindow):
                     owners.setdefault(row, []).append(old_key)
             # Visit only wafers owning this span's rows. A checkbox must not
             # scan every wafer and every parameter for every Group span.
+            parts = []
             for n, span in enumerate(spans):
                 matches = {}
                 for row in span["rows"]:
                     position = offset + row
                     for old_key in owners.get(position, ()):
                         matches.setdefault(old_key, []).append(position)
+                parts.append((n, span, matches))
+            occurrences = Counter(old_key for _, _, matches in parts for old_key in matches)
+            for n, span, matches in parts:
                 for old_key in sorted(matches, key=order.__getitem__):
                     rows = tuple(matches[old_key])
-                    key = (name, f"group:{n}:{old_key[1]}")
+                    key = (old_key if not plan.enabled and occurrences[old_key] == 1
+                           else (name, f"group:{n}:{old_key[1]}"))
                     grouped["wafers"].append(key)
                     grouped["groups"][key] = rows
                     grouped["labels"][key] = f"{name} · {span['label']}"
@@ -249,6 +389,9 @@ class CorrelationWindow(DataWorkspaceWindow):
                         grouped["available_cells"].add((key, metric))
         grouped["sources"] = tuple({**source, "keys": tuple(source_keys[source["name"]])} for source in selection["sources"])
         grouped["preserve_group_order"] = True
+        # Row preservation is independent of classification captions. A source
+        # order without Groups must still display Wafer / LOT / PAD, not Heads.
+        grouped["show_group_labels"] = plan.enabled
         return grouped
 
     def _build_reference_page(self):
@@ -268,8 +411,6 @@ class CorrelationWindow(DataWorkspaceWindow):
         side_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         side_layout.setContentsMargins(0, 0, 0, 0)
         side_layout.setSpacing(14)
-        self.reference_metadata_locks_panel = MetadataLocksPanel(self.reference_model)
-        side_layout.addWidget(self.reference_metadata_locks_panel)
         side_layout.addWidget(self._build_reference_wafer_card(), 2)
         side_layout.addWidget(self._build_reference_parameter_card(), 3)
         side.setMinimumWidth(340)
@@ -356,7 +497,7 @@ class CorrelationWindow(DataWorkspaceWindow):
         layout.addWidget(self.reference_group_picker)
         layout.addWidget(self.reference_wafer_list, 1)
         self.reference_wafer_list.itemChanged.connect(self.update_plan)
-        self.reference_wafer_count = label("No wafers detected", "hint")
+        self.reference_wafer_count = label("No Wafers detected", "hint")
         layout.addWidget(self.reference_wafer_count)
         return card
 
@@ -530,12 +671,8 @@ class CorrelationWindow(DataWorkspaceWindow):
         self.reference_measurements = detect_measurements(
             frame, primary, chosen_groups, use_die_seq=False
         ) if primary else []
-        mapped = [
-            mapping.name for mapping in self._source_mappings
-            if mapping.name in metrics
-        ]
         chosen_metrics = (
-            set(mapped or self.default_parameters(metrics))
+            set(self.default_parameters(metrics))
             if reset else previous_metrics
         )
         for tree in (self.reference_wafer_list, self.reference_parameter_list):
@@ -613,10 +750,7 @@ class CorrelationWindow(DataWorkspaceWindow):
         if not frame.empty and len(frame) == len(raw):
             self._rebuild_source_analysis()
         elif frame.empty:
-            self._workbook_sources = ()
-            self._analysis_frame = pd.DataFrame()
-            self._populate_reference_choices()
-            self.update_plan()
+            self._rebuild_source_analysis()
         elif not raw.empty:
             self.reference_footer.setText(
                 f"{len(frame):,} rows × {len(frame.columns)} columns; "
@@ -661,17 +795,28 @@ class CorrelationWindow(DataWorkspaceWindow):
         self._group_plan = None
         self._reset_reference_selection = True
         reference_frame = _aligned_reference_frame(
-            reference, raw, self._source_mappings
+            reference, raw
         )
+        raw_frame = raw.reset_index(drop=True)
+        same_raw = (bool(self._workbook_sources)
+                    and raw_frame.fillna("").astype(str).equals(self.raw_model.document_frame()))
         self._loading_workbook_sources = True
         try:
-            super().set_table(raw.reset_index(drop=True), f"{mode} Raw Data",
-                              keep_local_selection=True)
+            if not same_raw:
+                super().set_table(raw_frame, f"{mode} Raw Data", keep_local_selection=True)
+            else:
+                # Mapping/Card changes are not a replacement of Raw's editable
+                # cells. Preserve their revision, selection and undo history.
+                self.source_path = f"{mode} Raw Data"
+                self.file_label.setText(self.source_path)
+                self.file_label.setToolTip(self.source_path)
             self._set_checked_values(
                 self.parameter_list,
                 [mapping.raw_column for mapping in self._source_mappings],
             )
-            self.reference_model.load(reference_frame)
+            if not reference_frame.fillna("").astype(str).equals(self.reference_model.document_frame()):
+                if not self.reference_model.update_headers(reference_frame):
+                    self.reference_model.load(reference_frame)
             self.reference_footer.setText(
                 f"{len(reference_frame):,} rows × {len(reference_frame.columns)} columns")
         finally:
@@ -737,6 +882,7 @@ class CorrelationWindow(DataWorkspaceWindow):
             return super().selection_state()
         return {
             "source_parameter_names": True,
+            "reference_column_names": True,
             "reference": {
                 "wafers": tuple(self.selected(self.reference_wafer_list)),
                 "metrics": tuple(self.selected(self.reference_parameter_list)),
@@ -827,10 +973,10 @@ class CorrelationWindow(DataWorkspaceWindow):
                 or self.raw_model.duplicate_header_count()):
             self._populate_reference_choices()
             return
-        reference = _aligned_reference_frame(
-            self.reference_model.frame(), self.raw_model.frame(),
-            self._source_mappings,
-        )
+        reference = self.reference_model.frame()
+        if not reference.empty:
+            reference = _aligned_reference_frame(
+                reference, self.raw_model.frame())
         if not reference.equals(self.reference_model.frame().reset_index(drop=True)):
             self.reference_model.blockSignals(True)
             try:
@@ -853,13 +999,13 @@ class CorrelationWindow(DataWorkspaceWindow):
         raw_keys = tuple(
             ("Raw Data", measurement.key) for measurement in self.measurements
         )
-        self._workbook_sources = (
+        self._workbook_sources = tuple(source for source in (
             {"name": "Reference", "color": REFERENCE_COLOR,
              "rows": tuple(range(split)), "keys": reference_keys},
             {"name": "Raw Data", "color": RAW_COLOR,
              "rows": tuple(range(split, len(self._analysis_frame))),
              "keys": raw_keys},
-        )
+        ) if source["rows"])
         self._refresh_group_results()
         self.update_plan()
 

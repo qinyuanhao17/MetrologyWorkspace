@@ -398,26 +398,40 @@ class StorageV2Tests(unittest.TestCase):
         self.assertTrue(child.save_wkb())
         self.assertFalse(load_workspace(path).states["map.preview"]["data_override"])
 
-    def test_tem_independent_analyses_cannot_reset_to_workbook_data(self):
+    def test_tem_map_explicit_copy_requires_confirmation_and_dynamic_stays_independent(self):
         self.match.match_type.setCurrentText("TEM")
         for stage in ("preview", "final"):
             for opener in (self.match.open_stage_workspace, self.match.open_dynamic_workspace):
                 with self.subTest(stage=stage, opener=opener.__name__):
                     child = opener(stage)
-                    action = next(action for action in child.file_menu.actions()
-                                  if action.text() == "Use Workbook Data…")
-                    self.assertFalse(action.isVisible())
-                    self.assertFalse(action.isEnabled())
+                    actions = [action for action in child.file_menu.actions()
+                               if action.text() == "Use Workbook Data…"]
+                    if child.workspace_type == "dynamic":
+                        self.assertEqual(len(actions), 1)
+                        self.assertFalse(actions[0].isVisible())
+                        self.assertFalse(actions[0].isEnabled())
+                    else:
+                        self.assertEqual(actions, [])
+                        self.assertIn(child.copy_from_wkb_action, child.data_menu.actions())
+                        self.assertTrue(child.copy_from_wkb_action.isEnabled())
                     child.set_table(pd.DataFrame({"Wafer ID": ["001", "001"], "Die Seq": [1, 2],
                                                   "CD": ["9.999", "2.1000"]}), "Independent TEM")
                     before = child.workspace_snapshot()
-                    with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Discard) as question:
+                    with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Cancel) as question:
                         self.assertFalse(self.match.reset_child_to_workbook(child))
-                        question.assert_not_called()
+                        if child.workspace_type == "dynamic":
+                            question.assert_not_called()
+                        else:
+                            question.assert_called_once()
                     after = child.workspace_snapshot()
                     self.assertEqual(after.states, before.states)
                     for name, frame in before.frames.items():
                         pd.testing.assert_frame_equal(after.frames[name], frame)
+                    if child.workspace_type == "wafer_map":
+                        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Discard):
+                            self.assertTrue(self.match.reset_child_to_workbook(child))
+                        self.assertTrue(child.copy_from_wkb_action.isChecked())
+                        self.assertTrue(child.document.is_dirty())
 
     def test_workbook_data_menu_tracks_match_type_without_reopening_children(self):
         children = [self.match.open_stage_workspace(stage) for stage in ("preview", "final")]
@@ -429,9 +443,16 @@ class StorageV2Tests(unittest.TestCase):
                 with self.subTest(mode=mode, title=child.windowTitle()):
                     actions = [action for action in child.file_menu.actions()
                                if action.text() == "Use Workbook Data…"]
-                    self.assertEqual(len(actions), 1)
-                    self.assertEqual(actions[0].isVisible(), mode != "TEM" or child is correlation)
-                    self.assertEqual(actions[0].isEnabled(), mode != "TEM" or child is correlation)
+                    if child.workspace_type == "dynamic":
+                        self.assertEqual(len(actions), 1)
+                        self.assertEqual(actions[0].isVisible(), mode != "TEM")
+                        self.assertEqual(actions[0].isEnabled(), mode != "TEM")
+                    else:
+                        self.assertEqual(actions, [])
+                        self.assertIn(child.copy_from_wkb_action, child.data_menu.actions())
+                        self.assertTrue(child.copy_from_wkb_action.isEnabled())
+                        self.assertTrue(child.workbook_selection_action.isEnabled())
+                        self.assertTrue(child.full_data_action.isEnabled())
         with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Cancel) as question:
             self.assertFalse(self.match.reset_child_to_workbook(correlation))
             question.assert_called_once()

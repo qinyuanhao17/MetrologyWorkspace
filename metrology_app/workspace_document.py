@@ -13,6 +13,7 @@ from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import (QAbstractItemView, QAbstractSpinBox, QApplication, QCheckBox,
                             QComboBox, QDoubleSpinBox, QFileDialog, QMessageBox, QSpinBox)
 
+from .metadata_locks import is_metadata_column
 from .workspace_store import (EXTENSIONS, REQUIRED_FRAMES, WORKSPACE_LABELS, WorkspaceSnapshot, file_revision,
                               json_text, load_workspace, same_file, save_workspace, workspace_path)
 
@@ -51,8 +52,19 @@ def commit_editors(window):
             commit_editors(child)
 
 
-def local_ui(ui):
-    ui = deepcopy(ui)
+def local_ui(ui, *, readonly=False):
+    ui = dict(ui) if readonly else deepcopy(ui)
+    if readonly:
+        # Only these owned dictionaries are edited below. Other state is
+        # borrowed solely for immediate GUI-thread equality, never accepted.
+        if "selection" in ui:
+            ui["selection"] = dict(ui["selection"])
+        if "pages" in ui:
+            ui["pages"] = dict(ui["pages"])
+            if "sequence_page" in ui["pages"]:
+                page = ui["pages"]["sequence_page"] = dict(ui["pages"]["sequence_page"])
+                if "controls" in page:
+                    page["controls"] = dict(page["controls"])
     for key in ("trend_axis_ratio", "trend_axis_mode"):
         ui.get("selection", {}).pop(key, None)
     for key in ("axis_ratio", "axis_mode"):
@@ -141,7 +153,7 @@ def legacy_match_recovery(live, baseline):
 PAGE_NAMES = ("plot_page", "radius_page", "correlation_page", "sequence_page", "dynamic_page", "dynamic_trend")
 CONTROL_NAMES = ("x_column", "y_column", "diameter", "color_map", "opacity", "labels", "points",
                  "contour", "point_outline", "fill_edge", "shared", "scale_bar", "font_size",
-                 "resolution", "columns", "min_rsq", "page_size", "axis_ratio", "axis_mode", "zoom")
+                 "resolution", "columns", "min_rsq", "page_size", "axis_ratio", "axis_mode", "zoom", "expand_wafer_ids")
 
 
 def _key(value):
@@ -152,10 +164,11 @@ def analysis_state(window):
     """Capture only editable document controls, never graphics objects or caches."""
     state = {"selection": window.selection_state(), "grouping": window.group_columns(),
              "card": window.card_check.isChecked(), "tab": window.tabs.currentIndex(), "pages": {}}
-    state["metadata_locks"] = {name: sorted(model.clipboard_locks)
-                               for name in ("model", "reference_model")
-                               if (model := getattr(window, name, None)) is not None
-                               and hasattr(model, "clipboard_locks")}
+    if window.workspace_type in ("wafer_map", "correlation_trend"):
+        state["copy_from_wkb"] = bool(getattr(window, "_copy_from_wkb", False))
+    if window.workspace_type == "wafer_map":
+        state["metadata_locks"] = {"model": sorted(name for name in window.model.clipboard_locks
+                                                 if is_metadata_column(name))}
     if hasattr(window, "reference_model"):
         state["reference_grouping"] = window._reference_group_columns()
     for name in PAGE_NAMES:
@@ -202,11 +215,15 @@ def analysis_state(window):
 def restore_analysis_state(window, state):
     if not isinstance(state, dict):
         raise ValueError("Invalid analysis workspace state.")
-    locks = state.get("metadata_locks", {})
+    if "copy_from_wkb" in state and hasattr(window, "set_copy_from_wkb"):
+        window.set_copy_from_wkb(state["copy_from_wkb"])
+    # Only Wafer Map exposes locks. Ignore legacy locks elsewhere so old files
+    # cannot leave invisible, read-only columns with no way to unlock them.
+    locks = state.get("metadata_locks", {}) if window.workspace_type == "wafer_map" else {}
     for name in ("model", "reference_model"):
         model = getattr(window, name, None)
         if model is not None and hasattr(model, "set_clipboard_locks"):
-            model.set_clipboard_locks(locks.get(name, []))
+            model.set_clipboard_locks(field for field in locks.get(name, []) if is_metadata_column(field))
     for checks, field in ((window.group_checks, "grouping"),
                           (getattr(window, "reference_group_checks", {}), "reference_grouping")):
         if field not in state:
@@ -234,7 +251,10 @@ def restore_analysis_state(window, state):
         page = getattr(window, name, None)
         if page is None:
             continue
-        for field, value in saved.get("controls", {}).items():
+        controls = saved.get("controls", {})
+        if hasattr(page, "expand_wafer_ids"):
+            controls = {"expand_wafer_ids": False, **controls}
+        for field, value in controls.items():
             control = getattr(page, field, None)
             if control is None:
                 continue
@@ -274,9 +294,7 @@ def restore_analysis_state(window, state):
             page.selector.set_selected_cells({(_key(w), m) for w, m in saved.get("boxes", [])}, notify=False)
             page.selector.pending_draw = bool(saved.get("pending_draw"))
         if hasattr(page, "parameter_filter"):
-            parameter = saved.get("parameter_filter")
-            if parameter in page.parameter_filter.buttons:
-                page.parameter_filter.buttons[parameter].click()
+            page.parameter_filter.set_selection(saved.get("parameter_filter"))
         if name == "correlation_page":
             page.set_page(int(saved.get("page_index", 0)))
     window.tabs.setCurrentIndex(min(max(0, int(state.get("tab", 0))), window.tabs.count() - 1))
@@ -388,9 +406,9 @@ class WkbDocument:
         if (getattr(self.window, "_managed_owner", None) is not None
                 and self.window.workspace_type == "correlation_trend"):
             current = WorkspaceSnapshot(current.workspace_type, current.frames,
-                {**current.states, "ui": local_ui(current.states.get("ui", {}))})
+                {**current.states, "ui": local_ui(current.states.get("ui", {}), readonly=True)})
             baseline = WorkspaceSnapshot(baseline.workspace_type, baseline.frames,
-                {**baseline.states, "ui": local_ui(baseline.states.get("ui", {}))})
+                {**baseline.states, "ui": local_ui(baseline.states.get("ui", {}), readonly=True)})
         return not same_snapshot(current, baseline)
 
     def has_changes(self):
@@ -405,12 +423,15 @@ class WkbDocument:
         stage = getattr(self.window, "_managed_scope", "").split(".")[-1].title() if owner else ""
         label = WORKSPACE_LABELS[self.window.workspace_type]
         title = f"{stage + ' ' if stage else ''}{label} — {name}"
+        window_name = getattr(self.window, "_analysis_window_name", "") if owner else ""
+        if window_name:
+            title = f"{window_name} · {title}"
         self.window.setWindowTitle(title + " [*]")
         self.window.setWindowModified(self.has_changes())
         info = getattr(self.window, "ownership_label", None)
         if info is not None:
             detached = " · Independent data" if getattr(self.window, "_independent_data", False) else ""
-            info.setText(f"Save to: {name} · {stage + ' / ' if stage else ''}{label}{detached}")
+            info.setText(f"Save to: {name} · {stage + ' / ' if stage else ''}{label}{' · ' + window_name if window_name else ''}{detached}")
             info.setToolTip(str(path or "No formal file has been saved yet.") +
                             ("\nIndependently edited data; Workbook source updates will not overwrite it." if detached else ""))
         if owner is not None:
@@ -702,7 +723,10 @@ class WkbDocument:
         if getattr(self.window, "_managed_owner", None) is not None:
             return  # Only the owner writes one aggregate recovery.
         try:
-            current = self.window.workspace_snapshot()
+            compare_only = (self._last_recovery is not None
+                            and self.window.workspace_type == "match_workbook")
+            current = (self.window.workspace_snapshot(readonly=True, validate=False)
+                       if compare_only else self.window.workspace_snapshot())
             children = dict(getattr(self.window, "_recovered_children", {}))
             for child in getattr(self.window, "_stage_windows", ()):
                 if child is exclude or not hasattr(child, "document"):
@@ -711,6 +735,13 @@ class WkbDocument:
                 if child.document.is_dirty(draft):
                     children[child._managed_scope] = {"baseline": child.document.baseline, "draft": draft,
                         "follow_source": bool(getattr(child, "_use_workbook_data", False))}
+            if compare_only:
+                # The previous durable payload is frozen and validated. Exact
+                # read-only equality avoids copying it again on each check;
+                # changed/missing/replaced drafts still take the full capture.
+                if self._recovery_matches(current, self.baseline or current, children):
+                    return
+                current = self.window.workspace_snapshot()
             remaining = self.is_dirty(current) or bool(children)
             if not remaining:
                 self.remove_recovery()
@@ -769,9 +800,13 @@ class WkbDocument:
             if baseline.workspace_type != self.window.workspace_type:
                 raise ValueError("Recovery baseline belongs to a different document type.")
             for scope, saved in children.items():
-                parts = scope.split(".")
-                expected = {"map": "wafer_map", "dynamic": "dynamic", "correlation": "correlation_trend"}.get(parts[0])
-                if len(parts) != 2 or parts[1] not in ("preview", "final") or any(value.workspace_type != expected for value in saved.values()):
+                from .analysis_windows import scope_parts
+                try:
+                    kind, _stage = scope_parts(scope)
+                except ValueError as error:
+                    raise ValueError("Invalid recovery analysis scope.") from error
+                expected = {"map": "wafer_map", "dynamic": "dynamic", "correlation": "correlation_trend"}[kind]
+                if any(value.workspace_type != expected for value in saved.values()):
                     raise ValueError("Invalid recovery analysis scope.")
                 if set(saved) != {"baseline", "draft"}:
                     raise ValueError("Recovery requires both accepted and draft analysis snapshots.")

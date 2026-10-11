@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 import pyqtgraph as pg
 import pyqtgraph.exporters
+from PyQt6 import sip
 from .plotting.parameter_layout import ParameterPlotArea, normalize_plot_layouts
 from PyQt6.QtCore import (
     QAbstractTableModel, QEasingCurve, QEvent, QMimeData, QModelIndex, QPoint, QRect, QRectF,
@@ -39,6 +40,7 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QMainWindow,
     QMenu,
@@ -61,7 +63,9 @@ from PyQt6.QtWidgets import (
     QWidgetAction,
 )
 
-from .appearance import fit_window_to_screen, help_title_label
+from .appearance import (CORRELATION_FIT_COLOR, CORRELATION_POINT_COLOR,
+                         fit_window_to_screen, help_title_label)
+from .analysis_windows import LABELS as WINDOW_LABELS, scope_parts, validate_windows, window_entries, window_metadata
 from .data import inspect_table
 from .trend import parse_unit
 from .diagnostics import get_logger
@@ -70,11 +74,12 @@ from .match_groups import copy_group_state, group_state, row_ids
 from .match_group_ui import CombinedGroupDialog, GroupControls, GroupPlotPage, ProjectedSheetModel, draw_group_trend, set_group_axes
 from .data_selection import DataSelectionDialog
 from .plotting import InteractivePlotWidget, place_legend_above_frame
-from .plotting.sequence_axis import SpanLabelAxis
+from .plotting.sequence_axis import SpanLabelAxis, space_wafer_plot
+from .plotting.identity_labels import plot_label_options
 from .settings import (
     apply_theme, forget_recent_wkb, recent_wkb_paths, remember_recent_wkb,
 )
-from .sheet import DuplicateHeaderBanner, PasteFeedbackBar, SheetModel, SheetView
+from .sheet import DuplicateHeaderBanner, SheetModel, SheetView, column_letter
 from .table_clipboard import attach_copy_feedback
 from .widgets import ScrollSafeComboBox
 from .workspace_store import WorkspaceSnapshot, file_revision, load_workspace, save_workspace, workspace_path
@@ -86,6 +91,36 @@ PLOT_LIMIT = 20_000
 _PARAMETER_MIME = "application/x-metrology-match-parameter"
 LOGGER = get_logger()
 DEFAULT_METRIC_HIGHLIGHTING = {"slope_min": .9, "slope_max": 1.1, "rsq_min": .9}
+
+
+def _mapping_choice_rows(selected):
+    """Keep row order and repeated References; accept older Reference-keyed drafts."""
+    if selected is None:
+        return []
+    if isinstance(selected, dict):
+        if any(not isinstance(column, str) or not isinstance(state, dict)
+               for column, state in selected.items()):
+            raise ValueError("Invalid parameter mapping choices.")
+        selected = [dict(state, reference_column=column) for column, state in selected.items()]
+    if not isinstance(selected, (list, tuple)):
+        raise ValueError("Invalid parameter mapping choices.")
+    rows = []
+    for choice in selected:
+        state = dict(asdict(choice), checked=True) if isinstance(choice, ParameterMapping) else choice
+        if (not isinstance(state, dict)
+                or not isinstance(state.get("reference_column"), str)
+                or not state["reference_column"].strip()
+                or any(not isinstance(state.get(field, ""), str) for field in ("name", "raw_column"))
+                or type(state.get("checked", False)) is not bool
+                or type(state.get("auto_suggest", True)) is not bool
+                or type(state.get("show_bias_limit", False)) is not bool):
+            raise ValueError("Invalid parameter mapping choices.")
+        limit = state.get("bias_limit")
+        if limit is not None and (isinstance(limit, bool) or not isinstance(limit, (int, float))
+                                  or not np.isfinite(limit) or limit < 0):
+            raise ValueError("Invalid parameter mapping Bias limit.")
+        rows.append(dict(state))
+    return rows
 
 
 def _metric_highlighting_limits(state=None):
@@ -146,6 +181,62 @@ def clipboard_frame(text):
     if frame.empty or not len(frame.columns):
         raise ValueError("The clipboard table has headers but no data rows.")
     return frame
+
+
+class _AnalysisWindowMenu(QMenu):
+    """Keep the checklist open so a complete double click can rename an item."""
+
+    renameRequested = pyqtSignal(str)
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self._last_click = None
+        self._ignore_release = False
+        self.aboutToShow.connect(self._reset_click)
+        self.setToolTipsVisible(True)
+
+    def _reset_click(self):
+        self._last_click = None
+        self._ignore_release = False
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self._ignore_release:
+                self._ignore_release = False
+                event.accept()
+                return
+            action = self.actionAt(event.position().toPoint())
+            if action is not None and action.isCheckable() and action.isEnabled():
+                self._last_click = (action, action.isChecked())
+                action.trigger()
+                event.accept()
+                return
+        super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        action = self.actionAt(event.position().toPoint())
+        if (event.button() == Qt.MouseButton.LeftButton and action is not None
+                and action.isCheckable() and action.isEnabled()):
+            # Undo only the first click of this same gesture, not a different
+            # item's earlier click. Renaming never changes its reopening choice.
+            if self._last_click is not None and self._last_click[0] is action:
+                action.setChecked(self._last_click[1])
+            self._ignore_release = True
+            self.hide()
+            self.renameRequested.emit(action.data())
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def keyPressEvent(self, event):
+        action = self.activeAction()
+        if (event.key() == Qt.Key.Key_F2 and action is not None
+                and action.isCheckable() and action.isEnabled()):
+            self.hide()
+            self.renameRequested.emit(action.data())
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
 
 class DataFrameModel(QAbstractTableModel):
@@ -598,6 +689,8 @@ class MatchingWindow(QMainWindow):
         self.workbook = None
         self.workbook_path = None
         self.result = None
+        self._removed_mapping_columns = set()
+        self._mapping_candidates = ()
         # One fitted result per result mode, keyed on the exact inputs it read.
         self._result_cache = {}
         self._analysis_current = False
@@ -617,6 +710,7 @@ class MatchingWindow(QMainWindow):
         self._trend_card_state = {}
         self._plot_layout_states = {}
         self._single_wafer_checks = {"preview": {}, "final": {}}
+        self._plot_label_options = plot_label_options()
         self._plot_layout_identity_timer = QTimer(self)
         self._plot_layout_identity_timer.setSingleShot(True)
         self._plot_layout_identity_timer.setInterval(150)
@@ -715,10 +809,13 @@ class MatchingWindow(QMainWindow):
                  "grouping_state": capture(self.group_controls.state),
                  "draft": not (self._analysis_current or self._group_only_pending) or self.result is None or not mappings or bool(any(self._input_sheet_errors.values()))}
         ui = {"mapping_choices": self._mapping_state(),
+              "removed_mapping_columns": sorted(self._removed_mapping_columns),
               "metric_highlighting": dict(self.metric_highlighting),
               "single_wafer_checks": capture(self._single_wafer_checks),
               "group_plots": self.group_plot_page.selection_state(),
               "plot_layouts": capture(self._plot_layout_states),
+              "plot_labels": capture(self._plot_label_options),
+              "expand_wafer_ids": self.expand_wafer_ids.isChecked(),
               "trend_cards": [[list(key), value] for key, value in self._trend_card_state.items()]}
         snapshot = WorkspaceSnapshot("match_workbook", frames,
                                      {"match": state, "match_ui": ui, **capture(self._workspace_states)})
@@ -731,9 +828,10 @@ class MatchingWindow(QMainWindow):
             for child in self._stage_windows:
                 context = self._stage_window_context.get(child)
                 if context and hasattr(child, "workspace_snapshot"):
-                    scope = ".".join(context)
+                    scope = getattr(child, "_managed_scope", ".".join(context))
                     draft = child.workspace_snapshot()
                     snapshot.states[scope] = {"ui": draft.states["ui"], "workspace_type": draft.workspace_type,
+                                              "window": dict(window_metadata(scope, self._workspace_states.get(scope, {}))),
                                               "data_override": True,
                                               "analysis_states": {key: deepcopy(value) for key, value in draft.states.items() if key != "ui"}}
                     for name, frame in draft.frames.items():
@@ -753,9 +851,20 @@ class MatchingWindow(QMainWindow):
     def restore_workspace(self, snapshot, *, analysis_settings=None):
         if snapshot.workspace_type != self.workspace_type:
             raise ValueError("This WKB is not a Match Workbook.")
+        validate_windows(snapshot.states)
         group_state(snapshot.states["match"].get("grouping_state"))
         metric_limits = _metric_highlighting_limits(snapshot.states.get("match_ui", {}).get("metric_highlighting"))
         plot_layouts = normalize_plot_layouts(snapshot.states.get("match_ui", {}).get("plot_layouts"))
+        labels = plot_label_options(snapshot.states.get("match_ui", {}).get("plot_labels"))
+        expanded = snapshot.states.get("match_ui", {}).get("expand_wafer_ids", False)
+        if type(expanded) is not bool:
+            raise ValueError("Invalid Expand Wafers setting.")
+        removed = snapshot.states.get("match_ui", {}).get("removed_mapping_columns", [])
+        if not isinstance(removed, list) or any(not isinstance(name, str) for name in removed):
+            raise ValueError("Invalid removed parameter mappings.")
+        mapping_choices = snapshot.states.get("match_ui", {}).get("mapping_choices")
+        if mapping_choices is not None:
+            _mapping_choice_rows(mapping_choices)
         checks = snapshot.states.get("match_ui", {}).get("single_wafer_checks", {})
         if not isinstance(checks, dict) or set(checks) - {"preview", "final"}:
             raise ValueError("Invalid single-wafer plot selection.")
@@ -768,6 +877,9 @@ class MatchingWindow(QMainWindow):
                 raise ValueError("Invalid single-wafer plot selection.")
         self._close_stage_workspaces(tuple(self._stage_windows))
         self._clear_plot_groups()
+        self.set_plot_labels(labels)
+        self.expand_wafer_ids.setChecked(expanded)
+        self._removed_mapping_columns = set(removed)
         self.set_metric_highlighting(metric_limits, refresh=False)
         self._recovered_children = {}
         state = snapshot.states["match"]
@@ -782,7 +894,8 @@ class MatchingWindow(QMainWindow):
         if not state.get("draft"):
             workbook = MatchWorkbook.from_snapshot(snapshot)
             return self._restore_analyzed_workbook(
-                workbook, self.workbook_path or "Workspace.wkb", analysis_settings=analysis_settings)
+                workbook, self.workbook_path or "Workspace.wkb", analysis_settings=analysis_settings,
+                mapping_choices=mapping_choices)
         else:
             self._restore_draft(snapshot)
             baseline = self.workspace_snapshot()
@@ -840,7 +953,9 @@ class MatchingWindow(QMainWindow):
                 frame = snapshot.frames.get(name, pd.DataFrame()).copy()
                 model.load(frame)
                 try:
-                    analysis_frame = model.frame().reset_index(drop=True)
+                    analysis_frame = self._analysis_input_frame(model.document_frame(), headers=model.headers())
+                    if not analysis_frame.empty:
+                        self._validate_input_frame(analysis_frame, name)
                 except ValueError:
                     analysis_frame = pd.DataFrame()
                 setattr(self, {"reference": "reference_frame", "raw": "raw_frame",
@@ -922,8 +1037,8 @@ class MatchingWindow(QMainWindow):
         self.mode_tabs.addTab("Final")
         mode_row.addWidget(self.mode_tabs)
         mode_row.addStretch()
-        self.correlation_button = QPushButton(
-            "Open Correlation and Trend", objectName="primary"
+        self.correlation_button = QToolButton(
+            text="Open Correlation and Trend", objectName="primary"
         )
         self.correlation_button.setSizePolicy(
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
@@ -931,8 +1046,8 @@ class MatchingWindow(QMainWindow):
         self.correlation_button.clicked.connect(
             self._open_correlation_clicked
         )
-        self.preview_open_button = QPushButton(
-            "Open Preview Wafer Map / Radius", objectName="primary"
+        self.preview_open_button = QToolButton(
+            text="Open Preview Wafer Map / Radius", objectName="primary"
         )
         self.preview_open_button.setSizePolicy(
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
@@ -940,8 +1055,8 @@ class MatchingWindow(QMainWindow):
         self.preview_open_button.clicked.connect(
             lambda: self._open_stage_clicked("preview")
         )
-        self.final_open_button = QPushButton(
-            "Open Final Wafer Map / Radius", objectName="primary"
+        self.final_open_button = QToolButton(
+            text="Open Final Wafer Map / Radius", objectName="primary"
         )
         self.final_open_button.setSizePolicy(
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
@@ -949,8 +1064,8 @@ class MatchingWindow(QMainWindow):
         self.final_open_button.clicked.connect(
             lambda: self._open_stage_clicked("final")
         )
-        self.preview_dynamic_button = QPushButton(
-            "Open Preview Dynamic", objectName="primary"
+        self.preview_dynamic_button = QToolButton(
+            text="Open Preview Dynamic", objectName="primary"
         )
         self.preview_dynamic_button.setSizePolicy(
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
@@ -958,8 +1073,8 @@ class MatchingWindow(QMainWindow):
         self.preview_dynamic_button.clicked.connect(
             lambda: self._open_dynamic_clicked("preview")
         )
-        self.final_dynamic_button = QPushButton(
-            "Open Final Dynamic", objectName="primary"
+        self.final_dynamic_button = QToolButton(
+            text="Open Final Dynamic", objectName="primary"
         )
         self.final_dynamic_button.setSizePolicy(
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
@@ -972,6 +1087,12 @@ class MatchingWindow(QMainWindow):
         mode_row.addWidget(self.final_dynamic_button)
         mode_row.addWidget(self.preview_open_button)
         mode_row.addWidget(self.final_open_button)
+        for button, kind, stage in ((self.correlation_button, "correlation", None),
+                                    (self.preview_dynamic_button, "dynamic", "preview"),
+                                    (self.final_dynamic_button, "dynamic", "final"),
+                                    (self.preview_open_button, "map", "preview"),
+                                    (self.final_open_button, "map", "final")):
+            self._configure_window_button(button, kind, stage)
         layout.addLayout(mode_row)
 
         self.setup_page = self._build_setup_page()
@@ -1100,6 +1221,29 @@ class MatchingWindow(QMainWindow):
         self.manage_groups_action.triggered.connect(self.manage_groups)
         self.data_selection_action = self.groups_menu.addAction("Data selection…")
         self.data_selection_action.triggered.connect(self.select_analysis_data)
+        self.plot_labels_menu = self.groups_menu.addMenu("Plot labels")
+        labels_panel = QWidget()
+        labels_layout = QGridLayout(labels_panel)
+        labels_layout.addWidget(QLabel("Wafer captions only · no filtering"), 0, 0, 1, 3)
+        labels_layout.addWidget(QLabel("PAD"), 1, 1)
+        labels_layout.addWidget(QLabel("Lot ID"), 1, 2)
+        self.plot_label_checks = {}
+        for row, (name, title) in enumerate((("trend", "Trend"), ("map", "Wafer Map"), ("radius", "Radius")), 2):
+            labels_layout.addWidget(QLabel(title), row, 0)
+            self.plot_label_checks[name] = {}
+            for column, field in enumerate(("pad", "lot"), 1):
+                check = QCheckBox()
+                check.setAccessibleName(f"Show {field.upper() if field == 'pad' else 'Lot ID'} in {title} Wafer captions")
+                check.setToolTip("Original source orders and Group Show Wafer only. Group names and data selection are unchanged.")
+                check.setChecked(self._plot_label_options[name][field])
+                check.toggled.connect(lambda _checked: self.set_plot_labels({
+                    plot: {key: box.isChecked() for key, box in fields.items()}
+                    for plot, fields in self.plot_label_checks.items()}))
+                self.plot_label_checks[name][field] = check
+                labels_layout.addWidget(check, row, column)
+        labels_action = QWidgetAction(self.plot_labels_menu)
+        labels_action.setDefaultWidget(labels_panel)
+        self.plot_labels_menu.addAction(labels_action)
         self.group_settings_dialog = QDialog(self, objectName="groupSettingsDialog")
         self.group_settings_dialog.setWindowTitle("Group settings — Match Workbook")
         self.group_settings_dialog.setSizeGripEnabled(True)
@@ -1135,6 +1279,52 @@ class MatchingWindow(QMainWindow):
         dialog.raise_()
         dialog.activateWindow()
         return dialog
+
+    def set_plot_labels(self, options):
+        """Workbook-owned caption preferences, separate from all grouping state."""
+        options = plot_label_options(options)
+        if self._plot_label_options == options:
+            return
+        trend_changed = self._plot_label_options["trend"] != options["trend"]
+        self._plot_label_options = options
+        for plot, fields in self.plot_label_checks.items():
+            for field, box in fields.items():
+                with QSignalBlocker(box):
+                    box.setChecked(options[plot][field])
+        blocks = list(self.plot_groups.values())
+        blocks += list(self.group_plot_page.plot_groups.values())
+        blocks += [detail for block in self.plot_groups.values()
+                   for detail in block.get("wafer_details", {}).values()]
+        for block in blocks if trend_changed else ():
+            result = block.get("result", self.result)
+            if result is None:
+                continue
+            for name in ("trend", "bias", "bias-percent"):
+                plot = block["plots"].get(name)
+                if plot is None:
+                    continue
+                plot._identity_labels = options["trend"]
+                if result.group_plan.enabled:
+                    if block.get("show_wafers", False):
+                        set_group_axes(plot, result, result.group_series(block["parameter"], trend=True), show_wafers=True)
+                else:
+                    axis = plot.getAxis("bottom")
+                    if isinstance(axis, SpanLabelAxis):
+                        axis.spans = result.measurement_spans(show_pad=options["trend"]["pad"], show_lot=options["trend"]["lot"])
+                        axis.setToolTip(" · ".join(label for _, _, label in axis.spans))
+                        axis.refresh()
+        for child in self._stage_windows:
+            self._offer_plot_labels(child)
+        for block in blocks if trend_changed else ():
+            self._expand_parameter_group(block)
+        if hasattr(self, "document"):
+            self.document.refresh_identity()
+
+    def _offer_plot_labels(self, workspace):
+        for name, attribute in (("trend", "sequence_page"), ("map", "plot_page"), ("radius", "radius_page")):
+            page = getattr(workspace, attribute, None)
+            if page is not None:
+                page.set_identity_labels(self._plot_label_options[name])
 
     def manage_groups(self):
         plan = self.result.group_plan if self.result is not None else None
@@ -1228,7 +1418,7 @@ class MatchingWindow(QMainWindow):
                 QTimer.singleShot(
                     0,
                     lambda value=scroll_value:
-                    self.setup_scroll.verticalScrollBar().setValue(value),
+                    self._restore_setup_scroll(value),
                 )
             except Exception as error:
                 self._set_status(
@@ -1285,8 +1475,6 @@ class MatchingWindow(QMainWindow):
          self.raw_duplicate_banner) = self._table_card(
             "Raw Data", "Rows are matched to Reference from top to bottom.", self.raw_model
         )
-        self.raw_paste_feedback = PasteFeedbackBar(self.raw_view)
-        self.raw_card.layout().insertWidget(2, self.raw_paste_feedback)
         inputs.addWidget(self.order_card)
         inputs.addWidget(self.reference_card)
         inputs.addWidget(self.raw_card)
@@ -1309,6 +1497,19 @@ class MatchingWindow(QMainWindow):
             "Parameter mapping",
             "Numeric Reference columns are listed; “Reference” suffix columns pair by name.",
         ))
+        self.mapping_add_button = QToolButton()
+        self.mapping_add_button.setText("+")
+        self.mapping_add_button.setAccessibleName("Add parameter mapping")
+        self.mapping_add_button.setToolTip("Add a parameter mapping. A Reference column can be used by multiple mappings.")
+        self.mapping_add_button.clicked.connect(self.add_parameter_mapping)
+        self.mapping_remove_button = QToolButton()
+        self.mapping_remove_button.setText("−")
+        self.mapping_remove_button.setAccessibleName("Remove checked parameter mappings")
+        self.mapping_remove_button.setToolTip("Remove rows checked in Use and their matching plots. Reference and Raw Data stay unchanged.")
+        self.mapping_remove_button.clicked.connect(self.remove_checked_parameter_mappings)
+        for control in (self.mapping_add_button, self.mapping_remove_button):
+            control.setFixedSize(28, 28)
+            heading.addWidget(control)
         heading.addStretch()
         self._default_bias_limit = .5  # Legacy WKB fallback; new limits live in mapping rows.
         self.select_all_mappings = QCheckBox("Select all")
@@ -1414,6 +1615,18 @@ class MatchingWindow(QMainWindow):
         self.result_status.hide()
 
         self.results_tabs = QTabWidget()
+        corner = QWidget()
+        corner_layout = QHBoxLayout(corner)
+        corner_layout.setContentsMargins(8, 0, 8, 0)
+        self.expand_wafer_ids = QCheckBox("Expand Wafers", objectName="expandWaferIds")
+        self.expand_wafer_ids.setToolTip(
+            "Collect each Wafer identity and give it room for its captions; scroll a card from its bottom bar.\n"
+            "This changes only the on-screen drawing order and layout, not source rows, fits or selections.\n"
+            "Saved with WKB."
+        )
+        self.expand_wafer_ids.toggled.connect(self._expand_sequence_plots)
+        corner_layout.addWidget(self.expand_wafer_ids)
+        self.results_tabs.setCornerWidget(corner)
         self.plot_groups_widget = QWidget()
         self.plot_groups_layout = QVBoxLayout(self.plot_groups_widget)
         self.plot_groups_layout.setContentsMargins(0, 0, 0, 0)
@@ -1431,7 +1644,7 @@ class MatchingWindow(QMainWindow):
         self.wafer_groups_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.empty_wafer_hint = _label("", "hint")
         self.wafer_groups_layout.addWidget(self.empty_wafer_hint)
-        self.results_tabs.addTab(self.wafer_groups_widget, "Single-wafer metrics")
+        self.results_tabs.addTab(self.wafer_groups_widget, "Single-Wafer metrics")
         self.group_plot_page = GroupPlotPage(self)
         # Until its tab is added the page has no layout slot; an unparented
         # child would otherwise float at the window's top-left over the menu bar.
@@ -1440,6 +1653,84 @@ class MatchingWindow(QMainWindow):
         layout.addWidget(self.results_tabs, 1)
         panel.setMinimumHeight(520)
         return panel
+
+    def _expand_sequence_plots(self, *_):
+        self._refresh_collected_trends()
+        groups = [*self.plot_groups.values(), *self.group_plot_page.plot_groups.values()]
+        groups += [detail for group in self.plot_groups.values() for detail in group.get("wafer_details", {}).values()]
+        for group in groups:
+            self._expand_parameter_group(group)
+        self._resize_results_for_plot_groups()
+        for group in self.group_plot_page.plot_groups.values():
+            group["card"].setFixedHeight(54 + group["plot_scroll"].height())
+        if hasattr(self, "document"):
+            self.document.refresh_identity()
+
+    def _expand_parameter_group(self, group):
+        enabled = self.expand_wafer_ids.isChecked()
+        group["plot_area"].set_sequence_expanded(enabled)
+        scroll = group["plot_scroll"]
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded if enabled else Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setFixedHeight(group["plot_area"].height() + (scroll.horizontalScrollBar().sizeHint().height() if enabled else 0))
+
+    def _trend_collects_wafers(self):
+        """Expanded unclassified Trends collect each Wafer identity in turn.
+
+        Expansion is a readability request: captions and the ordinal axis only
+        line up when one Wafer / Lot / PAD identity occupies one range. The
+        saved Trend order is untouched, so collapsing restores it exactly.
+        """
+        if self.result is None or not self.expand_wafer_ids.isChecked():
+            return False
+        return not self.result.group_plan.enabled
+
+    def _parameter_plot_data(self, parameter):
+        """The rows one parameter card draws, in the order it draws them."""
+        result = self.result
+        collect = self._trend_collects_wafers()
+        if (result.group_plan.enabled or collect
+                or result.group_plan.state["trend_order"] == "wafers"):
+            return result.group_series(parameter, trend=True, collect_wafers=collect)
+        return result.series(parameter)
+
+    def _refresh_collected_trends(self):
+        """Repaint the cards whose drawn order follows the Expand Wafers choice."""
+        if self.result is None or self.result.group_plan.enabled:
+            return
+        identity = self._plot_group_identity()
+        for parameter, group in self.plot_groups.items():
+            mapping = next((m for m in self.workbook.mappings if m.name == parameter), None)
+            source_mapping = None if mapping is None else (mapping.reference_column, mapping.raw_column)
+            data = self._parameter_plot_data(parameter)
+            if (group.get("source_identity") == identity
+                    and group.get("source_mapping") == source_mapping
+                    and data.equals(group.get("source_data"))):
+                continue
+            # Only a moved order may reuse the drawn Match points; a changed
+            # observation set repaints the whole card.
+            refresh = ("sequence" if self._same_observations(data, group.get("source_data"))
+                       else "full")
+            self._draw_parameter_group(parameter, group, refresh=refresh)
+            group["source_identity"] = identity
+            group["source_mapping"] = source_mapping
+            group["source_data"] = data.copy()
+
+    @staticmethod
+    def _same_observations(data, previous):
+        """True when two drawn frames hold the same observations in another order."""
+        if previous is None or len(previous) != len(data):
+            return False
+        columns = [column for column in data.columns
+                   if column in previous.columns
+                   and column not in ("Source row", "Group", "Trend value")]
+        if not columns:
+            return False
+        for column in columns:
+            left = np.sort(pd.to_numeric(data[column], errors="coerce").to_numpy(float))
+            right = np.sort(pd.to_numeric(previous[column], errors="coerce").to_numpy(float))
+            if not np.array_equal(left, right, equal_nan=True):
+                return False
+        return True
 
     def _refresh_visible_wafer_metrics(self, _index):
         if self.results_tabs.currentWidget() is not self.wafer_groups_widget or self.result is None:
@@ -1562,11 +1853,15 @@ class MatchingWindow(QMainWindow):
             QMessageBox.warning(self, "Raw Data", str(error))
 
     def set_reference_frame(self, frame, source="Reference"):
+        if not isinstance(frame, pd.DataFrame) or len(frame) > MAX_ROWS:
+            self._validate_input_frame(frame, "Reference")
+        source_frame = frame.reset_index(drop=True)
+        frame = self._analysis_input_frame(source_frame)
         self._validate_input_frame(frame, "Reference")
         view_state = self._capture_setup_view_state()
         mapping_state = self._mapping_state()
         self.reference_frame = frame.reset_index(drop=True)
-        self._load_input_sheet(self.reference_model, self.reference_frame)
+        self._load_input_sheet(self.reference_model, source_frame)
         self._input_sheet_errors["reference"] = ""
         self.reference_source.setText(self._source_text(source, self.reference_frame))
         self._refresh_selection_columns_warning()
@@ -1574,11 +1869,13 @@ class MatchingWindow(QMainWindow):
         self._analysis_input_changed(view_state=view_state)
 
     def set_raw_frame(self, frame, source="Raw Data", *, report_paste=False):
-        if self.reference_frame.empty:
-            raise ValueError("Paste the Reference table before Raw Data.")
         previous_raw = self._active_raw_frame()
         mode = self.result_mode.currentText().lower()
         title = "Final Raw Data" if mode == "final" else "Raw Data"
+        if not isinstance(frame, pd.DataFrame) or len(frame) > MAX_ROWS:
+            self._validate_input_frame(frame, title)
+        source_frame = frame.reset_index(drop=True)
+        frame = self._analysis_input_frame(source_frame)
         self._validate_input_frame(frame, title)
         view_state = self._capture_setup_view_state()
         mapping_state = self._mapping_state()
@@ -1591,12 +1888,12 @@ class MatchingWindow(QMainWindow):
             self.raw_frame = stored
             model = self.raw_model
             error_key = "raw"
-        self._load_input_sheet(model, stored, report_paste=report_paste)
-        flag_column = next((column for column in stored if "".join(c.lower() for c in column if c.isalnum()) == "testflag"), None)
+        self._load_input_sheet(model, source_frame, report_paste=report_paste)
+        flag_column = next((column for column in source_frame if "".join(c.lower() for c in column if c.isalnum()) == "testflag"), None)
         if mode == "preview" and flag_column is not None:
             self.group_controls.restore(
                 self.group_controls.state,
-                stored[[flag_column]].rename(columns={flag_column: "TestFlag"}))
+                source_frame[[flag_column]].rename(columns={flag_column: "TestFlag"}))
         self._input_sheet_errors[error_key] = ""
         self._raw_sources[mode] = self._source_text(source, stored)
         self.raw_source.setText(self._raw_sources[mode])
@@ -1632,16 +1929,14 @@ class MatchingWindow(QMainWindow):
             states = (self.group_controls.state, self.group_controls.state.get("applied", {}))
             preserve_rows = any(state.get("enabled") or state.get("mark_enabled")
                                 or state.get("data_selection") is not None for state in states)
+            document = model.document_frame()
+            headers = model.headers()
             if preserve_rows:
-                # Participation needs row alignment even without classification.
-                # Validate normalized headers without materializing the table
-                # twice; document_frame keeps blank source rows and raw headers.
-                headers = model.headers()
-                if len(set(headers)) != len(headers):
-                    raise ValueError("Duplicate column names in row 1. Rename them to continue.")
-                frame = model.document_frame().reset_index(drop=True)
-            else:
-                frame = model.frame().reset_index(drop=True)
+                # Keep literal named headers and source rows for participation;
+                # unnamed, populated columns use the existing spreadsheet alias.
+                headers = [name if str(name).strip() else headers[column]
+                           for column, name in enumerate(document.columns)]
+            frame = self._analysis_input_frame(document, headers=headers, preserve_rows=preserve_rows)
             if not frame.empty:
                 self._validate_input_frame(frame, title)
             error = ""
@@ -1816,7 +2111,7 @@ class MatchingWindow(QMainWindow):
         if tem and wafer_index >= 0:
             self.results_tabs.removeTab(wafer_index)
         elif not tem and wafer_index < 0:
-            self.results_tabs.insertTab(1, self.wafer_groups_widget, "Single-wafer metrics")
+            self.results_tabs.insertTab(1, self.wafer_groups_widget, "Single-Wafer metrics")
 
     def _group_controls_changed(self):
         if self._loading_input_sheets:
@@ -1925,7 +2220,7 @@ class MatchingWindow(QMainWindow):
 
     def _mapping_state(self):
         """Capture complete and incomplete mapping edits across input-table changes."""
-        state = {}
+        state = []
         for row in range(self.mapping_table.rowCount()):
             use = self.mapping_table.item(row, 0)
             name = self.mapping_table.item(row, 1)
@@ -1938,7 +2233,9 @@ class MatchingWindow(QMainWindow):
                 requested_raw = picker.property("requestedRawColumn")
                 if requested_raw is None:
                     requested_raw = picker.currentText()
-            state[reference.text()] = {
+            state.append({
+                "reference_column": reference.text(),
+                "auto_suggest": reference.data(Qt.ItemDataRole.UserRole) is not False,
                 "checked": bool(
                     use is not None
                     and use.checkState() == Qt.CheckState.Checked
@@ -1947,7 +2244,7 @@ class MatchingWindow(QMainWindow):
                 "raw_column": str(requested_raw or ""),
                 "bias_limit": self.mapping_table.cellWidget(row, 10).findChild(QDoubleSpinBox).value(),
                 "show_bias_limit": self.mapping_table.cellWidget(row, 10).findChild(QCheckBox).isChecked(),
-            }
+            })
         return state
 
     def _clear_stage_frames(self):
@@ -1975,6 +2272,34 @@ class MatchingWindow(QMainWindow):
         self._update_state()
 
     @staticmethod
+    def _analysis_input_frame(frame, *, headers=None, preserve_rows=True):
+        """Ignore columns without measurements; never mutate the source sheet."""
+        if preserve_rows:
+            # Column presence only needs the first nonblank value. Do not
+            # rescan every cell of a wide table for each keyboard edit.
+            def nonblank(value):
+                if isinstance(value, str):
+                    return bool(value.strip())
+                missing = pd.isna(value)
+                return False if np.isscalar(missing) and missing else bool(str(value).strip())
+
+            columns = np.fromiter((any(nonblank(value) for value in column)
+                                   for _name, column in frame.items()), dtype=bool,
+                                  count=len(frame.columns))
+        else:
+            text = frame.fillna("").astype(str)
+            populated = text.apply(lambda column: column.str.strip().ne(""))
+            columns = populated.any(axis=0).to_numpy()
+        result = frame.iloc[:, columns].copy()
+        if headers is None:
+            headers = [name if str(name).strip() else f"Column {column_letter(column)}"
+                       for column, name in enumerate(frame.columns)]
+        result.columns = [name for name, keep in zip(headers, columns) if keep]
+        if not preserve_rows:
+            result = result.loc[populated.any(axis=1)]
+        return result.reset_index(drop=True)
+
+    @staticmethod
     def _validate_input_frame(frame, name):
         if not isinstance(frame, pd.DataFrame) or frame.empty:
             raise ValueError(f"{name} must contain headers and at least one data row.")
@@ -1990,20 +2315,7 @@ class MatchingWindow(QMainWindow):
         return f"{len(frame):,} rows × {len(frame.columns)} columns"
 
     def _populate_mappings(self, selected=None):
-        selected = selected or ()
-        if isinstance(selected, dict):
-            selected_by_reference = dict(selected)
-        else:
-            selected_by_reference = {
-                mapping.reference_column: {
-                    "checked": True,
-                    "name": mapping.name,
-                    "raw_column": mapping.raw_column,
-                    "bias_limit": mapping.bias_limit,
-                    "show_bias_limit": mapping.show_bias_limit,
-                }
-                for mapping in selected
-            }
+        selected_rows = _mapping_choice_rows(selected)
         raw_frame = self._active_raw_frame()
         self._mapping_schema = (tuple(self.reference_frame.columns), tuple(raw_frame.columns))
         suggestions = MatchWorkbook.suggest_mappings(self.reference_frame, raw_frame)
@@ -2015,15 +2327,20 @@ class MatchingWindow(QMainWindow):
             if column in numeric_columns
             or str(column).strip().lower().endswith(" reference")
         ]
+        self._mapping_candidates = tuple(reference_columns)
+        reference_columns = [column for column in reference_columns if column not in self._removed_mapping_columns]
+        rows = [state for state in selected_rows if state["reference_column"] in reference_columns]
+        present = {state["reference_column"] for state in rows}
+        rows.extend({"reference_column": column} for column in reference_columns if column not in present)
         self.mapping_table.blockSignals(True)
-        self.mapping_table.setRowCount(len(reference_columns))
-        for row, reference_column in enumerate(reference_columns):
+        self.mapping_table.setRowCount(len(rows))
+        for row, mapping_state in enumerate(rows):
+            reference_column = mapping_state["reference_column"]
             default_name = (
                 reference_column[:-len(" Reference")].strip()
                 if reference_column.strip().lower().endswith(" reference")
                 else reference_column.strip()
             )
-            mapping_state = selected_by_reference.get(reference_column)
             suggestion = suggestion_by_reference.get(reference_column)
             configured = bool(
                 mapping_state
@@ -2033,17 +2350,18 @@ class MatchingWindow(QMainWindow):
                     or mapping_state.get("name", default_name) != default_name
                 )
             )
-            if not configured and suggestion is not None:
+            if not configured and suggestion is not None and mapping_state.get("auto_suggest", True):
                 mapping_state = {
                     **(mapping_state or {}),
                     "checked": True,
                     "name": suggestion.name,
                     "raw_column": suggestion.raw_column,
                 }
-            mapping_state = mapping_state or {
+            mapping_state = {
                 "checked": False,
                 "name": default_name,
                 "raw_column": "",
+                **mapping_state,
             }
             use = QTableWidgetItem()
             use.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsUserCheckable)
@@ -2060,6 +2378,7 @@ class MatchingWindow(QMainWindow):
                 QTableWidgetItem(mapping_state["name"] or default_name),
             )
             reference_item = QTableWidgetItem(reference_column)
+            reference_item.setData(Qt.ItemDataRole.UserRole, mapping_state.get("auto_suggest", True))
             reference_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
             self.mapping_table.setItem(row, 2, reference_item)
             raw_picker = ScrollSafeComboBox()
@@ -2112,6 +2431,41 @@ class MatchingWindow(QMainWindow):
                 self.mapping_table.setItem(row, column, result_item)
         self.mapping_table.blockSignals(False)
         self._sync_select_all_mappings()
+
+    def add_parameter_mapping(self):
+        present = {self.mapping_table.item(row, 2).text() for row in range(self.mapping_table.rowCount())}
+        choices = list(self._mapping_candidates)
+        if not choices:
+            return
+        default = next((i for i, column in enumerate(choices) if column not in present), 0)
+        column, accepted = QInputDialog.getItem(self, "Add parameter mapping", "Reference column:", choices, default, False)
+        if not accepted:
+            return
+        state = self._mapping_state()
+        if column in present:
+            base = column[:-len(" Reference")].strip() if column.strip().lower().endswith(" reference") else column.strip()
+            names = {row["name"] for row in state}
+            number = 2
+            while f"{base} {number}" in names:
+                number += 1
+            state.append({"reference_column": column, "checked": False,
+                          "name": f"{base} {number}", "raw_column": "", "auto_suggest": False})
+        self._removed_mapping_columns.discard(column)
+        self._populate_mappings(state)
+        self._analysis_input_changed()
+
+    def remove_checked_parameter_mappings(self):
+        state = self._mapping_state()
+        removed = {row["reference_column"] for row in state if row["checked"]}
+        if not removed:
+            return
+        state = [row for row in state if not row["checked"]]
+        self._removed_mapping_columns.update(removed - {row["reference_column"] for row in state})
+        self._populate_mappings(state)
+        self._analysis_input_changed()
+        if not self.analyze_button.isEnabled():
+            self._invalidate_analysis()
+            self.group_plot_page.set_result(None)
 
     def _raw_mapping_changed(self, picker, text):
         picker.setProperty("requestedRawColumn", text)
@@ -2228,7 +2582,7 @@ class MatchingWindow(QMainWindow):
             self._clear_mapping_results()
             return
         summaries = {
-            str(row["Reference column"]): row
+            (str(row["Parameter"]), str(row["Reference column"]), str(row["Raw column"])): row
             for _, row in self.result.summary.iterrows()
         }
         fields = (
@@ -2236,8 +2590,9 @@ class MatchingWindow(QMainWindow):
         )
         self.mapping_table.blockSignals(True)
         for row in range(self.mapping_table.rowCount()):
-            reference_item = self.mapping_table.item(row, 2)
-            summary = summaries.get(reference_item.text()) if reference_item else None
+            key = (self.mapping_table.item(row, 1).text().strip(),
+                   self.mapping_table.item(row, 2).text(), self.mapping_table.cellWidget(row, 3).currentText())
+            summary = summaries.get(key) if self.mapping_table.item(row, 0).checkState() == Qt.CheckState.Checked else None
             for column, field in enumerate(fields, start=4):
                 if field == "Bias limit":
                     continue
@@ -2371,7 +2726,7 @@ class MatchingWindow(QMainWindow):
                 f"{self.mapping_table.rowCount():,} rows × {self.mapping_table.columnCount()} columns")
         raw_frame = self._active_raw_frame()
         has_raw = not raw_frame.empty
-        self.raw_view.setEnabled(has_reference)
+        self.raw_view.setEnabled(True)
         valid_rows = has_reference and has_raw and len(self.reference_frame) == len(raw_frame)
         has_mapping = False
         missing_mapping_columns = []
@@ -2388,14 +2743,16 @@ class MatchingWindow(QMainWindow):
                             missing_mapping_columns.append(reference.text())
         has_mapping = has_mapping and not missing_mapping_columns
         self.analyze_button.setEnabled(bool(valid_rows and has_mapping))
+        self.mapping_add_button.setEnabled(bool(self._mapping_candidates))
+        self.mapping_remove_button.setEnabled(any(self.mapping_table.item(row, 0).checkState() == Qt.CheckState.Checked
+                                                 for row in range(self.mapping_table.rowCount())))
         self.save_button.setEnabled(True)  # Incomplete tables can be saved as drafts.
         self.export_button.setEnabled(self.result is not None)
         self.images_button.setEnabled(self.result is not None)
-        self.preview_open_button.setEnabled(self.result is not None)
-        self.final_open_button.setEnabled(self.result is not None)
-        self.preview_dynamic_button.setEnabled(self.result is not None)
-        self.final_dynamic_button.setEnabled(self.result is not None)
-        self.correlation_button.setEnabled(bool(valid_rows and has_mapping))
+        # Independent child editors do not require a valid paired-match result.
+        for button in (self.preview_open_button, self.final_open_button,
+                       self.preview_dynamic_button, self.final_dynamic_button, self.correlation_button):
+            button.setEnabled(True)
         self._update_mode_actions()
         raw_error_key = (
             "final_raw"
@@ -2418,7 +2775,8 @@ class MatchingWindow(QMainWindow):
             message = input_error
             warning = True
         elif not has_reference:
-            message = "Paste a Reference table to begin."
+            message = "Reference is empty. Paste Reference to run matching, or open an analysis window and supply its data manually."
+            warning = True
         elif not has_raw:
             prefix = "Final Raw Data" if raw_error_key == "final_raw" else "Raw Data"
             message = (
@@ -2503,6 +2861,13 @@ class MatchingWindow(QMainWindow):
             grouping_state=self.group_controls.state,
         )
 
+    def _analysis_workspace_workbook(self):
+        """A child editor may open without relaxing the matching domain rules."""
+        try:
+            return self.current_workbook()
+        except ValueError:
+            return None
+
     @staticmethod
     def _default_wafer_window_factory():
         from .window import MainWindow
@@ -2518,25 +2883,119 @@ class MatchingWindow(QMainWindow):
         from .correlation_window import CorrelationWindow
         return CorrelationWindow()
 
-    def open_correlation_workspace(self):
+    def _configure_window_button(self, button, kind, stage):
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        menu = _AnalysisWindowMenu(button)
+        button.setMenu(menu)
+        menu.aboutToShow.connect(lambda: self._populate_window_menu(menu, kind, stage or self.result_mode.currentText().lower()))
+        menu.renameRequested.connect(self._rename_analysis_window)
+        button.setToolTip("Open checked windows; use the arrow to create or choose windows. Double-click a window name to rename (F2).")
+
+    def _populate_window_menu(self, menu, kind, stage):
+        menu.clear()
+        menu.addAction("New window…").triggered.connect(lambda: self._new_analysis_window(kind, stage))
+        entries = window_entries(self._workspace_states, kind, stage)
+        if entries:
+            menu.addSeparator()
+        for scope, metadata in entries:
+            action = menu.addAction(metadata["name"])
+            action.setData(scope)
+            action.setToolTip("Double-click to rename (F2).")
+            action.setCheckable(True)
+            action.setChecked(metadata["checked"])
+            action.toggled.connect(lambda checked, key=scope: self._check_analysis_window(key, checked))
+
+    def _check_analysis_window(self, scope, checked):
+        metadata = dict(window_metadata(scope, self._workspace_states[scope]))
+        metadata["checked"] = checked
+        self._workspace_states[scope]["window"] = metadata
+        self.document.refresh_identity()
+
+    def _new_analysis_window(self, kind, stage):
+        entries = window_entries(self._workspace_states, kind, stage)
+        names = {metadata["name"].casefold() for _scope, metadata in entries}
+        index = 1
+        while (default := f"{WINDOW_LABELS[kind]} {index}").casefold() in names:
+            index += 1
+        name, accepted = QInputDialog.getText(self, "New analysis window", "Window name:", text=default)
+        if not accepted:
+            return
+        name = name.strip()
+        if not name or name.casefold() in names or any(char in name for char in "\r\n\0"):
+            QMessageBox.warning(self, "Invalid window name", "Enter a non-empty, unique name for this tool and stage.")
+            return
+        scope = f"{kind}.{uuid4().hex}.{stage}"
+        self._workspace_states[scope] = {"window": {"name": name, "checked": True}}
+        try:
+            child = self._open_analysis_scope(kind, stage, scope)
+            self._capture_managed_stage_workspace(child)
+        except Exception as error:
+            self._workspace_states.pop(scope, None)
+            QMessageBox.warning(self, "Cannot create analysis window", str(error))
+        self.document.refresh_identity()
+
+    def _rename_analysis_window(self, scope):
+        kind, stage = scope_parts(scope)
+        entries = window_entries(self._workspace_states, kind, stage)
+        names = [metadata["name"] for _scope, metadata in entries]
+        metadata = window_metadata(scope, self._workspace_states[scope])
+        selected = metadata["name"]
+        name, accepted = QInputDialog.getText(self, "Rename analysis window", "Window name:", text=selected)
+        if not accepted:
+            return
+        name = name.strip()
+        if (not name or any(char in name for char in "\r\n\0")
+                or any(name.casefold() == value.casefold() for value in names if value != selected)):
+            QMessageBox.warning(self, "Invalid window name", "Enter a non-empty, unique name for this tool and stage.")
+            return
+        self._workspace_states[scope]["window"] = {**metadata, "name": name}
+        for child in self._stage_windows:
+            if getattr(child, "_managed_scope", None) == scope:
+                child._analysis_window_name = name
+                child.document.refresh_identity()
+        self.document.refresh_identity()
+
+    def _open_analysis_scope(self, kind, stage, scope):
+        if kind == "correlation":
+            return self.open_correlation_workspace(scope=scope)
+        if kind == "map":
+            return self.open_stage_workspace(stage, scope=scope)
+        return self.open_dynamic_workspace(stage, scope=scope)
+
+    def _open_checked_windows(self, kind, stage):
+        entries = window_entries(self._workspace_states, kind, stage)
+        if not entries:
+            return self._open_analysis_scope(kind, stage, f"{kind}.{stage}")
+        for scope, metadata in entries:
+            if metadata["checked"]:
+                self._open_analysis_scope(kind, stage, scope)
+
+    def _saved_workspace_selection_applies(self, kind, stage, scope=None):
+        saved = self._workspace_states.get(scope or f"{kind}.{stage}", {})
+        selection = saved.get("analysis_states", {}).get("data_selection", {})
+        return bool(selection.get("follow_workbook", True))
+
+    def open_correlation_workspace(self, *, scope=None):
         """Open the active WKB sources without combining or renaming tables."""
-        mappings = self.selected_mappings()
         raw = self._active_raw_frame()
-        if self.reference_frame.empty or raw.empty:
-            raise ValueError("Paste Reference and Raw Data before opening Correlation and Trend.")
-        if not mappings:
-            raise ValueError("Select at least one valid parameter mapping first.")
         mode = self.result_mode.currentText()
         stage = mode.lower()
-        existing = self._prepare_stage_window("correlation", stage)
+        scope = scope or f"correlation.{stage}"
+        existing = self._prepare_stage_window("correlation", stage, scope=scope)
         if existing is not None:
             return existing
         workspace = self._correlation_window_factory()
-        reference, scoped_raw = self._child_correlation_frames(workspace)
-        workspace.set_sources(reference, scoped_raw, mappings, mode)
-        book = None
-        if hasattr(workspace, "set_workbook_groups"):
-            book = self.current_workbook()
+        workspace._managed_scope = scope
+        workspace._workbook_selection_applies = self._saved_workspace_selection_applies("correlation", stage, scope)
+        book = self._analysis_workspace_workbook()
+        if book is None:
+            # No row-identity borrowing when the sources are not paired.
+            workspace.set_table(raw, f"{mode} Raw Data")
+            workspace.set_reference_table(self.reference_frame, f"{mode} Reference")
+        else:
+            reference, scoped_raw = self._child_correlation_frames(workspace, book=book)
+            workspace.set_sources(reference, scoped_raw, self.selected_mappings(), mode)
+        if book is not None and hasattr(workspace, "set_workbook_groups"):
             workspace.set_workbook_groups(book)
         self._bind_workspace_selection(workspace, "correlation", stage)
         self._offer_second_axis_settings(workspace)
@@ -2550,28 +3009,37 @@ class MatchingWindow(QMainWindow):
 
     def _open_correlation_clicked(self):
         try:
-            self.open_correlation_workspace()
+            self._open_checked_windows("correlation", self.result_mode.currentText().lower())
         except Exception as error:
             QMessageBox.warning(
                 self, "Cannot open Correlation and Trend", str(error)
             )
 
-    def open_stage_workspace(self, stage):
-        existing = self._prepare_stage_window("map", stage)
+    def open_stage_workspace(self, stage, *, scope=None):
+        scope = scope or f"map.{stage}"
+        existing = self._prepare_stage_window("map", stage, scope=scope)
         if existing is not None:
             return existing
-        if self.result is None:
+        book = self._analysis_workspace_workbook()
+        if book is not None and self.result is None:
             self.run_analysis()
-        self.workbook = self.current_workbook()
-        book = self.workbook
+        self.workbook = book
         # The workspace owns the Card choice, so hand over untouched values.
-        frame = self.workbook.stage_frame(stage, apply_card=False)
+        if book is not None:
+            frame = book.stage_frame(stage, apply_card=False,
+                                     apply_selection=self._saved_workspace_selection_applies("map", stage, scope))
+        else:
+            frame = getattr(self, f"{stage}_map_frame")
+            if frame is None:
+                frame = (pd.DataFrame() if not self._workspace_data_follows_workbook()
+                         else self.final_match_frame if stage == "final" else self.raw_frame)
         workspace = self._wafer_window_factory()
+        workspace._managed_scope = scope
         title = f"{str(stage).title()} · Match Workbook"
         self._offer_parameter_cards(workspace)
         workspace.set_table(frame, title)
         self._bind_workspace_selection(workspace, "map", stage)
-        if not self._workspace_data_follows_workbook():
+        if not self._workspace_data_follows_workbook() and scope == f"map.{stage}":
             # TEM owns this table; KLA/NOVA keep deriving it from Raw Data until
             # the engineer edits the child window.
             self._capture_stage_map(stage, frame)
@@ -2606,25 +3074,37 @@ class MatchingWindow(QMainWindow):
 
     def _register_stage_workspace(self, workspace, kind=None, stage=None, *, book=None):
         """Track a child window and the WKB snapshot it owns, when applicable."""
-        if hasattr(workspace, "set_workbook_participation"):
-            workspace.set_workbook_participation(book if book is not None else self.current_workbook())
+        book = book or self._analysis_workspace_workbook()
+        if book is not None and hasattr(workspace, "set_workbook_participation"):
+            workspace.set_workbook_participation(book)
         self._stage_windows.append(workspace)
         if kind is not None:
             self._stage_window_context[workspace] = (
                 str(kind).lower(), str(stage).lower()
             )
-            scope = f"{kind}.{stage}"
+            scope = getattr(workspace, "_managed_scope", f"{kind}.{stage}")
             saved = self._workspace_states.get(scope)
-            if saved and hasattr(workspace, "workspace_snapshot"):
+            metadata = dict(window_metadata(scope, saved or {}))
+            workspace._analysis_window_name = metadata["name"]
+            if saved and "ui" in saved and hasattr(workspace, "workspace_snapshot"):
                 workspace._independent_data = bool(saved.get("data_override"))
                 snapshot = workspace.workspace_snapshot()
+                if "analysis_states" in saved:
+                    # An independent source can intentionally have no Workbook
+                    # groups. Do not retain keys from the temporary linked input.
+                    snapshot.states = deepcopy(saved["analysis_states"])
                 snapshot.states["ui"] = deepcopy(saved["ui"])
-                snapshot.states.update(deepcopy(saved.get("analysis_states", {})))
                 for name in snapshot.frames:
                     frame = self._workspace_frames.get(f"{scope}.{name}")
                     if frame is not None:
                         snapshot.frames[name] = frame.copy()
-                workspace.restore_workspace(snapshot)
+                restore_linked = getattr(workspace, "restore_linked_workspace", None)
+                if (kind == "correlation" and not workspace._independent_data
+                        and saved["ui"].get("copy_from_wkb", True) and callable(restore_linked)):
+                    restore_linked(snapshot)
+                else:
+                    workspace.restore_workspace(snapshot)
+            self._workspace_states.setdefault(scope, {})["window"] = metadata
             if kind == "correlation":
                 self._offer_second_axis_settings(workspace)
             if hasattr(workspace, "document"):
@@ -2640,6 +3120,7 @@ class MatchingWindow(QMainWindow):
                         self._offer_second_axis_settings(workspace)
                 workspace.document.refresh_identity()
                 workspace._managed_after_close_handler = lambda child=workspace: self._forget_stage_workspace(child)
+        self._offer_plot_labels(workspace)
         if hasattr(workspace, "destroyed"):
             workspace.destroyed.connect(
                 lambda *_args, window=workspace:
@@ -2692,6 +3173,8 @@ class MatchingWindow(QMainWindow):
     def _bind_workspace_selection(self, workspace, kind, stage):
         """Keep a stage workspace's surviving choices across close/reopen."""
         stage = str(stage).lower()
+        if getattr(workspace, "_managed_scope", f"{kind}.{stage}") != f"{kind}.{stage}":
+            return  # Named instances restore their own accepted selection.
         if (kind == "correlation" and self._workspace_states.get(f"{kind}.{stage}")
                 and hasattr(workspace, "workspace_snapshot")):
             # Registration restores the complete accepted child document below.
@@ -2726,7 +3209,7 @@ class MatchingWindow(QMainWindow):
         )
         configure = getattr(workspace, "configure_workbook_owner", None)
         if callable(configure):
-            configure(self, f"{kind}.{stage}")
+            configure(self, getattr(workspace, "_managed_scope", f"{kind}.{stage}"))
 
     def _single_stage_window(self):
         """TEM keeps one analysis window at a time; KLA and NOVA allow all."""
@@ -2736,11 +3219,11 @@ class MatchingWindow(QMainWindow):
         """KLA and NOVA derive Map/Dynamic from the workbook's Raw Data.
 
         TEM keeps independent Map/Radius and Dynamic tables, so those windows
-        must never be overwritten from the workbook.
+        must never be overwritten automatically. Explicit Map Copy is separate.
         """
         return not self._single_stage_window()
 
-    def _prepare_stage_window(self, kind, stage):
+    def _prepare_stage_window(self, kind, stage, *, scope=None):
         """TEM keeps one window per analysis button.
 
         Opening a button whose window is already open brings that window
@@ -2752,6 +3235,8 @@ class MatchingWindow(QMainWindow):
         wanted = (str(kind).lower(), str(stage).lower())
         for workspace in tuple(self._stage_windows):
             if self._stage_window_context.get(workspace) != wanted:
+                continue
+            if getattr(workspace, "_managed_scope", f"{kind}.{stage}") != (scope or f"{kind}.{stage}"):
                 continue
             # Reopening is activation, never a destructive data refresh.
             workspace.show()
@@ -2774,10 +3259,14 @@ class MatchingWindow(QMainWindow):
 
     def _stage_window_inputs(self):
         """Workbook tables the open analysis windows mirror."""
+        try:
+            mappings = tuple(self.selected_mappings())
+        except ValueError:
+            mappings = ()
         return (
             self.reference_frame.copy(),
             self._active_raw_frame().copy(),
-            tuple(self.selected_mappings()),
+            mappings,
             str(self.match_type.currentText()),
         )
 
@@ -2810,7 +3299,9 @@ class MatchingWindow(QMainWindow):
             return
         self._syncing_stage_windows = True
         try:
-            book = self.current_workbook()
+            book = self._analysis_workspace_workbook()
+            if book is None:
+                return  # Incomplete parent input cannot overwrite child drafts.
             for workspace in tuple(self._stage_windows):
                 context = self._stage_window_context.get(workspace)
                 if context is None:
@@ -2852,6 +3343,9 @@ class MatchingWindow(QMainWindow):
 
     def _commit_stage_workspace(self, workspace, kind, stage, *, reset_data, book):
         """Push the current workbook tables into one open analysis window."""
+        if (not reset_data and hasattr(workspace, "copy_from_wkb_action")
+                and not workspace._copy_from_wkb):
+            return  # Manual input is never replenished by a parent refresh.
         if hasattr(workspace, "document") and not reset_data:
             baseline = workspace.document.baseline
             if baseline is not None:
@@ -2861,7 +3355,7 @@ class MatchingWindow(QMainWindow):
                     workspace._independent_data = True
                     workspace.document.refresh_identity()
                     return  # Never overwrite the child's unsaved measurement draft.
-            if self._workspace_states.get(f"{kind}.{stage}", {}).get("data_override"):
+            if self._workspace_states.get(getattr(workspace, "_managed_scope", f"{kind}.{stage}"), {}).get("data_override"):
                 if hasattr(workspace, "ownership_label"):
                     workspace.ownership_label.setToolTip("Using independently edited data; not overwritten by Workbook source changes.")
                 return
@@ -2872,6 +3366,12 @@ class MatchingWindow(QMainWindow):
             tabs.currentIndex() if hasattr(tabs, "currentIndex") else None
         )
         if kind == "correlation":
+            recreated = []
+            if reset_data and saved is not None:
+                for source, name in (("reference", "reference_model"), ("raw", "raw_model")):
+                    model = getattr(workspace, name, None)
+                    if model is not None and model.frame().empty:
+                        recreated.append(source)
             reference, scoped_raw = self._child_correlation_frames(workspace, book=book)
             workspace.set_sources(
                 reference,
@@ -2881,22 +3381,41 @@ class MatchingWindow(QMainWindow):
             )
             if hasattr(workspace, "set_workbook_groups"):
                 workspace.set_workbook_groups(book)
+            if recreated:
+                defaults = state()
+                for source in recreated:
+                    saved[source] = defaults[source]
         else:
             self.workbook = book
             applies = getattr(workspace, "_workbook_selection_applies", True)
-            frame = (
-                self.workbook.stage_frame(stage, apply_card=False, apply_selection=applies)
-                if kind == "map"
-                else self.workbook.dynamic_frame(stage, apply_card=False, apply_selection=applies)
-            )
+            if kind == "map" and not self._workspace_data_follows_workbook():
+                source = book.final_match_raw if stage == "final" and book.final_match_raw is not None else book.raw
+                frame = book.participating_frame(source, paired_source=True, apply_selection=applies)
+            else:
+                frame = (
+                    self.workbook.stage_frame(stage, apply_card=False, apply_selection=applies)
+                    if kind == "map"
+                    else self.workbook.dynamic_frame(stage, apply_card=False, apply_selection=applies)
+                )
             label = "Wafer Map / Radius" if kind == "map" else "Dynamic"
+            protects_metadata = kind == "map" and bool(getattr(getattr(workspace, "model", None), "clipboard_locks", ()))
+            if protects_metadata:
+                frame = workspace.model.merge_clipboard_frame(frame)
             self._offer_parameter_cards(workspace)
             if not reset_data and hasattr(workspace, 'model') and frame.equals(workspace.model.frame()):
                 return  # Its stage's source did not change; Card/participation still did.
             workspace.set_table(
                 frame, f"{str(stage).title()} {label} · Match Workbook",
-                keep_local_selection=True,
+                # Scope/copy changes retain the stored source identities. A
+                # filtered row's position must not exclude another record when
+                # returning to Full data; locked mixed tables still need remapping.
+                keep_local_selection=not reset_data or protects_metadata,
             )
+            if protects_metadata:
+                # The mixed table owns retained metadata, not just a derived
+                # Workbook copy. Save must capture its exact editable source.
+                workspace._use_workbook_data = False
+                workspace._independent_data = True
         if tabs is not None and tab_index is not None and tab_index >= 0:
             # Refreshing data must not move the engineer off the tab they are
             # reading; loading a fresh window still starts at its first tab.
@@ -2939,7 +3458,9 @@ class MatchingWindow(QMainWindow):
         if not current_rows:
             return []
         from .match_groups import applied_state, participation_rows
-        book = self.current_workbook()
+        book = self._analysis_workspace_workbook()
+        if book is None:
+            return []
         raw = (book.final_match_raw
                if str(stage).lower() == "final" and book.final_match_raw is not None
                else book.raw)
@@ -2960,11 +3481,22 @@ class MatchingWindow(QMainWindow):
         return frames
 
     def apply_child_selection_scope(self, workspace):
-        """Reload a child's table as the post-selection or the full copy."""
+        """Choose participation without replacing manual or locked Map data."""
         context = self._stage_window_context.get(workspace)
         if context is None:
             return False
         kind, stage = context
+        if kind == "map" and (not getattr(workspace, "_copy_from_wkb", True)
+                              or not self._workspace_data_follows_workbook()
+                              or bool(getattr(workspace.model, "clipboard_locks", ()))):
+            book = self._analysis_workspace_workbook()
+            if book is not None:
+                workspace.set_workbook_participation(book)
+            else:
+                workspace._refresh_selection_badge()
+                workspace.update_plan()
+            workspace.document.refresh_identity()
+            return True
         if kind in ("map", "dynamic") and not self._workspace_data_follows_workbook():
             return False
         if getattr(workspace, "_independent_data", False) and QMessageBox.question(
@@ -2985,17 +3517,19 @@ class MatchingWindow(QMainWindow):
             self._restore_accepted_workspace_state(previous)
         workspace._use_workbook_data = True
         workspace._independent_data = False
+        if hasattr(workspace, "copy_from_wkb_action"):
+            workspace.set_copy_from_wkb(True)
         workspace.document.forced_dirty = True
         workspace.document.refresh_identity()
         return True
 
-    def reset_child_to_workbook(self, workspace):
+    def reset_child_to_workbook(self, workspace, *, confirm=True):
         """Explicitly replace an independent table; acceptance still requires Save."""
         context = self._stage_window_context.get(workspace)
         if context is None:
             return False
         kind, stage = context
-        if kind in ("map", "dynamic") and not self._workspace_data_follows_workbook():
+        if kind == "dynamic" and not self._workspace_data_follows_workbook():
             return False
         if self.document.untrusted_recovery:
             QMessageBox.warning(self, "Cannot replace recovered analysis", "Save the entire recovered Workbook As first.")
@@ -3004,21 +3538,30 @@ class MatchingWindow(QMainWindow):
                                       "Discard this analysis's independent measurements and use current Workbook data?\n"
                                       "Other analysis drafts and the saved file are unchanged until you save.",
                                       QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
-                                      QMessageBox.StandardButton.Cancel)
+                                      QMessageBox.StandardButton.Cancel) if confirm else QMessageBox.StandardButton.Discard
         if choice != QMessageBox.StandardButton.Discard:
             return False
         previous = self._accepted_workspace_state()
+        previous_scope = getattr(workspace, "_workbook_selection_applies", True)
+        protects_metadata = kind == "map" and bool(getattr(getattr(workspace, "model", None), "clipboard_locks", ()))
+        if (hasattr(workspace, "copy_from_wkb_action") and not workspace._copy_from_wkb
+                and not protects_metadata):
+            workspace._workbook_selection_applies = True
         try:
             if kind in ("map", "dynamic"):
                 setattr(self, f"{stage}_{kind}_frame", None)
             self._refresh_stage_workspace(workspace, kind, stage, reset_data=True)
         except Exception as error:
+            workspace._workbook_selection_applies = previous_scope
             QMessageBox.warning(workspace, "Cannot use Workbook data", str(error))
             return False
         finally:
             self._restore_accepted_workspace_state(previous)
-        workspace._use_workbook_data = True
-        workspace._independent_data = False
+        protects_metadata = kind == "map" and bool(getattr(getattr(workspace, "model", None), "clipboard_locks", ()))
+        workspace._use_workbook_data = not protects_metadata
+        workspace._independent_data = protects_metadata
+        if hasattr(workspace, "copy_from_wkb_action"):
+            workspace.set_copy_from_wkb(True)
         workspace.document.forced_dirty = True
         workspace.document.refresh_identity()
         return True
@@ -3052,6 +3595,9 @@ class MatchingWindow(QMainWindow):
         """Hand this workbook's Cards to a workspace that offers the option."""
         setter = getattr(workspace, "set_parameter_cards", None)
         if not callable(setter):
+            return
+        if self.workbook is None:
+            setter({})
             return
         try:
             if self._analysis_current and self.result is not None:
@@ -3172,7 +3718,7 @@ class MatchingWindow(QMainWindow):
         kind, stage = context
         if hasattr(workspace, "workspace_snapshot"):
             draft = local_snapshot(workspace)
-            scope = f"{kind}.{stage}"
+            scope = getattr(workspace, "_managed_scope", f"{kind}.{stage}")
             prior = self._workspace_states.get(scope, {})
             baseline = workspace.document.baseline
             edited = baseline is None or any(
@@ -3181,17 +3727,33 @@ class MatchingWindow(QMainWindow):
             reset_data = bool(getattr(workspace, "_use_workbook_data", False))
             override = not reset_data and bool(prior.get("data_override") or edited)
             if reset_data:
-                if kind in ("map", "dynamic"):
+                if kind in ("map", "dynamic") and scope == f"{kind}.{stage}":
                     setattr(self, f"{stage}_{kind}_frame", None)
                 for name in tuple(self._workspace_frames):
                     if name.startswith(scope + "."):
                         del self._workspace_frames[name]
             self._workspace_states[scope] = {"ui": draft.states["ui"], "workspace_type": draft.workspace_type,
+                                              "window": dict(window_metadata(scope, prior)),
                                               "data_override": override,
                                               "analysis_states": {key: deepcopy(value) for key, value in draft.states.items() if key != "ui"}}
+            if scope != f"{kind}.{stage}":
+                # Each named draft owns its tables. Only the legacy/default
+                # window uses the Workbook's single stage Map/Dynamic fields.
+                owns_data = override or kind == "dynamic" or (kind == "map" and not self._workspace_data_follows_workbook())
+                for name, frame in draft.frames.items():
+                    key = f"{scope}.{name}"
+                    if owns_data:
+                        self._workspace_frames[key] = frame.copy()
+                    else:
+                        self._workspace_frames.pop(key, None)
+                return
             if kind == "correlation" and override:
                 for name, frame in draft.frames.items():
                     self._workspace_frames[f"{scope}.{name}"] = frame.copy()
+            elif kind == "correlation" and f"{scope}.reference_data" in self._workspace_frames:
+                # A linked legacy table may have just migrated its Reference
+                # aliases. Do not retain the old headers beside the new UI state.
+                self._workspace_frames[f"{scope}.reference_data"] = draft.frames["reference_data"].copy()
             if kind in ("map", "dynamic"):
                 frame = draft.frames["input_data"]
                 try:
@@ -3322,24 +3884,26 @@ class MatchingWindow(QMainWindow):
 
     def _open_stage_clicked(self, stage):
         try:
-            self.open_stage_workspace(stage)
+            self._open_checked_windows("map", stage)
         except Exception as error:
             QMessageBox.warning(self, f"Cannot open {stage.title()}", str(error))
 
-    def open_dynamic_workspace(self, stage):
-        existing = self._prepare_stage_window("dynamic", stage)
+    def open_dynamic_workspace(self, stage, *, scope=None):
+        scope = scope or f"dynamic.{stage}"
+        existing = self._prepare_stage_window("dynamic", stage, scope=scope)
         if existing is not None:
             return existing
-        if self.result is None:
+        book = self._analysis_workspace_workbook()
+        if book is not None and self.result is None:
             self.run_analysis()
-        self.workbook = self.current_workbook()
+        self.workbook = book
         # Dynamic measures its own table: restore the saved Dynamic table when
         # the workbook has one, otherwise start from an empty grid instead of
         # copying the Raw/Map data (Preview and Final behave the same way).
         saved_dynamic = (
-            self.workbook.preview_dynamic
+            self.preview_dynamic_frame
             if str(stage).lower() == "preview"
-            else self.workbook.final_dynamic
+            else self.final_dynamic_frame
         )
         frame = (
             pd.DataFrame()
@@ -3347,16 +3911,17 @@ class MatchingWindow(QMainWindow):
             else saved_dynamic.reset_index(drop=True).copy()
         )
         workspace = self._dynamic_window_factory()
+        workspace._managed_scope = scope
         title = f"{str(stage).title()} Dynamic · Match Workbook"
         self._offer_parameter_cards(workspace)
         workspace.set_table(frame, title)
         self._bind_workspace_selection(workspace, "dynamic", stage)
         model = getattr(workspace, "model", None)
-        if model is not None:
+        if model is not None and scope == f"dynamic.{stage}":
             # Dynamic holds its own table in every match type, so opening the
             # window freezes the table it starts from.
             self._capture_dynamic_model(stage, model)
-        else:
+        elif scope == f"dynamic.{stage}":
             self._capture_stage_dynamic(stage, frame)
         self._configure_managed_close(workspace, "dynamic", stage)
         if hasattr(workspace, "setWindowTitle"):
@@ -3386,7 +3951,7 @@ class MatchingWindow(QMainWindow):
 
     def _open_dynamic_clicked(self, stage):
         try:
-            self.open_dynamic_workspace(stage)
+            self._open_checked_windows("dynamic", stage)
         except Exception as error:
             QMessageBox.warning(
                 self, f"Cannot open {stage.title()} Dynamic", str(error)
@@ -3432,9 +3997,11 @@ class MatchingWindow(QMainWindow):
         """
         plan = self.result.group_plan
         if not plan.enabled:
-            # In ungrouped plots, Mark names and Trend group order do not alter
-            # the curves or the wafer axis. Keep those rendered items intact.
-            return (False, plan.ids, plan.included_rows)
+            # Classification names are irrelevant without Groups, but collecting
+            # Wafer identities changes both the curve order and its captions.
+            return (False, plan.ids, plan.included_rows,
+                    plan.state["trend_order"] == "wafers" or self._trend_collects_wafers(),
+                    tuple(self._plot_label_options["trend"].items()))
         return (
             plan.ids,
             plan.included_rows,
@@ -3443,6 +4010,7 @@ class MatchingWindow(QMainWindow):
             plan.group_keys,
             plan.state["trend_order"],
             tuple(plan.identity_columns or ()),
+            tuple(self._plot_label_options["trend"].items()),
         )
 
     def run_analysis(self, *, apply_groups=True):
@@ -3480,7 +4048,7 @@ class MatchingWindow(QMainWindow):
         QTimer.singleShot(
             0,
             lambda value=scroll_value:
-            self.setup_scroll.verticalScrollBar().setValue(value),
+            self._restore_setup_scroll(value),
         )
         return self.result
 
@@ -3529,7 +4097,7 @@ class MatchingWindow(QMainWindow):
         self._plot_layout_key = layout_key
         identity = self._plot_group_identity()
         for parameter in self._parameter_order:
-            data = self.result.series(parameter)
+            data = self._parameter_plot_data(parameter)
             mapping = next(m for m in self.workbook.mappings if m.name == parameter)
             source_mapping = (mapping.reference_column, mapping.raw_column)
             group = self.plot_groups.get(parameter)
@@ -3544,18 +4112,19 @@ class MatchingWindow(QMainWindow):
                 self.plot_groups[parameter] = group
                 self.plot_groups_layout.addWidget(group["card"])
                 self.wafer_groups_layout.addWidget(group["wafer_card"])
-                refresh = "full"
+                mode = "full"
             elif same_data:
                 # Same curves, new Group names/order/boundaries: keep the
                 # plotted items and repaint only the axes that read the plan.
-                refresh = "axes"
+                mode = "axes"
             else:
+                mode = "full"
+            if mode == "full":
                 for plot in group["plots"].values():
                     plot.clear()
                     if plot.getPlotItem().legend is not None:
                         plot.getPlotItem().legend.clear()
-                refresh = "full"
-            self._draw_parameter_group(parameter, group, refresh=refresh)
+            self._draw_parameter_group(parameter, group, refresh=mode)
             group["source_identity"] = identity
             group["source_mapping"] = source_mapping
             group["source_data"] = data.copy()
@@ -3629,17 +4198,25 @@ class MatchingWindow(QMainWindow):
             lambda checked, name=parameter:
             self._trend_card_toggled(name, checked, detail_key)
         )
-        card_layout.addWidget(plot_container)
+        plot_scroll = QScrollArea()
+        plot_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        plot_scroll.setWidgetResizable(True)
+        plot_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        plot_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        plot_scroll.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        plot_scroll.setWidget(plot_container)
+        plot_scroll.setFixedHeight(plot_container.height())
+        card_layout.addWidget(plot_scroll)
         variant = "|".join(plots)
         saved_layout = self._plot_layout_states.get(mode, {}).get(storage_key, {}).get(variant)
         if saved_layout is not None:
             plot_container.restoreState(saved_layout)
         plot_container.layoutChanged.connect(
-            lambda: self._parameter_plot_layout_changed(storage_key, mode, variant, plot_container)
+            lambda: self._parameter_plot_layout_changed(storage_key, mode, variant, plot_container, plot_scroll)
         )
 
         if detail_key is not None:
-            return {"card": card, "note": note, "plots": plots, "plot_area": plot_container,
+            return {"parameter": parameter, "card": card, "note": note, "plots": plots, "plot_area": plot_container, "plot_scroll": plot_scroll,
                     "trend_card_key": trend_card_key, "storage_key": storage_key}
 
         wafer_card = self._create_parameter_section(parameter)
@@ -3700,10 +4277,12 @@ class MatchingWindow(QMainWindow):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
         group = {
+            "parameter": parameter,
             "card": card,
             "note": note,
             "plots": plots,
             "plot_area": plot_container,
+            "plot_scroll": plot_scroll,
             "match_title": match_title,
             "match_formula": match_formula,
             "primary_height": primary_height,
@@ -3723,9 +4302,11 @@ class MatchingWindow(QMainWindow):
         }
         return group
 
-    def _parameter_plot_layout_changed(self, parameter, stage, variant, area):
+    def _parameter_plot_layout_changed(self, parameter, stage, variant, area, scroll):
         layouts = normalize_plot_layouts({stage: {parameter: {variant: area.saveState()}}})
         self._plot_layout_states.setdefault(stage, {}).setdefault(parameter, {})[variant] = layouts[stage][parameter][variant]
+        area.set_sequence_expanded(self.expand_wafer_ids.isChecked())
+        scroll.setFixedHeight(area.height() + (scroll.horizontalScrollBar().sizeHint().height() if self.expand_wafer_ids.isChecked() else 0))
         sizes = self.setup_splitter.sizes()
         self._resize_results_for_plot_groups()
         self._restore_setup_splitter_layout(sizes)
@@ -3733,12 +4314,20 @@ class MatchingWindow(QMainWindow):
             self._plot_layout_identity_timer.start()
 
     def _draw_parameter_group(self, parameter, group, *, refresh="full"):
-        """Paint one parameter card; ``refresh="axes"`` keeps the plotted rows."""
+        """Paint one parameter card.
+
+        ``refresh="axes"`` keeps every plotted row; ``refresh="sequence"`` keeps
+        the Match points and repaints only the ordinals that follow the drawn
+        Wafer order.
+        """
         axes_only = refresh == "axes"
+        sequence_only = refresh == "sequence"
         result = group.get("result", self.result)
         workbook = group.get("workbook", self.workbook)
         grouped = result.group_plan.enabled
-        data = (result.group_series(parameter, trend=True) if grouped
+        collect = result is self.result and self._trend_collects_wafers()
+        data = (result.group_series(parameter, trend=True, collect_wafers=collect)
+                if grouped or collect or result.group_plan.state["trend_order"] == "wafers"
                 else result.series(parameter))
         card = result.card(parameter)
         fit_card = group.get("fit_card", card)
@@ -3750,7 +4339,6 @@ class MatchingWindow(QMainWindow):
             ),
             None,
         )
-        raw_column = mapping.raw_column if mapping is not None else parameter
         reference_all = data["Reference"].to_numpy(float)
         raw_all = data["Raw"].to_numpy(float)
         evaluated_all = data["Evaluated Value"].to_numpy(float)
@@ -3776,8 +4364,13 @@ class MatchingWindow(QMainWindow):
             f"{len(data):,} rows" if not display_note else display_note.removeprefix(" · ")
         )
         plots = group["plots"]
+        for plot in plots.values():
+            plot._identity_labels = self._plot_label_options["trend"]
         try:
-            measurement_spans = [] if grouped else result.measurement_spans()
+            measurement_spans = [] if grouped else result.measurement_spans(
+                show_pad=self._plot_label_options["trend"]["pad"],
+                show_lot=self._plot_label_options["trend"]["lot"],
+                collect_wafers=collect)
         except ValueError:
             measurement_spans = []
         if measurement_spans:
@@ -3808,10 +4401,10 @@ class MatchingWindow(QMainWindow):
 
         match_plot = plots["match"]
         valid = np.isfinite(raw) & np.isfinite(reference)
-        if not axes_only:
+        if not axes_only and not sequence_only:
             fit_text = ""
             match_plot.plot(raw[valid], reference[valid], pen=None, symbol="o", symbolSize=5,
-                            symbolBrush="#4f8bd6", symbolPen=None)
+                            symbolBrush=CORRELATION_POINT_COLOR, symbolPen=None)
             if valid.any() and np.isfinite(fit_card.slope) and np.isfinite(fit_card.intercept):
                 low, high = float(np.min(raw[valid])), float(np.max(raw[valid]))
                 x_line = np.array([low, high])
@@ -3819,20 +4412,30 @@ class MatchingWindow(QMainWindow):
                 match_plot.plot(
                     x_line,
                     y_line,
-                    pen=pg.mkPen("#e09f3e", width=2),
+                    pen=pg.mkPen(CORRELATION_FIT_COLOR, width=2),
                 )
                 intercept_sign = "+" if fit_card.intercept >= 0 else "-"
                 fit_text = (
                     f"y = {fit_card.slope:.6g}x {intercept_sign} "
                     f"{abs(fit_card.intercept):.6g}\nR² = {fit_card.r_squared:.6g}"
                 )
-            match_plot.set_match_heading(raw_column, fit_text)
+            match_plot.set_match_heading(parameter, fit_text)
 
         group["trend_data"] = (row, reference, raw, card_value)
-        self._draw_trend_plot(parameter, group)
+        if sequence_only:
+            # Collected Wafer order: the observations are the same, so every
+            # Trend and Bias curve keeps its identity while its ordinals move.
+            self._draw_collected_trend(parameter, group, row, reference, raw, card_value)
+        else:
+            self._draw_trend_plot(parameter, group)
 
         bias_plot = plots.get("bias")
-        if bias_plot is not None and not axes_only:
+        if bias_plot is not None and axes_only:
+            for curve in bias_plot.listDataItems():
+                curve.setData(row, bias, connect="finite")
+        if bias_plot is not None and sequence_only:
+            self._reorder_curve(bias_plot, row, bias)
+        if bias_plot is not None and not axes_only and not sequence_only:
             unit = parse_unit(mapping.reference_column if mapping is not None else parameter)
             bias_plot.setLabel("left", "Bias" if unit == "1" else f"Bias ({unit})")
             bias_plot.plot(
@@ -3854,7 +4457,12 @@ class MatchingWindow(QMainWindow):
             self._draw_bias_limit(parameter, group)
 
         bias_percent_plot = plots.get("bias-percent")
-        if bias_percent_plot is not None and not axes_only:
+        if bias_percent_plot is not None and axes_only:
+            for curve in bias_percent_plot.listDataItems():
+                curve.setData(row, bias_percent, connect="finite")
+        if bias_percent_plot is not None and sequence_only:
+            self._reorder_curve(bias_percent_plot, row, bias_percent)
+        if bias_percent_plot is not None and not axes_only and not sequence_only:
             bias_percent_plot.plot(
                 row,
                 bias_percent,
@@ -3895,6 +4503,30 @@ class MatchingWindow(QMainWindow):
                 group["wafer_metrics_pending"] = True
             else:
                 self._draw_wafer_metrics(parameter, group)
+        self._expand_parameter_group(group)
+
+    @staticmethod
+    def _reorder_curve(plot, row, values):
+        """Move one Bias curve's ordinals; the curve object and fit stay."""
+        for curve in plot.listDataItems():
+            if isinstance(curve, pg.PlotDataItem) and curve.yData is not None:
+                curve.setData(row, values, connect="finite")
+
+    def _draw_collected_trend(self, parameter, group, row, reference, raw, card_value):
+        """Reuse the Trend curves while the collected Wafer order moves them."""
+        trend_plot = group["plots"]["trend"]
+        result = group.get("result", self.result)
+        for curve in trend_plot.listDataItems():
+            if not isinstance(curve, pg.PlotDataItem) or curve.yData is None:
+                continue
+            name = curve.name()
+            if name == "PMISH":
+                values = card_value if trend_plot.card_checkbox.isChecked() else raw
+            elif name == str(result.match_type):
+                values = reference
+            else:
+                continue
+            curve.setData(row, values)
 
     def _draw_bias_limit(self, parameter, group=None):
         group = group if group is not None else self.plot_groups.get(parameter)
@@ -3926,6 +4558,8 @@ class MatchingWindow(QMainWindow):
             return
         self._trend_card_state[group["trend_card_key"]] = bool(checked)
         self._draw_trend_plot(parameter, group)
+        plot = group["plots"]["trend"]
+        space_wafer_plot(plot, getattr(plot, "_wafer_spacing", None))
 
     def _draw_trend_plot(self, parameter, group):
         """Redraw only Trend so its Card control feels immediate and stable."""
@@ -3934,9 +4568,6 @@ class MatchingWindow(QMainWindow):
         trend_plot = group["plots"]["trend"]
         result = group.get("result", self.result)
         workbook = group.get("workbook", self.workbook)
-        # Trend plots carry the Raw Data column as their title and never a
-        # Y-axis label: the block heading already names the parameter.
-        trend_plot.setLabel("left", "")
         if result.group_plan.enabled:
             mode = "global" if trend_plot.card_checkbox.isChecked() else "raw"
             draw_group_trend(trend_plot, result, parameter, card_mode=mode,
@@ -3968,7 +4599,8 @@ class MatchingWindow(QMainWindow):
             name=workbook.match_type,
         )
         place_legend_above_frame(trend_plot)
-        title = result.raw_column(parameter)
+        title = parameter
+        trend_plot.setLabel("left", title)
         if hasattr(trend_plot, "set_scope_title"):
             trend_plot.set_scope_title(title)
         else:
@@ -4045,8 +4677,8 @@ class MatchingWindow(QMainWindow):
             curve = wafer_slope.plot(x[valid_slope], slope[valid_slope], pen=None,
                                     symbol="o", symbolSize=8, symbolBrush="#e09f3e", data=np.flatnonzero(valid_slope))
             curve.sigPointsClicked.connect(lambda _curve, points, _event: self._select_wafer(parameter, int(points[0].data()), toggle=True))
-        wafer_r2.setTitle("Single-wafer R²")
-        wafer_slope.setTitle("Single-wafer slope")
+        wafer_r2.setTitle("Single-Wafer R²")
+        wafer_slope.setTitle("Single-Wafer slope")
         for key in ("wafer_r2", "wafer_slope"):
             highlight = pg.ScatterPlotItem(size=14, pen=pg.mkPen("#dc2626", width=2), brush=pg.mkBrush(None))
             highlight.setZValue(10)
@@ -4169,7 +4801,7 @@ class MatchingWindow(QMainWindow):
             details[label] = detail
             self._draw_parameter_group(parameter, detail)
             self._single_wafer_tick_labels(detail)
-            detail["card"].setFixedHeight(54 + detail["plot_area"].height())
+            detail["card"].setFixedHeight(54 + detail["plot_scroll"].height())
         for label in selected:
             if label in details:
                 group["wafer_detail_layout"].removeWidget(details[label]["card"])
@@ -4245,12 +4877,12 @@ class MatchingWindow(QMainWindow):
         # are rebuilt so four plots fit the visible workbook.
         self.setup_splitter.setMinimumWidth(0)
         for group in self.plot_groups.values():
-            card_height = 54 + group["plot_area"].height()
+            card_height = 54 + group["plot_scroll"].height()
             group["card"].setFixedHeight(card_height)
             total += card_height + self.plot_groups_layout.spacing()
             if not group["wafer_card"].isHidden():
                 for detail in group["wafer_details"].values():
-                    detail["card"].setFixedHeight(54 + detail["plot_area"].height())
+                    detail["card"].setFixedHeight(54 + detail["plot_scroll"].height())
                 # Derive height from the live sections, not a cached hint for
                 # the formerly expanded card while deleted docks await Qt.
                 layout = group["wafer_card"].layout()
@@ -4275,6 +4907,8 @@ class MatchingWindow(QMainWindow):
 
     def _restore_setup_splitter_layout(self, sizes):
         """Keep the two user-positioned upper boundaries while results expand."""
+        if sip.isdeleted(self.setup_splitter):
+            return
         if len(sizes) != self.setup_splitter.count() or len(sizes) != 3:
             return
         current_total = sum(self.setup_splitter.sizes())
@@ -4290,7 +4924,12 @@ class MatchingWindow(QMainWindow):
 
     def _restore_setup_view_state(self, sizes, scroll_value):
         self._restore_setup_splitter_layout(sizes)
-        self.setup_scroll.verticalScrollBar().setValue(scroll_value)
+        self._restore_setup_scroll(scroll_value)
+
+    def _restore_setup_scroll(self, value):
+        """A queued restore must not access a view destroyed after closing."""
+        if not sip.isdeleted(self.setup_scroll):
+            self.setup_scroll.verticalScrollBar().setValue(value)
 
     def export_excel(self, path):
         """Export an optional human-readable workbook; WKB remains the primary store."""
@@ -4418,14 +5057,16 @@ class MatchingWindow(QMainWindow):
                     draft = recovered["draft"]
                     follow_source = bool(recovered.get("follow_source"))
                     if follow_source:
-                        kind, stage = scope.split(".")
-                        if kind in ("map", "dynamic"):
+                        kind, stage = scope_parts(scope)
+                        if kind in ("map", "dynamic") and scope == f"{kind}.{stage}":
                             setattr(self, f"{stage}_{kind}_frame", None)
                         for name in tuple(self._workspace_frames):
                             if name.startswith(scope + "."):
                                 del self._workspace_frames[name]
                     ui = local_ui(draft.states["ui"]) if draft.workspace_type == "correlation_trend" else deepcopy(draft.states["ui"])
                     self._workspace_states[scope] = {"ui": ui,
+                                                     "window": dict(window_metadata(scope, self._workspace_states.get(scope, {}))),
+                                                     "analysis_states": {key: deepcopy(value) for key, value in draft.states.items() if key != "ui"},
                                                      "workspace_type": draft.workspace_type, "data_override": not follow_source}
                     for name, frame in draft.frames.items():
                         if not follow_source or draft.workspace_type == "dynamic":
@@ -4645,7 +5286,7 @@ class MatchingWindow(QMainWindow):
         self._remember_recent_wkb(path)
         return self.workbook or snapshot
 
-    def _restore_analyzed_workbook(self, workbook, path, *, analysis_settings=None):
+    def _restore_analyzed_workbook(self, workbook, path, *, analysis_settings=None, mapping_choices=None):
         self.workbook_path = Path(path).resolve()
         self.reveal_wkb_action.setEnabled(True)
         self._map_selection_states = {
@@ -4734,7 +5375,7 @@ class MatchingWindow(QMainWindow):
         self.percent_bias.blockSignals(False)
         self.absolute_bias_action.setChecked(self.absolute_bias.isChecked())
         self.percent_bias_action.setChecked(self.percent_bias.isChecked())
-        self._populate_mappings(workbook.mappings)
+        self._populate_mappings(workbook.mappings if mapping_choices is None else mapping_choices)
         self._parameter_order = list(workbook.parameter_order)
         self._update_state()
         baseline = None
@@ -4770,7 +5411,7 @@ class MatchingWindow(QMainWindow):
                 lambda sizes=workbook.setup_splitter_sizes:
                     self._restore_setup_splitter_layout(sizes),
             )
-        QTimer.singleShot(0, lambda: self.setup_scroll.verticalScrollBar().setValue(0))
+        QTimer.singleShot(0, lambda: self._restore_setup_scroll(0))
         LOGGER.info("WKB opened: %s", Path(path).resolve())
         self._update_state()
         return baseline

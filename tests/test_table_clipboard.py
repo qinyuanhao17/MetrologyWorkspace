@@ -219,6 +219,109 @@ class TableClipboardTests(unittest.TestCase):
         view.copy()
         self.assertEqual(APP.clipboard().text(), "ID\tKeep\tValue\n001\t\t1.000\n002\t\t2.000\n")
 
+    def test_select_all_trims_deleted_left_columns_and_undo_restores_the_boundary(self):
+        model = SheetModel()
+        model.load_matrix([[f"C{i}" for i in range(10)], ["1.000"] * 10, ["2.000"] * 10])
+        _, view = self.make_view(model)
+        before = model.snapshot()
+        # Populate the current boundary before editing, as in repeated Ctrl+A.
+        QTest.keyClick(view, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+        self.select(view, 0, 0, 2, 1)
+        QTest.keyClick(view, Qt.Key.Key_Delete)
+        cleared, revision = model.snapshot(), model.revision
+        QTest.keyClick(view, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual([(r.top(), r.left(), r.bottom(), r.right())
+                          for r in view.selectionModel().selection()], [(0, 2, 2, 9)])
+        self.assertEqual((model.snapshot(), model.revision), (cleared, revision))
+        QTest.keyClick(view, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
+        QTest.keyClick(view, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual([(r.top(), r.left(), r.bottom(), r.right())
+                          for r in view.selectionModel().selection()], [(0, 0, 2, 9)])
+        self.assertEqual(model.snapshot(), before)
+
+    def test_select_all_keeps_deleted_internal_columns_but_trims_deleted_right_columns(self):
+        model = SheetModel()
+        model.load_matrix([[f"C{i}" for i in range(10)], ["1.000"] * 10, ["2.000"] * 10])
+        _, view = self.make_view(model)
+        self.select(view, 0, 4, 2, 5)
+        QTest.keyClick(view, Qt.Key.Key_Delete)
+        QTest.keyClick(view, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual([(r.top(), r.left(), r.bottom(), r.right())
+                          for r in view.selectionModel().selection()], [(0, 0, 2, 9)])
+        self.assertTrue(view.selectionModel().isSelected(model.index(1, 4)))
+        self.select(view, 0, 8, 2, 9)
+        QTest.keyClick(view, Qt.Key.Key_Delete)
+        QTest.keyClick(view, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual([(r.top(), r.left(), r.bottom(), r.right())
+                          for r in view.selectionModel().selection()], [(0, 0, 2, 7)])
+        self.assertTrue(view.selectionModel().isSelected(model.index(1, 4)))
+
+    def test_select_all_trims_deleted_top_and_bottom_rows_without_excluding_internal_rows(self):
+        model = SheetModel()
+        model.load_matrix([[f"R{row} C{column}" for column in range(10)] for row in range(10)])
+        _, view = self.make_view(model)
+        QTest.keyClick(view, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+        self.select(view, 0, 0, 1, 9)
+        QTest.keyClick(view, Qt.Key.Key_Delete)
+        QTest.keyClick(view, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual([(r.top(), r.left(), r.bottom(), r.right())
+                          for r in view.selectionModel().selection()], [(2, 0, 9, 9)])
+        self.select(view, 4, 0, 5, 9)
+        QTest.keyClick(view, Qt.Key.Key_Delete)
+        QTest.keyClick(view, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual([(r.top(), r.left(), r.bottom(), r.right())
+                          for r in view.selectionModel().selection()], [(2, 0, 9, 9)])
+        self.select(view, 8, 0, 9, 9)
+        QTest.keyClick(view, Qt.Key.Key_Delete)
+        QTest.keyClick(view, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual([(r.top(), r.left(), r.bottom(), r.right())
+                          for r in view.selectionModel().selection()], [(2, 0, 7, 9)])
+        self.assertTrue(view.selectionModel().isSelected(model.index(4, 0)))
+        # Select All is presentation only; draft row positions stay intact.
+        self.assertEqual(model.document_frame().shape, (9, 10))
+
+    def test_select_all_uses_visible_projection_edges_without_touching_hidden_measurements(self):
+        from metrology_app.match_group_ui import ProjectedSheetModel
+        model = SheetModel()
+        model.load_matrix([["ID", "CD", "Depth"], ["001", "1.000", "2.000"],
+                           ["002", "3.000", "4.000"]])
+        proxy = ProjectedSheetModel(model)
+        proxy.set_rows([1])
+        _, view = self.make_view(proxy)
+        self.select(view, 0, 0, 1, 0)
+        QTest.keyClick(view, Qt.Key.Key_Delete)
+        QTest.keyClick(view, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual([(r.top(), r.left(), r.bottom(), r.right())
+                          for r in view.selectionModel().selection()], [(0, 1, 1, 2)])
+        self.assertEqual(model.document_frame().iloc[0].tolist(), ["001", "1.000", "2.000"])
+
+    def test_select_all_order_includes_calculated_headers_and_shrinks_after_flag_deletion(self):
+        from metrology_app.match_group_ui import OrderModel
+        model = OrderModel()
+        model.load_matrix([["TestFlag"], ["1"], ["2"], ["3"], ["4"]])
+        _, view = self.make_view(model)
+        QTest.keyClick(view, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual([(r.top(), r.left(), r.bottom(), r.right())
+                          for r in view.selectionModel().selection()], [(0, 0, 4, 3)])
+        self.select(view, 3, 0, 4, 0)
+        QTest.keyClick(view, Qt.Key.Key_Delete)
+        QTest.keyClick(view, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual([(r.top(), r.left(), r.bottom(), r.right())
+                          for r in view.selectionModel().selection()], [(0, 0, 2, 3)])
+
+    def test_select_all_boundary_grows_when_a_whitespace_edge_cell_gets_data(self):
+        model = SheetModel()
+        model.load_matrix([["ID", "CD", " "], ["001", "1.000", " "]])
+        _, view = self.make_view(model)
+        model.document_frame()  # The window has already read the sheet for Save/analysis.
+        QTest.keyClick(view, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual([(r.top(), r.left(), r.bottom(), r.right())
+                          for r in view.selectionModel().selection()], [(0, 0, 1, 1)])
+        model.setData(model.index(1, 2), "2.000")
+        QTest.keyClick(view, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual([(r.top(), r.left(), r.bottom(), r.right())
+                          for r in view.selectionModel().selection()], [(0, 0, 1, 2)])
+
     def test_select_all_in_projection_selects_visible_data_and_empty_sheet_selects_nothing(self):
         from metrology_app.match_group_ui import ProjectedSheetModel
         model = SheetModel()
@@ -234,6 +337,35 @@ class TableClipboardTests(unittest.TestCase):
         view.setCurrentIndex(empty.index(0, 0))
         view.selectAll()
         self.assertFalse(view.selectionModel().hasSelection())
+
+    def test_projected_bounds_follow_edits_undo_header_changes_and_filtered_row_order(self):
+        from metrology_app.match_group_ui import ProjectedSheetModel
+        model = SheetModel()
+        model.load_matrix([[" ", " ", " "], [" ", "ID", " "], [" ", "001", " "], [" ", " ", " "]])
+        proxy = ProjectedSheetModel(model)
+        proxy.set_rows([2, 1])
+        _, view = self.make_view(proxy)
+
+        def bounds():
+            view.selectAll()
+            return [(r.top(), r.left(), r.bottom(), r.right()) for r in view.selectionModel().selection()]
+
+        self.assertEqual(bounds(), [(2, 1, 2, 1)])
+        self.assertEqual(bounds(), [(2, 1, 2, 1)])
+        model.edit({(3, 2): "1.00000"})
+        self.assertEqual(bounds(), [(1, 1, 2, 2)])
+        model.undo.undo()
+        self.assertEqual(bounds(), [(2, 1, 2, 1)])
+        proxy.set_rows([0])
+        self.assertEqual(bounds(), [(1, 1, 1, 1)])
+        model.edit({(0, 0): "Header"})
+        self.assertEqual(bounds(), [(0, 0, 1, 1)])
+        model.undo.undo()
+        self.assertEqual(bounds(), [(1, 1, 1, 1)])
+        proxy.set_rows([])
+        self.assertEqual(bounds(), [])
+        proxy.set_rows(None)
+        self.assertEqual(bounds(), [(1, 1, 2, 1)])
 
     def test_known_paste_rectangle_is_reported_without_reconstructing_it_from_differences(self):
         model = SheetModel()

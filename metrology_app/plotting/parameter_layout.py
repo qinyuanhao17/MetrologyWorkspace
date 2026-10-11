@@ -1,10 +1,11 @@
 """Local, non-floating plot docking inside one movable parameter card."""
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction
+from PyQt6.QtGui import QAction, QFontMetricsF
 from PyQt6.QtWidgets import QSplitter, QSizePolicy
 from pyqtgraph.dockarea import Dock, DockArea
 from pyqtgraph.dockarea.Dock import DockLabel
+from .sequence_axis import WaferSpacing, space_wafer_plot
 
 
 def normalize_plot_layouts(layouts):
@@ -99,6 +100,10 @@ class ParameterPlotArea(DockArea):
         self._variant = "|".join(plots)
         self._building = True
         self._default_sizes_pending = True
+        self._sequence_expanded = False
+        self._compact_sizes = {}
+        self._compact_restore_timer = QTimer(self, singleShot=True)
+        self._compact_restore_timer.timeout.connect(self._restore_compact_sizes)
         self.setMinimumWidth(0)
         self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         titles = {"match": "Match", "trend": "Trend", "bias": "Bias", "bias-percent": "Bias %"}
@@ -135,6 +140,57 @@ class ParameterPlotArea(DockArea):
             self.addDock(dock, "right")
         self._building = False
         self._sync_height()
+
+    def set_sequence_expanded(self, enabled):
+        """Give sequence captions room without replacing plots or docking."""
+        enabled = bool(enabled)
+        self._compact_restore_timer.stop()
+        if enabled and not self._sequence_expanded:
+            self._compact_sizes = {splitter: splitter.sizes() for splitter in self.findChildren(QSplitter)}
+            self._compact_match_width = self.docks["match"].width()
+        self._sequence_expanded = enabled
+        match = self.docks["match"]
+        match.setMinimumWidth(self._compact_match_width if enabled else 120)
+        match.setMaximumWidth(self._compact_match_width if enabled else 16777215)
+        for name, dock in self.docks.items():
+            if name == "match":
+                continue
+            plot = dock.widgets[0]
+            spans = getattr(plot.getAxis("bottom"), "spans", ())
+            if hasattr(plot, "_group_tick_data"):
+                spans = [*plot._group_tick_data[1], *plot._group_tick_data[2]]
+            width = 0
+            spacing = None
+            if enabled and spans:
+                axis = plot.getAxis("bottom")
+                metrics = QFontMetricsF(axis.style.get("tickFont") or plot.font())
+                limits = (min(start for start, _, _ in spans), max(end for _, end, _ in spans))
+                spacing = WaferSpacing(spans, limits, metrics.horizontalAdvance)
+                width = max(360, spacing.width + 160)
+            space_wafer_plot(plot, spacing)
+            plot.setMinimumWidth(width)
+            dock.setMinimumWidth(max(120, width))
+
+        def minimum_width(node):
+            if isinstance(node, Dock):
+                return node.minimumWidth()
+            sizes = [minimum_width(node.widget(i)) for i in range(node.count())]
+            return sum(sizes) + node.handleWidth() * (len(sizes) - 1) if node.type() == "horizontal" else max(sizes, default=0)
+        self.setMinimumWidth(minimum_width(self.topContainer) if enabled else 0)
+        if not enabled and self._compact_sizes:
+            self._compact_restore_timer.start(0)
+
+    def _restore_compact_sizes(self):
+        # Only surviving splitters are restored. A plot deliberately moved
+        # while expanded retains its new container instead of being moved back.
+        self._building = True
+        try:
+            for splitter in self.findChildren(QSplitter):
+                if splitter in self._compact_sizes:
+                    splitter.setSizes(self._compact_sizes[splitter])
+        finally:
+            self._building = False
+        self._compact_sizes = {}
 
     def makeContainer(self, typ):
         container = super().makeContainer(typ)

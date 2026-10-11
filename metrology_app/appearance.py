@@ -10,6 +10,11 @@ from PyQt6.QtGui import QColor, QFont, QFontDatabase, QImage, QPainter, QPalette
 from PyQt6.QtWidgets import QApplication, QLabel
 
 
+# Correlation observations and regressions use the same colors in every workspace.
+CORRELATION_POINT_COLOR = "#4f8bd6"
+CORRELATION_FIT_COLOR = "#e09f3e"
+
+
 # Shared by the live plot control and the persistent Settings dialog.  Keeping
 # one list prevents a saved palette from disappearing in one of the two places.
 COLOR_MAP_OPTIONS = (

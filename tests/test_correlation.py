@@ -11,7 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import numpy as np
 import pandas as pd
 import pyqtgraph as pg
-from PyQt6.QtCore import QPoint, QPointF, Qt
+from PyQt6.QtCore import QCoreApplication, QEvent, QPoint, QPointF, Qt
 from PyQt6.QtGui import QKeySequence, QPalette, QWheelEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import (
@@ -44,6 +44,8 @@ class CorrelationTests(unittest.TestCase):
         self._settings_patch.start()
 
     def tearDown(self):
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        APP.processEvents()
         self._settings_patch.stop()
         settings_module._current["trend_overlay"] = self._saved_overlay
         if self._saved_source_overlay is None:
@@ -128,7 +130,7 @@ class CorrelationTests(unittest.TestCase):
                 window.reference_model.frame()["Die Seq"].tolist(),
                 raw["Die Seq"].astype(str).tolist(),
             )
-            self.assertEqual(window.selection["metrics"], ["DP", "EW", "DP Raw", "EW Raw"])
+            self.assertEqual(window.selection["metrics"], ["DP Ref", "EW Ref", "DP Raw", "EW Raw"])
             self.assertEqual(len(window.selection["wafers"]), 2)
 
             window.correlation_page.selector.selectAll()
@@ -146,11 +148,11 @@ class CorrelationTests(unittest.TestCase):
             }
             self.assertEqual(
                 reference_items["Reference fit"].opts["pen"].color().name(),
-                "#ed7d31",
+                "#e09f3e",
             )
             self.assertEqual(
                 raw_items["Raw Data fit"].opts["pen"].color().name(),
-                "#5b9bd5",
+                "#e09f3e",
             )
 
             window.sequence_page.selector.selectAll()
@@ -167,7 +169,7 @@ class CorrelationTests(unittest.TestCase):
                 .getPlotItem().listDataItems()
             }
             self.assertEqual(
-                trend_items["Reference · DP"].opts["pen"].color().name(),
+                trend_items["Reference · DP Ref"].opts["pen"].color().name(),
                 "#ed7d31",
             )
             raw_trend_items = {
@@ -180,6 +182,41 @@ class CorrelationTests(unittest.TestCase):
                 "#5b9bd5",
             )
         finally:
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_mapping_refresh_keeps_unchanged_raw_selection_and_original_reference_names(self):
+        from PyQt6.QtCore import QItemSelectionModel
+        raw = pd.DataFrame({"Wafer ID": ["W001"] * 3, "Die Seq": ["01", "02", "03"],
+                            "CD": ["1.123456789000000", "2.000", "3.000"],
+                            "Depth": ["4.000", "5.000", "6.000"]})
+        reference = pd.DataFrame({"CD Reference": ["3.000", "5.000", "7.000"],
+                                  "Depth Reference": ["9.000", "11.000", "13.000"]})
+        mappings = [ParameterMapping("CD", "CD Reference", "CD"),
+                    ParameterMapping("Depth", "Depth Reference", "Depth")]
+        window = CorrelationWindow()
+        try:
+            window.set_sources(reference, raw, mappings)
+            cell = window.raw_model.index(2, 2)
+            window.sheet.setCurrentIndex(cell)
+            window.sheet.selectionModel().select(cell, QItemSelectionModel.SelectionFlag.ClearAndSelect)
+            reference_cell = window.reference_model.index(2, 2)
+            window.reference_sheet.setCurrentIndex(reference_cell)
+            window.reference_sheet.selectionModel().select(reference_cell, QItemSelectionModel.SelectionFlag.ClearAndSelect)
+            window.set_sources(reference.copy(), raw.copy(), mappings[1:])
+            self.assertEqual(window.sheet.currentIndex(), cell)
+            self.assertEqual(window.sheet.selectedIndexes(), [cell])
+            self.assertEqual(window.reference_sheet.currentIndex(), reference_cell)
+            self.assertEqual(window.reference_sheet.selectedIndexes(), [reference_cell])
+            pd.testing.assert_frame_equal(window.raw_model.document_frame(), raw)
+            self.assertEqual(window.reference_model.document_frame().columns.tolist(),
+                             ["Wafer ID", "Die Seq", "CD Reference", "Depth Reference"])
+            self.assertEqual(window.reference_model.document_frame()["Depth Reference"].tolist(),
+                             ["9.000", "11.000", "13.000"])
+            self.assertEqual(window.selected(window.parameter_list), ["Depth"])
+        finally:
+            window.document.force_close = True
             window.close()
             window.deleteLater()
             APP.processEvents()
@@ -304,11 +341,12 @@ class CorrelationTests(unittest.TestCase):
                 text = "\n".join(label for _, label in ticks)
                 self.assertNotIn("Wafer:", text)
                 self.assertNotIn("Lot:", text)
-                self.assertNotIn("PAD:", text)
                 if limits[1] == 4.5:
-                    self.assertIn("LOT-2026-VERY-LONG-IDENTITY", text)
-                    self.assertIn("PAD-2026-VERY-LONG-IDENTITY", text)
+                    self.assertIn("LOT: LOT-2026-VERY-LONG-IDENTITY", text)
+                    self.assertIn("PAD: PAD-2026-VERY-LONG-IDENTITY", text)
                 else:
+                    self.assertNotIn("LOT:", text)
+                    self.assertNotIn("PAD:", text)
                     self.assertNotIn("LOT-", text)
                     self.assertNotIn("PAD-", text)
                 picture = QPicture()
@@ -426,7 +464,7 @@ class CorrelationTests(unittest.TestCase):
                 if key[0] == "Raw Data"
             )
             correlation_cells = {
-                (reference_key, "DP"), (reference_key, "EW")
+                (reference_key, "DP Ref"), (reference_key, "EW Ref")
             }
             trend_cells = {(raw_key, "DP Raw")}
             first.correlation_page.selector.set_selected_cells(
@@ -533,7 +571,7 @@ class CorrelationTests(unittest.TestCase):
             self.assertNotIn("Raw Data", visible_names(window.wafer_list))
             self.assertEqual(
                 set(visible_names(window.reference_parameter_list)),
-                {"Wafer ID", "Die Seq", "DP", "EW"},
+                {"Wafer ID", "Die Seq", "DP Ref", "EW Ref"},
             )
             self.assertEqual(
                 set(visible_names(window.parameter_list)),
@@ -553,11 +591,11 @@ class CorrelationTests(unittest.TestCase):
             self.assertEqual(len(window.selection["wafers"]), 3)
             for index in range(window.reference_parameter_list.topLevelItemCount()):
                 item = window.reference_parameter_list.topLevelItem(index)
-                if item.text(0) == "EW":
+                if item.text(0) == "EW Ref":
                     item.setCheckState(0, Qt.CheckState.Unchecked)
             APP.processEvents()
             self.assertEqual(
-                window.selected(window.reference_parameter_list), ["DP"]
+                window.selected(window.reference_parameter_list), ["DP Ref"]
             )
             self.assertEqual(
                 window.selected(window.parameter_list), ["DP Raw", "EW Raw"]
@@ -571,7 +609,7 @@ class CorrelationTests(unittest.TestCase):
                 if key[0] == "Raw Data"
             ]
             self.assertTrue(all(
-                (key, "EW") not in window.selection["available_cells"]
+                (key, "EW Ref") not in window.selection["available_cells"]
                 for key in reference_keys
             ))
             self.assertTrue(all(
@@ -1577,15 +1615,22 @@ class CorrelationTests(unittest.TestCase):
             self.assertEqual(page.resolution.currentText(), get_settings()["resolution"])
             page.min_rsq.setValue(.1)
             QTest.qWait(220)
-            self.assertEqual(len(page.fits), 2)
+            # qWait can finish during a paint with this timer already due.
+            # Dispatch the queued event; do not extend the debounce wait.
+            APP.processEvents()
+            self.assertEqual(len(page.fits), 2,
+                             f"threshold={page.min_rsq.value()}, scores={[fit.rsquared for fit in page.all_fits]}, "
+                             f"filter pending={page.update_timer.isActive()}")
             page.min_rsq.setValue(.95)
             QTest.qWait(220)
+            APP.processEvents()
             self.assertFalse(page.ready)
             self.assertEqual(page.fits, [])
             self.assertEqual(len(page.all_fits), 3)
             self.assertGreaterEqual(page.figure.texts[0].get_fontsize(), 15)
             page.min_rsq.setValue(.5)
             QTest.qWait(220)
+            APP.processEvents()
             self.assertTrue(page.ready)
             self.assertEqual(len(page.fits), 1)
             page.copy_png()
@@ -2066,7 +2111,7 @@ class CorrelationTests(unittest.TestCase):
                 reference_selector.itemData(index): reference_selector.itemText(index)
                 for index in range(reference_selector.count())
             }
-            self.assertEqual(available[("Reference", "EW")], "Reference · EW")
+            self.assertEqual(available[("Reference", "EW Ref")], "Reference · EW Ref")
             self.assertEqual(available[("Raw Data", "DP Raw")], "Raw Data · DP Raw")
             self.assertEqual(available[("Raw Data", "EW Raw")], "Raw Data · EW Raw")
             reference_selector.setCurrentIndex(
@@ -2096,9 +2141,9 @@ class CorrelationTests(unittest.TestCase):
 
             reference_items = all_items(page.plot_widgets[0])
             raw_items = all_items(page.plot_widgets[2])
-            self.assertIn("Reference · DP", reference_items)
+            self.assertIn("Reference · DP Ref", reference_items)
             self.assertIn("Raw Data · DP Raw", reference_items)
-            self.assertEqual(reference_items["Reference · DP"]
+            self.assertEqual(reference_items["Reference · DP Ref"]
                              .opts["pen"].color().name(), "#ed7d31")
             self.assertNotIn(reference_items["Raw Data · DP Raw"]
                              .opts["pen"].color().name(), {"#ed7d31", "#5b9bd5"})
@@ -2113,7 +2158,7 @@ class CorrelationTests(unittest.TestCase):
                 for text in page.figure.axes[0].get_legend().get_texts()
             }
             self.assertEqual(
-                export_labels, {"Reference · DP", "Raw Data · DP Raw"}
+                export_labels, {"Reference · DP Ref", "Raw Data · DP Raw"}
             )
         finally:
             window.raw_model.undo.setClean()

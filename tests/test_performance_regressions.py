@@ -11,6 +11,62 @@ from metrology_app.matching import MatchWorkbook, ParameterMapping
 
 
 class WorkbookPerformanceTests(unittest.TestCase):
+    def tearDown(self):
+        from PyQt6.QtCore import QCoreApplication, QEvent
+        from PyQt6.QtWidgets import QApplication
+        app = QApplication.instance()
+        if app is not None:
+            # unittest has no outer Qt event loop. Complete the real queued
+            # destruction of the previous fixture before timing another one.
+            QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+            app.processEvents()
+
+    def test_immediate_close_after_analysis_does_not_restore_destroyed_views(self):
+        from unittest.mock import patch
+        from PyQt6.QtCore import QCoreApplication, QEvent
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.matching_window import MatchingWindow
+        app = QApplication.instance() or QApplication([])
+        window = MatchingWindow()
+        errors = []
+        with patch("sys.excepthook", side_effect=lambda kind, error, tb: errors.append(str(error))):
+            window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7.]}))
+            window.set_raw_frame(pd.DataFrame({"CD": [1., 2., 3.]}))
+            window.run_analysis()
+            window.document.force_close = True
+            window.close()
+            window.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+            app.processEvents()
+        self.assertEqual(errors, [], "Closed analysis left callbacks targeting destroyed Qt views")
+
+    def test_equal_numeric_snapshots_keep_exact_participation_keys_promptly_and_metadata_edits_invalidate(self):
+        import json
+        from metrology_app.match_groups import participation_source_keys
+        raw = pd.DataFrame({"Wafer ID": np.repeat([f"W{i:03}" for i in range(400)], 20),
+                            "Die Seq": [f"{die:02}" for die in range(1, 21)] * 400,
+                            "Cur SME File Path": [f"raw/{row:05}.sme" for row in range(8000)],
+                            "CD": ["1.123456789000000"] * 8000})
+        expected = participation_source_keys(raw.copy())
+        self.assertEqual(json.loads(expected[0]),
+                         ['[["Wafer ID", "Die Seq"], ["W000", "01"], 0]', "raw/00000.sme"])
+        start = perf_counter()
+        for index in range(5):
+            snapshot = raw.copy(deep=True)
+            snapshot.loc[0, "CD"] = f"{index + 2}.123456789000000"
+            self.assertEqual(participation_source_keys(snapshot), expected)
+        elapsed = perf_counter() - start
+        self.assertLess(elapsed, .1, f"Equal identity snapshots blocked the UI: {elapsed:.3f}s")
+        changed = raw.copy()
+        changed.loc[0, "Wafer ID"] = "W999"
+        self.assertEqual(json.loads(json.loads(participation_source_keys(changed)[0])[0])[1], ["W999", "01"])
+        changed.loc[0, "Cur SME File Path"] = "replacement.sme"
+        self.assertEqual(json.loads(participation_source_keys(changed.copy())[0])[1], "replacement.sme")
+        reversed_rows = raw.iloc[::-1].reset_index(drop=True)
+        self.assertEqual(json.loads(participation_source_keys(reversed_rows)[0]),
+                         ['[["Wafer ID", "Die Seq"], ["W399", "20"], 0]', "raw/07999.sme"])
+        self.assertEqual(raw.iloc[0]["CD"], "1.123456789000000")
+
     def test_grouped_trend_avoids_discarded_wafer_items_and_keeps_all_data(self):
         from unittest.mock import patch
         from PyQt6.QtWidgets import QApplication
@@ -272,6 +328,39 @@ class WorkbookPerformanceTests(unittest.TestCase):
             page.deleteLater()
             app.processEvents()
 
+    def test_trend_full_curves_keep_duplicate_source_indices_and_literal_rows(self):
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.sequence_page import SequencePage
+        app = QApplication.instance() or QApplication([])
+        page = SequencePage()
+        frame = pd.DataFrame({"Wafer ID": ["W1", "W1", "W2", "W2"],
+                              "Die Seq": ["2", "1", "invalid", "1"],
+                              "CD": ["10.000", "20.000", "30.000", "40.000"],
+                              "Source": ["a", "b", "c", "d"]}, index=[7, 7, 11, 13])
+        original = frame.copy(deep=True)
+        try:
+            for preserve, expected_rows in ((False, [1, 0, 3]), (True, [0, 1, 3])):
+                page.set_input(frame, {"wafers": ["W1", "W2"], "metrics": ["CD"],
+                                      "wafer_column": "Wafer ID", "groups": {"W1": [0, 1], "W2": [2, 3]},
+                                      "preserve_group_order": preserve})
+                page.selector.selectAll()
+                page.draw_plot()
+                self.assertTrue(page.ready, page.status.text())
+                curve = next(item for item in page.plot_widgets[0].listDataItems() if len(item.xData) == 3)
+                np.testing.assert_array_equal(curve.xData, [0, 1, 2])
+                np.testing.assert_array_equal(curve.yData, [float(frame.iloc[row]["CD"]) for row in expected_rows])
+                restored = pd.concat([group["frame"].drop(columns="__die") for group in page.groups])
+                pd.testing.assert_frame_equal(restored, original.iloc[expected_rows])
+                pd.testing.assert_frame_equal(frame, original)
+                page.ensure_export_figure()
+                exported = next(line for line in page.figure.axes[0].lines if len(line.get_xdata()) == 3)
+                np.testing.assert_array_equal(exported.get_ydata(), curve.yData)
+        finally:
+            page.input_refresh_timer.stop()
+            page.compare_timer.stop()
+            page.deleteLater()
+            app.processEvents()
+
     def test_trend_preparation_keeps_invalid_dies_and_stable_duplicates_consistent(self):
         from PyQt6.QtWidgets import QApplication
         from metrology_app.sequence_page import SequencePage
@@ -486,7 +575,8 @@ class WorkbookPerformanceTests(unittest.TestCase):
                 self.assertAlmostEqual(window.result.card('CD0').slope, 2)
                 self.assertAlmostEqual(window.result.card('CD0').intercept, 3 if mode == 'Preview' else -17)
                 self.assertEqual(window.result.series('CD0')['Raw'].iat[0], 1 if mode == 'Preview' else 11)
-            window.group_controls.order.setCurrentIndex(1)
+            order = window.group_controls.order
+            order.setCurrentIndex(order.findData("original"))
             start = perf_counter()
             window.group_controls.apply_button.click()
             app.processEvents()
@@ -536,6 +626,12 @@ class WorkbookPerformanceTests(unittest.TestCase):
             QTest.qWait(80)
             self.assertEqual(page.zoom.currentText(), '200%')
             self.assertAlmostEqual(page.capture_view()['h'], 70, delta=1)
+            page.zoom.setCurrentText('150%')
+            page.scroll.horizontalScrollBar().setValue(110)
+            page.show_selector()
+            QTest.qWait(50)
+            self.assertAlmostEqual(page.capture_view()['h'], 110, delta=1,
+                                   msg='Queued zoom centering changed a view after choosing boxes')
             pd.testing.assert_frame_equal(window.model.document_frame(), frame.astype(str))
         finally:
             window.document.force_close = True
@@ -588,7 +684,7 @@ class WorkbookPerformanceTests(unittest.TestCase):
             view.deleteLater()
             app.processEvents()
 
-    def test_equal_value_mapping_column_change_refreshes_the_raw_title(self):
+    def test_equal_value_mapping_column_change_keeps_parameter_title_and_new_source(self):
         from PyQt6.QtCore import Qt
         from PyQt6.QtWidgets import QApplication
         from metrology_app.matching_window import MatchingWindow
@@ -605,7 +701,10 @@ class WorkbookPerformanceTests(unittest.TestCase):
             name = window.mapping_table.item(0, 1).text()
             picker.setCurrentText("Alias")
             app.processEvents()
-            self.assertIn("Alias", window.plot_groups[name]["match_title"].text())
+            self.assertEqual(window.selected_mappings()[0].raw_column, "Alias")
+            self.assertEqual(window.result.raw_column(name), "Alias")
+            self.assertEqual(window.plot_groups[name]["match_title"].text(), name)
+            self.assertEqual(window.plot_groups[name]["plots"]["trend"].title_label.text(), name)
             self.assertAlmostEqual(window.result.card(name).slope, 2)
         finally:
             window.document.force_close = True
@@ -1155,7 +1254,7 @@ class WorkbookPerformanceTests(unittest.TestCase):
                 elapsed.append(perf_counter() - start)
                 selected = state == Qt.CheckState.Checked
                 self.assertEqual((("Raw Data", key), "CD0") in child.selection["available_cells"], selected)
-                self.assertIn((("Reference", key), "CD0"), child.selection["available_cells"])
+                self.assertIn((("Reference", key), "Ref0"), child.selection["available_cells"])
             self.assertFalse(child.correlation_page.has_drawn_once)
             self.assertFalse(child.sequence_page.has_drawn_once)
             self.assertEqual(len(child.raw_model.document_frame()), 6000)
@@ -1244,15 +1343,15 @@ class WorkbookPerformanceTests(unittest.TestCase):
         for _ in range(5):
             spans = result.measurement_spans()
             self.assertEqual(len(spans), 1000)
-            self.assertEqual(spans[0], (.5, 6.5, "W0000\nL0\nARRAY"))
+            self.assertEqual(spans[0], (.5, 6.5, "W0000\nLOT: L0\nPAD: ARRAY"))
         elapsed = perf_counter() - start
         reference, wafer = result.wafer_frames(0)
         wafer.iloc[0, 0] = "caller edit"
         self.assertEqual(result.wafer_frames(0)[1].iloc[0, 0], "W0000")
         book.raw.loc[:5, "Wafer ID"] = "Changed wafer"
         fresh = book.analyze()
-        self.assertEqual(fresh.measurement_spans()[0][2], "Changed wafer\nL0\nARRAY")
-        self.assertEqual(result.measurement_spans()[0][2], "W0000\nL0\nARRAY")
+        self.assertEqual(fresh.measurement_spans()[0][2], "Changed wafer\nLOT: L0\nPAD: ARRAY")
+        self.assertEqual(result.measurement_spans()[0][2], "W0000\nLOT: L0\nPAD: ARRAY")
         self.assertLess(elapsed, .25, f"Repeated measurement labels stalled for {elapsed:.3f}s")
 
     def test_repeated_source_snapshots_are_fast_detached_and_follow_undo(self):
@@ -1320,7 +1419,7 @@ class WorkbookPerformanceTests(unittest.TestCase):
             child.raw_model.edit({(1, 2): "9.999"})
             QTimer.singleShot(700, loop.quit)
             loop.exec()
-            self.assertEqual(child.sequence_page.frame.iloc[len(raw), 3], "9.999")
+            self.assertEqual(child.sequence_page.frame.loc[len(raw), "CD"], "9.999")
             self.assertEqual(len(child.raw_model.document_frame()), 6000)
             self.assertLess(maximum_gap, .1, f"Loaded Correlation stalled again for {maximum_gap:.3f}s")
         finally:
@@ -1405,6 +1504,32 @@ class WorkbookPerformanceTests(unittest.TestCase):
             owner.document.force_close = True
             owner.close()
             owner.deleteLater()
+            app.processEvents()
+
+    def test_native_selector_choices_follow_flags_and_reordered_rows(self):
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.map_selector import MapSelector
+        app = QApplication.instance() or QApplication([])
+        selector = MapSelector()
+        try:
+            selector.set_array(["W1", "W2"], ["A", "B"])
+            initial = selector.selected_cells()
+            self.assertEqual(initial, {(wafer, metric) for wafer in ("W1", "W2") for metric in ("A", "B")})
+            initial.clear()
+            self.assertEqual(len(selector.selected_cells()), 4)
+            item = selector.item(0, 0)
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled & ~Qt.ItemFlag.ItemIsSelectable)
+            self.assertNotIn(("W1", "A"), selector.selected_cells())
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            selector.set_selected_cells({("W1", "A")})
+            self.assertEqual(selector.selected_cells(), {("W1", "A")})
+            selector.set_array(["W2", "W1"], ["A", "B"])
+            self.assertEqual(selector.selected_cells(), {("W1", "A")})
+            selector.clearSelection()
+            self.assertEqual(selector.selected_cells(), set())
+        finally:
+            selector.deleteLater()
             app.processEvents()
 
     def test_large_plot_selection_preserves_disabled_cells_and_exact_choices_promptly(self):
@@ -1621,8 +1746,8 @@ class WorkbookPerformanceTests(unittest.TestCase):
         spans = result.measurement_spans()
         elapsed = perf_counter() - start
         self.assertEqual(len(spans), rows)
-        self.assertEqual(spans[0], (.5, 1.5, "W1\nL1\nARRAY"))
-        self.assertEqual(spans[-1], (1999.5, 2000.5, "W2\nL1\nARRAY"))
+        self.assertEqual(spans[0], (.5, 1.5, "W1\nLOT: L1\nPAD: ARRAY"))
+        self.assertEqual(spans[-1], (1999.5, 2000.5, "W2\nLOT: L1\nPAD: ARRAY"))
         pd.testing.assert_frame_equal(raw, original)
         # Broad guard, not an FPS target: old per-span pandas work takes >1s.
         self.assertLess(elapsed, .75, f"Identity footer preparation took {elapsed:.3f}s")

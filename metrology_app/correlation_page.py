@@ -23,7 +23,8 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QScrollArea, QStackedWidget, QToolButton, QVBoxLayout, QWidget,
 )
 
-from .appearance import (MAX_COPY_PIXELS, MAX_EXPORT_PIXELS, configure_resolution_combo,
+from .appearance import (CORRELATION_FIT_COLOR, CORRELATION_POINT_COLOR,
+                         MAX_COPY_PIXELS, MAX_EXPORT_PIXELS, configure_resolution_combo,
                          export_dpi, panel_title_label, resolution_settings)
 from .appearance import widget_to_qimage
 from .array_plot import drawn_axes
@@ -439,6 +440,9 @@ class CorrelationPage(QWidget):
     def invalidate(self):
         self.input_refresh_timer.stop()
         self.update_timer.stop()
+        self.parameter_filter.set_parameters(
+            [name for name in self.parameter_filter.names if name in self.frame.columns]
+            if not self.frame.empty and self.selector.rowCount() and self.selector.columnCount() else ())
         self._pending_updates.clear()
         self.ready = False
         self.all_fits = []
@@ -580,7 +584,7 @@ class CorrelationPage(QWidget):
     def display_fits(self):
         parameter = self.parameter_filter.parameter
         return self.fits if parameter is None else [fit for fit in self.fits
-                                                   if parameter in (fit.x_name, fit.y_name)]
+                                                   if self.parameter_filter.matches((fit.x_name, fit.y_name))]
 
     @staticmethod
     def axis_key(fit):
@@ -791,14 +795,14 @@ class CorrelationPage(QWidget):
                 for source in fit.sources:
                     values = source.fit
                     ax.scatter(
-                        values.x, values.y, s=15, alpha=.58,
-                        color=source.color, edgecolors="white", linewidths=.25,
+                        values.x, values.y, s=15, alpha=1,
+                        color=CORRELATION_POINT_COLOR, edgecolors="none",
                         rasterized=True,
                     )
                     order = np.argsort(values.x)
                     ax.plot(
                         values.x[order], values.predicted[order],
-                        color=source.color, linewidth=1.5, label=source.name,
+                        color=CORRELATION_FIT_COLOR, linewidth=1.5, label=source.name,
                     )
                     details.append(
                         f"{source.name}: y={values.slope:.4g}x "
@@ -810,10 +814,10 @@ class CorrelationPage(QWidget):
                 )
                 ax.legend(fontsize=max(6, base - 2), frameon=False)
             else:
-                ax.scatter(fit.x, fit.y, s=15, alpha=.58, color="#356d91",
-                           edgecolors="white", linewidths=.25, rasterized=True)
+                ax.scatter(fit.x, fit.y, s=15, alpha=1, color=CORRELATION_POINT_COLOR,
+                           edgecolors="none", rasterized=True)
                 order = np.argsort(fit.x)
-                ax.plot(fit.x[order], fit.predicted[order], color="#d1495b", linewidth=1.5)
+                ax.plot(fit.x[order], fit.predicted[order], color=CORRELATION_FIT_COLOR, linewidth=1.5)
                 equation = f"y = {fit.slope:.5g}x {fit.intercept:+.5g}"
                 stats = f"R² {fit.rsquared:.5f}   n {len(fit.x)}   rank {rank}"
                 set_panel_title(ax, f"{fit.y_name} vs {fit.x_name}", equation, stats, base)
@@ -936,25 +940,25 @@ class CorrelationPage(QWidget):
                 for source in fit.sources:
                     values = source.fit
                     points = plot.plot(
-                        values.x, values.y, pen=None, symbol="o", symbolSize=6,
-                        symbolPen=pg.mkPen("#ffffff", width=.5),
-                        symbolBrush=pg.mkBrush(source.color),
+                        values.x, values.y, pen=None, symbol="o", symbolSize=5,
+                        symbolPen=None,
+                        symbolBrush=pg.mkBrush(CORRELATION_POINT_COLOR),
                         name=f"{source.name} points",
                     )
                     order = np.argsort(values.x)
                     line = plot.plot(
                         values.x[order], values.predicted[order],
-                        pen=pg.mkPen(source.color, width=2),
+                        pen=pg.mkPen(CORRELATION_FIT_COLOR, width=2),
                         name=f"{source.name} fit",
                     )
                     items.append((points, line))
             else:
-                points = pg.ScatterPlotItem(fit.x, fit.y, size=6.5,
-                                           pen=pg.mkPen("#ffffff", width=.5),
-                                           brush=pg.mkBrush(53, 109, 145, 165))
+                points = pg.ScatterPlotItem(fit.x, fit.y, size=5, symbol="o", pen=None,
+                                           brush=pg.mkBrush(CORRELATION_POINT_COLOR))
                 plot.addItem(points)
                 order = np.argsort(fit.x)
-                line = pg.PlotDataItem(fit.x[order], fit.predicted[order], pen=pg.mkPen("#d1495b", width=2))
+                line = pg.PlotDataItem(fit.x[order], fit.predicted[order],
+                                       pen=pg.mkPen(CORRELATION_FIT_COLOR, width=2))
                 plot.addItem(line)
                 items.append((points, line))
             view = plot.getViewBox()

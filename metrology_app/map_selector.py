@@ -22,6 +22,15 @@ class MapSelector(QTableWidget):
         self.labels = {}
         self.enabled_cells = None
         self.pending_draw = False
+        self._selected_cells = None
+        self.selectionModel().selectionChanged.connect(self._invalidate_selected_cells)
+        for signal in (self.model().dataChanged, self.model().modelReset,
+                       self.model().rowsInserted, self.model().rowsRemoved,
+                       self.model().columnsInserted, self.model().columnsRemoved):
+            signal.connect(self._invalidate_selected_cells)
+
+    def _invalidate_selected_cells(self, *_):
+        self._selected_cells = None
 
     def _selection_changed(self):
         """A user selection needs an explicit Draw, even if changed back."""
@@ -29,7 +38,10 @@ class MapSelector(QTableWidget):
         self.changed.emit()
 
     def selected_cells(self):
-        return {(self.wafers[index.row()], self.metrics[index.column()]) for index in self.selectedIndexes()}
+        if self._selected_cells is None:
+            self._selected_cells = frozenset((self.wafers[index.row()], self.metrics[index.column()])
+                                            for index in self.selectedIndexes())
+        return set(self._selected_cells)
 
     def set_selected_cells(self, cells, *, notify=True):
         """Select an exact set of wafer/metric boxes after an array rebuild."""
@@ -101,7 +113,7 @@ class MapSelector(QTableWidget):
             if self.enabled_cells is None else set(self.enabled_cells)
         )
         self.blockSignals(True)
-        reused = self._reuse_rows(wafers, metrics, labels)
+        reused = self._reuse_cells(wafers, metrics, labels)
         self.wafers, self.metrics = list(wafers), list(metrics)
         self.labels = labels.copy()
         self.enabled_cells = enabled_cells
@@ -154,13 +166,17 @@ class MapSelector(QTableWidget):
         self.blockSignals(False)
         self.changed.emit()
 
-    def _reuse_rows(self, wafers, metrics, labels):
-        """Keep existing boxes for a few wafer toggles or enabled-cell changes."""
+    def _reuse_cells(self, wafers, metrics, labels):
+        """Keep unchanged boxes when a few wafer or parameter choices change."""
         old, new = set(self.wafers), set(wafers)
         shared = old & new
-        if (list(metrics) != self.metrics or len(old) != len(self.wafers) or len(new) != len(wafers)
-                or len(old ^ new) > 8
+        old_metrics, new_metrics = set(self.metrics), set(metrics)
+        shared_metrics = old_metrics & new_metrics
+        if (len(old) != len(self.wafers) or len(new) != len(wafers)
+                or len(old_metrics) != len(self.metrics) or len(new_metrics) != len(metrics)
+                or len(old ^ new) > 8 or len(old_metrics ^ new_metrics) > 8
                 or [key for key in self.wafers if key in shared] != [key for key in wafers if key in shared]
+                or [name for name in self.metrics if name in shared_metrics] != [name for name in metrics if name in shared_metrics]
                 or any(self.labels.get(key, key) != labels.get(key, key) for key in shared)):
             return False
         for row in range(len(self.wafers) - 1, -1, -1):
@@ -169,4 +185,10 @@ class MapSelector(QTableWidget):
         for row, wafer in enumerate(wafers):
             if wafer not in old:
                 self.insertRow(row)
+        for column in range(len(self.metrics) - 1, -1, -1):
+            if self.metrics[column] not in new_metrics:
+                self.removeColumn(column)
+        for column, metric in enumerate(metrics):
+            if metric not in old_metrics:
+                self.insertColumn(column)
         return True

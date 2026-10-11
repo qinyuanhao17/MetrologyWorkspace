@@ -8,6 +8,7 @@ import cProfile
 import hashlib
 import json
 import os
+import sys
 from pathlib import Path
 import tempfile
 from time import perf_counter, process_time
@@ -22,7 +23,9 @@ def main():
     parser.add_argument("--input-controls", action="store_true", help="Probe mapping Use and actual Raw Data keyboard workflows")
     parser.add_argument("--map-first", action="store_true", help="Open Wafer Map before Correlation to measure first-use imports")
     parser.add_argument("--budget-ms", type=float)
+    parser.add_argument("--code-root", type=Path, default=Path.cwd(), help="Current or frozen package for isolated before/after probes")
     args = parser.parse_args()
+    sys.path.insert(0, str(args.code_root.resolve()))
     original_hash = hashlib.sha256(args.wkb.read_bytes()).hexdigest()
     with tempfile.TemporaryDirectory(prefix="metrology-window-probe-") as scratch:
         os.environ["METROLOGY_SETTINGS_PATH"] = str(Path(scratch) / "settings.yaml")
@@ -32,7 +35,12 @@ def main():
         from PyQt6.QtCore import QEventLoop, Qt, QTimer
         from PyQt6.QtWidgets import QApplication
         from metrology_app.matching_window import MatchingWindow
+        from metrology_app.appearance import configure_fonts
+        import metrology_app
+        assert Path(metrology_app.__file__).resolve().parent.parent == args.code_root.resolve()
         app = QApplication.instance() or QApplication([])
+        app.setStyle("Fusion")
+        configure_fonts(app)
         window = MatchingWindow()
         window.resize(1500, 950)
         gaps, metrics = [], {}
@@ -127,7 +135,10 @@ def main():
                 view.setCurrentIndex(view.model().index(1, 0))
                 measure("raw_select_all", lambda: QTest.keyClick(view, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier))
                 ranges = view.selectionModel().selection()
-                assert sum(cell.width() * cell.height() for cell in ranges) == view.model().rowCount() * view.model().columnCount()
+                populated = [(r, c) for (r, c), value in view.model().cells.items() if str(value).strip()]
+                bounds = (min(r for r, c in populated), min(c for r, c in populated),
+                          max(r for r, c in populated), max(c for r, c in populated))
+                assert [(cell.top(), cell.left(), cell.bottom(), cell.right()) for cell in ranges] == [bounds]
                 measure("raw_delete_selected", lambda: QTest.keyClick(view, Qt.Key.Key_Delete))
                 measure("raw_undo", lambda: QTest.keyClick(view, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier),
                         until=lambda: not window._auto_run_pending and window._analysis_current)
@@ -147,6 +158,22 @@ def main():
                     measure(f"uncheck_{name}", lambda target=item: target.setCheckState(0, Qt.CheckState.Unchecked))
                     measure(f"check_{name}", lambda target=item: target.setCheckState(0, Qt.CheckState.Checked))
             measure("map", lambda: window.open_stage_workspace("preview"))
+            measure("dynamic", lambda: window.open_dynamic_workspace("preview"))
+            if args.input_controls:
+                measure("raw_select_all_with_children", lambda: QTest.keyClick(
+                    window.raw_view, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier))
+                row = next((row for row in range(window.mapping_table.rowCount())
+                            if window.mapping_table.item(row, 0).checkState() == Qt.CheckState.Checked), None)
+                if row is not None and len(window.result.parameter_names) > 1:
+                    parameter = window.mapping_table.item(row, 1).text()
+                    def set_mapping_use(value):
+                        # Clear/Undo replaces the table's native items. Resolve
+                        # the surviving parameter, not a deleted pre-Undo item.
+                        row = next(row for row in range(window.mapping_table.rowCount())
+                                   if window.mapping_table.item(row, 1).text() == parameter)
+                        window.mapping_table.item(row, 0).setCheckState(value)
+                    measure("mapping_uncheck_with_children", lambda: set_mapping_use(Qt.CheckState.Unchecked), until=finished)
+                    measure("mapping_check_with_children", lambda: set_mapping_use(Qt.CheckState.Checked), until=finished)
             if args.controls:
                 # Sidebar toggles intentionally invalidate Draw. Exercise the
                 # following controls on drawn plots, not on empty selector pages.
@@ -175,6 +202,12 @@ def main():
                     parameters = page.selection.get("metrics", [])[:2]
                     page.selector.set_selected_cells({(wafer, parameter) for wafer in wafers for parameter in parameters})
                     map_window.tabs.setCurrentWidget(page)
+                    print(json.dumps({"map_pre_draw": {"worker_active": page.worker is not None,
+                                                       "pending_input": page.pending_input_refresh,
+                                                       "boxes": len(page.selector.selected_cells())}}), flush=True)
+                    # Loading saved Draw state can still have a background job.
+                    # Stabilize that job before timing a new explicit Draw click.
+                    measure("map_before_draw_settle", lambda: None, until=lambda: page.worker is None)
                     measure("map_draw_sample", page.draw_maps, until=lambda: page.worker is None)
                     if page.result is not None:
                         for name, control in (("map_labels", page.labels), ("map_points", page.points),
@@ -183,7 +216,7 @@ def main():
                         measure("map_fill_edge", lambda: page.fill_edge.setChecked(not page.fill_edge.isChecked()),
                                 until=lambda: page.worker is None)
                     else:
-                        print(json.dumps({"map_controls_skipped": page.empty.text()}), flush=True)
+                        raise RuntimeError(f"Map Draw produced no result: {page.status.text()} / {page.empty.text()}")
                 else:
                     print(json.dumps({"map_controls_skipped": "No coordinate columns are selected"}), flush=True)
                 measure("recovery_after_controls", window.document.write_recovery)

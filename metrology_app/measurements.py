@@ -22,12 +22,13 @@ class Measurement:
     detail: str
 
 
-def wafer_identity_label(frame, wafer_column=None):
-    """Wafer, Lot and PAD values only; source strings remain untouched."""
-    return wafer_identity_labels(frame, [range(len(frame))], wafer_column)[0]
+def wafer_identity_label(frame, wafer_column=None, *, show_pad=True, show_lot=True):
+    """Wafer ID with typed LOT/PAD captions; source strings remain untouched."""
+    return wafer_identity_labels(frame, [range(len(frame))], wafer_column,
+                                 show_pad=show_pad, show_lot=show_lot)[0]
 
 
-def wafer_identity_labels(frame, row_ranges, wafer_column=None):
+def wafer_identity_labels(frame, row_ranges, wafer_column=None, *, show_pad=True, show_lot=True):
     """Prepare identity columns once for many contiguous sequence labels.
 
     Interleaved measurements can have thousands of spans. Normalizing a pandas
@@ -38,15 +39,18 @@ def wafer_identity_labels(frame, row_ranges, wafer_column=None):
     fields = (("waferid", "wafer", "waferno"), ("lotid", "lot", "lotno"), ("padname", "pad"))
     values = []
     for index, aliases in enumerate(fields):
+        if (index == 1 and not show_lot) or (index == 2 and not show_pad):
+            continue
         column = wafer_column if index == 0 and wafer_column in frame else next(
             (names[name] for name in aliases if name in names), None)
         if column is not None:
-            values.append(frame[column].fillna("").astype(str).str.strip().to_numpy())
+            prefix = {1: "LOT: ", 2: "PAD: "}.get(index, "")
+            values.append((prefix, frame[column].fillna("").astype(str).str.strip().to_numpy()))
     labels = []
     for rows in row_ranges:
-        fields = [", ".join(dict.fromkeys(column[row] for row in rows if column[row]))
-                  for column in values]
-        labels.append("\n".join(field for field in fields if field))
+        fields = [(prefix, ", ".join(dict.fromkeys(column[row] for row in rows if column[row])))
+                  for prefix, column in values]
+        labels.append("\n".join(prefix + value for prefix, value in fields if value))
     return labels
 
 

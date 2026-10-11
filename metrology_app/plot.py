@@ -134,6 +134,7 @@ def set_panel_title(ax, metric, classification, stats, font_size=10):
                     fontsize=detail_size, color="#17202a"),
     ]
     ax._wafer_title_details = details
+    ax._identity_classification = classification
     return title, details
 
 

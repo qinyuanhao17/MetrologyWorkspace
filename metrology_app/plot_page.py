@@ -25,6 +25,7 @@ from .color_range_bar import ColorRangeBar
 from .map_selector import MapSelector
 from .plot import auto_cmap_range, display_colormap, restyle_panel_title
 from .settings import get_settings, save_settings
+from .plotting.identity_labels import measurement_caption
 
 rcParams["font.family"] = ["Segoe UI", "Microsoft YaHei", "DejaVu Sans"]
 rcParams["axes.unicode_minus"] = False
@@ -56,6 +57,7 @@ class PlotPage(QWidget):
         prefs = get_settings()
         self.frame = None
         self.selection = {}
+        self.identity_labels = {"pad": True, "lot": True}
         self.signature = None
         self.dirty = True
         self.revision = 0
@@ -360,6 +362,8 @@ class PlotPage(QWidget):
 
     def show_selector(self):
         self.page_intent = "selector"
+        self._center_timer.stop()
+        self._fit_width_timer.stop()
         self.pending_input_refresh = False
         self.input_refresh_timer.stop()
         if self.worker is not None:
@@ -615,6 +619,7 @@ class PlotPage(QWidget):
             saved_view = self.capture_view() if getattr(self, "_preserve_view", False) else None
             self.result = result
             self.artists = draw_array(self.figure, result, int(self.font_size.currentText()))
+            self._apply_identity_labels()
             self.dirty = False
             self.has_drawn_once = True
             self.drawn_cells = set(self.pending_cells)
@@ -637,6 +642,27 @@ class PlotPage(QWidget):
                                 f"Hover a point for its value.")
         except Exception as error:
             self.show_error(str(error))
+
+    def _apply_identity_labels(self):
+        if self.result is None:
+            return
+        for ax, scene in zip(self.figure.axes[:len(self.result["scenes"])], self.result["scenes"]):
+            if scene.get("skip"):
+                continue
+            caption = measurement_caption(scene["label"], self.identity_labels)
+            if scene["error"]:
+                ax.set_title(f'{scene["metric"]}\n{caption}')
+            else:
+                ax._wafer_title_details[0].set_text(caption.replace("\n", " · "))
+
+    def set_identity_labels(self, options):
+        """Only repaint caption text, even if interpolation is still running."""
+        if self.identity_labels == options:
+            return
+        self.identity_labels = dict(options)
+        self._apply_identity_labels()
+        if self.result is not None:
+            self.capture_overlay_background()
 
     def refresh_canvas(self):
         """Render once at the current screen scale; zoom reuses the Qt view only."""
@@ -765,7 +791,7 @@ class PlotPage(QWidget):
 
     def center_canvas(self):
         """Center the plot array horizontally without losing its vertical row."""
-        if self.result is None:
+        if self.result is None or self.stack.currentWidget() is not self.scroll:
             return
         viewport_center = self.scroll.mapToScene(self.scroll.viewport().rect().center())
         canvas_center = self.canvas_proxy.sceneBoundingRect().center()
@@ -853,6 +879,7 @@ class PlotPage(QWidget):
                 scene["options"].cmap_range = cmap_range
         if structural_change:
             self.artists = draw_array(self.figure, self.result, int(self.font_size.currentText()))
+            self._apply_identity_labels()
             self.refresh_canvas()
         else:
             palette = display_colormap(cmap, *cmap_range)

@@ -61,6 +61,29 @@ class SheetTests(unittest.TestCase):
 
 
 class WorkspaceTests(unittest.TestCase):
+    def test_linked_header_refresh_keeps_current_cells_and_exact_values(self):
+        from PyQt6.QtCore import QItemSelectionModel
+        from metrology_app.window import MainWindow
+        frame = pd.DataFrame({"Wafer ID": ["W001"] * 3, "Die Seq": ["01", "02", "03"],
+                              "Raw CD": ["1.123456789000000", "2.000", "3.000"]})
+        window = MainWindow()
+        try:
+            window.set_table(frame, "Raw input")
+            cell = window.model.index(2, 2)
+            window.sheet.setCurrentIndex(cell)
+            window.sheet.selectionModel().select(cell, QItemSelectionModel.SelectionFlag.ClearAndSelect)
+            expected = frame.rename(columns={"Raw CD": "CD"})
+            window.set_table(expected, "Linked alias", keep_local_selection=True)
+            self.assertEqual(window.sheet.currentIndex(), cell)
+            self.assertEqual(window.sheet.selectedIndexes(), [cell])
+            pd.testing.assert_frame_equal(window.model.document_frame(), expected)
+            self.assertTrue(window.model.undo.isClean())
+        finally:
+            window.document.force_close = True
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
     def test_quality_columns_are_numeric_in_correlation_and_dynamic_parameter_lists(self):
         from metrology_app.correlation_window import CorrelationWindow
         from metrology_app.dynamic_window import DynamicWindow

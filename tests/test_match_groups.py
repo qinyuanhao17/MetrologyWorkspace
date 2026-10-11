@@ -1172,7 +1172,7 @@ class MatchGroupTests(unittest.TestCase):
             child.sequence_page.selector.selectAll()
             child.sequence_page.draw_plot()
             self.assertTrue(child.sequence_page.ready, child.sequence_page.status.text())
-            self.assertEqual(pd.to_numeric(child.sequence_page.groups[0]["frame"]["P"]).tolist(), [8., 11., 14.])
+            self.assertEqual(pd.to_numeric(child.sequence_page.groups[0]["frame"]["P Reference"]).tolist(), [8., 11., 14.])
             drawn = child.sequence_page.draw_state()
             snapshot = child.workspace_snapshot()
             self.assertNotIn("group_plots", snapshot.states)
@@ -1187,7 +1187,7 @@ class MatchGroupTests(unittest.TestCase):
             self.assertEqual(copy.tabs.currentIndex(), 3)
             self.assertEqual(copy.sequence_page.draw_state(), drawn)
             self.assertTrue(copy.sequence_page.ready, copy.sequence_page.status.text())
-            self.assertEqual(pd.to_numeric(copy.sequence_page.groups[0]["frame"]["P"]).tolist(), [8., 11., 14.])
+            self.assertEqual(pd.to_numeric(copy.sequence_page.groups[0]["frame"]["P Reference"]).tolist(), [8., 11., 14.])
             with tempfile.TemporaryDirectory() as directory:
                 from metrology_app.workspace_store import load_workspace
                 path = window.save_workbook(Path(directory) / "parent.wkb")
@@ -1197,7 +1197,7 @@ class MatchGroupTests(unittest.TestCase):
                 self.assertEqual(reopened.tabs.count(), 4)
                 self.assertEqual(reopened.sequence_page.draw_state(), drawn)
                 self.assertTrue(reopened.sequence_page.ready, reopened.sequence_page.status.text())
-                self.assertEqual(pd.to_numeric(reopened.sequence_page.groups[0]["frame"]["P"]).tolist(), [8., 11., 14.])
+                self.assertEqual(pd.to_numeric(reopened.sequence_page.groups[0]["frame"]["P Reference"]).tolist(), [8., 11., 14.])
         finally:
             if child is not None:
                 child.close()

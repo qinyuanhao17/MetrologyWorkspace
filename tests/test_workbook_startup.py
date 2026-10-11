@@ -7,9 +7,10 @@ from unittest.mock import patch
 import pandas as pd
 from PyQt6.QtWidgets import QApplication, QFileDialog, QLabel, QMessageBox
 from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtTest import QTest
 
 from metrology_app.matching_window import MatchingWindow
-from metrology_app.workspace_store import load_workspace
+from metrology_app.workspace_store import load_workspace, save_workspace
 
 APP = QApplication.instance() or QApplication([])
 
@@ -140,6 +141,76 @@ class WorkbookStartupTests(unittest.TestCase):
         self.assertFalse(window.run_action.isEnabled())
         self.assertTrue(window.document.is_dirty())
         self.assertEqual(window.raw_model.document_frame().shape[0], 3)
+
+    def test_opened_raw_only_draft_allows_paste_and_undo_without_enabling_invalid_analysis(self):
+        source = self.window()
+        raw = pd.DataFrame({"Wafer ID": ["001"] * 3, "Die Seq": ["002", "036", "085"],
+                            "CD": ["1.000", "2.000", "3.000"]})
+        source.set_raw_frame(raw)
+        path = self.path.parent / "raw-only.wkb"
+        source.save_workbook(path)
+        original_file = path.read_bytes()
+        window = self.window()
+        window.load_workbook(path)
+        window.resize(1180, 900)
+        window.show()
+        APP.processEvents()
+        self.assertTrue(window.raw_view.isEnabled())
+        self.assertFalse(window.run_action.isEnabled())
+        self.assertFalse(window.analyze_button.isEnabled())
+        model = window.raw_view.model()
+        index = model.index(1, 2)
+        self.assertTrue(model.flags(index) & Qt.ItemFlag.ItemIsEditable)
+        window.raw_view.setCurrentIndex(index)
+        window.raw_view.setFocus()
+        APP.clipboard().setText("1.250")
+        QTest.keyClick(window.raw_view, Qt.Key.Key_V, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual(window.raw_model.document_frame().iloc[0, 2], "1.250")
+        self.assertTrue(window.document.is_dirty())
+        self.assertEqual(path.read_bytes(), original_file)
+        QTest.keyClick(window.raw_view, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
+        pd.testing.assert_frame_equal(window.raw_model.document_frame(), raw)
+        self.assertFalse(window.run_action.isEnabled())
+        window.set_reference_frame(pd.DataFrame({"CD Reference": ["2.000", "4.000", "6.000"]}))
+        self.assertTrue(window.run_action.isEnabled())
+        self.assertAlmostEqual(window.run_analysis().card("CD").slope, 2)
+
+    def test_opened_complete_draft_can_launch_each_analysis_without_running_it_first(self):
+        snapshot = self.windows[0].workspace_snapshot()
+        snapshot.states["match"]["draft"] = True
+        path = self.path.parent / "ready-draft.wkb"
+        save_workspace(path, snapshot)
+        window = self.window()
+        window.load_workbook(path)
+        self.assertIsNone(window.result)
+        for button in (window.correlation_button, window.preview_dynamic_button, window.preview_open_button):
+            self.assertTrue(button.isEnabled(), button.text())
+        children = (window.open_correlation_workspace(), window.open_dynamic_workspace("preview"),
+                    window.open_stage_workspace("preview"))
+        self.assertEqual([child.workspace_type for child in children],
+                         ["correlation_trend", "dynamic", "wafer_map"])
+        self.assertTrue(all(child.isVisible() for child in children))
+        self.assertIsNotNone(window.result)
+
+    def test_opened_final_raw_only_draft_keeps_the_final_editor_editable(self):
+        source = self.window()
+        source.result_mode.setCurrentText("Final")
+        raw = pd.DataFrame({"Wafer ID": ["001"] * 3, "Die Seq": ["002", "036", "085"],
+                            "CD": ["1.000", "2.000", "3.000"]})
+        source.set_raw_frame(raw)
+        path = self.path.parent / "final-raw-only.wkb"
+        source.save_workbook(path)
+        window = self.window()
+        window.load_workbook(path)
+        self.assertEqual(window.result_mode.currentText(), "Final")
+        self.assertTrue(window.raw_view.isEnabled())
+        model = window.raw_view.model()
+        self.assertTrue(model.setData(model.index(1, 2), "1.500", Qt.ItemDataRole.EditRole))
+        self.assertEqual(window.final_raw_model.document_frame().iloc[0, 2], "1.500")
+        self.assertTrue(window.raw_model.document_frame().empty)
+        window.final_raw_model.undo.undo()
+        pd.testing.assert_frame_equal(window.final_raw_model.document_frame(), raw)
+        self.assertFalse(window.run_action.isEnabled())
 
     def test_new_workbook_uses_confirmed_settings_before_the_window_opens(self):
         from metrology_app.shell import MainWindow

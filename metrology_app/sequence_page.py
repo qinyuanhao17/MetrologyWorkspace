@@ -18,9 +18,9 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 from matplotlib.transforms import ScaledTranslation
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QColor, QKeySequence, QShortcut
+from PyQt6.QtGui import QColor, QFontMetricsF, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
-    QApplication, QComboBox, QDoubleSpinBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
+    QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
     QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
 )
 
@@ -32,7 +32,7 @@ from .data import number
 from .map_selector import MapSelector
 from .plotting import InteractivePlotWidget, PanelGrid, PlotPanel
 from .plotting.parameter_filter import ParameterFilterBar
-from .plotting.sequence_axis import DieSequenceAxis, SpanLabelAxis, fit_tick_labels, span_label_ticks
+from .plotting.sequence_axis import DieSequenceAxis, SpanLabelAxis, WaferSpacing, fit_tick_labels, space_wafer_plot, span_label_ticks
 from .plotting.curve import ResponsivePlotDataItem
 from .measurements import wafer_identity_label
 from .settings import get_settings, save_settings
@@ -41,7 +41,7 @@ from .trend import MAGNITUDE_RATIO_LIMIT, overlay_spec, parse_unit
 
 MAX_SEQUENCE_PLOTS = 30
 HOME_PADDING = 0.06
-LINE_COLOR = "#4472c4"
+LINE_COLOR = "#5b9bd5"
 BOUNDARY_COLOR = "#d4d7dc"
 MIN_LABEL_GAP_PIXELS = 30
 COMPARE_COLOURS = (
@@ -53,8 +53,6 @@ COMPARE_COLOURS = (
     "#999933",  # olive
     "#666666",  # neutral grey
 )
-COMPARE_SYMBOLS = ("s", "t", "d", "+", "x", "star", "p")
-MATPLOTLIB_MARKERS = ("s", "^", "D", "P", "X", "*", "v")
 COMPARE_CONTROL_WIDTH = 180
 
 
@@ -125,6 +123,7 @@ class SequencePage(QWidget):
         settings = get_settings()
         self.frame = pd.DataFrame()
         self.selection = {}
+        self.identity_labels = {"pad": True, "lot": True}
         self.ready = False
         self.has_drawn_once = False
         self.groups = []
@@ -209,6 +208,13 @@ class SequencePage(QWidget):
         self.resolution.setCurrentIndex(max(0, self.resolution.findText(settings.get("resolution", "High"))))
         self.resolution.currentIndexChanged.connect(self.change_resolution)
         options.addWidget(self.resolution)
+        self.expand_wafer_ids = QCheckBox("Expand Wafers", objectName="expandWaferIds")
+        self.expand_wafer_ids.setToolTip(
+            "Space each Wafer compactly so its captions fit. Use the bottom horizontal scrollbar.\n"
+            "Source rows, curve values, zoom and PNG size rules are unchanged. Saved with WKB."
+        )
+        self.expand_wafer_ids.toggled.connect(self.expand_layout)
+        options.addWidget(self.expand_wafer_ids)
         self.axis_ratio_label = QLabel("Y axes", objectName="muted")
         options.addWidget(self.axis_ratio_label)
         self.axis_mode = QComboBox()
@@ -369,6 +375,9 @@ class SequencePage(QWidget):
 
     def invalidate(self):
         self.input_refresh_timer.stop()
+        self.parameter_filter.set_parameters(
+            [name for name in self.parameter_filter.names if name in self.frame.columns]
+            if not self.frame.empty and self.selector.rowCount() and self.selector.columnCount() else ())
         self._numeric_columns = {}
         self.ready = False
         self.groups = []
@@ -427,6 +436,7 @@ class SequencePage(QWidget):
             parts.sort(key=lambda pair: self.frame.index.take(pair[1]).min() - min(
                 source_by_key.get(pair[0], {}).get("rows") or (0,)
             ))
+        ordered_parts = []
         for key, source_positions in parts:
             values = die[source_positions]
             # Select/sort positional indices first; avoid copying a wide source
@@ -437,11 +447,18 @@ class SequencePage(QWidget):
                 positions_in_part = positions_in_part[order]
             if not len(positions_in_part):
                 continue
-            # One row take of all source columns. A shallow copy gives this
-            # result its own column manager before adding __die; the take
-            # already detached the selected source values.
-            ordered = self.frame.iloc[source_positions[positions_in_part]].copy(deep=False)
-            ordered["__die"] = values[positions_in_part]
+            ordered_parts.append((key, source_positions[positions_in_part]))
+        if not ordered_parts:
+            return groups, cursor
+        # Detach all selected literal rows once, then slice this owned result.
+        # Hundreds of small wide-frame takes otherwise repeat the same copying.
+        all_positions = np.concatenate([positions for _key, positions in ordered_parts])
+        ordered_frame = self.frame.iloc[all_positions].copy(deep=False)
+        ordered_frame["__die"] = die[all_positions]
+        offset = 0
+        for key, source_positions in ordered_parts:
+            ordered = ordered_frame.iloc[offset:offset + len(source_positions)].copy(deep=False)
+            offset += len(source_positions)
             source = source_by_key.get(key)
             # Ref and Raw are row-aligned tables. The same measurement must
             # occupy the same span in both sources, not overlap other wafers.
@@ -456,6 +473,7 @@ class SequencePage(QWidget):
             if not wafer_id:
                 wafer_id = str(labels.get(key, key)).splitlines()[0]
             groups.append({"key": key, "wafer": wafer_id, "frame": ordered,
+                           "source_positions": source_positions,
                            "group_label": self.selection.get("group_labels", {}).get(
                                key, str(labels.get(key, wafer_id)).split(" · ", 1)[-1]),
                            "positions": positions, "center": float(positions.mean()),
@@ -465,17 +483,36 @@ class SequencePage(QWidget):
         return groups, cursor
 
     def _label_spans(self):
-        grouped = bool(self.selection.get("preserve_group_order"))
+        grouped = bool(self.selection.get("show_group_labels", self.selection.get("preserve_group_order")))
         spans = []
         for group in self.axis_groups:
             label = (group["group_label"] if grouped
-                     else wafer_identity_label(group["frame"], self.wafer_column))
+                     else wafer_identity_label(group["frame"], self.wafer_column,
+                                               show_pad=self.identity_labels["pad"],
+                                               show_lot=self.identity_labels["lot"]))
             start, end = group["start"] - .5, group["stop"] + .5
             if grouped and spans and spans[-1][2] == label and spans[-1][1] == start:
                 spans[-1] = (spans[-1][0], end, label)
             else:
                 spans.append((start, end, label))
         return spans
+
+    def set_identity_labels(self, options):
+        """Update wafer text in place; Group names, curves and zoom stay intact."""
+        if self.identity_labels == options:
+            return
+        self.identity_labels = dict(options)
+        if self.ready:
+            spans = self._label_spans()
+            for widget in self.plot_widgets:
+                axis = getattr(widget, "_wafer_axis", None)
+                if axis is not None:
+                    axis.spans = spans
+                    axis.setToolTip(" · ".join(label for _, _, label in spans))
+                    axis.refresh()
+            self._export_dirty = True
+            self._copy_image = self._copy_dpi = None
+            self.expand_layout()
 
     @staticmethod
     def _format_die(value):
@@ -943,16 +980,14 @@ class SequencePage(QWidget):
             self.status.setText(str(error))
 
     def _metric_values(self, metric, groups):
-        if self.frame.index.is_unique:
-            # One conversion per drawn result, shared by curves, comparisons
-            # and export. set_input/invalidate discard it before any edit.
-            if metric not in self._numeric_columns:
-                self._numeric_columns[metric] = number(self.frame[metric])
-            column = self._numeric_columns[metric]
-            values = [column.reindex(group["frame"].index).to_numpy(float) for group in groups]
-        else:
-            values = [number(group["frame"][metric]).to_numpy(float) for group in groups]
-        return np.concatenate(values) if values else np.asarray([], dtype=float)
+        # Positional provenance is exact even when source index labels repeat.
+        # Convert each current column once for curves, comparisons and export;
+        # set_input/invalidate/draw discard this cache before any source edit.
+        if metric not in self._numeric_columns:
+            self._numeric_columns[metric] = number(self.frame[metric]).to_numpy(float)
+        positions = [group["source_positions"] for group in groups]
+        return (self._numeric_columns[metric][np.concatenate(positions)]
+                if positions else np.asarray([], dtype=float))
 
     def _overlay_specs(self):
         for panel in self.panel_specs:
@@ -1041,13 +1076,6 @@ class SequencePage(QWidget):
         return f"{source['name']} · {metric}" if source is not None else str(metric)
 
     @staticmethod
-    def _source_line_style(source, qt=False):
-        raw = source is not None and source.get("name") == "Raw Data"
-        if qt:
-            return Qt.PenStyle.DashLine if raw else Qt.PenStyle.SolidLine
-        return "--" if raw else "-"
-
-    @staticmethod
     def _axis_label(metric, unit):
         if unit is None:
             return f"{metric} (unit?)"
@@ -1095,15 +1123,14 @@ class SequencePage(QWidget):
                 if group_index:
                     ax.axvline(group["start"] - .5, color=BOUNDARY_COLOR, linewidth=.8, zorder=0)
 
-            def plot_metric(target, name, color, label, curve_groups, marker="o"):
+            def plot_metric(target, name, color, label, curve_groups):
                 if not curve_groups:
                     return [], np.asarray([])
                 positions = np.concatenate([group["positions"] for group in curve_groups])
                 values = self._metric_values(name, curve_groups)
                 lines = target.plot(
                     positions, values, color=color,
-                    linestyle=self._source_line_style(curve_groups[0].get("source")),
-                    linewidth=1.35, marker=marker, markersize=3.8,
+                    linestyle="-", linewidth=1.35, marker="o", markersize=3.8,
                     markerfacecolor=color, label=label,
                 )
                 return lines, values
@@ -1153,7 +1180,6 @@ class SequencePage(QWidget):
                 secondary_lines, _secondary_values = plot_metric(
                     target, secondary, secondary_color, secondary_label,
                     secondary_groups,
-                    MATPLOTLIB_MARKERS[compare_index % len(MATPLOTLIB_MARKERS)],
                 )
                 legend_lines.extend(secondary_lines[:1])
             if comparisons or source_mode:
@@ -1166,16 +1192,13 @@ class SequencePage(QWidget):
                 ax.text(.5, .5, "No valid numeric values", transform=ax.transAxes,
                         ha="center", va="center", fontsize=max(11, base))
             title = self._legend_label(panel_source, metric)
+            if mixed_units:
+                title += " · Mixed units (" + " / ".join(sorted(mixed_units)) + ")"
             ax.set_title(title, fontsize=base + 1, fontweight="semibold", pad=8)
             ylabel_options = {"fontsize": max(7, base - 1)}
             if comparisons:
                 ylabel_options["color"] = primary_color
-            ax.set_ylabel(
-                ("Mixed units (" + " / ".join(sorted(mixed_units)) + ")"
-                 if mixed_units else
-                 self._axis_label(metric, parse_unit(metric)) if comparisons else "Value"),
-                **ylabel_options,
-            )
+            ax.set_ylabel(title, **ylabel_options)
             if comparisons:
                 ax.tick_params(axis="y", colors=primary_color)
             ax.set_xlabel("Die Seq", fontsize=max(7, base - 1), labelpad=8)
@@ -1218,7 +1241,7 @@ class SequencePage(QWidget):
             ticks = span_label_ticks(
                 label_spans, ax.get_xlim(), ax.bbox.width,
                 lambda text: renderer.get_text_width_height_descent(text, font, False)[0],
-                optional_fields=not self.selection.get("preserve_group_order"),
+                optional_fields=not self.selection.get("show_group_labels", self.selection.get("preserve_group_order")),
             )
             for index, text in enumerate(texts):
                 text.set_visible(index < len(ticks))
@@ -1249,9 +1272,8 @@ class SequencePage(QWidget):
                                   for comparison in panel.get("comparisons", ())))
 
     def display_panel_specs(self):
-        parameter = self.parameter_filter.parameter
         return [panel for panel in self.panel_specs
-                if parameter is None or parameter in self.panel_parameters(panel)]
+                if self.parameter_filter.matches(self.panel_parameters(panel))]
 
     def set_parameter_filter(self, _parameter):
         """Reparent existing panels only; curves, comparisons and zoom stay."""
@@ -1269,7 +1291,7 @@ class SequencePage(QWidget):
             for panel, host in zip(self.panel_specs, self.panel_hosts):
                 host.setParent(self)
                 host.hide()
-                if self.parameter_filter.parameter is None or self.parameter_filter.parameter in self.panel_parameters(panel):
+                if self.parameter_filter.matches(self.panel_parameters(panel)):
                     grid.add_panel(host)
                     host.show()
             previous = self.interactive_scroll.takeWidget()
@@ -1283,6 +1305,41 @@ class SequencePage(QWidget):
                           rows * 350 + 30)
         self._export_dirty = True
         self._copy_image = self._copy_dpi = None
+        self.expand_layout()
+
+    def expand_layout(self, *_):
+        """Fit each wafer locally while retaining the existing plotted items."""
+        if self.plot_host is None or not self.plot_widgets:
+            return
+        self._copy_image = self._copy_dpi = None
+        enabled = self.expand_wafer_ids.isChecked()
+        widths = []
+        for host, widget in zip(self.panel_hosts, self.plot_widgets):
+            axis = getattr(widget, "_wafer_axis", None)
+            width = 360
+            spacing = None
+            if enabled and axis is not None:
+                metrics = QFontMetricsF(axis.style.get("tickFont") or widget.font())
+                chrome = max(160, ceil(widget.width() - widget.getViewBox().sceneBoundingRect().width()))
+                spacing = WaferSpacing(axis.spans, self.x_range, metrics.horizontalAdvance)
+                width = max(width, spacing.width + chrome)
+            space_wafer_plot(widget, spacing)
+            widget.setMinimumWidth(width)
+            host.setMinimumWidth(width + COMPARE_CONTROL_WIDTH + 4 if enabled else 0)
+            host.layout().invalidate()
+            host.layout().activate()
+            if host in self.plot_host.panels:
+                widths.append(host.minimumWidth())
+        columns = getattr(self.plot_host, "columns", 1)
+        self.plot_host.setSizePolicy(QSizePolicy.Policy.Expanding, self.plot_host.sizePolicy().verticalPolicy())
+        self.plot_host.setMinimumWidth(columns * max(widths, default=0) + (columns - 1) * 6 if enabled else 0)
+        if not enabled:
+            for row in self.plot_host.row_splitters:
+                row.refresh()
+            self.plot_host.refresh()
+            # Qt can defer the scroll area's layout request for another event
+            # pass. Shrink the existing grid now, without rebuilding its plots.
+            self.plot_host.resize(self.interactive_scroll.viewport().width(), self.plot_host.height())
 
     def render_interactive(self, panels, groups, columns, rows):
         """Render every base panel plus any explicit comparison curves."""
@@ -1295,12 +1352,13 @@ class SequencePage(QWidget):
         panel_height = 320
         grid = PanelGrid(columns)
         grid.set_minimum_row_height(rows, panel_height)
-        self.wafer_ticks = [(group["center"], group["group_label"] if self.selection.get("preserve_group_order") else group["wafer"]) for group in self.axis_groups]
+        self.wafer_ticks = [(group["center"], group["group_label"] if self.selection.get("show_group_labels", self.selection.get("preserve_group_order")) else group["wafer"]) for group in self.axis_groups]
         for panel in panels:
             metric, panel_source = panel["metric"], panel["source"]
             comparisons = panel.get("comparisons", ())
             widget = InteractivePlotWidget(background="w", auto_x_range=self.x_range)
             widget.setMinimumSize(360, 280)
+            widget.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
             widget.setToolTip("Ctrl+scroll to zoom · Drag a box to zoom · Right-drag to pan · "
                               "Ordinary scrolling moves the page · "
                               "Double-click to fit this curve · Reset views restores all curves")
@@ -1311,10 +1369,10 @@ class SequencePage(QWidget):
             plot.setAxisItems({"bottom": DieSequenceAxis(die_ticks, font=widget.font())})
             plot.setTitle(None)   # the QLabel above the plot owns the heading
             plot.showGrid(x=False, y=True, alpha=.18)
-            plot.setLabel("left", "Value", color="#30343b", size=f"{max(7, base - 1)}pt")
             plot.setLabel("bottom", "Die Seq", color="#30343b",
                           size=f"{max(7, base - 1)}pt")
             title = self._legend_label(panel_source, metric)
+            plot.setLabel("left", title, color="#30343b", size=f"{max(7, base - 1)}pt")
             heading = panel_title_label(f"<b>{escape(title)}</b>", base + 1)
             container = PlotPanel(
                 heading, widget,
@@ -1326,18 +1384,15 @@ class SequencePage(QWidget):
             axis = plot.getAxis("bottom")
             source_mode = bool(self.selection.get("sources"))
 
-            def curve(target, name, color, legend, label, curve_groups, symbol="o"):
+            def curve(target, name, color, legend, label, curve_groups):
                 if not curve_groups:
                     return None
                 positions = np.concatenate([group["positions"] for group in curve_groups])
                 values = self._metric_values(name, curve_groups)
-                pen = pg.mkPen(
-                    color, width=1.6,
-                    style=self._source_line_style(curve_groups[0].get("source"), qt=True),
-                )
+                pen = pg.mkPen(color, width=2.2)
                 item = ResponsivePlotDataItem(
                     positions, values, connect="finite", pen=pen,
-                    symbol=symbol, symbolSize=5, symbolPen=pg.mkPen(color),
+                    symbol="o", symbolSize=5, symbolPen=None,
                     symbolBrush=pg.mkBrush(color), name=label,
                 )
                 target.addItem(item)
@@ -1352,7 +1407,7 @@ class SequencePage(QWidget):
                                  else LINE_COLOR)
                 primary_values = self._metric_values(metric, chosen)
                 plot.setLabel(
-                    "left", self._axis_label(metric, parse_unit(metric)),
+                    "left", title,
                     color=primary_color, size=f"{max(7, base - 1)}pt",
                 )
                 left = plot.getAxis("left")
@@ -1392,11 +1447,12 @@ class SequencePage(QWidget):
                     curve(
                         target, secondary, secondary_color, legend,
                         secondary_label, secondary_groups,
-                        COMPARE_SYMBOLS[compare_index % len(COMPARE_SYMBOLS)],
                     )
                 if mixed_units:
+                    title += " · Mixed units (" + " / ".join(sorted(mixed_units)) + ")"
+                    heading.setText(f"<b>{escape(title)}</b>")
                     plot.setLabel(
-                        "left", "Mixed units (" + " / ".join(sorted(mixed_units)) + ")",
+                        "left", title,
                         color="#30343b", size=f"{max(7, base - 1)}pt",
                     )
             elif source_mode:
@@ -1407,13 +1463,7 @@ class SequencePage(QWidget):
                     self._legend_label(panel_source, metric), chosen,
                 )
             else:
-                drawn = np.concatenate([group["positions"] for group in chosen])
-                values = self._metric_values(metric, chosen)
-                plot.plot(
-                    drawn, values, connect="finite",
-                    pen=pg.mkPen(LINE_COLOR, width=1.6), symbol="o", symbolSize=4,
-                    symbolPen=pg.mkPen(LINE_COLOR), symbolBrush=pg.mkBrush(LINE_COLOR),
-                )
+                curve(plot, metric, LINE_COLOR, None, None, chosen)
 
             if self.axis_groups:
                 widget.wafer_boundaries = widget.add_vertical_boundaries(
@@ -1428,7 +1478,7 @@ class SequencePage(QWidget):
                 # so the curve itself stays one continuous line.
                 wafer_axis = SpanLabelAxis(
                     label_spans, font=widget.font(),
-                    optional_fields=not self.selection.get("preserve_group_order"),
+                    optional_fields=not self.selection.get("show_group_labels", self.selection.get("preserve_group_order")),
                 )
                 wafer_axis.setStyle(tickLength=0, tickTextOffset=4, tickFont=widget.font())
                 wafer_axis.setPen(pg.mkPen(QColor(0, 0, 0, 0)))
@@ -1469,6 +1519,7 @@ class SequencePage(QWidget):
             self.restore_page_scroll(previous_scroll)
         finally:
             self.interactive_scroll.setUpdatesEnabled(True)
+        self.expand_layout()
         QTimer.singleShot(0, self.remember_home_views)
         self.parameter_filter.set_parameters([name for panel in panels for name in self.panel_parameters(panel)])
         if self.parameter_filter.parameter is not None:
@@ -1541,6 +1592,7 @@ class SequencePage(QWidget):
                 axis.setLabel(axis.labelText, units=axis.labelUnits, unitPrefix=axis.labelUnitPrefix,
                               **options,
                               **{**axis.labelStyle, "size": f"{max(7, base - 1)}pt"})
+        self.expand_layout()
 
     def change_resolution(self, *_):
         if self.ready:

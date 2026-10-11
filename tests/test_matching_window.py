@@ -11,7 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pandas as pd
 import pyqtgraph as pg
-from PyQt6.QtCore import QPoint, QPointF, Qt, QTimer
+from PyQt6.QtCore import QCoreApplication, QEvent, QPoint, QPointF, Qt, QTimer
 from PyQt6.QtGui import QFontMetrics, QImage, QWheelEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import (
@@ -138,17 +138,20 @@ class MatchingWindowTests(unittest.TestCase):
             plot = window.plot_groups["Depth"]["plots"][name]
             axis = plot.getAxis("bottom")
             for limits in ((.5, count + .5), (.5, 3.5), (.5, count + .5)):
-                window.resize(1900 if limits[1] == 3.5 else 1180, 760)
+                # Typed captions are wider; give each of the three plots room
+                # for the full metadata, while keeping the dense view narrow.
+                window.resize(2200 if limits[1] == 3.5 else 1180, 760)
                 plot.setXRange(*limits, padding=0)
                 APP.processEvents()
                 text = "\n".join(label for _, label in axis._tickLevels[0])
                 self.assertTrue(text)
-                self.assertNotIn("PAD:", text)
                 self.assertNotIn("Lot:", text)
                 if limits[1] == 3.5:
-                    self.assertIn("LOT-2026-VERY-LONG-IDENTITY", text)
-                    self.assertIn("PAD-2026-VERY-LONG-IDENTITY", text)
+                    self.assertIn("LOT: LOT-2026-VERY-LONG-IDENTITY", text)
+                    self.assertIn("PAD: PAD-2026-VERY-LONG-IDENTITY", text)
                 else:
+                    self.assertNotIn("LOT:", text)
+                    self.assertNotIn("PAD:", text)
                     self.assertNotIn("LOT-", text)
                     self.assertNotIn("PAD-", text)
                 picture = QPicture()
@@ -462,7 +465,7 @@ class MatchingWindowTests(unittest.TestCase):
         plot._refresh_group_axis()
         self.assertEqual([text for _, text in plot._group_axis._tickLevels[0]], ["Head A"])
         self.assertEqual([text for _, text in plot._wafer_axis._tickLevels[0]],
-                         ["W1\nLOT-ONE\nARRAY", "W2\nLOT-TWO\nARRAY"])
+                         ["W1\nLOT: LOT-ONE\nPAD: ARRAY", "W2\nLOT: LOT-TWO\nPAD: ARRAY"])
         self.assertLess(plot._wafer_axis.sceneBoundingRect().top(), plot._group_axis.sceneBoundingRect().top())
         self.assertEqual(plot._wafer_axis.boundary_width, 1)
         self.assertEqual(plot._group_axis.boundary_width, 2)
@@ -527,13 +530,13 @@ class MatchingWindowTests(unittest.TestCase):
                     self.assertEqual(plot._group_axis.isVisible(), order == "groups")
                     self.assertEqual([line.value() for line in plot._group_boundaries], [] if order == "groups" else [2.5])
 
-    def test_trend_order_offers_group_and_original_rows_only(self):
+    def test_trend_order_offers_source_orders_and_preserves_legacy_rows(self):
         """The removed table order no longer appears and loads as original rows."""
         window = self.window
         order = window.group_controls.order
         self.assertEqual(
             [order.itemData(index) for index in range(order.count())],
-            ["groups", "original"],
+            ["original", "wafers"],
         )
         window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7., 9.]}))
         window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1", "W1", "W2", "W2"],
@@ -542,6 +545,8 @@ class MatchingWindowTests(unittest.TestCase):
             {"enabled": True, "mark_enabled": False, "trend_order": "table"},
             pd.DataFrame({"TestFlag": [0] * 4}))
         self.assertEqual(window.group_controls.state["trend_order"], "original")
+        self.assertEqual([order.itemData(index) for index in range(order.count())],
+                         ["groups", "original", "wafers"])
         self.assertEqual(order.currentData(), "original")
         window.run_analysis()
         trend = window.plot_groups["CD"]["plots"]["trend"]
@@ -1702,8 +1707,8 @@ class MatchingWindowTests(unittest.TestCase):
         detail["plots"]["trend"].card_checkbox.setChecked(True)
         self.assertEqual(detail["plots"]["bias"].listDataItems()[0].yData.tolist(), [-2., -3., -4.])
 
-    def test_trend_plots_share_the_raw_column_title_and_off_frame_legend(self):
-        """Every Trend titles its Raw Data column and keeps the legend off the data."""
+    def test_trend_plots_share_parameter_title_y_label_and_off_frame_legend(self):
+        """Every Trend names the mapped Parameter and keeps the legend off the data."""
         window = self.window
         raw = pd.DataFrame({"Wafer ID": ["W1"] * 3 + ["W2"] * 3,
                             "PAD Name": ["ARRAY"] * 6, "Lot ID": ["L1"] * 6,
@@ -1730,8 +1735,13 @@ class MatchingWindowTests(unittest.TestCase):
 
         for surface, trend in trends.items():
             with self.subTest(surface=surface):
-                self.assertEqual(trend.getAxis("left").labelText, "")
-                self.assertFalse(trend.getAxis("left").label.isVisible())
+                for curve in trend.listDataItems():
+                    self.assertEqual(curve.opts["symbol"], "o")
+                    self.assertEqual(curve.opts["symbolSize"], 5)
+                    self.assertEqual(curve.opts["pen"].style(), Qt.PenStyle.SolidLine)
+                    self.assertEqual(curve.opts["pen"].widthF(), 2.2)
+                self.assertEqual(trend.getAxis("left").labelText, "CD")
+                self.assertTrue(trend.getAxis("left").label.isVisible())
                 self.assertEqual(trend.title_label.text(), "CD")
                 self.assertEqual(
                     sorted(curve.name() for curve in trend.listDataItems()),
@@ -1753,7 +1763,7 @@ class MatchingWindowTests(unittest.TestCase):
                     self.assertLessEqual(title_rect.bottom(), legend_top,
                                          "Trend title and legend need separate header rows after Card toggles")
 
-    def test_all_match_trends_use_raw_column_titles_and_instrument_legends(self):
+    def test_all_match_trends_use_parameter_titles_and_instrument_legends(self):
         """KLA / NOVA / TEM trends label the Reference curve with the match type."""
         window = self.window
         reference = pd.DataFrame({"CD Reference": [3., 5., 7., 8., 11., 14.]})
@@ -1774,7 +1784,7 @@ class MatchingWindowTests(unittest.TestCase):
                     APP.processEvents()
                     trend = window.plot_groups["CD"]["plots"]["trend"]
                     self.assertEqual(trend.title_label.text(), "CD")
-                    self.assertEqual(trend.getAxis("left").labelText, "")
+                    self.assertEqual(trend.getAxis("left").labelText, "CD")
                     self.assertEqual(
                         sorted(curve.name() for curve in trend.listDataItems()),
                         sorted([match_type, "PMISH"]),
@@ -1975,6 +1985,7 @@ class MatchingWindowTests(unittest.TestCase):
     def tearDown(self):
         self.window.close()
         self.window.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         APP.processEvents()
         for patcher in reversed(self._recent_patchers):
             patcher.stop()
@@ -2165,9 +2176,9 @@ class MatchingWindowTests(unittest.TestCase):
             )
             correlation_cells = {
                 (key, metric)
-                for key in reference_keys for metric in ("CD_Bot", "SPA")
+                for key in reference_keys for metric in ("CD_Bot Reference", "SPA Reference")
             }
-            trend_cells = {(trend_key, "CD_Bot")}
+            trend_cells = {(trend_key, "CD_Bot Reference")}
             first.correlation_page.selector.set_selected_cells(
                 correlation_cells
             )
@@ -2349,8 +2360,8 @@ class MatchingWindowTests(unittest.TestCase):
         window.result_mode.setCurrentText("Final")
         self.assertIs(window.result, final)
 
-    def test_reference_is_loaded_before_raw_data_and_enables_analysis(self):
-        self.assertFalse(self.window.raw_view.isEnabled())
+    def test_reference_then_raw_enables_analysis_without_locking_raw_input(self):
+        self.assertTrue(self.window.raw_view.isEnabled())
         self.assertFalse(self.window.analyze_button.isEnabled())
 
         self.window.set_reference_frame(self.reference(), "Clipboard")
@@ -2810,7 +2821,11 @@ class MatchingWindowTests(unittest.TestCase):
             "Paste a Reference table to begin.",
             [label.text() for label in self.window.findChildren(QLabel)],
         )
-        self.assertTrue(self.window.status.isHidden())
+        self.assertFalse(self.window.status.isHidden())
+        self.assertEqual(self.window.status.objectName(), "warning")
+        self.assertTrue(self.window.correlation_button.isEnabled())
+        self.assertTrue(self.window.preview_open_button.isEnabled())
+        self.assertTrue(self.window.preview_dynamic_button.isEnabled())
         self.assertFalse(hasattr(self.window, "reset_order_button"))
         self.assertIsInstance(self.window.setup_scroll, QScrollArea)
         self.assertIsInstance(self.window.setup_splitter, QSplitter)
@@ -3249,7 +3264,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(bias_percent_item.opts["symbol"], "o")
         self.assertEqual(plots["match"].getAxis("bottom").labelText, "PMISH")
         self.assertEqual(plots["match"].getAxis("left").labelText, "TEM")
-        self.assertEqual(plots["trend"].getAxis("left").labelText, "")
+        self.assertEqual(plots["trend"].getAxis("left").labelText, "CD_Bot")
         self.assertEqual(plots["bias"].getAxis("left").labelText, "Bias (nm)")
         self.assertEqual(
             plots["bias-percent"].getAxis("left").labelText,
@@ -4245,7 +4260,7 @@ class MatchingWindowTests(unittest.TestCase):
             assert_views_kept()
             self.assertEqual(
                 pd.to_numeric(
-                    correlation_window.reference_model.frame()["CD_Bot"],
+                    correlation_window.reference_model.frame()["CD_Bot Reference"],
                     errors="coerce",
                 ).tolist(),
                 reference["CD_Bot Reference"].tolist(),
@@ -4983,7 +4998,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertIsInstance(self.window.results_tabs, QTabWidget)
         self.assertEqual(self.window.results_tabs.count(), 2)
         self.assertEqual(self.window.results_tabs.tabText(0), "All parameter plots")
-        self.assertEqual(self.window.results_tabs.tabText(1), "Single-wafer metrics")
+        self.assertEqual(self.window.results_tabs.tabText(1), "Single-Wafer metrics")
         group = self.window.plot_groups["CD"]
         self.assertFalse(group["wafer_card"].isHidden())
         self.assertEqual(group["wafer_model"].rowCount(), 2)
