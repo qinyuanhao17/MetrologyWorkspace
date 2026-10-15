@@ -1200,10 +1200,11 @@ class WorkbookPerformanceTests(unittest.TestCase):
             # Do not process the queued auto-analysis before the user's export.
             with tempfile.TemporaryDirectory() as folder:
                 path = window.export_excel(Path(folder) / "immediate.xlsx")
-                summary = pd.read_excel(path, sheet_name="Summary")
-                saved_raw = pd.read_excel(path, sheet_name="Raw Data", dtype=str)
-                self.assertAlmostEqual(summary.iloc[0]["Slope"], 2)
-                self.assertAlmostEqual(summary.iloc[0]["Intercept"], 0)
+                from openpyxl import load_workbook
+                helper = load_workbook(path)["_Plot data"]
+                saved_raw = pd.read_excel(path, sheet_name="Match (WO Card)", dtype=str, nrows=3)
+                self.assertAlmostEqual(helper["K10"].value, 2)
+                self.assertAlmostEqual(helper["K11"].value, 0)
                 self.assertEqual(saved_raw["CD"].tolist(), ["2.000", "3.000", "4.000"])
             app.processEvents()
             self.assertAlmostEqual(window.result.card("CD").intercept, 0)

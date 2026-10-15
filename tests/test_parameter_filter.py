@@ -12,9 +12,11 @@ import pandas as pd
 from PyQt6 import sip
 from PyQt6.QtCore import Qt
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QApplication, QFileDialog, QLabel, QPushButton, QVBoxLayout, QWidget
 from metrology_app.plotting.parameter_filter import ParameterFilterBar
 from metrology_app.correlation_page import CorrelationPage
+from metrology_app.correlation_window import CorrelationWindow
+from metrology_app.matching import ParameterMapping
 from metrology_app.sequence_page import SequencePage
 from metrology_app import settings as settings_module
 from metrology_app.matching_window import MatchingWindow
@@ -24,6 +26,252 @@ APP = QApplication.instance() or QApplication([])
 
 
 class ParameterFilterTests(unittest.TestCase):
+    def test_pair_count_is_unordered_but_reference_and_raw_fits_remain_separate(self):
+        window = CorrelationWindow()
+        raw = pd.DataFrame({"Wafer ID": ["W1"] * 5, "Die Seq": ["1", "2", "3", "4", "5"],
+                            "UC": ["1", "2", "3", "4", "5"],
+                            "WTH": ["3", "5", "7", "9", "11"]})
+        reference = raw.assign(WTH=["4", "7", "10", "13", "16"])
+        try:
+            window.set_sources(reference, raw, [ParameterMapping("UC", "UC", "UC"),
+                                                ParameterMapping("WTH", "WTH", "WTH")])
+            window.show()
+            window.tabs.setCurrentWidget(window.correlation_page)
+            page = window.correlation_page
+            page.selector.selectAll()
+            page.draw_plot()
+            APP.processEvents()
+            original = list(page.all_fits)
+            modifiers = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier
+            for names in (("UC", "WTH"), ("WTH", "UC")):
+                QTest.mouseClick(page.parameter_filter.buttons[None], Qt.MouseButton.LeftButton)
+                for name in names:
+                    QTest.mouseClick(page.parameter_filter.buttons[name], Qt.MouseButton.LeftButton, modifiers)
+                QTest.keyRelease(page, Qt.Key.Key_Alt, Qt.KeyboardModifier.ControlModifier)
+                QTest.keyRelease(page, Qt.Key.Key_Control)
+                fits = page.display_fits()
+                self.assertEqual(len(fits), 2)
+                self.assertEqual({fit.sources[0].name for fit in fits}, {"Reference", "Raw Data"})
+                self.assertEqual({frozenset((fit.x_name, fit.y_name)) for fit in fits}, {frozenset(("UC", "WTH"))})
+                self.assertIn("1 parameter pair", page.status.text())
+                self.assertIn("2 source fits", page.status.text())
+            self.assertEqual(page.all_fits, original)
+            np.testing.assert_allclose([fit.sources[0].fit.slope for fit in fits], [3., 2.], rtol=1e-12)
+            page.swap_axes(fits[0])
+            self.assertEqual(len(page.display_fits()), 2)
+            self.assertIn("1 parameter pair", page.status.text())
+        finally:
+            QTest.keyRelease(window, Qt.Key.Key_Alt, Qt.KeyboardModifier.ControlModifier)
+            QTest.keyRelease(window, Qt.Key.Key_Control)
+            window.document.force_close = True
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_multi_selection_keeps_correlation_panel_boundaries_aligned_after_reusing_panels(self):
+        page = CorrelationPage()
+        names = ["DP", "EW", "TG", "UC", "WTH", "Si_HT", "UnderCut"]
+        x = np.linspace(1, 5, 13)
+        frame = pd.DataFrame({"Wafer ID": ["W1"] * len(x),
+                              **{name: (index + 1) * x + index for index, name in enumerate(names)}})
+        selection = {"wafer_column": "Wafer ID", "wafers": ["W1"],
+                     "metrics": names, "groups": {"W1": range(len(x))}}
+        try:
+            page.set_input(frame, selection)
+            page.selector.selectAll()
+            page.draw_plot()
+            page.resize(1900, 900)
+            page.show()
+            QTest.qWait(30)
+            for first, second in (("UC", "WTH"), ("DP", "TG"), ("EW", "UnderCut")):
+                QTest.mouseClick(page.parameter_filter.buttons[first], Qt.MouseButton.LeftButton)
+                QTest.mouseClick(page.parameter_filter.buttons[second], Qt.MouseButton.LeftButton,
+                                 Qt.KeyboardModifier.ControlModifier)
+                QTest.keyRelease(page, Qt.Key.Key_Control)
+                QTest.qWait(30)
+                self.assertEqual(len(page.plot_widgets), 11)
+                widths = [panel.width() for panel in page.panel_hosts]
+                self.assertLessEqual(max(widths) - min(widths), 3, (first, second, widths))
+                page.resize(1520, 800)
+                QTest.qWait(30)
+                widths = [panel.width() for panel in page.panel_hosts]
+                self.assertLessEqual(max(widths) - min(widths), 3, (first, second, widths))
+                page.parameter_filter.buttons[None].click()
+                page.resize(1900, 900)
+                QTest.qWait(30)
+        finally:
+            QTest.keyRelease(page, Qt.Key.Key_Control)
+            page.close()
+            page.deleteLater()
+            APP.processEvents()
+
+    def test_keyboard_pair_selection_restarts_after_two_and_trend_keeps_ctrl_union(self):
+        for pair_selection in (True, False):
+            bar = ParameterFilterBar(pair_selection=pair_selection)
+            try:
+                bar.set_parameters(["DP", "TG", "EW"])
+                bar.show()
+                APP.processEvents()
+                modifiers = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier
+                for name in ("DP", "EW"):
+                    bar.buttons[name].setFocus()
+                    QTest.keyClick(bar.buttons[name], Qt.Key.Key_Space, modifiers)
+                self.assertEqual(bar.matches(("DP", "TG")), not pair_selection)
+                self.assertTrue(bar.matches(("DP", "EW")))
+                if pair_selection:
+                    QTest.mouseClick(bar.buttons["TG"], Qt.MouseButton.LeftButton, modifiers)
+                    self.assertEqual(bar.parameter, {"mode": "pair", "parameters": ["TG"]})
+                    bar.set_parameters(["DP", "EW"])
+                    self.assertIsNone(bar.parameter)
+                QTest.mouseClick(bar.buttons[None], Qt.MouseButton.LeftButton)
+                self.assertIsNone(bar.parameter)
+            finally:
+                QTest.keyRelease(bar, Qt.Key.Key_Alt, Qt.KeyboardModifier.ControlModifier)
+                QTest.keyRelease(bar, Qt.Key.Key_Control)
+                bar.close()
+                bar.deleteLater()
+                APP.processEvents()
+
+    def test_ctrl_alt_pair_survives_owned_wkb_reopen_and_child_export_snapshot(self):
+        from metrology_app.analysis_export import capture_window
+
+        def close(window):
+            if sip.isdeleted(window):
+                return
+            window.document.force_close = True
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+        parent = MatchingWindow()
+        self.addCleanup(close, parent)
+        frame, _selection = self.data()
+        parent.match_type.setCurrentText("NOVA")
+        parent.set_reference_frame(frame[["DP", "TG", "EW"]].rename(
+            columns={name: f"{name} Reference" for name in ("DP", "TG", "EW")}))
+        parent.set_raw_frame(frame)
+        parent.run_analysis()
+        child = parent.open_correlation_workspace()
+        self.addCleanup(close, child)
+        before = child.workspace_snapshot()
+        page = child.correlation_page
+        page.selector.selectAll()
+        page.draw_plot()
+        modifiers = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier
+        try:
+            QTest.mouseClick(page.parameter_filter.buttons["DP"], Qt.MouseButton.LeftButton, modifiers)
+            QTest.mouseClick(page.parameter_filter.buttons["EW"], Qt.MouseButton.LeftButton, modifiers)
+        finally:
+            QTest.keyRelease(page, Qt.Key.Key_Alt, Qt.KeyboardModifier.ControlModifier)
+            QTest.keyRelease(page, Qt.Key.Key_Control)
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "correlation-pair.wkb"
+            parent.save_workbook(path)
+            restored = MatchingWindow()
+            self.addCleanup(close, restored)
+            restored.load_workbook(path)
+            reopened = restored.open_correlation_workspace()
+            self.addCleanup(close, reopened)
+            page = reopened.correlation_page
+            self.assertEqual(page.parameter_filter.parameter, {"mode": "pair", "parameters": ["DP", "EW"]})
+            self.assertEqual([(fit.x_name, fit.y_name) for fit in page.display_fits()], [("DP", "EW")])
+            self.assertIsNone(reopened.sequence_page.parameter_filter.parameter)
+            report = capture_window(reopened)
+            self.assertEqual([(plot["x"], plot["y"]) for plot in report["plots"]
+                              if plot["sheet"] == "Correlation"], [("DP", "EW")])
+            for name, source in before.frames.items():
+                pd.testing.assert_frame_equal(reopened.workspace_snapshot().frames[name], source)
+            QTest.mouseClick(page.parameter_filter.buttons["TG"], Qt.MouseButton.LeftButton,
+                             Qt.KeyboardModifier.ControlModifier)
+            QTest.keyRelease(page, Qt.Key.Key_Control)
+            self.assertEqual(page.parameter_filter.parameter, ["DP", "TG", "EW"])
+            self.assertEqual(len(page.display_fits()), 3)
+
+    def test_pair_without_an_eligible_fit_has_a_clear_empty_view_and_does_not_bypass_rsq(self):
+        page = CorrelationPage()
+        frame = pd.DataFrame({"Wafer ID": ["W1"] * 4, "DP": [-2., 0., 0., 2.],
+                              "TG": [-1., -1., 1., 1.], "EW": [-1., 1., -1., 1.]})
+        selection = {"wafer_column": "Wafer ID", "wafers": ["W1"],
+                     "metrics": ["DP", "TG", "EW"], "groups": {"W1": range(4)}}
+        try:
+            page.min_rsq.setValue(.25)
+            page.set_input(frame, selection)
+            page.selector.selectAll()
+            page.draw_plot()
+            page.show()
+            APP.processEvents()
+            original = list(page.plot_widgets)
+            fits = list(page.all_fits)
+            modifiers = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier
+            QTest.mouseClick(page.parameter_filter.buttons["TG"], Qt.MouseButton.LeftButton, modifiers)
+            QTest.mouseClick(page.parameter_filter.buttons["EW"], Qt.MouseButton.LeftButton, modifiers)
+            self.assertEqual(page.display_fits(), [])
+            self.assertEqual(page.plot_widgets, [])
+            self.assertIn("No correlation", page.status.text())
+            self.assertFalse(page.export_button.isEnabled())
+            self.assertFalse(page.export_all_button.isEnabled())
+            self.assertFalse(page.copy_button.isEnabled())
+            page.ensure_export_figure()
+            self.assertEqual(page.figure.axes, [])
+            self.assertGreaterEqual(page.figure.get_size_inches()[1], 3)
+            self.assertEqual(page.all_fits, fits)
+            self.assertEqual(page.min_rsq.value(), .25)
+            page.parameter_filter.buttons[None].click()
+            self.assertEqual(page.plot_widgets, original)
+            self.assertTrue(page.export_button.isEnabled())
+        finally:
+            QTest.keyRelease(page, Qt.Key.Key_Alt, Qt.KeyboardModifier.ControlModifier)
+            QTest.keyRelease(page, Qt.Key.Key_Control)
+            page.close()
+            page.deleteLater()
+            APP.processEvents()
+
+    def test_ctrl_alt_two_parameters_show_only_their_correlation_and_export_without_refitting(self):
+        page = CorrelationPage()
+        frame, selection = self.data()
+        try:
+            page.set_input(frame, selection)
+            page.selector.selectAll()
+            page.draw_plot()
+            page.resize(1100, 760)
+            page.show()
+            APP.processEvents()
+            original = list(page.plot_widgets)
+            fits = list(page.all_fits)
+            pair_fit = next(fit for fit in fits if (fit.x_name, fit.y_name) == ("DP", "EW"))
+            page.swap_axes(pair_fit)
+            directions = page.axis_state()
+            for widget in original:
+                widget.getViewBox().setRange(xRange=(2, 4), yRange=(4, 8), padding=0)
+            zoom = {widget: widget.getViewBox().viewRange() for widget in original}
+            modifiers = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier
+            QTest.mouseClick(page.parameter_filter.buttons["DP"], Qt.MouseButton.LeftButton, modifiers)
+            QTest.mouseClick(page.parameter_filter.buttons["EW"], Qt.MouseButton.LeftButton, modifiers)
+            self.assertEqual([(fit.x_name, fit.y_name) for fit in page.display_fits()], [("DP", "EW")])
+            self.assertEqual(len(page.plot_widgets), 1)
+            self.assertIn(page.plot_widgets[0], original)
+            np.testing.assert_allclose(page.plot_widgets[0].getViewBox().viewRange(), zoom[page.plot_widgets[0]])
+            self.assertEqual(page.all_fits, fits)
+            self.assertEqual(page.axis_state(), directions)
+            self.assertEqual((page.oriented_fit(pair_fit).x_name, page.oriented_fit(pair_fit).y_name), ("EW", "DP"))
+            pd.testing.assert_frame_equal(page.frame, frame)
+            page.ensure_export_figure()
+            self.assertEqual([(axis.get_xlabel(), axis.get_ylabel()) for axis in page.figure.axes], [("EW", "DP")])
+            with TemporaryDirectory() as folder:
+                path = Path(folder) / "pair.png"
+                with patch.object(QFileDialog, "getSaveFileName", return_value=(str(path), "PNG (*.png)")):
+                    page.export_all_pages()
+                self.assertTrue(path.is_file())
+                self.assertIn("Exported all 1 fits across 1 pages", page.status.text())
+            page.parameter_filter.buttons[None].click()
+            self.assertEqual(page.plot_widgets, original)
+        finally:
+            QTest.keyRelease(page, Qt.Key.Key_Alt, Qt.KeyboardModifier.ControlModifier)
+            QTest.keyRelease(page, Qt.Key.Key_Control)
+            page.close()
+            page.deleteLater()
+            APP.processEvents()
+
     def test_multi_selection_prunes_removed_names_and_keyboard_and_restoration_keep_the_same_contract(self):
         bar = ParameterFilterBar()
         bar.set_parameters(["DP", "TG", "EW"])

@@ -68,9 +68,11 @@ class _ParameterFlowLayout(QLayout):
 class ParameterFilterBar(QWidget):
     changed = pyqtSignal(object)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, pair_selection=False):
         super().__init__(parent)
         self._parameters = frozenset()
+        self._pair_selection = pair_selection
+        self._pair_mode = False
         self.names = ()
         self.buttons = {}
         self.flow = _ParameterFlowLayout(self)
@@ -81,21 +83,31 @@ class ParameterFilterBar(QWidget):
 
     @property
     def parameter(self):
-        """JSON-safe state; retain None/one name for existing single-choice WKBs."""
+        """JSON-safe state; old single/union choices keep their original shape."""
         selected = [name for name in self.names if name in self._parameters]
+        if self._pair_mode:
+            return {"mode": "pair", "parameters": selected}
         return selected[0] if len(selected) == 1 else selected or None
 
     def matches(self, names):
-        """A panel is visible when any selected parameter occurs in it."""
+        """Pair mode requires both names; ordinary multi-selection is a union."""
+        if self._pair_mode and len(self._parameters) == 2:
+            return self._parameters.issubset(names)
         return not self._parameters or not self._parameters.isdisjoint(names)
 
     def set_selection(self, parameters):
         """Restore or choose a selection without depending on held Ctrl keys."""
+        pair = (self._pair_selection and isinstance(parameters, dict)
+                and parameters.get("mode") == "pair")
+        if isinstance(parameters, dict):
+            parameters = parameters.get("parameters", ()) if pair else ()
         if not isinstance(parameters, (list, tuple, set, frozenset)):
             parameters = (parameters,)
         selected = frozenset(name for name in self.names if name in parameters)
-        changed = selected != self._parameters
+        pair = bool(pair and 0 < len(selected) <= 2)
+        changed = selected != self._parameters or pair != self._pair_mode
         self._parameters = selected
+        self._pair_mode = pair
         for name, button in self.buttons.items():
             active = (name is None and not selected) or name in selected
             button.setChecked(active)
@@ -112,6 +124,7 @@ class ParameterFilterBar(QWidget):
             return
         self.names = names
         self._parameters = self._parameters.intersection(names)
+        self._pair_mode = self._pair_mode and bool(self._parameters)
         while self.flow.count():
             item = self.flow.takeAt(0)
             button = item.widget()
@@ -127,7 +140,9 @@ class ParameterFilterBar(QWidget):
             button.setCheckable(True)
             button.setChecked(active)
             button.setToolTip("Show all drawn plots" if parameter is None else
-                              f"Show plots containing {parameter} · Ctrl+click to add or remove")
+                              f"Show plots containing {parameter} · Ctrl+click to add or remove"
+                              + (" · Ctrl+Alt+click two parameters to show only their correlation"
+                                 if self._pair_selection else ""))
             button.clicked.connect(lambda _checked, name=parameter: self._choose(name))
             self.group.addButton(button)
             self.flow.addWidget(button)
@@ -139,7 +154,16 @@ class ParameterFilterBar(QWidget):
     def _choose(self, parameter):
         if parameter not in self.buttons:
             return
-        if parameter is not None and QApplication.keyboardModifiers() & Qt.KeyboardModifier.ControlModifier:
+        modifiers = QApplication.keyboardModifiers()
+        if (parameter is not None and self._pair_selection
+                and modifiers & Qt.KeyboardModifier.ControlModifier
+                and modifiers & Qt.KeyboardModifier.AltModifier):
+            selected = self._parameters
+            if len(selected) >= 2 and (not self._pair_mode or parameter not in selected):
+                selected = frozenset()  # Start another pair, never grow a pair to three names.
+            selected = selected.symmetric_difference((parameter,))
+            self.set_selection({"mode": "pair", "parameters": list(selected)})
+        elif parameter is not None and modifiers & Qt.KeyboardModifier.ControlModifier:
             self.set_selection(self._parameters.symmetric_difference((parameter,)))
         else:
             self.set_selection(parameter)

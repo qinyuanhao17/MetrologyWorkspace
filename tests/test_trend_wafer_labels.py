@@ -396,6 +396,10 @@ class TrendWaferLabelTests(unittest.TestCase):
         with patch.object(QInputDialog, "getText", return_value=("Second", True)):
             action.trigger()
         second = next(window for window in APP.topLevelWidgets() if "Second" in window.windowTitle())
+        # New windows are blank manual editors; this expansion comparison
+        # explicitly asks for a Workbook copy before drawing both windows.
+        self.assertFalse(second.copy_from_wkb_action.isChecked())
+        second.copy_from_wkb_action.trigger()
         for child in (first, second):
             self.draw_child(child)
         parent.expand_wafer_ids.setChecked(True)

@@ -296,7 +296,7 @@ class CorrelationPage(QWidget):
         options.addWidget(self.resolution)
         options.addStretch()
         header.addLayout(options)
-        self.parameter_filter = ParameterFilterBar()
+        self.parameter_filter = ParameterFilterBar(pair_selection=True)
         self.parameter_filter.changed.connect(self.set_parameter_filter)
         header.addWidget(self.parameter_filter)
         layout.addLayout(header)
@@ -695,6 +695,10 @@ class CorrelationPage(QWidget):
     def update_fit_status(self):
         fits = self.display_fits()
         if not fits:
+            self.status.setText(
+                f"No correlation for the selected parameters passes R² > {self.min_rsq.value():.2f} "
+                "with the current drawn measurements."
+            )
             return
         size = int(self.page_size.currentText())
         start = self.page_index * size + 1
@@ -703,8 +707,12 @@ class CorrelationPage(QWidget):
             f" · skipped {self.skipped_count} invalid pairs"
             if self.skipped_count else ""
         )
+        pairs = len({frozenset((fit.x_name, fit.y_name)) for fit in fits})
+        pair_summary = f"{pairs} parameter pair{'s' if pairs != 1 else ''}"
+        if any(isinstance(fit, SourcePairFit) for fit in fits):
+            pair_summary += f" · {len(fits)} source fits"
         self.status.setText(
-            f"{len(fits)} / {len(self.all_fits)} fits pass "
+            f"{pair_summary} · {len(fits)} / {len(self.all_fits)} fits pass "
             f"R² > {self.min_rsq.value():.2f} · highest R² first · "
             f"showing {start}–{end} of {len(fits)}{skipped}"
         )
@@ -754,9 +762,10 @@ class CorrelationPage(QWidget):
         self.render_fits()
         self.ready = True
         self.stack.setCurrentWidget(self.interactive_scroll)
-        self.export_button.setEnabled(True)
-        self.export_all_button.setEnabled(True)
-        self.copy_button.setEnabled(True)
+        visible = bool(self.display_fits())
+        self.export_button.setEnabled(visible)
+        self.export_all_button.setEnabled(visible)
+        self.copy_button.setEnabled(visible)
         self.update_fit_status()
 
     def render_fits(self):
@@ -769,6 +778,15 @@ class CorrelationPage(QWidget):
         self._export_dirty = True
         self._copy_image = None
         self._copy_dpi = None
+        for control in (self.export_button, self.export_all_button, self.copy_button):
+            control.setEnabled(bool(visible_fits))
+        if not visible_fits:
+            self.base_size = (900, 400)
+            self.update_fit_status()
+            self.figure.clear()
+            self.draw_canvas_message(self.status.text())
+            self.clear_interactive(self.status.text(), preserve_panels=True)
+            return
         start_rank = self.page_index * int(self.page_size.currentText()) + 1
         self.render_interactive(visible_fits, columns, rows, start_rank)
 
@@ -777,6 +795,12 @@ class CorrelationPage(QWidget):
         self._export_dirty = False
         index = self.page_index if page_index is None else page_index
         visible_fits = self.page_fits(index)
+        if not visible_fits:
+            self.figure.clear()
+            self.figure.set_size_inches(9, 4, forward=False)
+            self.update_fit_status()
+            self.draw_canvas_message(self.status.text())
+            return
         columns = min(int(self.columns.currentText()), len(visible_fits))
         rows = ceil(len(visible_fits) / columns)
         width, height = columns * 520, rows * 390 + 30
@@ -1042,7 +1066,7 @@ class CorrelationPage(QWidget):
             self.status.setText(f"PNG output: {dpi} dpi. This setting does not change the on-screen plots.")
 
     def export_png(self):
-        if not self.ready:
+        if not self.ready or not self.display_fits():
             return
         self.ensure_export_figure()
         path, _ = QFileDialog.getSaveFileName(self, "Export pairwise fits", "pairwise_fits.png", "PNG (*.png)")
@@ -1068,7 +1092,7 @@ class CorrelationPage(QWidget):
             QApplication.restoreOverrideCursor()
 
     def export_all_pages(self):
-        if not self.ready:
+        if not self.ready or not self.display_fits():
             return
         path, _ = QFileDialog.getSaveFileName(
             self, "Export all pairwise fit pages", "pairwise_fits.png",
@@ -1096,7 +1120,7 @@ class CorrelationPage(QWidget):
                 self.figure.savefig(output, dpi=dpi, facecolor="white")
                 QApplication.processEvents()
             self.status.setText(
-                f"Exported all {len(self.fits)} fits across {pages} pages: "
+                f"Exported all {len(self.display_fits())} fits across {pages} pages: "
                 f"{base_path.parent}"
             )
         except Exception as error:
@@ -1106,7 +1130,7 @@ class CorrelationPage(QWidget):
             QApplication.restoreOverrideCursor()
 
     def copy_png(self):
-        if not self.ready:
+        if not self.ready or not self.display_fits():
             return
         _scale, requested = resolution_settings(self.resolution)
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)

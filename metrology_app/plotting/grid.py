@@ -133,9 +133,10 @@ class PanelGrid(_Splitter):
             placeholder.setMinimumWidth(max(0, int(minimum_width)))
             row.addWidget(placeholder)
             self.placeholders.append(placeholder)
-        for index in range(row.count()):
-            row.setStretchFactor(index, 1)
-        row.setSizes([1] * row.count())
+        for splitter in self.row_splitters:
+            for index in range(splitter.count()):
+                splitter.setStretchFactor(index, 1)
+            splitter.setSizes([1] * splitter.count())
         self.sync_columns(row)
         if self._fixed_row_height is not None and self._height_placeholder is None:
             filler = QWidget(objectName="plotHeightPlaceholder")

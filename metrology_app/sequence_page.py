@@ -1275,6 +1275,42 @@ class SequencePage(QWidget):
         return [panel for panel in self.panel_specs
                 if self.parameter_filter.matches(self.panel_parameters(panel))]
 
+    def export_plot_data(self):
+        """Detached, full-resolution series with their exact source positions."""
+        from .analysis_export import _series
+        plots = []
+        groups = self.view_groups or self.groups
+        for panel in self.display_panel_specs():
+            source, metric = panel["source"], panel["metric"]
+            chosen = self._chosen_groups(panel, groups)
+            primary = self._metric_values(metric, chosen)
+            series = []
+            candidates = [(source, metric, chosen, None)]
+            for comparison in panel.get("comparisons", ()):
+                other, name = self._comparison_series(panel, comparison)
+                selected = self._series_groups(other, name, groups)
+                values = self._metric_values(name, selected)
+                specification = overlay_spec(metric, name, primary, values,
+                    ratio_limit=self.axis_ratio_limit(), axis_mode=self.axis_mode_value())
+                candidates.append((other, name, selected, specification))
+            for owner, name, selected, specification in candidates:
+                if not selected:
+                    continue
+                offset = min((owner or {}).get("rows") or (0,))
+                item = _series(self._legend_label(owner, name),
+                    np.concatenate([group["positions"] for group in selected]),
+                    self._metric_values(name, selected),
+                    **{"Source row": np.concatenate([group["source_positions"] for group in selected]) - offset + 1,
+                       "Die Seq": np.concatenate([group["frame"]["__die"].to_numpy() for group in selected]),
+                       "Wafer": np.concatenate([np.repeat(group["wafer"], len(group["frame"])) for group in selected])})
+                if specification is not None and specification["kind"] == "second-axis":
+                    item["secondary"] = True
+                    item["unit"] = str(specification["secondary_unit"] or name)
+                series.append(item)
+            title = self._legend_label(source, metric)
+            plots.append({"sheet": "Trend", "title": title, "x": "Plot ordinal", "y": title, "series": series})
+        return plots
+
     def set_parameter_filter(self, _parameter):
         """Reparent existing panels only; curves, comparisons and zoom stay."""
         if not self.panel_specs or not self.plot_widgets:

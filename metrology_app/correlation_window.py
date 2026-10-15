@@ -958,6 +958,9 @@ class CorrelationWindow(DataWorkspaceWindow):
 
     def closeEvent(self, event):
         """Cancel deferred redraws before Qt disposes their controls."""
+        from .export_job import finish_export_before_close
+        if finish_export_before_close(self, event):
+            return
         super().closeEvent(event)
         if not event.isAccepted():
             return

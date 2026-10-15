@@ -67,6 +67,7 @@ from .appearance import (CORRELATION_FIT_COLOR, CORRELATION_POINT_COLOR,
                          fit_window_to_screen, help_title_label)
 from .analysis_windows import LABELS as WINDOW_LABELS, scope_parts, validate_windows, window_entries, window_metadata
 from .data import inspect_table
+from .excel_export import write_workbook
 from .trend import parse_unit
 from .diagnostics import get_logger
 from .matching import MAX_ROWS, MatchWorkbook, ParameterMapping, extrema_sample_indices
@@ -184,20 +185,55 @@ def clipboard_frame(text):
 
 
 class _AnalysisWindowMenu(QMenu):
-    """Keep the checklist open so a complete double click can rename an item."""
+    """Names open one window; indicators choose which windows reopen together."""
 
     renameRequested = pyqtSignal(str)
+    openRequested = pyqtSignal(str)
+    deleteRequested = pyqtSignal(str)
 
     def __init__(self, parent):
         super().__init__(parent)
         self._last_click = None
         self._ignore_release = False
+        self._pending_action = None
+        self._open_timer = QTimer(self, singleShot=True)
+        self._open_timer.timeout.connect(self._open_pending)
         self.aboutToShow.connect(self._reset_click)
+        self.aboutToHide.connect(self._cancel_open)
         self.setToolTipsVisible(True)
 
     def _reset_click(self):
+        self._cancel_open()
         self._last_click = None
         self._ignore_release = False
+
+    def _cancel_open(self):
+        self._open_timer.stop()
+        self._pending_action = None
+
+    def _open_pending(self):
+        action = self._pending_action
+        if self.isVisible() and action is not None and action.isEnabled():
+            scope = action.data()
+            self.hide()
+            self.openRequested.emit(scope)
+
+    def _on_indicator(self, action, position):
+        # Both application themes reserve the rightmost 35 logical pixels for
+        # the menu indicator (theme*.qss). Text clicks must not toggle it.
+        return position.x() >= self.actionGeometry(action).right() - 35
+
+    def contextMenuEvent(self, event):
+        action = self.actionAt(event.pos())
+        if action is None or not action.isCheckable() or not action.isEnabled():
+            return super().contextMenuEvent(event)
+        self._cancel_open()
+        context = QMenu(self)
+        delete = context.addAction("Delete window…")
+        if context.exec(event.globalPos()) is delete:
+            self.hide()
+            self.deleteRequested.emit(action.data())
+        event.accept()
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -207,8 +243,15 @@ class _AnalysisWindowMenu(QMenu):
                 return
             action = self.actionAt(event.position().toPoint())
             if action is not None and action.isCheckable() and action.isEnabled():
+                self._cancel_open()
                 self._last_click = (action, action.isChecked())
-                action.trigger()
+                if self._on_indicator(action, event.position().toPoint()):
+                    action.trigger()
+                else:
+                    self._pending_action = action
+                    # A short delay distinguishes opening from the existing
+                    # double-click rename gesture without opening a ghost window.
+                    self._open_timer.start(QApplication.doubleClickInterval())
                 event.accept()
                 return
         super().mouseReleaseEvent(event)
@@ -216,7 +259,9 @@ class _AnalysisWindowMenu(QMenu):
     def mouseDoubleClickEvent(self, event):
         action = self.actionAt(event.position().toPoint())
         if (event.button() == Qt.MouseButton.LeftButton and action is not None
-                and action.isCheckable() and action.isEnabled()):
+                and action.isCheckable() and action.isEnabled()
+                and not self._on_indicator(action, event.position().toPoint())):
+            self._cancel_open()
             # Undo only the first click of this same gesture, not a different
             # item's earlier click. Renaming never changes its reopening choice.
             if self._last_click is not None and self._last_click[0] is action:
@@ -230,10 +275,14 @@ class _AnalysisWindowMenu(QMenu):
 
     def keyPressEvent(self, event):
         action = self.activeAction()
-        if (event.key() == Qt.Key.Key_F2 and action is not None
+        if (event.key() in (Qt.Key.Key_F2, Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space) and action is not None
                 and action.isCheckable() and action.isEnabled()):
-            self.hide()
-            self.renameRequested.emit(action.data())
+            self._cancel_open()
+            if event.key() == Qt.Key.Key_Space:
+                action.trigger()
+            else:
+                self.hide()
+                (self.renameRequested if event.key() == Qt.Key.Key_F2 else self.openRequested).emit(action.data())
             event.accept()
             return
         super().keyPressEvent(event)
@@ -1125,7 +1174,7 @@ class MatchingWindow(QMainWindow):
             action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
         self.export_action = QAction("Export Excel", self)
         self.export_action.triggered.connect(self.export_excel_dialog)
-        self.images_action = QAction("Save images", self)
+        self.images_action = QAction("Export Matplotlib", self)
         self.images_action.triggered.connect(self.save_images_dialog)
         for action in (
             self.new_action,
@@ -2889,30 +2938,83 @@ class MatchingWindow(QMainWindow):
         button.setMenu(menu)
         menu.aboutToShow.connect(lambda: self._populate_window_menu(menu, kind, stage or self.result_mode.currentText().lower()))
         menu.renameRequested.connect(self._rename_analysis_window)
-        button.setToolTip("Open checked windows; use the arrow to create or choose windows. Double-click a window name to rename (F2).")
+        menu.openRequested.connect(self._open_menu_window)
+        menu.deleteRequested.connect(self._delete_analysis_window)
+        button.setToolTip("Open checked windows; click a window name to open it individually. Double-click a name to rename (F2).")
 
     def _populate_window_menu(self, menu, kind, stage):
         menu.clear()
         menu.addAction("New window…").triggered.connect(lambda: self._new_analysis_window(kind, stage))
-        entries = window_entries(self._workspace_states, kind, stage)
+        entries = self._analysis_window_entries(kind, stage)
         if entries:
             menu.addSeparator()
         for scope, metadata in entries:
             action = menu.addAction(metadata["name"])
             action.setData(scope)
-            action.setToolTip("Double-click to rename (F2).")
+            action.setToolTip("Click to open this window; use its checkbox to reopen it with others. Double-click to rename (F2).")
             action.setCheckable(True)
             action.setChecked(metadata["checked"])
             action.toggled.connect(lambda checked, key=scope: self._check_analysis_window(key, checked))
 
+    def _open_menu_window(self, scope):
+        try:
+            kind, stage = scope_parts(scope)
+            self._open_analysis_scope(kind, stage, scope)
+        except Exception as error:
+            QMessageBox.warning(self, "Cannot open analysis window", str(error))
+
     def _check_analysis_window(self, scope, checked):
-        metadata = dict(window_metadata(scope, self._workspace_states[scope]))
+        saved = self._workspace_states.setdefault(scope, {})
+        metadata = dict(window_metadata(scope, saved))
         metadata["checked"] = checked
-        self._workspace_states[scope]["window"] = metadata
+        saved["window"] = metadata
+        self.document.refresh_identity()
+
+    def _analysis_window_entries(self, kind, stage):
+        entries = window_entries(self._workspace_states, kind, stage)
+        default_scope = f"{kind}.{stage}"
+        # Offer the original first window even before it has been opened. Do
+        # not mutate the document just because the engineer opens the menu.
+        if entries:
+            return sorted(entries, key=lambda entry: entry[0] != default_scope)
+        # Retain tiny tombstones so deleting the last window doesn't recreate
+        # the original first window on the next menu open or WKB restore.
+        if any(scope.startswith(kind + ".") and scope_parts(scope) == (kind, stage)
+               for scope in self._workspace_states):
+            return []
+        return [(default_scope, window_metadata(default_scope, {}))]
+
+    def _delete_analysis_window(self, scope):
+        kind, stage = scope_parts(scope)
+        metadata = dict(window_metadata(scope, self._workspace_states.get(scope, {})))
+        answer = QMessageBox.question(self, "Delete analysis window",
+            f'Delete "{metadata["name"]}" and its independent data and settings from this Workbook?\n'
+            "This change is pending until you save the Workbook. Other windows and source tables are unchanged.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel)
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        children = tuple(child for child in self._stage_windows if getattr(child, "_managed_scope", None) == scope)
+        try:
+            self._close_stage_workspaces(children)
+        except RuntimeError as error:
+            QMessageBox.warning(self, "Cannot delete analysis window", str(error))
+            return
+        self._workspace_states[scope] = {"window": metadata, "deleted": True}
+        self._recovered_children.pop(scope, None)
+        for name in tuple(self._workspace_frames):
+            if name.startswith(scope + "."):
+                del self._workspace_frames[name]
+        if scope == f"{kind}.{stage}":
+            if kind in ("map", "dynamic"):
+                setattr(self, f"{stage}_{kind}_frame", None)
+            selections = (self._correlation_selection_states if kind == "correlation" else
+                          self._map_selection_states if kind == "map" else self._dynamic_selection_states)
+            selections.pop(stage, None)
         self.document.refresh_identity()
 
     def _new_analysis_window(self, kind, stage):
-        entries = window_entries(self._workspace_states, kind, stage)
+        entries = self._analysis_window_entries(kind, stage)
         names = {metadata["name"].casefold() for _scope, metadata in entries}
         index = 1
         while (default := f"{WINDOW_LABELS[kind]} {index}").casefold() in names:
@@ -2925,20 +3027,27 @@ class MatchingWindow(QMainWindow):
             QMessageBox.warning(self, "Invalid window name", "Enter a non-empty, unique name for this tool and stage.")
             return
         scope = f"{kind}.{uuid4().hex}.{stage}"
-        self._workspace_states[scope] = {"window": {"name": name, "checked": True}}
+        default_scope = f"{kind}.{stage}"
+        new_default = bool(entries) and not window_entries(self._workspace_states, kind, stage) and default_scope not in self._workspace_states
+        if new_default:
+            self._workspace_states[default_scope] = {"window": dict(entries[0][1])}
+        # New is a manual editor, not another linked copy of the first window.
+        self._workspace_states[scope] = {"window": {"name": name, "checked": True}, "data_override": True}
         try:
             child = self._open_analysis_scope(kind, stage, scope)
             self._capture_managed_stage_workspace(child)
         except Exception as error:
             self._workspace_states.pop(scope, None)
+            if new_default:
+                self._workspace_states.pop(default_scope, None)
             QMessageBox.warning(self, "Cannot create analysis window", str(error))
         self.document.refresh_identity()
 
     def _rename_analysis_window(self, scope):
         kind, stage = scope_parts(scope)
-        entries = window_entries(self._workspace_states, kind, stage)
+        entries = self._analysis_window_entries(kind, stage)
         names = [metadata["name"] for _scope, metadata in entries]
-        metadata = window_metadata(scope, self._workspace_states[scope])
+        metadata = window_metadata(scope, self._workspace_states.get(scope, {}))
         selected = metadata["name"]
         name, accepted = QInputDialog.getText(self, "Rename analysis window", "Window name:", text=selected)
         if not accepted:
@@ -2948,7 +3057,7 @@ class MatchingWindow(QMainWindow):
                 or any(name.casefold() == value.casefold() for value in names if value != selected)):
             QMessageBox.warning(self, "Invalid window name", "Enter a non-empty, unique name for this tool and stage.")
             return
-        self._workspace_states[scope]["window"] = {**metadata, "name": name}
+        self._workspace_states.setdefault(scope, {})["window"] = {**metadata, "name": name}
         for child in self._stage_windows:
             if getattr(child, "_managed_scope", None) == scope:
                 child._analysis_window_name = name
@@ -2963,9 +3072,9 @@ class MatchingWindow(QMainWindow):
         return self.open_dynamic_workspace(stage, scope=scope)
 
     def _open_checked_windows(self, kind, stage):
-        entries = window_entries(self._workspace_states, kind, stage)
+        entries = self._analysis_window_entries(kind, stage)
         if not entries:
-            return self._open_analysis_scope(kind, stage, f"{kind}.{stage}")
+            return
         for scope, metadata in entries:
             if metadata["checked"]:
                 self._open_analysis_scope(kind, stage, scope)
@@ -2988,14 +3097,18 @@ class MatchingWindow(QMainWindow):
         workspace._managed_scope = scope
         workspace._workbook_selection_applies = self._saved_workspace_selection_applies("correlation", stage, scope)
         book = self._analysis_workspace_workbook()
-        if book is None:
+        manual_new = self._workspace_states.get(scope, {}).get("data_override") and "ui" not in self._workspace_states[scope]
+        if manual_new:
+            workspace.set_table(pd.DataFrame(), "Manual Raw Data")
+            workspace.set_reference_table(pd.DataFrame(), "Manual Ref Data")
+        elif book is None:
             # No row-identity borrowing when the sources are not paired.
             workspace.set_table(raw, f"{mode} Raw Data")
             workspace.set_reference_table(self.reference_frame, f"{mode} Reference")
         else:
             reference, scoped_raw = self._child_correlation_frames(workspace, book=book)
             workspace.set_sources(reference, scoped_raw, self.selected_mappings(), mode)
-        if book is not None and hasattr(workspace, "set_workbook_groups"):
+        if book is not None and not manual_new and hasattr(workspace, "set_workbook_groups"):
             workspace.set_workbook_groups(book)
         self._bind_workspace_selection(workspace, "correlation", stage)
         self._offer_second_axis_settings(workspace)
@@ -3021,11 +3134,14 @@ class MatchingWindow(QMainWindow):
         if existing is not None:
             return existing
         book = self._analysis_workspace_workbook()
-        if book is not None and self.result is None:
+        manual_new = self._workspace_states.get(scope, {}).get("data_override") and "ui" not in self._workspace_states[scope]
+        if book is not None and self.result is None and not manual_new:
             self.run_analysis()
         self.workbook = book
         # The workspace owns the Card choice, so hand over untouched values.
-        if book is not None:
+        if manual_new:
+            frame = pd.DataFrame()
+        elif book is not None:
             frame = book.stage_frame(stage, apply_card=False,
                                      apply_selection=self._saved_workspace_selection_applies("map", stage, scope))
         else:
@@ -3210,6 +3326,13 @@ class MatchingWindow(QMainWindow):
         configure = getattr(workspace, "configure_workbook_owner", None)
         if callable(configure):
             configure(self, getattr(workspace, "_managed_scope", f"{kind}.{stage}"))
+        scope = getattr(workspace, "_managed_scope", f"{kind}.{stage}")
+        saved = self._workspace_states.get(scope, {})
+        if saved.get("data_override") and "ui" not in saved:
+            workspace._independent_data = True
+            workspace._use_workbook_data = False
+            if hasattr(workspace, "set_copy_from_wkb"):
+                workspace.set_copy_from_wkb(False)
 
     def _single_stage_window(self):
         """TEM keeps one analysis window at a time; KLA and NOVA allow all."""
@@ -3852,6 +3975,9 @@ class MatchingWindow(QMainWindow):
 
     def closeEvent(self, event):
         """One parent decision covers its open child drafts; no silent write."""
+        from .export_job import finish_export_before_close
+        if finish_export_before_close(self, event):
+            return
         if not self.document.confirm_close():
             event.ignore()
             return
@@ -3905,6 +4031,8 @@ class MatchingWindow(QMainWindow):
             if str(stage).lower() == "preview"
             else self.final_dynamic_frame
         )
+        if self._workspace_states.get(scope, {}).get("data_override") and "ui" not in self._workspace_states[scope]:
+            saved_dynamic = None
         frame = (
             pd.DataFrame()
             if saved_dynamic is None
@@ -4931,62 +5059,53 @@ class MatchingWindow(QMainWindow):
         if not sip.isdeleted(self.setup_scroll):
             self.setup_scroll.verticalScrollBar().setValue(value)
 
-    def export_excel(self, path):
-        """Export an optional human-readable workbook; WKB remains the primary store."""
+    def excel_export_snapshot(self):
+        """Capture both stages and open child inputs on the GUI thread."""
         if self.result is None:
             self.run_analysis()
         elif not self._analysis_current:
             self.run_analysis(apply_groups=False)
         else:
             self.workbook = self.current_workbook()
-        target = Path(path)
-        if target.suffix.lower() != ".xlsx":
-            target = target.with_suffix(".xlsx")
-        derived = {}
-        for parameter in self.result.parameter_names:
-            series = self.result.series(parameter)
-            for column in ("Card Value", "Evaluated Value", "Bias", "Bias %"):
-                derived[f"{parameter} | {column}"] = series[column].to_numpy()
-        result_frame = pd.DataFrame(derived)
-        with pd.ExcelWriter(target, engine="openpyxl") as writer:
-            self.result.summary.to_excel(writer, sheet_name="Summary", index=False)
-            self.reference_frame.to_excel(writer, sheet_name="Reference", index=False)
-            self.raw_frame.to_excel(writer, sheet_name="Raw Data", index=False)
-            result_frame.to_excel(writer, sheet_name=self.workbook.result_mode.title(), index=False)
-            if self.result.group_plan.enabled:
-                plan = self.result.group_plan
-                plan.order_frame.to_excel(writer, sheet_name="Order", index=False)
-                pd.concat([self.result.group_summary(parameter).assign(Parameter=parameter)
-                           for parameter in self.result.parameter_names], ignore_index=True).to_excel(
-                               writer, sheet_name="Group Fits", index=False)
-                for group in ("all", *plan.group_keys):
-                    frames = []
-                    for parameter in self.result.parameter_names:
-                        trend = self.result.group_series(parameter, group, trend=True, card_mode="group")
-                        trend = trend.rename(columns={"Trend value": "Group Card Value"})
-                        trend["Parameter"] = parameter
-                        trend["Mark"] = [plan.order_frame.iloc[row]["Mark"] for row in trend["Source row"]]
-                        trend["Head"] = [plan.head(plan.flags[row]) for row in trend["Source row"]]
-                        for column in plan.identity_columns:
-                            trend[column] = [plan.raw.iloc[row][column] for row in trend["Source row"]]
-                        frames.append(trend)
-                    # Stable flag-based sheet names avoid user-name collisions and Excel limits.
-                    sheet = "AllTrend" if group == "all" else group.replace(":", " Flag ") or "Not provided"
-                    pd.concat(frames, ignore_index=True).to_excel(writer, sheet_name=sheet, index=False)
-            if (
-                self.workbook.preview_map is not None
-                or self.workbook.preview_raw is not None
-            ):
-                self.workbook.stage_frame("preview").to_excel(
-                    writer, sheet_name="Preview FullMap", index=False
-                )
-            if (
-                self.workbook.final_map is not None
-                or self.workbook.final_raw is not None
-            ):
-                self.workbook.stage_frame("final").to_excel(
-                    writer, sheet_name="Final FullMap", index=False
-                )
+        from copy import copy
+        stages = []
+        extra_frames = []
+        # Capture both stages without switching the UI or accepting drafts.
+        for mode in ("preview", "final"):
+            raw = self.raw_frame if mode == "preview" else self.final_match_frame
+            if raw.empty:
+                if getattr(self.workbook, f"{mode}_raw") is not None:
+                    from .excel_export import stage_suffix
+                    extra_frames.append((f"FullMap{stage_suffix(mode)}", self.workbook.stage_frame(mode)))
+                continue
+            book = copy(self.workbook)
+            book.result_mode = mode
+            result = book.analyze()
+            extra = []
+            if (getattr(book, f"{mode}_map") is not None
+                    or getattr(book, f"{mode}_raw") is not None):
+                extra.append(("FullMap", book.stage_frame(mode)))
+            stages.append((book, result, raw.copy(deep=True), extra))
+        from .analysis_export import capture_window
+        reports = []
+        for child in tuple(self._stage_windows):
+            scope = str(getattr(child, "_managed_scope", "Analysis"))
+            name = window_metadata(scope, self._workspace_states.get(scope, {}))["name"]
+            map_child = child.workspace_type == "wafer_map"
+            parameters = [mapping.name for mapping in self.workbook.mappings]
+            report = capture_window(child, parameters=parameters if map_child else None)
+            if map_child:
+                report.update(scope=scope, fullmap_parameters=parameters,
+                              plot_labels=dict(self._plot_label_options["trend"]))
+            reports.append((f"{name} ", report))
+        return {"reference": self.reference_model.document_frame().copy(deep=True), "stages": stages,
+                "reports": reports, "extra_frames": extra_frames, "plot_labels": dict(self._plot_label_options["trend"]),
+                "fullmap_parameters": [mapping.name for mapping in self.workbook.mappings]}
+
+    def export_excel(self, path, *, native=True, images=None):
+        """Export a human-readable workbook with native, cell-bound Excel charts."""
+        target = Path(path).with_suffix(".xlsx")
+        write_workbook(target, native=native, images=images, **self.excel_export_snapshot())
         self.result_status.setText(f"Exported {target.name}")
         return target
 
@@ -4995,56 +5114,34 @@ class MatchingWindow(QMainWindow):
             default = str(Path.home() / f"matching-{self.workbook.result_mode if self.workbook else 'result'}.xlsx")
             path, _ = QFileDialog.getSaveFileName(self, "Export Excel", default, "Excel Workbook (*.xlsx)")
             if path:
-                self.export_excel(path)
+                from .export_job import start_export
+                start_export(self, path, self.excel_export_snapshot(), matching=True)
         except Exception as error:
             QMessageBox.warning(self, "Cannot export Excel", str(error))
 
     def save_plot_images(self, folder):
-        """Save separate PNG files for every selected parameter and plot type."""
-        if self.result is None:
-            self.run_analysis()
-        elif not self._analysis_current:
-            self.run_analysis(apply_groups=False)
-        else:
-            self.workbook = self.current_workbook()
-            if set(self.plot_groups) != set(self.result.parameter_names):
-                self._draw_all_parameters()
-        target = Path(folder)
-        target.mkdir(parents=True, exist_ok=True)
-        saved = []
-        for parameter, group in self.plot_groups.items():
-            if group.get("wafer_metrics_pending"):
-                self._draw_wafer_metrics(parameter, group)
-            plot_specs = list(group["plots"].items())
-            if not group["wafer_card"].isHidden():
-                plot_specs.extend([
-                    ("single-wafer-r2", group["wafer_r2"]),
-                    ("single-wafer-slope", group["wafer_slope"]),
-                ])
-            safe_parameter = _safe_filename(parameter)
-            for suffix, widget in plot_specs:
-                output = target / f"{safe_parameter}-{suffix}.png"
-                if isinstance(widget, _MatchPlotWidget):
-                    # The fit equation lives in the reserved QWidget heading,
-                    # outside pyqtgraph's GraphicsScene. Capture the complete
-                    # widget so the saved Match image matches the screen.
-                    if not widget.grab().save(str(output), "PNG"):
-                        raise OSError(f"Could not save {output}")
-                else:
-                    exporter = pg.exporters.ImageExporter(widget.getPlotItem())
-                    exporter.parameters()["width"] = 1600
-                    exporter.export(str(output))
-                saved.append(output)
-        self.result_status.setText(f"Saved {len(saved)} plot images")
-        return tuple(saved)
+        """Compatibility entry point for the Matplotlib export route."""
+        return self.export_matplotlib(folder)
 
     def save_images_dialog(self):
         try:
-            folder = QFileDialog.getExistingDirectory(self, "Save plot images")
-            if folder:
-                self.save_plot_images(folder)
+            path, _ = QFileDialog.getSaveFileName(self, "Export Matplotlib", "matching-matplotlib.xlsx", "Excel Workbook (*.xlsx)")
+            if path:
+                from .export_job import start_export
+                start_export(self, path, self.excel_export_snapshot(), matching=True, native=False)
         except Exception as error:
-            QMessageBox.warning(self, "Cannot save images", str(error))
+            QMessageBox.warning(self, "Cannot export Matplotlib", str(error))
+
+    def export_matplotlib(self, path):
+        """Export one Excel file containing data and embedded Matplotlib pictures."""
+        target = Path(path)
+        if target.suffix.lower() != ".xlsx":  # Preserve existing folder callers.
+            target.mkdir(parents=True, exist_ok=True)
+            target = target / "matching-matplotlib.xlsx"
+        saved = self.export_excel(target, native=False)
+        self.result_status.setText(f"Exported Matplotlib: {saved.name}")
+        return saved
+
     @recovery_decision
     def save_workbook(self, path, *, capture_children=True, child=None):
         commit_editors(self)

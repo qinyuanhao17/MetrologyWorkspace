@@ -24,7 +24,7 @@ def window_metadata(scope, state):
 
 def window_entries(states, kind, stage):
     return [(scope, window_metadata(scope, state)) for scope, state in states.items()
-            if scope.startswith(kind + ".") and scope_parts(scope) == (kind, stage)]
+            if scope.startswith(kind + ".") and scope_parts(scope) == (kind, stage) and not state.get("deleted")]
 
 
 def validate_windows(states):
@@ -34,6 +34,10 @@ def validate_windows(states):
             continue
         kind, stage = scope_parts(scope)
         metadata = window_metadata(scope, state)
+        if "deleted" in state and type(state["deleted"]) is not bool:
+            raise ValueError("Invalid deleted analysis window setting.")
+        if state.get("deleted"):
+            continue
         key = kind, stage, metadata["name"].strip().casefold()
         if key in seen:
             raise ValueError("Analysis window names must be unique within each tool and stage.")

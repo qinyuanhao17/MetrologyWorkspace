@@ -2793,7 +2793,7 @@ class MatchingWindowTests(unittest.TestCase):
                 "Save Workbook",
                 "Save Workbook As…",
                 "Export Excel",
-                "Save images",
+                "Export Matplotlib",
                 "Recover Workbook Draft…",
             ],
         )
@@ -5006,7 +5006,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.window.match_type.setCurrentText("TEM")
         self.window.run_analysis()
         self.assertTrue(self.window.plot_groups["CD"]["wafer_card"].isHidden())
-    def test_exports_excel_and_separate_plot_images_after_analysis(self):
+    def test_exports_native_excel_and_excel_with_embedded_matplotlib_after_analysis(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
         self.window.set_preview_frame(self.raw().assign(**{
@@ -5024,31 +5024,34 @@ class MatchingWindowTests(unittest.TestCase):
             excel_path = Path(folder) / "result.xlsx"
             image_folder = Path(folder) / "images"
             self.window.export_excel(excel_path)
-            images = self.window.save_plot_images(image_folder)
+            image_workbook = self.window.save_plot_images(image_folder)
 
             with pd.ExcelFile(excel_path, engine="openpyxl") as book:
                 self.assertEqual(book.sheet_names, [
-                    "Summary", "Reference", "Raw Data", "Preview",
-                    "Preview FullMap", "Final FullMap",
+                    "_Plot data", "Original (WO Card)", "Match (WO Card)", "Wafer (WO Card)",
+                    "RSQ (WO Card)", "FullMap (WO Card)", "FullMap (W Card)",
                 ])
-            preview = pd.read_excel(excel_path, sheet_name="Preview", engine="openpyxl")
+            from openpyxl import load_workbook
+            preview = load_workbook(excel_path)["Match (WO Card)"]
             preview_fullmap = pd.read_excel(
-                excel_path, sheet_name="Preview FullMap", engine="openpyxl"
+                excel_path, sheet_name="FullMap (WO Card)", engine="openpyxl"
             )
             final_fullmap = pd.read_excel(
-                excel_path, sheet_name="Final FullMap", engine="openpyxl"
+                excel_path, sheet_name="FullMap (W Card)", engine="openpyxl"
             )
-            self.assertIn("CD_Bot | Evaluated Value", preview.columns)
-            self.assertIn("SPA | Bias", preview.columns)
+            exported_values = [cell.value for row in preview for cell in row]
+            self.assertIn("CD_Bot", exported_values)
+            self.assertIn("SPA", exported_values)
+            self.assertIn("PMISH+Card", exported_values)
+            self.assertIn("Bias", exported_values)
             self.assertEqual(preview_fullmap["CD_Bot"].tolist(), [12, 22, 32])
-            pd.testing.assert_frame_equal(final_fullmap, final, check_dtype=False)
-            self.assertTrue(images)
-            self.assertTrue(all(path.exists() and path.suffix == ".png" for path in images))
-            names = {path.name for path in images}
-            self.assertIn("CD_Bot-bias.png", names)
-            self.assertIn("CD_Bot-bias-percent.png", names)
+            pd.testing.assert_frame_equal(final_fullmap[list(final.columns)], final, check_dtype=False)
+            self.assertTrue(image_workbook.is_file())
+            self.assertEqual(list(image_folder.glob("*.png")), [])
+            from openpyxl import load_workbook
+            self.assertTrue(load_workbook(image_workbook)["Match (WO Card)"]._images)
 
-    def test_match_image_export_captures_the_complete_widget_header(self):
+    def test_match_image_export_uses_matplotlib_instead_of_widget_capture(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
         self.window.run_analysis()
@@ -5057,13 +5060,15 @@ class MatchingWindowTests(unittest.TestCase):
         match_plot = self.window.plot_groups["CD_Bot"]["plots"]["match"]
 
         with tempfile.TemporaryDirectory() as folder:
-            images = self.window.save_plot_images(folder)
-            match_image = QImage(str(next(
-                path for path in images if path.name == "CD_Bot-match.png"
-            )))
+            path = self.window.save_plot_images(folder)
+            from openpyxl import load_workbook
+            picture = load_workbook(path)["Match (WO Card)"]._images[0]
+            match_image = QImage.fromData(picture._data())
 
         self.assertFalse(match_image.isNull())
-        self.assertEqual(match_image.size(), match_plot.size())
+        self.assertGreater(match_image.width(), match_plot.width())
+        self.assertIn("Matplotlib", match_image.text("Software"))
+        self.assertIn("CD_Bot", match_image.text("Title"))
 
     def test_default_registry_exposes_a_multi_instance_matching_tool(self):
         registry = create_default_registry()

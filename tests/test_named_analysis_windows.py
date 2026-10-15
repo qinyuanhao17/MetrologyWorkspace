@@ -7,7 +7,8 @@ from unittest.mock import patch
 import pandas as pd
 from PyQt6.QtCore import QPoint, QTimer, Qt
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication, QInputDialog, QMessageBox
+from PyQt6.QtWidgets import QApplication, QInputDialog, QMessageBox, QMenu
+from PyQt6.QtGui import QContextMenuEvent
 
 from metrology_app.matching_window import MatchingWindow
 from metrology_app.workspace_document import same_snapshot
@@ -89,6 +90,193 @@ class NamedAnalysisWindowTests(unittest.TestCase):
                 self.assertFalse(first.isVisible())
                 self.assertTrue(second.isVisible())
 
+    def test_single_click_opens_only_that_window_without_changing_the_checklist(self):
+        button = self.parent.preview_open_button
+        first = self.new_window(button, "Map baseline")
+        second = self.new_window(button, "Map adjusted")
+        self.window_choices(button)["Map baseline"].setChecked(False)
+        first.hide()
+        second.hide()
+        menu = button.menu()
+        menu.popup(button.mapToGlobal(QPoint(0, button.height())))
+        APP.processEvents()
+        action = next(item for item in menu.actions() if item.text() == "Map baseline")
+        QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=menu.actionGeometry(action).center())
+        QTest.qWait(APP.doubleClickInterval() + 80)
+        self.assertTrue(first.isVisible())
+        self.assertFalse(second.isVisible())
+        self.assertFalse(action.isChecked())
+        self.assertFalse(menu.isVisible())
+
+        first.hide()
+        menu.popup(button.mapToGlobal(QPoint(0, button.height())))
+        APP.processEvents()
+        action = next(item for item in menu.actions() if item.text() == "Map baseline")
+        rect = menu.actionGeometry(action)
+        QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=QPoint(rect.right() - 16, rect.center().y()))
+        QTest.qWait(APP.doubleClickInterval() + 80)
+        self.assertTrue(action.isChecked())
+        self.assertTrue(menu.isVisible())
+        self.assertFalse(first.isVisible())
+        self.assertFalse(second.isVisible())
+        menu.setActiveAction(action)
+        QTest.keyClick(menu, Qt.Key.Key_Space)
+        self.assertFalse(action.isChecked())
+        QTest.keyClick(menu, Qt.Key.Key_Return)
+        self.assertTrue(first.isVisible())
+        self.assertFalse(action.isChecked())
+
+    def test_context_delete_removes_only_the_chosen_draft_after_confirmation_and_reopen(self):
+        button = self.parent.preview_open_button
+        keep = self.new_window(button, "Keep Map")
+        remove = self.new_window(button, "Delete Map")
+        source = self.parent.raw_model.document_frame().copy()
+        remove.set_table(source.assign(CD=["9.000", "8.000", "7.000"]), "Independent draft")
+
+        def request_delete(answer, name="Delete Map"):
+            menu = button.menu()
+            menu.popup(button.mapToGlobal(QPoint(0, button.height())))
+            APP.processEvents()
+            action = next(item for item in menu.actions() if item.text() == name)
+            position = menu.actionGeometry(action).center()
+            found = []
+
+            def choose_delete():
+                popup = APP.activePopupWidget()
+                if isinstance(popup, QMenu) and popup is not menu:
+                    delete = next((item for item in popup.actions() if item.text() == "Delete window…"), None)
+                    if delete is not None:
+                        found.append(True)
+                        QTest.mouseClick(popup, Qt.MouseButton.LeftButton, pos=popup.actionGeometry(delete).center())
+                    popup.close()
+            QTimer.singleShot(0, choose_delete)
+            with patch.object(QMessageBox, "question", return_value=answer):
+                APP.sendEvent(menu, QContextMenuEvent(QContextMenuEvent.Reason.Mouse, position, menu.mapToGlobal(position)))
+            menu.hide()
+            APP.processEvents()
+            self.assertEqual(found, [True], "Each window needs a right-click Delete action")
+
+        request_delete(QMessageBox.StandardButton.Cancel)
+        self.assertIn("Delete Map", self.window_choices(button))
+        self.assertTrue(remove.isVisible())
+        request_delete(QMessageBox.StandardButton.Yes)
+        self.assertNotIn("Delete Map", self.window_choices(button))
+        self.assertTrue(keep.isVisible())
+        pd.testing.assert_frame_equal(self.parent.raw_model.document_frame(), source)
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "deleted-window.wkb"
+            self.parent.save_workbook(path)
+            restored = MatchingWindow()
+            self.addCleanup(lambda: (setattr(restored.document, "force_close", True), restored.close()))
+            restored.load_workbook(path)
+            choices = self.window_choices(restored.preview_open_button)
+            self.assertNotIn("Delete Map", choices)
+            self.assertIn("Keep Map", choices)
+            snapshot = restored.workspace_snapshot()
+            self.assertFalse(any("9.000" in frame.astype(str).values for frame in snapshot.frames.values()))
+            for name in ("Keep Map", "Wafer Map / Radius 1"):
+                request_delete(QMessageBox.StandardButton.Yes, name)
+            self.assertEqual(self.window_choices(button), {})
+            self.parent.save_workbook(path)
+            empty = MatchingWindow()
+            self.addCleanup(lambda: (setattr(empty.document, "force_close", True), empty.close()))
+            empty.load_workbook(path)
+            self.assertEqual(self.window_choices(empty.preview_open_button), {})
+            replacement = self.new_window(empty.preview_open_button, "Fresh Map")
+            self.assertTrue(replacement.model.document_frame().empty)
+            self.assertEqual(list(self.window_choices(empty.preview_open_button)), ["Fresh Map"])
+
+    def test_new_windows_are_empty_manual_editors_and_remain_empty_after_refresh_and_reopen(self):
+        names = ((self.parent.correlation_button, "Blank Correlation"),
+                 (self.parent.preview_dynamic_button, "Blank Dynamic"),
+                 (self.parent.preview_open_button, "Blank Map"))
+        children = []
+        raw_before = self.parent.raw_model.document_frame().copy()
+        for button, name in names:
+            child = self.new_window(button, name)
+            children.append(child)
+            self.assertTrue(child.sheet.isEnabled())
+            self.assertTrue(all(frame.empty for frame in child.workspace_snapshot().frames.values()))
+            if hasattr(child, "copy_from_wkb_action"):
+                self.assertTrue(child.copy_from_wkb_action.isEnabled())
+                self.assertFalse(child.copy_from_wkb_action.isChecked())
+            if name == "Blank Correlation":
+                self.assertNotIn("match_groups", child.workspace_snapshot().states)
+        pd.testing.assert_frame_equal(self.parent.raw_model.document_frame(), raw_before)
+        self.parent.raw_model.edit({(1, 5): "9.000"})
+        self.parent.run_analysis()
+        APP.processEvents()
+        self.assertTrue(all(all(frame.empty for frame in child.workspace_snapshot().frames.values())
+                            for child in children))
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "blank-windows.wkb"
+            self.parent.save_workbook(path)
+            self.parent.document.force_close = True
+            self.parent.close()
+            APP.processEvents()
+            self.parent = MatchingWindow()
+            self.parent.load_workbook(path)
+            self.parent.show()
+            for button, name in ((self.parent.correlation_button, "Blank Correlation"),
+                                 (self.parent.preview_dynamic_button, "Blank Dynamic"),
+                                 (self.parent.preview_open_button, "Blank Map")):
+                button.click()
+                reopened = next(window for window in APP.topLevelWidgets()
+                                if name in window.windowTitle() and window.isVisible())
+                self.assertTrue(all(frame.empty for frame in reopened.workspace_snapshot().frames.values()))
+                if hasattr(reopened, "copy_from_wkb_action"):
+                    self.assertFalse(reopened.copy_from_wkb_action.isChecked())
+
+    def test_default_map_is_listed_first_and_copies_raw_while_new_starts_empty(self):
+        for match_type in ("NOVA", "KLA"):
+            with self.subTest(match_type=match_type):
+                self.parent.match_type.setCurrentText(match_type)
+                self.parent.run_analysis()
+                button = self.parent.preview_open_button
+                choices = self.window_choices(button)
+                self.assertEqual(next(iter(choices)), "Wafer Map / Radius 1")
+                menu = button.menu()
+                menu.popup(button.mapToGlobal(QPoint(0, button.height())))
+                APP.processEvents()
+                action = next(item for item in menu.actions() if item.text() == "Wafer Map / Radius 1")
+                QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=menu.actionGeometry(action).center())
+                QTest.qWait(APP.doubleClickInterval() + 80)
+                primary = next(window for window in APP.topLevelWidgets()
+                               if "Wafer Map / Radius 1" in window.windowTitle() and window.isVisible())
+                self.assertTrue(primary.copy_from_wkb_action.isChecked())
+                self.assertEqual(pd.to_numeric(primary.model.document_frame()["CD"]).tolist(), [1., 2., 3.])
+                new = self.new_window(button, f"{match_type} new")
+                self.assertTrue(new.model.document_frame().empty)
+                self.assertFalse(new.copy_from_wkb_action.isChecked())
+                self.assertTrue(new.copy_from_wkb_action.isEnabled())
+                new.copy_from_wkb_action.trigger()
+                self.assertTrue(new.copy_from_wkb_action.isChecked())
+                self.assertEqual(pd.to_numeric(new.model.document_frame()["CD"]).tolist(), [1., 2., 3.])
+
+    def test_new_windows_are_enabled_without_parent_data_in_preview_and_final(self):
+        self.parent.document.force_close = True
+        self.parent.close()
+        self.parent.deleteLater()
+        APP.processEvents()
+        self.parent = MatchingWindow()
+        self.parent.match_type.setCurrentText("NOVA")
+        self.parent.show()
+        for stage in ("Preview", "Final"):
+            self.parent.result_mode.setCurrentText(stage)
+            buttons = ((self.parent.correlation_button, "Correlation"),
+                       (self.parent.preview_dynamic_button if stage == "Preview" else self.parent.final_dynamic_button, "Dynamic"),
+                       (self.parent.preview_open_button if stage == "Preview" else self.parent.final_open_button, "Map"))
+            for button, kind in buttons:
+                with self.subTest(stage=stage, kind=kind):
+                    self.assertTrue(button.isEnabled())
+                    child = self.new_window(button, f"{stage} blank {kind}")
+                    self.assertTrue(child.sheet.isEnabled())
+                    self.assertTrue(all(frame.empty for frame in child.workspace_snapshot().frames.values()))
+                    child.set_table(pd.DataFrame({"Wafer ID": ["MANUAL"], "Die Seq": ["1"], "CD": ["9.000"]}), "Manual measurements")
+                    self.assertEqual(child.model.document_frame()["CD"].tolist(), ["9.000"])
+        self.assertTrue(self.parent.raw_model.document_frame().empty)
+        self.assertTrue(self.parent.reference_model.document_frame().empty)
+
     def test_named_data_tabs_and_checked_windows_survive_wkb_save_and_reopen_without_cross_overwrite(self):
         expected = {}
         for button, label in ((self.parent.correlation_button, "Correlation"),
@@ -97,7 +285,7 @@ class NamedAnalysisWindowTests(unittest.TestCase):
             for index, suffix in enumerate(("baseline", "adjusted")):
                 name = f"{label} {suffix}"
                 child = self.new_window(button, name)
-                if hasattr(child, "copy_from_wkb_action"):
+                if hasattr(child, "copy_from_wkb_action") and child.copy_from_wkb_action.isChecked():
                     child.copy_from_wkb_action.trigger()
                 source = self.parent.raw_model.document_frame().copy()
                 source["CD"] = [f"{index + 7}.123456789010000", "2.000", "3.000"]
@@ -147,6 +335,8 @@ class NamedAnalysisWindowTests(unittest.TestCase):
     def test_recovery_and_save_without_opening_children_keep_each_named_draft(self):
         first = self.new_window(self.parent.preview_open_button, "Map baseline")
         second = self.new_window(self.parent.preview_open_button, "Map adjusted")
+        for child in (first, second):
+            child.set_table(self.parent.raw_model.document_frame(), "Manual measurements")
         with TemporaryDirectory() as folder:
             accepted = Path(folder) / "accepted.wkb"
             self.parent.save_workbook(accepted)
@@ -178,7 +368,7 @@ class NamedAnalysisWindowTests(unittest.TestCase):
     def test_manual_named_correlation_does_not_regain_workbook_groups_after_reopen(self):
         self.parent.match_type.setCurrentText("TEM")
         child = self.new_window(self.parent.correlation_button, "Independent correlation")
-        child.copy_from_wkb_action.trigger()
+        self.assertFalse(child.copy_from_wkb_action.isChecked())
         child.set_table(self.parent.raw_model.document_frame(), "Manual Raw")
         expected = child.workspace_snapshot()
         self.assertNotIn("match_groups", expected.states)
@@ -196,6 +386,8 @@ class NamedAnalysisWindowTests(unittest.TestCase):
     def test_child_save_accepts_only_that_named_draft_and_discard_reopens_its_saved_values(self):
         first = self.new_window(self.parent.preview_open_button, "Map baseline")
         second = self.new_window(self.parent.preview_open_button, "Map adjusted")
+        for child in (first, second):
+            child.set_table(self.parent.raw_model.document_frame(), "Manual measurements")
         with TemporaryDirectory() as folder:
             path = Path(folder) / "selective-save.wkb"
             self.parent.save_workbook(path)
@@ -218,6 +410,7 @@ class NamedAnalysisWindowTests(unittest.TestCase):
 
     def test_rename_preserves_the_open_draft_and_identity_and_final_has_separate_choices(self):
         child = self.new_window(self.parent.preview_open_button, "Map baseline")
+        child.set_table(self.parent.raw_model.document_frame(), "Manual measurements")
         child.model.edit({(1, 5): "7.123456789010000"})
         source = child.model.document_frame().copy()
         identities = set(self.parent.workspace_snapshot().states)
@@ -261,14 +454,14 @@ class NamedAnalysisWindowTests(unittest.TestCase):
         final = self.new_window(self.parent.final_open_button, "Map tuned")
         self.assertIsNot(final, child)
         self.assertIn("Final", final.windowTitle())
-        self.assertEqual(set(self.window_choices(self.parent.final_open_button)), {"Map tuned"})
+        self.assertEqual(set(self.window_choices(self.parent.final_open_button)), {"Wafer Map / Radius 1", "Map tuned"})
         with TemporaryDirectory() as folder:
             path = Path(folder) / "renamed-analysis.wkb"
             self.parent.save_workbook(path)
             restored = MatchingWindow()
             self.addCleanup(lambda: (setattr(restored.document, "force_close", True), restored.close()))
             restored.load_workbook(path)
-            self.assertEqual(set(self.window_choices(restored.preview_open_button)), {"Map tuned"})
+            self.assertEqual(set(self.window_choices(restored.preview_open_button)), {"Wafer Map / Radius 1", "Map tuned"})
             restored.preview_open_button.click()
             reopened = next(window for window in APP.topLevelWidgets()
                             if "Map tuned" in window.windowTitle() and "Preview" in window.windowTitle()
@@ -311,14 +504,16 @@ class NamedAnalysisWindowTests(unittest.TestCase):
                     return menu, action, menu.actionGeometry(action).center()
 
                 menu, action, position = show_item()
-                QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=position, delay=0)
+                rect = menu.actionGeometry(action)
+                QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=QPoint(rect.right() - 16, rect.center().y()), delay=0)
                 self.assertFalse(action.isChecked())
                 self.assertTrue(menu.isVisible())
                 menu.hide()
                 for checked in (False, True):
                     menu, action, position = show_item()
                     if action.isChecked() != checked:
-                        QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=position, delay=0)
+                        rect = menu.actionGeometry(action)
+                        QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=QPoint(rect.right() - 16, rect.center().y()), delay=0)
                     QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=position, delay=0)
                     timer = QTimer()
                     timer.setSingleShot(True)

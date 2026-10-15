@@ -1,7 +1,9 @@
 # Excel 导出方案：数据 + 图片（A）与数据 + Excel 原生图表（B）
 
-状态：**方案，未实施**。本文只定义导出形态、数据契约、sheet 映射、图表绑定与验收，
-不改动拟合、插值、色标、参与范围或 WKB。
+Status: both single-file export routes are implemented and verified.
+The latest implementation notes at the end supersede conflicting earlier proposals.
+本文定义导出形态、数据契约、sheet 映射、图表绑定与验收，不改动拟合、插值、色标、
+参与范围或 WKB。
 
 ## 1. 现状与样例核实
 
@@ -202,3 +204,189 @@ Group 的稳定 id 与显示名同时写入 `Order`，用户改名后导出仍�
 - 待确认：B 采用 B1 还是 B2；TEM 是否要 `Radius` sheet；`Match_<Group>` 用显示名还是稳定 id
   作 sheet 名（重命名后的可追溯策略）；每个图 sheet 是自带源表（与样例一致）还是只放数值区
   并引用一张公共 `Source` sheet（更省体积）。
+
+## 11. 实施记录
+
+### 2026-10-11：B1 第一段（Workbook 导出，用户已选定 B1）
+
+- 新增 `metrology_app/excel_export.py`：数据表 + 数值绘图区 + 参数信息块 + **原生图表**
+  （散点/折线），不启动 Excel；`MatchingWindow.export_excel` 改为调用它。
+- 每个参数一块：`序号 / 原始值 / PMISH / REF / Bias / Bias % / Fit X / Fit Y`；
+  `PMISH = $K$slope*B+$K$intercept`（软件 Card 系数），`Bias = C-D`，`Bias %` 含除零保护；
+  参数信息块写 Parameter、Reference/Raw 列、slope、intercept、R²、有效点数、Bias limit、
+  单位、Card 来源、阶段、范围、行数与方程文本；不写 `SLOPE()/LINEST()/RSQ()`，不写趋势线。
+- 图表：Match 散点（点=原始值×REF，另加软件系数的 Fit 系列）+ Trend 折线（PMISH/REF）+ Bias 折线，
+  系列全部引用单元格；有分类时每个 Group 一张 `Match <Group>` sheet，另保留 `Group Fits` 与 `Order`。
+- 数据 sheet 顺序：`Summary`、`Reference`、`Raw Data`、`Preview/Final`、
+  `Match`/`Match <Group>`、`Group Fits`、`Order`、`Preview/Final FullMap`。
+- 验证：新增 `tests/test_excel_export.py`（原生图表类型与单元格引用、Card 公式与系数、
+  原始字符串、每个 Group 一张 sheet）；导出/分组/性能/主窗口四组 **219 项测试通过**。
+  真实工作簿 `matching-analysis_nova_testfilter1.wkb`（6,958 行 × 2 参数）导出 3.87 s、2.73 MB、
+  6 张原生图表，产物见 `.cache/excel-native-check/nova-testfilter1-native.xlsx`。
+- 待继续（下一段）：`RSQ` 与 `All_Trend` sheet；子窗口各自的导出（FM=Correlation/Trend、
+  Dynamic、Radius、Map 图片），以及 Excel 端人工拖动/编辑验收。
+
+### 2026-10-11 续：`RSQ` 与 `All Trend`
+
+- `RSQ`（NOVA/KLA）: 每个 Wafer 一行、每个参数一列 R²（来自 `wafer_summary`），
+  Wafer 用 `/` 连接多行身份；每参数一张原生折线（类别=Wafer，值=该参数 R² 列）。
+- `All Trend`（有分组时）：每个参数一段，按 Group 分列 `原始值 / PMISH / REF / Bias`，
+  `PMISH` 用该 Group 的 slope/intercept 单元格（写在同一段的右侧信息区）做公式；
+  每参数一张原生折线，每个 Group 两条系列（PMISH 与 REF）。Bias 保留在表内，
+  其单独折线仍在每张 `Match <Group>` sheet 上。
+- sheet 顺序（NOVA/KLA 有分组时）：
+  `Summary`、`Reference`、`Raw Data`、`Preview/Final`、`Match`、`Match <Group>`…、
+  `All Trend`、`RSQ`、`Group Fits`、`Order`、`Preview/Final FullMap`。
+- `tests/test_excel_export.py` 增加 All Trend 的列头/公式/系列引用与 RSQ 的 R² 与图表断言。
+- 全量 `python run_tests.py`（B1 后）：**695 项，2 失败 + 1 错误**。
+  错误仍是沙箱内 `os.link`（沙箱外通过）；两个失败是 `test_performance_regressions` 的
+  固定耗时阈值（Opening Wafer Map 0.516 s / Correlation check 0.249 s），
+  同一台机器上用**发布提交 a26e670 的独立副本**复测同样失败（0.673 s），
+  即本轮 B1 未引入新的功能性回归；两次全量运行耗时 564 s 对 291 s，属机器负载差异。
+
+### 2026-10-11：两种入口与最新用户约束
+
+本节覆盖前文存在冲突的旧建议。
+
+- `Export Excel` 使用 Excel 原生图表，采用 Office 默认图表主题；
+  `Save images` 已改名为 `Export Matplotlib`，输出同一份 Excel 数据、嵌入的 Matplotlib 图片及独立 PNG。
+- 新生成的标签、提示、列头均为英文。单元格和新绘图默认 Times New Roman。
+  原始表的列名与测量字符串保持原样；Wafer Map/Radius 保留当前软件 PNG 的原有外观。
+- 主工作簿在一个文件中导出已有配对数据的 Preview/Final 两套 sheet，
+  分别使用 `(WO Card)` / `(W Card)` 后缀。尚未提供某阶段配对源表时不构造假的分析结果；
+  已有的独立 FullMap 源表仍导出。Reference 为两阶段共用的原始源表。
+- Final 原始值已是该阶段的接受值，PMISH 直接引用 Final 值，避免再次应用拟合 Card。
+  Preview 的数值绘图区沿用软件的 Card 计算；两阶段的软件拟合系数、R²和源表均保留。
+- Correlation/Trend、Dynamic、Wafer Map/Radius 的 File 菜单均提供两条导出入口。
+  子窗口使用自己的数据、参数、参与范围、成功 Draw 和轴方向；主工作簿也收录当前打开的命名子窗口。
+  未打开的保存草稿不会自动启动绘图。Map/Radius 嵌入当前已绘制页的 PNG，并标注页码，
+  两条路线均不重新插值或重算半径图。
+- Correlation 散点与软件拟合线、Trend 的来源/对比曲线与第二轴、Dynamic 的 3 Sigma 柱状和
+  当前 Die 的 Cycle trend 均使用单元格绑定。主窗口 Match/Trend/Bias/Bias %、Group、All Trend、RSQ 均已覆盖。
+- 生成 sheet 名合法化与重名编号时保留阶段后缀；数值绘图区保存源行号、Die Seq和标签。
+  Source missing values remain blank. Derived numeric formulas use `NA()` for missing values or zero
+  percentage denominators: actual Excel treats formula `""` as zero in some charts. These intentional
+  chart gaps are not invalid references. Source text is never interpreted as an Excel formula.
+- 菜单写入使用后台任务和取消进度窗口。xlsx 写到同目录临时文件，完整且未取消才替换目标；
+  关闭正在导出的窗口会等待写入安全收尾，再走原有关闭/保存恢复逻辑。
+- 可执行验收：`docs/features/excel_export.feature` → `tests/test_excel_export.py`；
+  最终全量与真实桌面 WKB 副本结果在验证完成后补充。
+
+### 2026-10-12: Final chart and font verification
+
+- Both routes use English generated labels and Times New Roman. Literal source headings and
+  measurement strings remain unchanged. Current Wafer Map/Radius PNGs retain their existing appearance.
+- Native charts use an Office built-in style, unsmoothed curves, light gridlines and General tick formats.
+  Chart titles, axis titles and legends reserve their own space instead of overlaying the plot.
+- Compact overview charts label at most five representative contiguous Wafer/Group spans, chosen by
+  actual plot positions with a minimum label separation. Wider native Trend/Bias panels keep captions
+  readable without automatic rotation or word wrapping. This is
+  display-only: every measurement is retained in the bound series and full identity/Die Seq columns.
+  Excel and Matplotlib pictures begin after the complete numeric helper area.
+- Read-only verification in a separate hidden desktop Excel instance confirms Preview/Final formulas,
+  native titles/axes, unsmoothed lines and missing-value gaps. No existing user workbook is opened or saved.
+  This check also caught and corrected All Trend's coefficient references (value cells instead of label
+  cells). The executable Group test and actual Excel calculations verify the corrected references.
+- Font styling updates shared font definitions once instead of materializing and visiting every blank
+  worksheet cell. A frozen 7,731-source-row / 6,958-participating-row testfilter1 copy was measured in
+  independent processes, with two runs per version: 28.763/28.873 seconds before and 4.989/4.985 seconds
+  after. The final wide-chart version measured 5.050/5.177 seconds, with font/chart styling taking
+  2.5 milliseconds. No timing threshold changed. Comparison of 460,414 frozen-baseline cells passed;
+  only intentional chart-gap formula guards and display label helpers differ.
+- All seven copied Desktop WKBs passed both-route cell equivalence, default-font and unchanged-window-state
+  checks. Source versus participating rows remain distinct (7,731 versus 6,958 in filtered NOVA workbooks).
+- Individual PNG files also use a temporary sibling and atomic replacement; interrupted PNG writing
+  preserves the previous complete picture. The workbook and separate PNGs are individual atomic files,
+  not one cross-file transaction; cancellation after workbook publication may retain that complete workbook.
+- Focused executable export tests: 15 passed. Final `python run_tests.py`: **708 tests passed in 286.870 seconds**.
+  The runner used isolated settings/recovery/MPL/TEMP paths and an audit guard rejecting user-config writes.
+  One earlier full run encountered Windows access-denied while replacing a scratch WKB in OneDrive;
+  that exact save test passed independently, then the entire unchanged suite passed with TEMP outside OneDrive.
+- Final seven-copy acceptance passed on the final layout and formulas. Both export routes contain identical
+  source strings and numeric/formula cells, and leave each captured window's frames and states unchanged.
+  The native dense NOVA chart has all 6,958 points and readable representative Wafer/LOT/PAD captions.
+  All seven original Desktop WKB hashes still match the frozen input copies; user configuration was preserved.
+- No application packaging, Git commit/tag/push, original WKB write or user settings write was performed.
+
+### 2026-10-12: Single-file Matplotlib output and matched chart styling
+
+This section supersedes the earlier separate-PNG export behavior and default Office-only chart appearance.
+
+- Both menu routes now choose a single `.xlsx` target. `Export Matplotlib` embeds its generated PNG bytes
+  inside that file; it creates no sidecar images. Existing folder callers still receive one Excel file.
+  Previously exported PNGs are not deleted. Workbook publication remains atomic and cancellable.
+- The software and both supplied Excel examples informed the visual design: blue/orange comparisons,
+  compact Match panels, wider Trend/Bias panels, a light report frame and regression headings above the data.
+  Font defaults remain Times New Roman, with English generated text and unchanged literal source headings.
+- Matplotlib and native charts share series colors, labels, marker/line distinctions and data-derived
+  outer ticks. Tick scales round the axes only; source measurements, fitted coefficients, row identities,
+  participation and WKB state are not rounded, filtered, averaged or rescaled.
+- Native Excel charts remain editable and cell-bound. Their automatic typography/layout may differ from
+  Matplotlib, but numerical ranges, major steps and series values match. Map/Radius reuse current software PNGs.
+- Public export and menu regressions verify single-file output, embedding, data equality and native style.
+  Small and 6,958-row NOVA exports pass unchanged-window-state and cell-equality checks. Actual desktop Excel
+  confirms all 6,958 points and the intended bounds/ticks.
+- Final verification: 18 focused checks passed; `python run_tests.py` passed **709 tests in 287.470 seconds**.
+  All seven WKB-copy checks passed with identical native/Matplotlib cell data and unchanged window state.
+  The complete fresh export directory contains zero sidecar PNGs. User config writes were blocked by the
+  audit guard, and settings/recovery/MPL/TEMP paths were isolated outside OneDrive.
+
+### 2026-10-13: Compact report layout in both modes
+
+- Each stage's Match sheet starts with its exact Raw Data at A1. Separate visible Reference, Summary,
+  Raw Data and Preview/Final sheets are removed. The original Reference strings, full-precision software
+  Card coefficients, source positions and chart label/fit helpers are retained in a hidden `_Plot data` sheet.
+- Parameter tables use optional Group, Wafer captions according to plot-label choices, and Die Seq,
+  followed by PMISH, PMISH+Card (Preview only), the actual TEM/NOVA/KLA label, Bias and Bias %.
+  Final uses its accepted PMISH values directly. The previous visible parameter metadata block is removed.
+- Both renderers place wider charts to the right of their data and align their tops. Times New Roman
+  titles and axis labels are larger; regression annotations remain smaller than the parameter title.
+  Native Trend and Bias retain identical categories and cell-bound values rather than refitting in Excel.
+- FullMap uses its own data and plots only mapped parameters. Already drawn software Map/Radius panels
+  are cropped without interpolation or changing the live figure, then placed beside the data in
+  Wafer Map / Trend / Radius sections. Per the user's confirmation, undrawn Map/Radius plots are omitted.
+- Public executable checks are in `tests/test_excel_report_layout.py` and `tests/test_excel_export.py`;
+  acceptance wording is in `docs/features/excel_export.feature`. No original WKB/settings writes,
+  packaging, commit, tag or push are part of this change.
+- Final verification: 20 focused export checks and all 719 tests passed. Small and 7,731-source-row /
+  6,958-participating-row WKB-copy exports have identical native/Matplotlib cells and unchanged source
+  frames/window state. A private read-only Excel instance verified chart alignment, no horizontal
+  overlap, full point counts and the larger titles. The default FullMap fallback also retains its
+  child's value of 1 rather than substituting the parent Card value of 3, and both modes reuse identical
+  filtered software PNGs. User settings and all seven original Desktop WKB hashes were preserved.
+
+### 2026-10-15: Separate physical panels, editable Excel categories and source projections
+
+This section supersedes the shared Matplotlib/native visual styling and representative-only captions above.
+
+- Original contains literal stage-specific Raw Data in original order, without charts or merged source
+  cells; matched Reference values occupy a separate area on its right. Match retains Raw Data at A1.
+  PMISH and Reference measurements in Match, Group and Wafer parameter tables refer to exact
+  Original source rows; Preview/Final keep their respective (WO Card)/(W Card) suffixes.
+- Group projections collect Group then Wafer/Lot/PAD identities; the separate Wafer sheet instead
+  follows each identity's first appearance in Original and preserves original row order within it,
+  independently of Group order. The live WKB's plotting order and source data are not changed.
+- Matplotlib embeds separate physical-size panels rather than a stretched mosaic: Match is 15 by 11 cm;
+  Trend/Bias are at least 25 by 11 cm. Compact local caption spacing reuses Expand Wafers' measured
+  layout, with every Wafer caption retained. Ordinal X limits hug the first/last observations.
+- Native Excel output uses ordinary category LineCharts and visible local series/category ranges,
+  Excel's built-in chart theme, square corners and an explicitly orange Reference series. It does not
+  imitate Matplotlib's custom frame. Derived contiguous Wafer captions are vertically merged by actual
+  Wafer/Lot/PAD identity, never by a potentially incomplete visible caption alone.
+- Group Match reports retain both the Group overview and separate Wafer-detail panels to its right;
+  the dedicated Wafer sheet has only Wafer sequencing. Each drawing aligns with its parameter heading.
+- Named-window entries offer a confirmed right-click deletion. Deletion removes only that window's
+  independent data/state and persists after WKB save/reopen, including deletion of the final/default entry.
+- Executable acceptance is in excel_export.feature/named_analysis_windows.feature and the corresponding
+  public-export/menu tests. Final verification: 38 focused export/window checks passed, and
+  `python run_tests.py` passed all **730 tests in 310.183 seconds** with isolated settings/recovery/MPL/TEMP
+  and a guard rejecting user-config writes. The updated MatchingWindow export integration also passed.
+- A frozen 7,731-source-row NOVA copy with three enabled Groups passed both-stage native and Matplotlib
+  exports. All **2,556,776** exported cell contents (including formulas) match across both modes;
+  source WKB hash, input frames and window state remain unchanged. Saved PNG inspection confirms
+  separate physical-size Match/Group panels and readable first/last Wafer captions in the long detail plot.
+- Actual desktop Excel inspection of the generated small sample verified local multi-level categories,
+  an orange Reference series and draggable value-range handles: shrinking F3:F28 to F3:F27 worked,
+  and Undo restored F3:F28. Only the sample was closed without saving; existing user workbooks were not edited.
+- Final artifacts and audit evidence are under `.cache/export-redesign-20261015/`. No original WKB write,
+  user-settings write, packaging, commit, tag or push was performed.

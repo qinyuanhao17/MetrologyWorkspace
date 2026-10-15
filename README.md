@@ -1,6 +1,6 @@
 # Metrology Workspace
 
-Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、径向图、相关性图和 Die Seq 趋势图。主窗口依次提供 **Match Workbook**、**Wafer Map**、**Correlation and Trend** 和 **Dynamic** 四个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例；窗口可命名、勾选随 WKB 保存。当前正式源码版本为 **v3.1.0**，在 `main` 分支维护；功能、验证及已知限制见 [v3.1.0 发布说明](docs/releases/v3.1.0.md)。历史版本与开发版标签保持不变。
+Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、径向图、相关性图和 Die Seq 趋势图。主窗口依次提供 **Match Workbook**、**Wafer Map**、**Correlation and Trend** 和 **Dynamic** 四个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例；窗口可命名、勾选随 WKB 保存。当前正式源码版本为 **v3.2.0**，在 `main` 分支维护；功能、验证及已知限制见 [v3.2.0 发布说明](docs/releases/v3.2.0.md)。历史版本与开发版标签保持不变。
 
 ## 运行
 
@@ -107,7 +107,9 @@ Card 的定义为：
 
 父窗口 **Save Workbook As…**（`Ctrl+Shift+S`）另存整本工作簿，新路径成为后续保存目标。子窗口保存、独立副本与关闭提示的范围见下方“统一文档保存与恢复”。**Open Recent WKB** 保留最近成功打开或保存的工作簿，**Reveal Workbook in Folder** 定位当前文件。旧 WKB 缺少独立 Final、Map、Dynamic 或选择状态时仍可读取。文件内含数据，不依赖原 Excel/CSV，也不执行 pickle。
 
-**Export Excel** 是确认结果后的可选输出，包含 Summary、Reference、Raw Data、Preview/Final 结果，以及存在时的 Map/FullMap 工作表。**Save images** 将当前显示的各参数图分别保存为 PNG。
+**Export Excel** exports editable native charts; **Export Matplotlib** embeds the plots in a single Excel file without separate PNG files. Both use the same layout: each Match sheet starts with Raw Data at A1, followed by compact parameter tables and top-aligned charts on their right. Preview sheets end with `(WO Card)` and Final sheets with `(W Card)`; Final has no duplicate `PMISH+Card` column. FullMap contains its own mapped-parameter Trends and, when already drawn, the software's Wafer Map/Radius PNGs. Original Reference strings and chart provenance remain in a hidden plot-data sheet. Generated text is English and the default font is Times New Roman.
+
+Each stage also has a chart-free **Original** sheet: literal Raw Data remains in its original order, with matched Reference values in a separate area to the right. Group reports collect rows by Group, while **Wafer** follows each Wafer/Lot/PAD identity's first appearance in Original. Both reports reference Original by source row. Matplotlib panels have fixed physical heights (11 cm), a 15 cm Match width and at least 25 cm Trend/Bias width with compact expanded Wafer captions. Native output uses square-cornered Excel-theme charts and editable local data ranges. Analysis-window menu entries can be deleted through their right-click menu after confirmation; deletion persists when the WKB is saved.
 
 存储模块基准：10 万行 × 50 个四位小数文本参数加两列标识，保存约 0.96 秒、载入约 1.58 秒、文件约 43.54 MiB，逐项往返一致（2026-10-03 当前开发机一次实测，不代表全部硬件，不包含 GUI 出图，也不是旧格式对比结论）。可用 `python -m benchmarks.benchmark_workspace_store` 复测。Card 计算可单独用 `python benchmarks/benchmark_matching.py` 测量。
 
@@ -189,6 +191,8 @@ X < 0 位于负半轴，X > 0 位于正半轴，X = 0 时半径为 0。每个“
 该工具用 **Ref Data** 与 **Raw Data** 两个独立页保留来源表；Raw Data 始终显示全部原始列，Reference 的 Wafer ID、Lot ID、PAD Name 与 Die Seq 按行取自 Raw Data。两个页面支持同样的导入、粘贴和编辑操作。新表格会默认选中所有测量条目，并勾选可用的建模参数列。MSE、GOF、NGOF、LBH、fitTime、regIter（包括 `reglter` 拼写）、CINDEX、Seq、Logical ID，以及 `Cur SME File Path`、Wafer ID、Lot ID、Tool SN、PAD Name、Die Seq、FIELD X/Y、X(mm)/Y(mm) 都不是建模的物理参数，不会出现在参数列表里。名称匹配忽略大小写、空格、下划线和连字符。双来源模式下，Correlation 先列完 Reference 的来源内拟合，再列 Raw Data；Trend 也按 Reference 后 Raw Data 排列，并以橙色/蓝色区分来源。
 
 ### Correlation
+
+Parameter buttons support single selection, Ctrl+click for multiple parameters, and Ctrl+Alt+click to isolate the correlation between two parameters. A third Ctrl+Alt selection starts another pair; ALL restores all eligible fits. This display choice is saved with the WKB and does not change measurements, fit thresholds, regression results, or X/Y direction. Ctrl+Alt+Space provides the same pair selection from the keyboard.
 
 Correlation 使用 `lmfit.models.LinearModel` 对所选 numeric 列做两两线性拟合：
 

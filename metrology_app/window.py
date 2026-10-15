@@ -203,6 +203,11 @@ class MainWindow(QMainWindow):
             self.file_menu.addAction(action)
             self.workspace_actions.append(action)
         self.save_workspace_action, self.save_as_workspace_action, self.recover_workspace_action = self.workspace_actions
+        self.file_menu.addSeparator()
+        self.export_excel_action = self.file_menu.addAction("Export Excel")
+        self.export_excel_action.triggered.connect(self.export_excel_dialog)
+        self.export_matplotlib_action = self.file_menu.addAction("Export Matplotlib")
+        self.export_matplotlib_action.triggered.connect(self.export_matplotlib_dialog)
         self.ownership_label = QLabel()
         self.statusBar().addPermanentWidget(self.ownership_label)
         self.document.refresh_identity()
@@ -210,6 +215,39 @@ class MainWindow(QMainWindow):
     @property
     def workspace_path(self):
         return self.document.path
+
+    def export_excel(self, path, *, native=True, images=None):
+        from .analysis_export import write_window
+        result = write_window(self, path, native=native, images=images)
+        self.statusBar().showMessage(f"Exported {result.name}")
+        return result
+
+    def export_matplotlib(self, path):
+        target = Path(path)
+        if target.suffix.lower() != ".xlsx":  # Preserve existing folder callers.
+            target.mkdir(parents=True, exist_ok=True)
+            target = target / "analysis-matplotlib.xlsx"
+        return self.export_excel(target, native=False)
+
+    def export_excel_dialog(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Export Excel", "analysis.xlsx", "Excel Workbook (*.xlsx)")
+        if path:
+            try:
+                from .analysis_export import capture_window
+                from .export_job import start_export
+                start_export(self, path, capture_window(self))
+            except Exception as error:
+                QMessageBox.warning(self, "Cannot export Excel", str(error))
+
+    def export_matplotlib_dialog(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Export Matplotlib", "analysis-matplotlib.xlsx", "Excel Workbook (*.xlsx)")
+        if path:
+            try:
+                from .analysis_export import capture_window
+                from .export_job import start_export
+                start_export(self, path, capture_window(self), native=False)
+            except Exception as error:
+                QMessageBox.warning(self, "Cannot export Matplotlib", str(error))
 
     def workspace_snapshot(self, *, include_drafts=False, readonly=False):
         """Read-only state views are only for immediate GUI-thread comparison."""
@@ -1208,6 +1246,9 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Unable to save table", str(error))
 
     def closeEvent(self, event):
+        from .export_job import finish_export_before_close
+        if finish_export_before_close(self, event):
+            return
         if self.document.confirm_close():
             self.document.closed()
             self.refresh_timer.stop()
