@@ -286,5 +286,3 @@ class ExcelReportLayoutTests(unittest.TestCase):
         self.assertEqual(before.states, after.states)
         for name in before.frames:
             pd.testing.assert_frame_equal(before.frames[name], after.frames[name])
-
-

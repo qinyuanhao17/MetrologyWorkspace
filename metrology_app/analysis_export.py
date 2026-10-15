@@ -305,5 +305,3 @@ def write_window(window, path, *, native=True, images=None):
     append_report(book, set(), report, native=native, images=images)
     style_workbook(book)
     return save_atomic(book, Path(path).with_suffix(".xlsx"))
-
-
