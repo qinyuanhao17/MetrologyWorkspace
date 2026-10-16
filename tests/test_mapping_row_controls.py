@@ -7,7 +7,8 @@ from tempfile import TemporaryDirectory
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pandas as pd
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtWidgets import QApplication, QCheckBox, QComboBox, QDoubleSpinBox
+from PyQt6.QtGui import QContextMenuEvent
+from PyQt6.QtWidgets import QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QLineEdit, QMenu, QToolButton
 from metrology_app.matching_window import MatchingWindow
 from metrology_app.workspace_store import save_workspace
 
@@ -47,12 +48,53 @@ class MappingRowControlTests(unittest.TestCase):
         self.window.mapping_add_button.click()
         self.assertEqual(failures, [])
 
+    def delete_mapping(self, row, column=1):
+        window = self.window
+        window.show()
+        APP.processEvents()
+        table = window.mapping_table
+        table.scrollTo(table.model().index(row, column))
+        APP.processEvents()
+        failures, chosen = [], []
+        def choose_delete():
+            menu = APP.activePopupWidget()
+            try:
+                self.assertIsInstance(menu, QMenu)
+                action = next(action for action in menu.actions() if action.text() == 'Delete')
+                chosen.append(True)
+                action.trigger()
+            except Exception as error:
+                failures.append(error)
+            finally:
+                if menu:
+                    menu.close()
+        target = table.cellWidget(row, column) if column in (3, 10) else table.viewport()
+        if column == 10:
+            target = target.findChild(QLineEdit)
+        position = target.rect().center() if column in (3, 10) else table.visualItemRect(table.item(row, column)).center()
+        QTimer.singleShot(0, choose_delete)
+        APP.sendEvent(target, QContextMenuEvent(QContextMenuEvent.Reason.Mouse, position, target.mapToGlobal(position)))
+        APP.processEvents()
+        self.assertEqual(failures, [])
+        self.assertEqual(chosen, [True])
 
-    def test_minus_removes_checked_mapping_and_matching_plots_but_not_source_data(self):
+    def test_right_click_deletes_only_target_unchecked_row_even_from_a_limit_editor(self):
+        window = self.window
+        window.mapping_table.item(1, 0).setCheckState(Qt.CheckState.Unchecked)
+        self.delete_mapping(1, 10)
+        self.assertEqual(window.mapping_table.rowCount(), 1)
+        self.assertEqual(window.mapping_table.item(0, 2).text(), 'CD Reference')
+        self.assertEqual(window.mapping_table.item(0, 0).checkState(), Qt.CheckState.Checked)
+        self.assertFalse(any(button.text() == '−' for button in window.mapping_card.findChildren(QToolButton)))
+        pd.testing.assert_frame_equal(window.reference_model.document_frame(), self.reference)
+        pd.testing.assert_frame_equal(window.raw_model.document_frame(), self.raw)
+
+
+    def test_context_delete_removes_target_mapping_and_matching_plots_but_not_source_data(self):
         window = self.window
         window.run_analysis()
         window.mapping_table.item(1, 0).setCheckState(Qt.CheckState.Unchecked)
-        window.mapping_remove_button.click()
+        self.delete_mapping(0)
         self.assertEqual(window.mapping_table.rowCount(), 1)
         self.assertEqual(window.mapping_table.item(0, 2).text(), "Depth Reference")
         self.assertNotIn("CD", window.plot_groups)
@@ -62,12 +104,12 @@ class MappingRowControlTests(unittest.TestCase):
         window.set_raw_frame(self.raw.assign(CD=["9.100", "9.200", "9.300"]))
         self.assertEqual(window.mapping_table.rowCount(), 1, "An input refresh must not recreate removed mappings")
         self.assertTrue(window.mapping_add_button.isEnabled())
-        self.assertFalse(window.mapping_remove_button.isEnabled())
 
     def test_plus_readds_a_reference_parameter_using_the_real_dialog_without_adding_ref_raw_choices(self):
         window = self.window
         self.assertTrue(window.mapping_add_button.isEnabled())
-        window.mapping_remove_button.click()
+        self.delete_mapping(1)
+        self.delete_mapping(0)
         self.assertEqual(window.mapping_table.rowCount(), 0)
         self.assertTrue(window.mapping_add_button.isEnabled())
         failures = []
@@ -188,14 +230,14 @@ class MappingRowControlTests(unittest.TestCase):
                 restored.deleteLater()
                 APP.processEvents()
 
-    def test_minus_only_removes_checked_rows_when_the_reference_is_shared(self):
+    def test_context_delete_preserves_other_rows_when_the_reference_is_shared(self):
         window = self.window
         reference = self.reference[["CD Reference"]]
         window.set_reference_frame(reference)
         self.add_mapping("CD Reference")
         window.mapping_table.cellWidget(1, 3).setCurrentText("Depth")
         window.run_analysis()
-        window.mapping_remove_button.click()
+        self.delete_mapping(0, 3)
         self.assertEqual(window.mapping_table.rowCount(), 1)
         self.assertEqual(window.mapping_table.item(0, 1).text(), "CD 2")
         self.assertEqual(window.mapping_table.item(0, 2).text(), "CD Reference")
@@ -205,7 +247,7 @@ class MappingRowControlTests(unittest.TestCase):
         window.run_analysis()
         self.assertEqual(window.result.parameter_names, ("CD 2",))
         self.assertEqual(set(window.plot_groups), {"CD 2"})
-        window.mapping_remove_button.click()
+        self.delete_mapping(0)
         self.assertEqual(window.mapping_table.rowCount(), 0)
         self.assertTrue(window.mapping_add_button.isEnabled())
         self.add_mapping("CD Reference")
@@ -325,7 +367,7 @@ class MappingRowControlTests(unittest.TestCase):
     def test_removed_mappings_stay_removed_after_draft_and_analyzed_workbook_reopen(self):
         window = self.window
         window.mapping_table.item(1, 0).setCheckState(Qt.CheckState.Unchecked)
-        window.mapping_remove_button.click()
+        self.delete_mapping(0)
         with TemporaryDirectory() as folder:
             path = Path(folder) / "mapping-rows.wkb"
             for analyzed in (False, True):

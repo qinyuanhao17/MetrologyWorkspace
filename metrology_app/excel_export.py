@@ -8,6 +8,7 @@ formula, and no Excel fitting function or trendline is written.
 """
 from pathlib import Path
 from io import BytesIO
+from copy import copy
 import os
 import tempfile
 
@@ -20,7 +21,8 @@ from openpyxl.chart.data_source import AxDataSource, StrRef, MultiLevelStrRef, M
 from openpyxl.chart.axis import ChartLines
 from openpyxl.chart.shapes import GraphicalProperties
 from openpyxl.drawing.line import LineProperties
-from openpyxl.styles import Font, PatternFill
+from openpyxl.styles import Alignment, Font, NamedStyle, PatternFill
+from openpyxl.styles.fonts import DEFAULT_FONT
 from openpyxl.utils import get_column_letter
 from openpyxl.drawing.image import Image
 from openpyxl.chart.text import RichText
@@ -42,6 +44,17 @@ PLOT_COLORS = ("5B9BD5", "ED7D31", "70AD47", "A879C2", "DD5965", "4FADB5")
 PANEL_HEIGHT_CM = 11
 MATCH_WIDTH_CM = 15
 TREND_WIDTH_CM = 25
+
+
+def _checkpoint(book, message=None):
+    cancelled = getattr(book, '_export_cancelled', None)
+    if cancelled is not None and cancelled():
+        raise InterruptedError('Export cancelled')
+    progress = getattr(book, '_export_progress', None)
+    if message and progress is not None:
+        progress(message)
+    if cancelled is not None and cancelled():
+        raise InterruptedError('Export cancelled')
 
 
 def plot_scale(values):
@@ -163,6 +176,7 @@ def sheet_title(base, used, suffix=""):
 
 
 def _write_frame(worksheet, frame):
+    _checkpoint(worksheet.parent, f'Writing {worksheet.title}')
     if frame is None or not len(frame.columns):
         return
     # Explicit coordinates: styling cells first must not shift the table down.
@@ -173,6 +187,8 @@ def _write_frame(worksheet, frame):
         samples = [len(str(name)), *(len(str(value)) for value in frame.iloc[:100, column - 1] if value is not None)]
         worksheet.column_dimensions[get_column_letter(column)].width = max(12, min(36, max(samples) + 2))
     for offset, row in enumerate(frame.itertuples(index=False, name=None), start=2):
+        if offset % 256 == 0:
+            _checkpoint(worksheet.parent)
         for column, item in enumerate(row, start=1):
             cell = worksheet.cell(row=offset, column=column, value=_value(item))
             if isinstance(item, str):
@@ -208,7 +224,7 @@ def _label_spans(labels, limit=5):
     return [runs[index] for index in selected]
 
 
-def sequence_layout(labels, *, name="Wafer"):
+def sequence_layout(labels, *, name="Wafer", cache=None):
     """Reserve measured caption widths without changing observations or row order.
 
     Coordinates are ordinal display positions, not Die Seq measurement values.
@@ -219,13 +235,19 @@ def sequence_layout(labels, *, name="Wafer"):
     from matplotlib.font_manager import FontProperties
     from .plotting.sequence_axis import WaferSpacing
     labels = list(labels)
+    key = (name, tuple(labels)) if cache is not None else None
+    if cache is not None and key in cache:
+        return dict(cache[key])
     count = len(labels)
     limits = (.5, max(1, count) + .5)
     if not count:
         return {"name": name, "x": np.array([]), "ticks": [], "width": TREND_WIDTH_CM,
                 "native_width": TREND_WIDTH_CM, "limits": limits}
     renderer, font = RendererAgg(1, 1, 96), FontProperties(family=EXPORT_FONT, size=11)
-    measure = lambda text: renderer.get_text_width_height_descent(text, font, False)[0]
+    from functools import cache as memoize
+    @memoize
+    def measure(text):
+        return renderer.get_text_width_height_descent(text, font, False)[0]
     runs = _label_spans(labels, limit=None)
     # A dense single Wafer still fits the 25 cm base panel. Only captions that
     # genuinely need more room add width, rather than two pixels per source row.
@@ -240,9 +262,12 @@ def sequence_layout(labels, *, name="Wafer"):
                    widths[-1] * count / (2 * (count + .5 - centers[-1])))
     if len(runs) > 1:
         required = max(required, float(np.max((widths[1:] + widths[:-1]) / 2 * count / np.diff(centers))))
-    return {"name": name, "x": spacing.forward(np.arange(1, count + 1) * factor) / factor,
+    layout = {"name": name, "x": spacing.forward(np.arange(1, count + 1) * factor) / factor,
             "native_width": max(TREND_WIDTH_CM, (required + 110) * 2.54 / 96),
             "ticks": ticks, "width": max(TREND_WIDTH_CM, (spacing.width + 110) * 2.54 / 96), "limits": limits}
+    if cache is not None:
+        cache[key] = layout
+    return dict(layout)
 
 
 def native_categories(sheet, first, last, identities):
@@ -279,6 +304,7 @@ def _original_value(original, column, source_row):
 def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
                            card_source, scope, stage, *, native=True, images=None, show_percent=False, reference_label="REF", original=None, wafer_only=False):
     """Compact visible measurements; chart labels/fit provenance stay internal."""
+    _checkpoint(worksheet.parent, f'{stage}: {scope} — {parameter}')
     reference = data["Reference"].to_numpy(float)
     raw = data["Raw"].to_numpy(float)
     count = len(data)
@@ -324,7 +350,6 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
                           end_row=row, end_column=len(headers))
     title = worksheet.cell(row=row, column=1, value=parameter)
     title.font = Font(name=EXPORT_FONT, size=14, bold=True)
-    from openpyxl.styles import Alignment
     title.alignment = Alignment(horizontal="center", vertical="center")
     worksheet.row_dimensions[row].height = 22
     worksheet.row_dimensions[row + 1].height = 20
@@ -346,20 +371,42 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
     reference_column = (next(cell.column_letter for cell in reversed(original[1])
                              if cell.value == f"{parameter} Reference ({reference_label})")
                         if original is not None else None)
+    # Register common styles once. Rebuilding and hashing an Alignment for
+    # every measurement cell dominated large reports; NamedStyle copies keep
+    # later merged-caption edits isolated from the numeric cells.
+    for name, alignment in (('Export value', Alignment(vertical='center')),
+                            ('Export label', Alignment(wrap_text=True, vertical='center'))):
+        if name not in worksheet.parent.named_styles:
+            font = copy(DEFAULT_FONT)
+            font.name, font.scheme = EXPORT_FONT, None
+            worksheet.parent.add_named_style(NamedStyle(name=name,
+                font=font, alignment=alignment))
+    value_style = worksheet.parent._named_styles['Export value'].as_tuple()
+    label_style = worksheet.parent._named_styles['Export label'].as_tuple()
+    identity_values = {name: data['Group label' if name == 'Group' else name].tolist()
+                       if ('Group label' if name == 'Group' else name) in data else [''] * count
+                       for name in identities}
+    source_rows = data['Source row'].tolist() if 'Source row' in data else data.index.tolist()
+    keys = data['Wafer key'].tolist() if wafer_only else list(zip(data['Group'], data['Wafer key']))
+    wafer_spans = _label_spans(keys, limit=None)
+    wafer_starts = {start for start, _end, _key in wafer_spans}
     for index in range(count):
+        if index % 256 == 0:
+            _checkpoint(worksheet.parent)
         target = first_row + index
         for name in identities:
-            source = "Group label" if name == "Group" else name
-            value = data[source].iloc[index] if source in data else ""
+            if name == 'Wafer' and index not in wafer_starts:
+                continue
+            value = identity_values[name][index]
             cell = worksheet.cell(row=target, column=columns[name], value=_value(value))
             if isinstance(value, str):
                 cell.data_type = "s"
-                cell.alignment = Alignment(wrap_text=True, vertical="center")
+                cell._style = copy(label_style)
         worksheet.row_dimensions[target].height = 15
         raw_cell = f"{get_column_letter(columns['PMISH'])}{target}"
         raw_value = _value(raw[index])
         if source_column is not None:
-            raw_value = _original_value(original, source_column, data["Source row"].iloc[index])
+            raw_value = _original_value(original, source_column, source_rows[index])
         worksheet.cell(row=target, column=columns["PMISH"], value=raw_value)
         # Final Raw Data is already the accepted post-Card source. Applying
         # the fitted Card here a second time would disagree with the software.
@@ -369,7 +416,7 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
         evaluated_cell = f"{get_column_letter(columns['PMISH' if final else 'PMISH+Card'])}{target}"
         ref_cell = f"{get_column_letter(columns[reference_label])}{target}"
         worksheet.cell(row=target, column=columns[reference_label],
-                       value=_original_value(original, reference_column, data["Source row"].iloc[index])
+                       value=_original_value(original, reference_column, source_rows[index])
                        if reference_column is not None else _value(reference[index]))
         worksheet.cell(row=target, column=columns["Bias"],
                        value=f'=IF(AND(ISNUMBER({evaluated_cell}),ISNUMBER({ref_cell})),{evaluated_cell}-{ref_cell},NA())')
@@ -377,19 +424,20 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
                        value=(f'=IF(AND(ISNUMBER({evaluated_cell}),ISNUMBER({ref_cell})),'
                               f'IF({ref_cell}=0,NA(),({evaluated_cell}-{ref_cell})/{ref_cell}*100),NA())'))
         for column in range(len(identities) + 1, len(headers) + 1):
-            worksheet.cell(row=target, column=column).alignment = Alignment(vertical="center")
-        source_row = data["Source row"].iloc[index] if "Source row" in data else data.index[index]
+            worksheet.cell(row=target, column=column)._style = copy(value_style)
+        source_row = source_rows[index]
         helper.cell(row=helper_row + index, column=1, value=int(source_row) + 1)
         cell = helper.cell(row=helper_row + index, column=2, value=axis_labels.get(index, ""))
         cell.data_type = "s"
     # Merge only the derived presentation column. A hidden Lot/PAD caption must
     # never merge different measurement identities, or cross a Group boundary.
-    keys = [data["Wafer key"].iloc[index] if wafer_only else (data["Group"].iloc[index], data["Wafer key"].iloc[index])
-            for index in range(count)]
-    for start, end, _key in _label_spans(keys, limit=None):
+    for start, end, _key in wafer_spans:
         if end > start:
-            worksheet.merge_cells(start_row=first_row + start, end_row=first_row + end,
-                                  start_column=columns["Wafer"], end_column=columns["Wafer"])
+            # These fresh, borderless captions have no interior cells. Register
+            # the range directly instead of creating/discarding every repeated
+            # label and then styling hundreds of thousands of merged cells.
+            column = get_column_letter(columns['Wafer'])
+            worksheet.merged_cells.add(f'{column}{first_row + start}:{column}{first_row + end}')
         cell = worksheet.cell(first_row + start, columns["Wafer"])
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         if end == start:
@@ -406,14 +454,17 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
     percentages = np.full(count, np.nan)
     np.divide((evaluated_values - reference) * 100, reference, out=percentages,
               where=np.isfinite(reference) & (reference != 0))
-    layouts = [sequence_layout(primary_labels, name="Group" if "Group label" in data and not wafer_only else "Wafer")]
+    if not hasattr(worksheet.parent, '_export_layouts'):
+        worksheet.parent._export_layouts = {}
+    layout_cache = worksheet.parent._export_layouts
+    layouts = [sequence_layout(primary_labels, name="Group" if "Group label" in data and not wafer_only else "Wafer", cache=layout_cache)]
     if "Group label" in data and not wafer_only:
         labels = [f"{group}\n{wafer}" for group, wafer in zip(data["Group label"], data["Wafer"])]
-        layouts.append(sequence_layout(labels))
+        layouts.append(sequence_layout(labels, cache=layout_cache))
     category_columns = [(columns["Group"], data["Group label"].tolist())] if "Group" in columns and not wafer_only else None
     detailed_columns = ([(columns["Group"], data["Group label"].tolist())] if "Group" in columns and not wafer_only else []) + [
         (columns["Wafer"], data["Wafer"].tolist()), (columns["Die Seq"], data["Die Seq"].tolist())]
-    for index, layout in enumerate(layouts):
+    for index, layout in enumerate(layouts) if native else ():
         layout["categories"] = native_categories(worksheet, first_row, last_row,
             category_columns if index == 0 and category_columns else detailed_columns) if count else None
     if count and native:
@@ -422,16 +473,17 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
                     reference_label=reference_label, unit="" if mapping is None else _unit(mapping.reference_column),
                     columns=columns, helper=helper, helper_row=helper_row, final=final, layouts=layouts)
     elif count:
+        from .export_rendering import embed_parameter
         anchor = len(headers) + 2
         panels = [("Match", None)] + [(panel, layout) for layout in layouts
             for panel in ("Trend", "Bias", *(("Bias %",) if show_percent else ()))]
         for panel, layout in panels:
-            figure = parameter_figure(parameter, data, card, stage, scope, panel=panel,
-                reference_label=reference_label, unit="" if mapping is None else _unit(mapping.reference_column), sequence=layout)
-            _embed_figure(worksheet, figure, f"{get_column_letter(anchor)}{row}",
-                          f"{parameter} {panel} {layout['name'] if layout else ''} {scope} {stage}{stage_suffix(stage)}", images)
-            anchor = _next_plot_column(worksheet, anchor, figure.get_figwidth() * 96)
-            figure.clear()
+            embed_parameter(worksheet, f"{get_column_letter(anchor)}{row}",
+                f"{parameter} {panel} {layout['name'] if layout else ''} {scope} {stage}{stage_suffix(stage)}",
+                images, parameter, data, card, stage, scope, panel=panel, reference_label=reference_label,
+                unit="" if mapping is None else _unit(mapping.reference_column), sequence=layout)
+            width = MATCH_WIDTH_CM if panel == 'Match' else layout['width']
+            anchor = _next_plot_column(worksheet, anchor, (width / 2.54) * 96)
     return max(first_row + count, row + BLOCK_MIN_ROWS) + 3
 
 
@@ -509,6 +561,7 @@ def _parameter_data(result, parameter, key="all", labels=None, *, order="group")
     identities = wafer_identity_keys(raw)
     die_column = next((column for column in raw if normalized(column) in ("dieseq", "dieid", "diesequence")), None)
     captions, dies, wafer_captions = [], [], []
+    die_values = raw[die_column].tolist() if die_column is not None else None
     for row, group in zip(data["Source row"], data["Group"]):
         wafer, lot, pad = identities[row] if identities is not None else (f"Row {row + 1}", "", "")
         text = [wafer]
@@ -521,7 +574,7 @@ def _parameter_data(result, parameter, key="all", labels=None, *, order="group")
             group_label = result.group_plan.label(group)
             text = ([group_label, *text] if group in result.group_plan.state.get("show_wafer_groups", ()) else [group_label])
         captions.append("\n".join(text))
-        dies.append(str(raw.iloc[row][die_column]) if die_column is not None else "")
+        dies.append(str(die_values[row]) if die_values is not None else "")
     data["Label"], data["Die Seq"] = captions, dies
     data["Wafer"] = wafer_captions
     data["Wafer key"] = [identities[row] if identities is not None else (f"Row {row + 1}", "", "")
@@ -666,7 +719,8 @@ def write_rsq_sheet(book, used_titles, result, *, native=True, images=None):
             plot = {"title": f"{parameter} R² by Wafer", "x": "Wafer", "y": "R²",
                     "series": [_series(parameter, np.arange(1, len(summary) + 1), summary["R²"].to_numpy(float))],
                     "labels": summary["Wafer"].map(_wafer_label).tolist()}
-            _embed_figure(sheet, plot_figure(plot), f"{anchor_column}{anchor_row + index * 25}",
+            from .export_rendering import embed_plot
+            embed_plot(sheet, plot, f"{anchor_column}{anchor_row + index * 25}",
                           plot["title"] + stage_suffix(result.result_mode), images)
     return sheet
 
@@ -681,6 +735,7 @@ def write_all_trend_sheet(book, used_titles, result, workbook, *, native=True, i
     _fill_title(sheet)
     row = 1
     for parameter in result.parameter_names:
+        _checkpoint(book, f'{result.result_mode.title()}: All Trend — {parameter}')
         series = []
         mapping = next(item for item in workbook.mappings if item.name == parameter)
         source_column = next(cell.column_letter for cell in original[1] if cell.value == mapping.raw_column)
@@ -717,6 +772,8 @@ def write_all_trend_sheet(book, used_titles, result, workbook, *, native=True, i
                 cell.font = Font(bold=True)
         depth = max((len(data) for _label, _key, data, _card in series), default=0)
         for index in range(depth):
+            if index % 256 == 0:
+                _checkpoint(book)
             target = first_row + index
             sheet.cell(row=target, column=1, value=index + 1)
             for slot, (label, _key, data, _card) in enumerate(series):
@@ -767,15 +824,26 @@ def write_all_trend_sheet(book, used_titles, result, workbook, *, native=True, i
                 curves.extend([_series(f"{label} PMISH", np.arange(1, len(data) + 1), evaluated),
                                _series(f"{label} {workbook.match_type}", np.arange(1, len(data) + 1), data["Reference"].to_numpy(float))])
             plot = {"title": f"{parameter} Group trends", "x": "Row", "y": parameter, "series": curves}
-            _embed_figure(sheet, plot_figure(plot), f"{get_column_letter(info_base + len(series) * 2 + 2)}{row}",
+            from .export_rendering import embed_plot
+            embed_plot(sheet, plot, f"{get_column_letter(info_base + len(series) * 2 + 2)}{row}",
                           plot["title"] + stage_suffix(result.result_mode), images)
         row = first_row + max(depth, 18) + 22
     return sheet
 
 
-def write_workbook(path, *, reference, stages, native=True, images=None, reports=(), extra_frames=(), plot_labels=None, fullmap_parameters=(), cancelled=lambda: False):
+def write_workbook(path, *, reference, stages, native=True, images=None, reports=(), extra_frames=(), plot_labels=None, fullmap_parameters=(), cancelled=lambda: False, progress=None):
     """Write the workbook export: data sheets plus native-chart Match sheets."""
     book = Workbook()
+    from .export_rendering import rendering_session
+    with rendering_session(book, native=native):
+        return _write_workbook(book, path, reference=reference, stages=stages, native=native,
+            images=images, reports=reports, extra_frames=extra_frames, plot_labels=plot_labels,
+            fullmap_parameters=fullmap_parameters, cancelled=cancelled, progress=progress)
+
+
+def _write_workbook(book, path, *, reference, stages, native, images, reports, extra_frames, plot_labels, fullmap_parameters, cancelled, progress):
+    book._export_cancelled = cancelled
+    book._export_progress = progress
     book.remove(book.active)
     used = set()
 
@@ -922,6 +990,7 @@ def style_workbook(book):
 
 
 def _embed_figure(sheet, figure, anchor, title, images):
+    _checkpoint(sheet.parent, f'Rendering {title}')
     from .appearance import export_dpi, MAX_EXPORT_PIXELS
     buffer = BytesIO()
     figure.savefig(buffer, format="png", dpi=export_dpi(figure, 150, MAX_EXPORT_PIXELS),
@@ -933,12 +1002,19 @@ def _embed_figure(sheet, figure, anchor, title, images):
     sheet.add_image(picture, anchor)
     if images is not None:
         images.append((title, buffer.getvalue()))
+    # Pictures own their PNG bytes, not the Agg canvas. Release its potentially
+    # very wide raster before rendering the next panel; no pyplot state exists.
+    figure.clear()
+    figure.set_canvas(None)
+    _checkpoint(sheet.parent)
 
 
 def write_fullmap(sheet, frame, parameters, *, native=True, images=None, plot_labels=None, pictures=()):
     """FullMap's own measurements and mapped Trends; software Map/Radius PNGs."""
     from .analysis_export import _series, plot_figure
     from .measurements import wafer_identity_labels
+    from .export_rendering import embed_plot, flush_pictures
+    flush_pictures(sheet.parent)
     _write_frame(sheet, frame)
     labels = plot_labels or {"pad": True, "lot": True}
     captions = wafer_identity_labels(frame, [[row] for row in range(len(frame))],
@@ -1004,13 +1080,16 @@ def write_fullmap(sheet, frame, parameters, *, native=True, images=None, plot_la
         else:
             plot = {"title": parameter, "x": "", "y": parameter,
                     "labels": captions, "series": [_series(parameter, np.arange(1, len(frame) + 1), values)]}
-            _embed_figure(sheet, plot_figure(plot), f"{anchor}{cursor}", sheet.title + " " + parameter, images)
+            embed_plot(sheet, plot, f"{anchor}{cursor}", sheet.title + " " + parameter, images)
         cursor += 30
 
 
 def save_atomic(book, path, *, cancelled=lambda: False):
     """Publish only a complete xlsx; a failed export leaves an existing file intact."""
     target = Path(path)
+    from .export_rendering import flush_pictures
+    flush_pictures(book)
+    _checkpoint(book, 'Saving XLSX file…')
     handle = tempfile.NamedTemporaryFile(dir=target.parent, suffix=".xlsx", prefix=".export-", delete=False)
     temporary = Path(handle.name)
     handle.close()

@@ -153,6 +153,30 @@ Map-first 的 3 次独立进程（`cold-map-base-1..3.txt`、`cold-map-retained-
 
 本次沿用上文引用的 python-performance-optimization、diagnosing-bugs、systematic-debugging 进行归因和单变量对照；tdd 保留原预算并补充公开行为测试，codebase-design 将边界绘制收在已有绘图模块，ponytail 避免新框架和全目录改动，scientific-visualization 要求保留源数据、全部边界、NaN 和完整导出并验证像素等价。本次是单次续跑，没有新建任务、重复调度、打包或发布。
 
+## 2026-10-16：NOVA Excel／Matplotlib 导出阶段
+
+本次只推进导出阶段，不代表本文件前述整体性能方案全部完成。
+真实 7,731 行、5 Group、3 参数、Preview/Final 的同一 NOVA 副本，
+Native Excel 从 56.390 秒降到 43.284 秒；Matplotlib 从 154.588 秒降到 54.997 秒。
+采用每次导出的布局复用、lxml 写出、最多 4 个有界 Agg 进程及独立的大报告导出进程，
+保留全部 210 张图片与 2,555,474 个单元格的值和公式。
+输出图像字节／像素、图表定义与几何位置等价；取消／失败保留旧报告。
+742 项全量测试通过。具体复测脚本、GUI 心跳、取消等待及尚未处理的阶段见
+[NOVA 导出实测与验证](nova-export-performance-2026-10-16.md)。
+WKB 异步首开、完整恢复、版本化后台分析、后台正式保存及原生长会话仍未因此完成。
+
+同日后续继续减少参数表中被合并丢弃的重复 Wafer 单元格和逐格样式查找，
+并在至少 12 个逻辑核心的机器上把有界 Agg 上限从 4 提至 6。
+本轮独立冻结包两次原生导出为 91.310／92.502 秒、Matplotlib 为 107.066／107.201 秒；
+最终版本原生复测为 70.568 秒、Matplotlib 为 90.717 秒。
+当前运行环境下冻结包也比上一轮慢，原因未隔离，不能把两轮时间直接串减。
+本轮只用同条件冻结包与修改版作对照；每种报告除时间戳外的全部 296 个 ZIP 内容部件字节一致，
+包括合并范围、样式、公式、图表和 PNG；未降低分辨率、减少点或删除图。
+取消／失败仍保护旧文件；最终 XLSX 序列化阶段取消需要等待，实测 40.219 秒。
+详细独立样本、未采用的压缩实验和资源上限均记录在上面的 NOVA 验证文档中。
+本轮全量 743 项：738 项通过、5 项交互耗时门槛失败；其中 2 项在冻结包复现，
+其余 3 项在双方独立进程复跑均通过。没有放宽预算或跳过测试，不能声称全量全绿。
+
 ## 方法与参考
 
 按用户指定的 [python-performance-optimization](<C:/Users/Yuanhao Qin/.codex/skills/python-performance-optimization/SKILL.md>)、[diagnosing-bugs](<C:/Users/Yuanhao Qin/.codex/skills/diagnosing-bugs/SKILL.md>)、[systematic-debugging](<C:/Users/Yuanhao Qin/.codex/skills/systematic-debugging/SKILL.md>) 执行复现、归因、单变量实验与原门槛回归。线程绘制仍因 Qt/GIL 阻塞；drawPolyline 的改善不稳定，均未保留。codebase-design 限制修改在现有准备/子窗口/绘图 seam，ponytail 避免全目录搬迁和新依赖；tdd/bdd 将触发路径连接到可执行测试。

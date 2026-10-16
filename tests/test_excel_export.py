@@ -193,6 +193,38 @@ class ExcelExportTests(unittest.TestCase):
             with PillowImage.open(BytesIO(pictures["Match (WO Card)"]._images[0]._data())) as picture:
                 self.assertIn("Matplotlib", picture.info.get("Software", ""))
 
+    def test_large_matplotlib_report_keeps_all_panels_and_matches_serial_pixels(self):
+        from io import BytesIO
+        from metrology_app.excel_export import parameter_figure
+        self.window.match_type.setCurrentText('NOVA')
+        count = 3000
+        raw = pd.DataFrame({'Wafer ID': ['W1'] * count, 'Die Seq': range(1, count + 1),
+                            'CD': [f'{value}.000' for value in range(1, count + 1)]})
+        reference = pd.DataFrame({'CD Reference': [2 * value + 1 for value in range(1, count + 1)]})
+        self.window.set_reference_frame(reference)
+        self.window.set_raw_frame(raw)
+        self.window.run_analysis()
+        before = self.window.workspace_snapshot()
+        data = pd.DataFrame({'Raw': range(1, count + 1), 'Reference': reference['CD Reference']})
+        figure = parameter_figure('CD', data, self.window.result.card('CD'), 'Preview', 'All', reference_label='NOVA')
+        expected = BytesIO()
+        figure.savefig(expected, format='png', dpi=150, facecolor='white')
+        figure.clear()
+        with tempfile.TemporaryDirectory() as folder:
+            book = load_workbook(self.window.export_excel(Path(folder) / 'large.xlsx', native=False))
+            self.assertEqual(sum(len(sheet._images) for sheet in book), 7)
+            self.assertEqual(book['Original (WO Card)']['C3001'].value, '3000.000')
+            self.assertEqual(book['Wafer (WO Card)']['C3002'].value,
+                             '=IF(\'Original (WO Card)\'!$C$3001="",NA(),IFERROR(\'Original (WO Card)\'!$C$3001*1,NA()))')
+            with PillowImage.open(BytesIO(book['Match (WO Card)']._images[0]._data())) as actual, \
+                    PillowImage.open(BytesIO(expected.getvalue())) as serial:
+                self.assertEqual(actual.size, serial.size)
+                self.assertEqual(actual.convert('RGBA').tobytes(), serial.convert('RGBA').tobytes())
+        after = self.window.workspace_snapshot()
+        self.assertEqual(before.states, after.states)
+        for name in before.frames:
+            pd.testing.assert_frame_equal(before.frames[name], after.frames[name])
+
     def test_matplotlib_menu_exports_one_workbook_without_png_sidecars(self):
         from PyQt6.QtWidgets import QFileDialog
         from PyQt6.QtTest import QTest
@@ -443,6 +475,69 @@ class ExcelExportTests(unittest.TestCase):
             self.assertTrue(self.window.export_action.isEnabled())
             self.assertIn("Match (WO Card)", load_workbook(target).sheetnames)
 
+    def test_large_menu_export_keeps_the_gui_ticking_and_all_sources_unchanged(self):
+        from PyQt6.QtCore import QTimer
+        from PyQt6.QtWidgets import QFileDialog
+        from PyQt6.QtTest import QTest
+        import time
+        count = 3000
+        raw = pd.DataFrame({'Wafer ID': ['W1'] * count, 'Die Seq': range(1, count + 1),
+                            **{f'P{i}': [f'{value+i}.000' for value in range(count)] for i in range(4)}})
+        reference = pd.DataFrame({f'P{i} Reference': [2 * (value+i) + 1 for value in range(count)] for i in range(4)})
+        self.window.set_reference_frame(reference)
+        self.window.set_raw_frame(raw)
+        self.window.run_analysis()
+        before = self.window.workspace_snapshot()
+        ticks = []
+        heartbeat = QTimer()
+        heartbeat.timeout.connect(lambda: ticks.append(time.monotonic()))
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / 'responsive.xlsx'
+            heartbeat.start(10)
+            try:
+                with patch.object(QFileDialog, 'getSaveFileName', return_value=(str(target), '')):
+                    self.window.images_action.trigger()
+                deadline = time.monotonic() + 45
+                while not self.window.images_action.isEnabled() and time.monotonic() < deadline:
+                    QTest.qWait(10)
+                self.assertTrue(self.window.images_action.isEnabled())
+                self.assertEqual(self.window.statusBar().currentMessage(), 'Exported responsive.xlsx')
+                self.assertGreater(len(ticks), 10)
+                self.assertLess(max(right-left for left, right in zip(ticks, ticks[1:])), .5)
+                self.assertEqual(sum(len(sheet._images) for sheet in load_workbook(target)), 28)
+            finally:
+                heartbeat.stop()
+        after = self.window.workspace_snapshot()
+        self.assertEqual(before.states, after.states)
+        for name in before.frames:
+            pd.testing.assert_frame_equal(before.frames[name], after.frames[name])
+
+    def test_large_export_publish_failure_preserves_previous_file_and_cleans_private_output(self):
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from PyQt6.QtTest import QTest
+        import time
+        count = 5000
+        raw = pd.DataFrame({'Wafer ID': ['W1'] * count, 'Die Seq': range(count),
+                            'CD': range(count), 'Depth': range(count)})
+        reference = pd.DataFrame({'CD Reference': range(count), 'Depth Reference': range(count)})
+        self.window.set_reference_frame(reference)
+        self.window.set_raw_frame(raw)
+        self.window.run_analysis()
+        with tempfile.TemporaryDirectory() as folder:
+            target = self.window.export_excel(Path(folder) / 'previous.xlsx')
+            previous = target.read_bytes()
+            with patch('os.replace', side_effect=OSError('Cannot publish this report')), \
+                    patch.object(QFileDialog, 'getSaveFileName', return_value=(str(target), '')), \
+                    patch.object(QMessageBox, 'warning', return_value=QMessageBox.StandardButton.Ok) as warning:
+                self.window.export_action.trigger()
+                deadline = time.monotonic() + 45
+                while not self.window.export_action.isEnabled() and time.monotonic() < deadline:
+                    QTest.qWait(10)
+                self.assertTrue(self.window.export_action.isEnabled())
+                self.assertIn('Cannot publish this report', warning.call_args.args[2])
+            self.assertEqual(target.read_bytes(), previous)
+            self.assertEqual(list(Path(folder).glob('.export-*')), [])
+
     def test_cancel_during_excel_write_preserves_the_previous_export(self):
         from threading import Event
         from PyQt6.QtWidgets import QFileDialog, QProgressDialog, QPushButton
@@ -480,6 +575,51 @@ class ExcelExportTests(unittest.TestCase):
             self.assertTrue(self.window.export_action.isEnabled())
             self.assertEqual(target.read_bytes(), before)
             self.assertEqual(list(Path(folder).glob(".export-*")), [])
+
+    def test_cancel_at_parameter_progress_stops_both_renderers_before_publishing(self):
+        from threading import Event
+        from metrology_app.excel_export import write_workbook
+        reference, raw = self.frames()
+        self.window.set_reference_frame(reference)
+        self.window.set_raw_frame(raw)
+        self.window.run_analysis()
+        snapshot = self.window.excel_export_snapshot()
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / 'previous.xlsx'
+            self.window.export_excel(target)
+            previous = target.read_bytes()
+            for native in (True, False):
+                with self.subTest(native=native):
+                    stopped, messages = Event(), []
+                    def progress(message):
+                        messages.append(message)
+                        if 'CD' in message:
+                            stopped.set()
+                    with self.assertRaises(InterruptedError):
+                        write_workbook(target, **snapshot, native=native,
+                                       progress=progress, cancelled=stopped.is_set)
+                    self.assertTrue(any('CD' in message for message in messages))
+                    self.assertEqual(target.read_bytes(), previous)
+                    self.assertEqual(list(Path(folder).glob('.export-*')), [])
+
+    def test_failed_export_cleans_partial_file_and_keeps_previous_workbook(self):
+        from openpyxl import Workbook
+        reference, raw = self.frames()
+        self.window.set_reference_frame(reference)
+        self.window.set_raw_frame(raw)
+        self.window.run_analysis()
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / 'previous.xlsx'
+            self.window.export_excel(target)
+            previous = target.read_bytes()
+            def failed_save(_book, temporary):
+                Path(temporary).write_bytes(b'partial XLSX')
+                raise OSError('Disk write failed')
+            with patch.object(Workbook, 'save', failed_save):
+                with self.assertRaisesRegex(OSError, 'Disk write failed'):
+                    self.window.export_excel(target)
+            self.assertEqual(target.read_bytes(), previous)
+            self.assertEqual(list(Path(folder).glob('.export-*')), [])
 
 
 if __name__ == "__main__":

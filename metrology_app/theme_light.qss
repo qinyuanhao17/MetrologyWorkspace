@@ -44,6 +44,24 @@ QWidget#colorRangeBar { background: transparent; }
 QFrame#sidebar { background: #f2f2f3; border: none; border-right: 1px solid #e4e4e7; }
 QWidget#overviewPage { background: #f7f7f8; }
 QFrame#overviewCard, QFrame#componentCard, QFrame#activityPanel { background: #ffffff; border: 1px solid #e4e4e7; border-top-color: #d9d9de; border-radius: 10px; }
+QFrame#remindersCard { background: #ffffff; border: 1px solid #e4e4e7; border-radius: 12px; }
+QLabel#remindersTitle { color: #c56b00; font-size: 25px; font-weight: 700; }
+QLabel#remindersCount { color: #c56b00; font-size: 26px; font-weight: 600; }
+QPushButton#reminderFilter { background: #f4f4f5; border: 1px solid transparent; border-radius: 7px; padding: 8px; text-align: left; }
+QPushButton#reminderFilter:checked { background: #fff2df; border-color: #d88a22; color: #874800; }
+QPushButton#reminderFilter:hover { border-color: #d88a22; }
+QListWidget#reminderList { background: transparent; border: none; outline: none; }
+QListWidget#reminderList::item:selected { background: #fff5e6; }
+QFrame#reminderRow { background: transparent; border: none; border-bottom: 1px solid #ededf0; }
+QLabel#reminderText { font-size: 15px; font-weight: 500; }
+QLabel#reminderOverdue, QLabel#reminderError { color: #c0392b; }
+QToolButton#reminderCheck { background: transparent; border: 2px solid #a1a1aa; border-radius: 12px; padding: 0; }
+QToolButton#reminderCheck:checked { background: #c56b00; border-color: #c56b00; color: white; }
+QToolButton#reminderCheck:hover, QToolButton#reminderCheck:focus { border-color: #c56b00; }
+QToolButton#newReminder { background: #c56b00; border: none; border-radius: 19px; color: white; font-size: 27px; padding: 0; }
+QToolButton#newReminder:hover, QToolButton#newReminder:focus { background: #9b5200; }
+QPushButton#reminderCompleted { background: transparent; border: none; color: #6b6b70; padding: 4px 0; }
+QPushButton#reminderCompleted:checked { color: #874800; font-weight: 600; }
 QFrame#activityPanel { border-radius: 0; border-top: none; border-bottom: none; border-right: none; }
 QFrame#diagnosticPanel { background: #f7f7f8; border-top: 1px solid #d9d9de; }
 QPushButton#moduleButton { background: #ffffff; border: 1px solid #e4e4e7; border-radius: 9px; padding: 0; text-align: left; }

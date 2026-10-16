@@ -13,7 +13,7 @@ from PyQt6.QtGui import (
     QTextCharFormat, QTextCursor,
 )
 from PyQt6.QtWidgets import (
-    QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel, QListWidget,
+    QApplication, QFrame, QHBoxLayout, QLabel, QListWidget,
     QFileDialog, QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QScrollArea, QSizePolicy, QSplitter,
     QToolBar, QToolButton, QVBoxLayout, QWidget,
 )
@@ -23,6 +23,7 @@ from .appearance import (
 )
 from .module_button import ModuleButton
 from .module_registry import create_default_registry
+from .reminder_panel import ReminderPanel
 from .diagnostics import get_logger
 from .settings import apply_theme, get_settings, load_settings, save_settings, recent_wkb_paths
 from .workspace_store import EXTENSIONS, WORKSPACE_FILTER, WORKSPACE_LABELS, load_workspace
@@ -87,7 +88,7 @@ def _label(text, role):
 class MainWindow(QMainWindow):
     """Open multiple independent analysis workspaces."""
 
-    def __init__(self, registry=None, parent=None):
+    def __init__(self, registry=None, parent=None, *, reminders_path=None):
         super().__init__(parent)
         load_settings()
         self.registry = registry or create_default_registry()
@@ -97,6 +98,7 @@ class MainWindow(QMainWindow):
         self._diagnostic_handler = None
         self._log_entries = []
         self._log_theme = get_settings()["theme"]
+        self._reminders_path = reminders_path
         self.setObjectName("applicationShell")
         self.setWindowTitle(APPLICATION_NAME)
         # A modest window centred on the display: the shell only holds two
@@ -112,7 +114,6 @@ class MainWindow(QMainWindow):
         self._append_log("INFO", "Runtime", f"Python {platform.python_version()} · {sys.executable}")
         self._append_log("INFO", "Runtime", f"Platform {platform.platform()}")
         self._append_log("INFO", "Runtime", f"Working directory: {Path.cwd()}")
-        self.update_overview()
         self.setAcceptDrops(True)
 
     @property
@@ -249,25 +250,8 @@ class MainWindow(QMainWindow):
             "Workspace", "Open a tool in its own analysis window.", "pageTitle"
         ))
         layout.addSpacing(18)
-        card = QFrame(objectName="overviewCard")
-        grid = QGridLayout(card)
-        grid.setContentsMargins(22, 20, 22, 20)
-        grid.setHorizontalSpacing(24)
-        grid.setVerticalSpacing(14)
-        grid.addWidget(_label("CURRENT SESSION", "sectionTitle"), 0, 0, 1, 2)
-        self.available_value = _label("0", "detailValue")
-        self.loaded_value = _label("0", "detailValue")
-        self.last_loaded_value = _label("—", "accentValue")
-        for row, (name, value) in enumerate((
-            ("Available tools", self.available_value),
-            ("Open windows", self.loaded_value),
-            ("Last opened", self.last_loaded_value),
-        ), start=1):
-            grid.addWidget(_label(name, "detailLabel"), row, 0)
-            grid.addWidget(value, row, 1)
-        grid.setColumnStretch(1, 1)
-        layout.addWidget(card)
-        layout.addStretch()
+        self.reminders = ReminderPanel(self._reminders_path, page)
+        layout.addWidget(self.reminders, 1)
         return page
 
     def _build_activity(self):
@@ -373,14 +357,12 @@ class MainWindow(QMainWindow):
         )
         self.loaded_components.setdefault(component_id, []).append(widget)
         self.set_module_state(component_id)
-        self.last_loaded_value.setText(label)
         widget.show()
         self.place_component(widget, serial)
         style_titlebar(widget, get_settings()["theme"])
         widget.raise_()
         widget.activateWindow()
         self.record("Window", f"Opened {label}")
-        self.update_overview()
         return widget
 
     def place_component(self, widget, serial):
@@ -436,7 +418,6 @@ class MainWindow(QMainWindow):
             self.loaded_components.pop(component_id, None)
             self.record("Window", f"Closed all {self.registry.get(component_id).title} windows")
         self.set_module_state(component_id)
-        self.update_overview()
         return not refused
 
     def unload_all_components(self):
@@ -504,18 +485,12 @@ class MainWindow(QMainWindow):
                 self.loaded_components.pop(component_id, None)
             self.record("Window", f"Closed a {self.registry.get(component_id).title} window")
         self.set_module_state(component_id)
-        self.update_overview()
 
     def set_module_state(self, component_id):
         count = self.instance_count(component_id)
         button = self.module_buttons.get(component_id)
         if button is not None:
             button.set_content(self.registry.get(component_id).title, count)
-
-    def update_overview(self):
-        total = sum(len(instances) for instances in self.loaded_components.values())
-        self.available_value.setText(str(len(self.registry)))
-        self.loaded_value.setText(str(total))
 
     def _append_log(self, level, source, message):
         stamp = datetime.now().strftime("%H:%M:%S")

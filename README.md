@@ -2,6 +2,9 @@
 
 Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、径向图、相关性图和 Die Seq 趋势图。主窗口依次提供 **Match Workbook**、**Wafer Map**、**Correlation and Trend** 和 **Dynamic** 四个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例；窗口可命名、勾选随 WKB 保存。当前正式源码版本为 **v3.2.0**，在 `main` 分支维护；功能、验证及已知限制见 [v3.2.0 发布说明](docs/releases/v3.2.0.md)。历史版本与开发版标签保持不变。
 
+当前开发快照为 **v4-dev1**（`VERSION`：`4.0.0-dev1`），包含独立提醒事项、映射逐行右键删除和 NOVA 导出优化。
+这是源码开发 tag，不替换 `main` 上的稳定快照，也没有新的 Windows 安装包；验证结果与未完成事项见 [v4-dev1 开发版说明](docs/releases/v4-dev1.md)。
+
 ## 运行
 
 项目已经提供 Anaconda 环境文件。首次使用时，在项目目录执行：
@@ -24,6 +27,23 @@ python main.py
 python -m pip install -r requirements.txt
 python main.py
 ```
+
+### Home reminders (v4 development)
+
+The home screen replaces Current Session with an independent Reminders list.
+Use **+** to add a title, notes, optional date/time and flag. Click the circle to
+complete a task; **Completed** lets you restore it. Double-click or F2 edits a
+task. Right-click provides Edit, Complete, Flag and confirmed Delete; Delete
+also works from the focused list. Today includes overdue tasks; Scheduled,
+All, Flagged and search provide other views.
+
+Edits save immediately to `config/reminders.sqlite3` in source runs, or
+`reminders.sqlite3` beside a packaged executable. This file is independent of
+settings and every Tool/WKB; retain it when moving the application. No account,
+cloud synchronization or closed-application notification service is used.
+These changes follow, and are not included in, the `v3.2.0` source tag; they are included in `v4-dev1`.
+Interaction references: [Planify](https://github.com/alainm23/planify) and
+[Reminders](https://github.com/remindersdevs/Reminders); no code was copied.
 
 ## Windows 便携版
 
@@ -110,6 +130,8 @@ Card 的定义为：
 **Export Excel** exports editable native charts; **Export Matplotlib** embeds the plots in a single Excel file without separate PNG files. Both use the same layout: each Match sheet starts with Raw Data at A1, followed by compact parameter tables and top-aligned charts on their right. Preview sheets end with `(WO Card)` and Final sheets with `(W Card)`; Final has no duplicate `PMISH+Card` column. FullMap contains its own mapped-parameter Trends and, when already drawn, the software's Wafer Map/Radius PNGs. Original Reference strings and chart provenance remain in a hidden plot-data sheet. Generated text is English and the default font is Times New Roman.
 
 Each stage also has a chart-free **Original** sheet: literal Raw Data remains in its original order, with matched Reference values in a separate area to the right. Group reports collect rows by Group, while **Wafer** follows each Wafer/Lot/PAD identity's first appearance in Original. Both reports reference Original by source row. Matplotlib panels have fixed physical heights (11 cm), a 15 cm Match width and at least 25 cm Trend/Bias width with compact expanded Wafer captions. Native output uses square-cornered Excel-theme charts and editable local data ranges. Analysis-window menu entries can be deleted through their right-click menu after confirmation; deletion persists when the WKB is saved.
+
+Large menu exports prepare an owned report in a separate process, with up to six bounded Agg rendering workers on machines with at least 12 logical CPUs (up to four on smaller machines). Repeated Wafer layouts are reused within that export, redundant merged-caption work is avoided, and `lxml` accelerates XML writing. Data, panel count, resolution and physical sizes are unchanged. The owner publishes only the complete report; cancellation or a failed publication retains the previous file. Cancellation during final XLSX serialization waits for that write to finish safely. See [NOVA export measurements](docs/plans/nova-export-performance-2026-10-16.md) for machine-specific timings and remaining performance work.
 
 存储模块基准：10 万行 × 50 个四位小数文本参数加两列标识，保存约 0.96 秒、载入约 1.58 秒、文件约 43.54 MiB，逐项往返一致（2026-10-03 当前开发机一次实测，不代表全部硬件，不包含 GUI 出图，也不是旧格式对比结论）。可用 `python -m benchmarks.benchmark_workspace_store` 复测。Card 计算可单独用 `python benchmarks/benchmark_matching.py` 测量。
 

@@ -248,7 +248,7 @@ class ShellTests(unittest.TestCase):
         shell = MainWindow()
         try:
             self.assertEqual(shell.loaded_component_ids, ())
-            self.assertEqual(shell.available_value.text(), "4")
+            self.assertEqual(len(shell.module_buttons), 4)
             first = shell.open_component("wafer_map")
             second = shell.open_component("wafer_map")
             APP.processEvents()
@@ -256,7 +256,6 @@ class ShellTests(unittest.TestCase):
             self.assertIs(second, shell.wafer_component)
             self.assertEqual(shell.loaded_component_ids, ("wafer_map",))
             self.assertEqual(shell.instance_count("wafer_map"), 2)
-            self.assertEqual(shell.loaded_value.text(), "2")
             self.assertEqual(shell.module_buttons["wafer_map"].state_label.text(), "2 OPEN")
             first.close()
             APP.processEvents()

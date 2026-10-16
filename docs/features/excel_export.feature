@@ -88,3 +88,15 @@ Feature: Export analysis with editable Excel charts or Matplotlib pictures
     When the analyst cancels while the replacement is being written
     Then the previous complete export remains intact
     And incomplete temporary files are removed safely
+
+  Scenario: Cancel a large report while its parameter tables are being prepared
+    Given a previous complete export exists
+    When the analyst cancels while a parameter's progress is shown in either renderer
+    Then preparation stops without completing the remaining parameter reports
+    And the previous complete export remains intact
+
+  Scenario: Keep the previous report after a disk-write failure
+    Given a previous complete export exists
+    When writing its replacement fails after a partial temporary file is created
+    Then the previous complete export remains intact
+    And the partial export is removed

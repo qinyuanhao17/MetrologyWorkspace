@@ -178,6 +178,49 @@ class ExcelReportLayoutTests(unittest.TestCase):
         for name in before.frames:
             pd.testing.assert_frame_equal(before.frames[name], after.frames[name])
 
+    def test_merged_wafer_captions_keep_distinct_hidden_identities_and_isolated_styles(self):
+        raw = pd.DataFrame({'Wafer ID': ['W1'] * 6, 'Lot ID': ['L1'] * 2 + ['L2'] * 2 + ['L1'] * 2,
+                            'PAD Name': ['A'] * 4 + ['B'] * 2, 'Die Seq': ['01', '02'] * 3,
+                            'CD': ['1.000', '2.000', '3.000', '4.000', '5.000', '6.000']})
+        self.window.set_reference_frame(pd.DataFrame({'CD Reference': [3, 5, 7, 9, 11, 13]}))
+        self.window.set_raw_frame(raw)
+        self.window.group_controls.restore({'enabled': True, 'head_names': {'0': 'Head A', '1': 'Head B'}},
+                                           pd.DataFrame({'TestFlag': [0] * 4 + [1] * 2}))
+        self.window.group_controls.apply_button.click()
+        self.window.set_plot_labels({'trend': {'lot': False, 'pad': False}})
+        with tempfile.TemporaryDirectory() as folder:
+            for native in (True, False):
+                with self.subTest(native=native):
+                    path = self.window.export_excel(Path(folder) / f'captions-{native}.xlsx', native=native)
+                    book = load_workbook(path)
+                    sheet = book['Match (WO Card)']
+                    self.assertEqual({str(area) for area in sheet.merged_cells.ranges},
+                                     {'A10:H10', 'B12:B13', 'B14:B15', 'B16:B17'})
+                    self.assertEqual([sheet.cell(row, 2).value for row in range(12, 18)],
+                                     ['W1', None, 'W1', None, 'W1', None])
+                    for row in (12, 14, 16):
+                        caption = sheet.cell(row, 2)
+                        self.assertEqual(caption.alignment.horizontal, 'center')
+                        self.assertTrue(caption.alignment.wrap_text)
+                        self.assertTrue(caption.protection.locked)
+                        self.assertEqual(caption.font.name, 'Times New Roman')
+                    for row in range(12, 18):
+                        numeric = sheet.cell(row, 4)
+                        self.assertIsNone(numeric.alignment.horizontal)
+                        self.assertIsNone(numeric.alignment.wrap_text)
+                        self.assertTrue(numeric.protection.locked)
+                        self.assertIn(f"'Original (WO Card)'!$E${row - 10}", numeric.value)
+                    self.assertEqual([sheet.cell(row, 1).value for row in range(12, 18)],
+                                     ['Head A'] * 4 + ['Head B'] * 2)
+                    self.assertEqual([book['Original (WO Card)'].cell(row, 5).value for row in range(2, 8)],
+                                     raw['CD'].tolist())
+                    # The exported merge remains an ordinary editable Excel merge.
+                    sheet.unmerge_cells('B12:B13')
+                    sheet['B13'] = 'Edited caption'
+                    edited = Path(folder) / f'edited-{native}.xlsx'
+                    book.save(edited)
+                    self.assertEqual(load_workbook(edited)['Match (WO Card)']['B13'].value, 'Edited caption')
+
     def test_wafer_sheet_references_original_in_first_appearance_order_in_both_modes(self):
         raw = pd.DataFrame({"Wafer ID": ["W2", "W1", "W2", "W1"], "Die Seq": ["01", "01", "02", "02"],
                             "CD": ["1.000", "8.000", "2.000", "9.000"]})

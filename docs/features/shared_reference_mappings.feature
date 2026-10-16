@@ -26,3 +26,10 @@ Feature: Compare several Raw Data parameters against one Reference
     When the analyst removes only the CD comparison
     Then the Depth comparison is retained
     And all source measurements are unchanged
+
+  Scenario: Delete an unused mapping without deleting enabled comparisons
+    Given CD is enabled and Depth is unused
+    When the analyst chooses Delete on the Depth row
+    Then only Depth is removed, even if its Raw Data or Bias limit editor was targeted
+    And CD remains enabled with the same settings
+    And saving and reopening the Workbook does not recreate Depth

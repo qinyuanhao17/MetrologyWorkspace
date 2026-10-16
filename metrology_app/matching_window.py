@@ -1551,14 +1551,8 @@ class MatchingWindow(QMainWindow):
         self.mapping_add_button.setAccessibleName("Add parameter mapping")
         self.mapping_add_button.setToolTip("Add a parameter mapping. A Reference column can be used by multiple mappings.")
         self.mapping_add_button.clicked.connect(self.add_parameter_mapping)
-        self.mapping_remove_button = QToolButton()
-        self.mapping_remove_button.setText("−")
-        self.mapping_remove_button.setAccessibleName("Remove checked parameter mappings")
-        self.mapping_remove_button.setToolTip("Remove rows checked in Use and their matching plots. Reference and Raw Data stay unchanged.")
-        self.mapping_remove_button.clicked.connect(self.remove_checked_parameter_mappings)
-        for control in (self.mapping_add_button, self.mapping_remove_button):
-            control.setFixedSize(28, 28)
-            heading.addWidget(control)
+        self.mapping_add_button.setFixedSize(28, 28)
+        heading.addWidget(self.mapping_add_button)
         heading.addStretch()
         self._default_bias_limit = .5  # Legacy WKB fallback; new limits live in mapping rows.
         self.select_all_mappings = QCheckBox("Select all")
@@ -1586,6 +1580,9 @@ class MatchingWindow(QMainWindow):
         for column, width in enumerate((52, 150, 180, 210, 100, 100, 90, 95, 100, 105, 185, 150)):
             self.mapping_table.setColumnWidth(column, width)
         self.mapping_table.itemChanged.connect(self._mapping_item_changed)
+        self.mapping_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.mapping_table.customContextMenuRequested.connect(self._mapping_context_menu)
+        self.mapping_table.setToolTip("Right-click a row to Delete that mapping. Source measurements stay unchanged.")
         mapping_layout.addWidget(self.mapping_table, 1)
         mapping_footer = QHBoxLayout()
         self.mapping_size = _label("0 rows × 12 columns", "hint")
@@ -2446,6 +2443,7 @@ class MatchingWindow(QMainWindow):
                 )
             )
             self.mapping_table.setCellWidget(row, 3, raw_picker)
+            self._mapping_cell_context_menu(raw_picker)
             limit_cell = QWidget()
             limit_layout = QHBoxLayout(limit_cell)
             limit_layout.setContentsMargins(4, 0, 4, 0)
@@ -2468,6 +2466,7 @@ class MatchingWindow(QMainWindow):
             limit_layout.addWidget(show_limit)
             limit_layout.addWidget(limit_spin, 1)
             self.mapping_table.setCellWidget(row, 10, limit_cell)
+            self._mapping_cell_context_menu(limit_cell)
             limit_spin.valueChanged.connect(lambda _value, cell=limit_cell: self._bias_limit_changed(cell))
             show_limit.toggled.connect(lambda _checked, cell=limit_cell: self._bias_limit_changed(cell))
             for column in range(4, self.mapping_table.columnCount()):
@@ -2503,12 +2502,41 @@ class MatchingWindow(QMainWindow):
         self._populate_mappings(state)
         self._analysis_input_changed()
 
-    def remove_checked_parameter_mappings(self):
-        state = self._mapping_state()
-        removed = {row["reference_column"] for row in state if row["checked"]}
-        if not removed:
+    def _mapping_cell_context_menu(self, cell):
+        for widget in (cell, *cell.findChildren(QWidget)):
+            widget.installEventFilter(self)
+
+    def eventFilter(self, watched, event):
+        # Handle the editor's event before QAbstractSpinBox can route it to
+        # its built-in text menu. Child wrappers need no Python signal slots.
+        if event.type() == QEvent.Type.ContextMenu and isinstance(watched, QWidget):
+            viewport = self.mapping_table.viewport()
+            cell = watched
+            while cell.parentWidget() is not None and cell.parentWidget() is not viewport:
+                cell = cell.parentWidget()
+            if cell.parentWidget() is viewport:
+                self._mapping_context_menu(viewport.mapFromGlobal(event.globalPos()),
+                                           row=self.mapping_table.rowAt(cell.y() + 1))
+                return True
+        return super().eventFilter(watched, event)
+
+    def _mapping_context_menu(self, position, *, row=None):
+        if row is None:
+            row = self.mapping_table.indexAt(position).row()
+        if row < 0:
             return
-        state = [row for row in state if not row["checked"]]
+        self.mapping_table.setCurrentCell(row, 1)
+        menu = QMenu(self.mapping_table)
+        menu.addAction("Delete", lambda: self.remove_parameter_mapping(row))
+        menu.exec(self.mapping_table.viewport().mapToGlobal(position))
+        menu.deleteLater()
+
+    def remove_parameter_mapping(self, row):
+        """Remove the targeted row, independently of its Use checkbox."""
+        state = self._mapping_state()
+        if not 0 <= row < len(state):
+            return
+        removed = {state.pop(row)["reference_column"]}
         self._removed_mapping_columns.update(removed - {row["reference_column"] for row in state})
         self._populate_mappings(state)
         self._analysis_input_changed()
@@ -2793,8 +2821,6 @@ class MatchingWindow(QMainWindow):
         has_mapping = has_mapping and not missing_mapping_columns
         self.analyze_button.setEnabled(bool(valid_rows and has_mapping))
         self.mapping_add_button.setEnabled(bool(self._mapping_candidates))
-        self.mapping_remove_button.setEnabled(any(self.mapping_table.item(row, 0).checkState() == Qt.CheckState.Checked
-                                                 for row in range(self.mapping_table.rowCount())))
         self.save_button.setEnabled(True)  # Incomplete tables can be saved as drafts.
         self.export_button.setEnabled(self.result is not None)
         self.images_button.setEnabled(self.result is not None)

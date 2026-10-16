@@ -276,17 +276,11 @@ def append_report(book, used, report, *, native=True, images=None, prefix=""):
             else:
                 sheet.add_chart(chart, f"H{start}")
         else:
-            figure = plot_figure(plot)
-            buffer = BytesIO()
-            figure.savefig(buffer, format="png", dpi=150, facecolor="white")
-            buffer.seek(0)
-            picture = Image(buffer)
-            picture.width = figure.get_figwidth() * 96
-            picture.height = picture.width * figure.get_figheight() / figure.get_figwidth()
-            sheet.add_image(picture, f"H{start}")
-            if images is not None:
-                images.append((prefix + plot["title"] + suffix, buffer.getvalue()))
+            from .export_rendering import embed_plot
+            embed_plot(sheet, plot, f"H{start}", prefix + plot["title"] + suffix, images, window=True)
         cursors[title] = max(row, start + 25)
+    from .export_rendering import flush_pictures
+    flush_pictures(book)
     for title, contents, note in report["pictures"]:
         sheet = create(title)
         sheet["A1"], sheet["A2"] = title, note
@@ -301,7 +295,9 @@ def append_report(book, used, report, *, native=True, images=None, prefix=""):
 def write_window(window, path, *, native=True, images=None):
     report = capture_window(window)
     book = Workbook()
-    book.remove(book.active)
-    append_report(book, set(), report, native=native, images=images)
-    style_workbook(book)
-    return save_atomic(book, Path(path).with_suffix(".xlsx"))
+    from .export_rendering import rendering_session
+    with rendering_session(book, native=native):
+        book.remove(book.active)
+        append_report(book, set(), report, native=native, images=images)
+        style_workbook(book)
+        return save_atomic(book, Path(path).with_suffix(".xlsx"))
