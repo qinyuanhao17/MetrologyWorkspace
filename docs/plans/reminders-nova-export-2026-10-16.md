@@ -14,7 +14,9 @@ titles, notes, optional dates/times, flags, completion/restoration, confirmed
 deletion, search, and Today/Scheduled/All/Flagged/Completed views. Today includes
 overdue reminders, with overdue text distinguished from ordinary dates.
 Long titles wrap; keyboard F2 and Delete work in the list. Light and dark
-themes use the same layout and an orange accent.
+themes use the same layout. Subsequent UI work included in dev3 replaces the orange accent
+with blue primary actions and neutral surfaces, with independent scrolling
+above the Log and a fully visible English calendar.
 
 Edits commit immediately to a separate SQLite file, not settings or any WKB.
 Two application instances can update different reminders without replacing
@@ -22,6 +24,15 @@ each other's lists. Invalid edits and unsupported newer files are rejected;
 there is no silent reset to an empty file. The UI and persistence logic are
 separate modules. This version has no cloud account or closed-application
 notification service.
+
+Subsequent persistence work included in dev3 fixes the default location at
+`%LOCALAPPDATA%\MetrologyWorkspace\reminders.sqlite3` for both source and portable
+versions under the same Windows user. Edits remain automatic. First use imports
+a readable legacy file from the former settings directory and preserves it;
+initialization and import commit together. An initialized user file is never
+overwritten or repopulated from old installations. Explicit reminder paths still
+provide independent lists and skip migration. WKB/WMAP storage is unchanged.
+These later changes are included in `v4-dev3`, not `v4-dev1` or `v4-dev2`.
 
 Interaction references (not copied code):
 [Planify](https://github.com/alainm23/planify),

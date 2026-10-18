@@ -29,8 +29,10 @@ class ReminderStore:
     """
 
     def __init__(self, path=None):
-        self.path = Path(path or os.environ.get('METROLOGY_REMINDERS_PATH')
-                         or SETTINGS_PATH.parent / 'reminders.sqlite3')
+        override = path or os.environ.get('METROLOGY_REMINDERS_PATH')
+        user_data = Path(os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData' / 'Local')
+        self.path = Path(override) if override else user_data / 'MetrologyWorkspace' / 'reminders.sqlite3'
+        self._legacy_path = None if override else SETTINGS_PATH.parent / 'reminders.sqlite3'
 
     @contextmanager
     def _connect(self):
@@ -40,14 +42,45 @@ class ReminderStore:
             version = connection.execute('PRAGMA user_version').fetchone()[0]
             if version not in (0, 1):
                 raise ValueError('This reminders file needs a newer application version.')
+            if version == 0:
+                with connection:
+                    # Serialize first use, including migration, across app instances.
+                    connection.execute('BEGIN IMMEDIATE')
+                    version = connection.execute('PRAGMA user_version').fetchone()[0]
+                    if version not in (0, 1):
+                        raise ValueError('This reminders file needs a newer application version.')
+                    if version == 0:
+                        rows = self._legacy_rows()
+                        connection.execute('''CREATE TABLE IF NOT EXISTS reminders (
+                            id TEXT PRIMARY KEY, title TEXT NOT NULL, notes TEXT NOT NULL,
+                            due_date TEXT, due_time TEXT, flagged INTEGER NOT NULL,
+                            completed INTEGER NOT NULL)''')
+                        connection.executemany('INSERT INTO reminders VALUES (?, ?, ?, ?, ?, ?, ?)', rows)
+                        connection.execute('PRAGMA user_version = 1')
             with connection:
-                if version == 0:
-                    connection.execute('''CREATE TABLE IF NOT EXISTS reminders (
-                        id TEXT PRIMARY KEY, title TEXT NOT NULL, notes TEXT NOT NULL,
-                        due_date TEXT, due_time TEXT, flagged INTEGER NOT NULL,
-                        completed INTEGER NOT NULL)''')
-                    connection.execute('PRAGMA user_version = 1')
                 yield connection
+
+    def _legacy_rows(self):
+        # Only an uninitialized destination imports. Once created, the user file
+        # is authoritative: old copies must not restore deleted or edited tasks.
+        path = self._legacy_path
+        if path is None or path.resolve() == self.path.resolve() or not path.exists():
+            return ()
+        with closing(sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True, timeout=2)) as source:
+            version = source.execute('PRAGMA user_version').fetchone()[0]
+            if version != 1:
+                raise ValueError(f'Cannot migrate {path}: unsupported reminders version {version}. '
+                                 'Keep the original file and use a compatible application version.')
+            rows = source.execute('''SELECT id, title, notes, due_date, due_time, flagged, completed
+                                     FROM reminders ORDER BY rowid''').fetchall()
+            # Reject unreadable legacy dates before committing the destination,
+            # so repairing the untouched original allows migration to be retried.
+            for row in rows:
+                if row[3]:
+                    date.fromisoformat(row[3])
+                if row[4]:
+                    time.fromisoformat(row[4])
+            return rows
 
     def put(self, reminder):
         if not reminder.title.strip():

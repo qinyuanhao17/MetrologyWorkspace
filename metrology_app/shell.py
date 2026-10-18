@@ -85,6 +85,19 @@ def _label(text, role):
     return widget
 
 
+class _ShellScrollArea(QScrollArea):
+    """Scroll narrow columns horizontally without clipping fixed controls."""
+    def minimumSizeHint(self):
+        hint = super().minimumSizeHint()
+        content = self.widget()
+        if content is not None:
+            # Use current styled layout metrics, not the pre-polish font sizes.
+            hint.setHeight(content.minimumSizeHint().height()
+                           + self.horizontalScrollBar().sizeHint().height()
+                           + 2*self.frameWidth())
+        return hint
+
+
 class MainWindow(QMainWindow):
     """Open multiple independent analysis workspaces."""
 
@@ -183,15 +196,28 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout(upper)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        layout.addWidget(self._build_sidebar(), 23)
-        layout.addWidget(self._build_overview(), 47)
-        layout.addWidget(self._build_activity(), 30)
-        # Compressed panels stay reachable: the shell scrolls instead of hiding
-        # whatever does not fit into the window.
-        scroll = QScrollArea(objectName="shellScroll")
+        for panel, stretch, name in ((self._build_sidebar(), 23, 'sidebarScroll'),
+                                     (self._build_overview(), 47, None),
+                                     (self._build_activity(), 30, 'activityScroll')):
+            if name is None:
+                layout.addWidget(panel, stretch)
+                continue
+            column = QScrollArea(objectName=name)
+            column.setWidgetResizable(True)
+            column.setFrameShape(QFrame.Shape.NoFrame)
+            column.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            column.setMinimumWidth(panel.minimumWidth() + 9)
+            column.setMaximumWidth(panel.maximumWidth())
+            column.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Ignored)
+            column.setWidget(panel)
+            layout.addWidget(column, stretch)
+        # Reminders scroll only inside their list. Keep the fixed controls
+        # above Log; the outer area is only for narrow-display horizontal reach.
+        scroll = _ShellScrollArea(objectName="shellScroll")
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setWidget(upper)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.shell_scroll = scroll
 
         splitter = QSplitter(Qt.Orientation.Vertical, objectName="shellSplitter")
@@ -244,12 +270,7 @@ class MainWindow(QMainWindow):
         page = QWidget(objectName="overviewPage")
         page.setMinimumWidth(360)
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(30, 26, 30, 28)
-        layout.setSpacing(10)
-        layout.addWidget(help_title_label(
-            "Workspace", "Open a tool in its own analysis window.", "pageTitle"
-        ))
-        layout.addSpacing(18)
+        layout.setContentsMargins(30, 12, 30, 12)
         self.reminders = ReminderPanel(self._reminders_path, page)
         layout.addWidget(self.reminders, 1)
         return page

@@ -57,19 +57,22 @@ def _checkpoint(book, message=None):
         raise InterruptedError('Export cancelled')
 
 
-def plot_scale(values):
-    """Shared data-derived outer ticks; only the axes are rounded, never values."""
+def plot_scale(values, *, tight=False):
+    """Data-derived bounds; continuous X keeps padding instead of outer rounding."""
     finite = np.asarray(values, dtype=float).ravel()
     finite = finite[np.isfinite(finite)]
     if not len(finite):
         return None
     low, high = float(finite.min()), float(finite.max())
-    pad = (high - low) * .05 if high > low else (abs(low) * .05 or .5)
+    fraction = .025 if tight else .05
+    pad = (high - low) * fraction if high > low else (abs(low) * (.01 if tight else .05) or .5)
     low, high = low - pad, high + pad
     requested = (high - low) / 5
     power = 10. ** np.floor(np.log10(requested))
     step = min((1, 2, 2.5, 5, 10), key=lambda value: abs(value * power - requested)) * power
-    return float(np.floor(low / step) * step), float(np.ceil(high / step) * step), float(step)
+    if not tight:
+        low, high = np.floor(low / step) * step, np.ceil(high / step) * step
+    return float(low), float(high), float(step)
 
 
 def plot_axis_limits(axis, y, x=None, *, bars=False):
@@ -77,7 +80,7 @@ def plot_axis_limits(axis, y, x=None, *, bars=False):
     for name, values in (("y", y), ("x", x)):
         if values is None:
             continue
-        scale = plot_scale(values)
+        scale = plot_scale(values, tight=name == "x")
         if scale:
             low, high, step = scale
             if name == "y" and bars:
@@ -86,14 +89,14 @@ def plot_axis_limits(axis, y, x=None, *, bars=False):
             getattr(axis, f"{name}axis").set_major_locator(MultipleLocator(step))
 
 
-def style_native_series(series, index, *, markers=True, color=None):
+def style_native_series(series, index, *, markers=True, color=None, marker_size=4):
     color = color or PLOT_COLORS[index % len(PLOT_COLORS)]
     series.marker = Marker(symbol="circle" if markers else None,
-                           size=3 if markers else None)
+                           size=marker_size if markers else None)
     series.marker.graphicalProperties = GraphicalProperties(solidFill=color,
         ln=LineProperties(noFill=True))
     if not series.graphicalProperties.line.noFill:
-        series.graphicalProperties.line = LineProperties(solidFill=color, w=19050, prstDash="solid")
+        series.graphicalProperties.line = LineProperties(solidFill=color, w=22860, prstDash="solid")
 
 
 def chart_limits(chart, y, x=None, *, bars=False):
@@ -103,7 +106,7 @@ def chart_limits(chart, y, x=None, *, bars=False):
         chart.y_axis.scaling.max = max(bounds[1], bounds[2]) if bars else bounds[1]
         chart.y_axis.majorUnit = bounds[2]
     if x is not None:
-        bounds = plot_scale(x)
+        bounds = plot_scale(x, tight=True)
         if bounds:
             chart.x_axis.scaling.min, chart.x_axis.scaling.max = bounds[:2]
             chart.x_axis.majorUnit = bounds[2]
@@ -118,10 +121,10 @@ def style_plot_axis(axis, *, title, xlabel, ylabel):
     axis.set_facecolor("white")
     axis.set_axisbelow(True)
     axis.grid(True, which="major", color="#DFE3E8", linewidth=.6)
-    axis.tick_params(axis="both", labelsize=10, colors="#334155", length=3, width=.6)
+    axis.tick_params(axis="both", labelsize=10, colors="#334155", length=3, width=1.2)
     for spine in axis.spines.values():
         spine.set_color("#64748B")
-        spine.set_linewidth(.7)
+        spine.set_linewidth(1.2)
     axis.yaxis.set_major_locator(MaxNLocator(nbins=5))
     axis.yaxis.set_major_formatter(ScalarFormatter(useOffset=False))
 
@@ -499,9 +502,9 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
                 helper.cell(row=helper_row + offset, column=4,
                             value=f"={slope_cell}*C{helper_row + offset}+{intercept_cell}")
     last_row = first_row + count - 1
-    # Excel suppresses range-selection outlines when one scatter chart mixes
-    # sheets. Keep its two fixed software-fit endpoints on this sheet too, in
-    # hidden support rows, without adding visible columns to the report.
+    # Keep both series' ranges on this sheet. Excel exposes the editable X/Y
+    # outlines when the scatter series is selected, rather than the whole
+    # multi-series chart. Fixed-fit support needs no extra visible columns.
     if fit and count:
         for offset in range(2):
             target = last_row + 2 + offset
@@ -574,7 +577,7 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
                     title=reference_label)
     points.marker = Marker(symbol="circle", size=5)
     points.graphicalProperties.line.noFill = True
-    style_native_series(points, 0, color="4F8BD6")
+    style_native_series(points, 0, color="4F8BD6", marker_size=5)
     match.series.append(points)
     if fit:
         fit_series = Series(
@@ -877,6 +880,8 @@ def write_all_trend_sheet(book, used_titles, result, workbook, *, native=True, i
                                   max_row=first_row + len(data) - 1),
                         titles_from_data=True)
                     chart.series[-1].tx = SeriesLabel(v=f"{label} {'PMISH' if offset == 1 else workbook.match_type}")
+                    style_native_series(chart.series[-1], len(chart.series) - 1)
+            chart.series = chart.series[::2] + chart.series[1::2]
             chart_limits(chart, np.concatenate([
                 array for _label, _key, data, card in series
                 for array in ((data["Raw"].to_numpy(float) if result.result_mode == "final" else
@@ -892,6 +897,7 @@ def write_all_trend_sheet(book, used_titles, result, workbook, *, native=True, i
                 evaluated = raw if result.result_mode == "final" else card.slope * raw + card.intercept
                 curves.extend([_series(f"{label} PMISH", np.arange(1, len(data) + 1), evaluated),
                                _series(f"{label} {workbook.match_type}", np.arange(1, len(data) + 1), data["Reference"].to_numpy(float))])
+                curves[-1]['reference'] = True
             plot = {"title": f"{parameter} Group trends", "x": "Row", "y": parameter, "series": curves}
             from .export_rendering import embed_plot
             embed_plot(sheet, plot, f"{get_column_letter(info_base + len(series) * 2 + 2)}{row}",
@@ -1003,6 +1009,8 @@ def style_workbook(book):
             chart.y_axis.axPos = "r" if chart.y_axis.axId == 200 else "l"
             chart.x_axis.delete = chart.y_axis.delete = False
             chart.roundedCorners = False
+            chart.plot_area.spPr = GraphicalProperties(
+                ln=LineProperties(solidFill="595959", w=15240, prstDash="solid"))
             chart.x_axis.tickLblPos = "low"
             chart.y_axis.tickLblPos = "nextTo"
             if hasattr(chart.x_axis, "noMultiLvlLbl"):
@@ -1025,6 +1033,8 @@ def style_workbook(book):
             if chart.title is not None:
                 chart.title.overlay = False
             for axis in (chart.x_axis, chart.y_axis):
+                axis.spPr = GraphicalProperties(
+                    ln=LineProperties(solidFill="595959", w=15240, prstDash="solid"))
                 axis.txPr = chart_text()
                 axis.txPr.bodyPr.rot = 0
                 axis.txPr.bodyPr.horzOverflow = "overflow"
@@ -1038,6 +1048,11 @@ def style_workbook(book):
                     decimals = max(0, int(-np.floor(np.log10(step))))
                     if not np.isclose(step / (10. ** -decimals), round(step / (10. ** -decimals))):
                         decimals += 1
+                    minimum = axis.scaling.min
+                    if minimum is not None and not np.isclose(minimum / step, round(minimum / step), rtol=0, atol=1e-8):
+                        # Excel starts its ticks at the fixed minimum, not at
+                        # a zero-based locator. Keep that offset in the labels.
+                        decimals = max(2, decimals + 1)
                     axis.numFmt = "0.00E+00" if decimals > 4 else "0" + ("." + "0" * decimals if decimals else "")
                 else:
                     axis.numFmt = "General"
@@ -1197,10 +1212,10 @@ def parameter_figure(parameter, data, card, stage, scope, *, panel="Match", refe
     valid = np.isfinite(raw) & np.isfinite(reference)
     if panel == "Match":
         style_plot_axis(axis, title=parameter, xlabel="PMISH", ylabel=reference_label)
-        axis.scatter(raw[valid], reference[valid], s=12, color="#3776B6", alpha=.8, edgecolors="none")
+        axis.scatter(raw[valid], reference[valid], s=25, color="#3776B6", alpha=.8, edgecolors="none")
         if valid.any() and card is not None and np.isfinite(card.slope) and np.isfinite(card.intercept):
             ends = np.array([raw[valid].min(), raw[valid].max()])
-            axis.plot(ends, card.slope * ends + card.intercept, color="#D97732", linewidth=1.3)
+            axis.plot(ends, card.slope * ends + card.intercept, color="#D97732", linewidth=1.8)
             axis.text(.04, .97, f"y = {card.slope:.6g}x {card.intercept:+.6g}\nR² = {card.r_squared:.6g}",
                 transform=axis.transAxes, va="top", ha="left", fontsize=10, color="#334155",
                 bbox={"facecolor": "white", "edgecolor": "none", "alpha": .85, "pad": 4})
@@ -1212,9 +1227,10 @@ def parameter_figure(parameter, data, card, stage, scope, *, panel="Match", refe
         ylabel = parameter if panel == "Trend" else f"Bias ({unit})" if panel == "Bias" and unit and unit != "1" else panel
         style_plot_axis(axis, title=parameter if panel == "Trend" else panel, xlabel="", ylabel=ylabel)
         if panel == "Trend":
-            axis.plot(rows, values, marker="o", markersize=2.3, color="#3776B6", linewidth=1,
+            axis.plot(rows, values, marker="o", markersize=4, color="#3776B6", linewidth=1.8, zorder=2,
                       label="PMISH" if stage.lower() == "final" else "PMISH+Card")
-            axis.plot(rows, reference, marker="s", markersize=2.3, color="#D97732", linewidth=1, linestyle="--", label=reference_label)
+            axis.plot(rows, reference, marker="s", markersize=4, color="#D97732", linewidth=1.8,
+                      linestyle="-", zorder=3, label=reference_label)
             plot_legend(axis)
             plot_axis_limits(axis, np.concatenate((values, reference)))
         else:
@@ -1223,7 +1239,7 @@ def parameter_figure(parameter, data, card, stage, scope, *, panel="Match", refe
                 percent = np.full(len(reference), np.nan)
                 np.divide(bias * 100, reference, out=percent, where=np.isfinite(reference) & (reference != 0))
                 bias = percent
-            axis.plot(rows, bias, marker="o", markersize=2.3, color="#3776B6", linewidth=1)
+            axis.plot(rows, bias, marker="o", markersize=4, color="#3776B6", linewidth=1.8)
             axis.axhline(0, color="#8A8F98", linewidth=.7, linestyle="--")
             plot_axis_limits(axis, bias)
         selected = ([(float((start + end) / 2 + 1), label) for start, end, label in _label_spans(data["Label"])]

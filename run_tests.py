@@ -22,6 +22,7 @@ def isolate_settings():
     os.environ.setdefault("METROLOGY_SETTINGS_PATH", str(scratch))
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     os.environ.setdefault("METROLOGY_RECOVERY_DIR", str(scratch.parent / "recovery"))
+    os.environ.setdefault("METROLOGY_REMINDERS_PATH", str(scratch.parent / "reminders.sqlite3"))
     return scratch
 
 

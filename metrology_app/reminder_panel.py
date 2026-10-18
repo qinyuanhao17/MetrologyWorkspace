@@ -3,8 +3,8 @@ from dataclasses import replace
 from datetime import date, datetime, timedelta
 import sqlite3
 
-from PyQt6.QtCore import QDate, QSize, QTime, Qt, QTimer
-from PyQt6.QtGui import QKeySequence, QShortcut
+from PyQt6.QtCore import QDate, QLocale, QPointF, QSize, QTime, Qt, QTimer
+from PyQt6.QtGui import QKeySequence, QPainter, QPainterPath, QPalette, QPen, QShortcut
 from PyQt6.QtWidgets import (
     QButtonGroup, QCheckBox, QDateEdit, QDialog, QDialogButtonBox, QFormLayout,
     QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget,
@@ -15,13 +15,47 @@ from PyQt6.QtWidgets import (
 from .reminders import Reminder, ReminderStore
 
 
+class _ReminderSymbolButton(QToolButton):
+    """Font-independent symbols with the same center in every button state."""
+    def __init__(self, symbol, **kwargs):
+        super().__init__(**kwargs)
+        self.symbol = symbol
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self.symbol == 'check' and not self.isChecked():
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.translate((self.width()-1)/2, (self.height()-1)/2)
+        painter.setPen(QPen(self.palette().color(QPalette.ColorRole.ButtonText), 1.8,
+                            Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        if self.symbol == 'plus':
+            painter.drawLine(QPointF(-6, 0), QPointF(6, 0))
+            painter.drawLine(QPointF(0, -6), QPointF(0, 6))
+        else:
+            path = QPainterPath(QPointF(-5, 0))
+            path.lineTo(-1, 4)
+            path.lineTo(5, -4)
+            painter.drawPath(path)
+        painter.end()
+
+
 class ReminderDialog(QDialog):
     def __init__(self, reminder=None, parent=None):
         super().__init__(parent)
+        self.setObjectName('reminderDialog')
+        self.setLocale(QLocale(QLocale.Language.English, QLocale.Country.UnitedKingdom))
         self.reminder = reminder or Reminder('')
         self.setWindowTitle('Edit reminder' if reminder else 'New reminder')
-        self.resize(420, 360)
+        self.setMinimumWidth(440)
+        self.resize(460, 390)
         layout = QFormLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
+        layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.title_input = QLineEdit(self.reminder.title, objectName='reminderTitleInput')
         self.title_input.setPlaceholderText('What do you want to remember?')
         self.title_input.setMaxLength(500)
@@ -35,6 +69,13 @@ class ReminderDialog(QDialog):
         self.date_input = QDateEdit(QDate(self.reminder.due_date or date.today()),
                                     calendarPopup=True, objectName='reminderDateInput')
         self.date_input.setDisplayFormat('yyyy-MM-dd')
+        calendar = self.date_input.calendarWidget()
+        calendar.setLocale(self.locale())
+        calendar.setObjectName('reminderCalendar')
+        calendar.setMinimumSize(336, 300)
+        calendar.setFirstDayOfWeek(Qt.DayOfWeek.Monday)
+        calendar.setVerticalHeaderFormat(calendar.VerticalHeaderFormat.NoVerticalHeader)
+        calendar.setHorizontalHeaderFormat(calendar.HorizontalHeaderFormat.ShortDayNames)
         self.date_input.setEnabled(self.date_enabled.isChecked())
         self.date_enabled.toggled.connect(self.date_input.setEnabled)
         layout.addRow(self.date_enabled, self.date_input)
@@ -58,6 +99,7 @@ class ReminderDialog(QDialog):
                                    | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
+        buttons.button(QDialogButtonBox.StandardButton.Save).setObjectName('primary')
         layout.addRow(buttons)
         self.title_input.setFocus()
 
@@ -108,6 +150,7 @@ class ReminderPanel(QFrame):
         header.addWidget(QLabel('Reminders', objectName='remindersTitle'))
         header.addStretch()
         self.count = QLabel('0', objectName='remindersCount')
+        self.count.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header.addWidget(self.count)
         layout.addLayout(header)
         self.filters = QButtonGroup(self)
@@ -116,6 +159,8 @@ class ReminderPanel(QFrame):
         grid.setSpacing(6)
         for index, view in enumerate(('Today', 'Scheduled', 'All', 'Flagged')):
             button = QPushButton(view, objectName='reminderFilter')
+            button.setMinimumHeight(36)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.setCheckable(True)
             button.clicked.connect(lambda _checked, name=view: self.set_view(name))
             self.filters.addButton(button)
@@ -130,14 +175,18 @@ class ReminderPanel(QFrame):
         self.status = QLabel('', objectName='muted')
         layout.addWidget(self.status)
         self.list = _ReminderList(objectName='reminderList')
-        self.list.setMinimumHeight(100)
+        self.list.setMinimumHeight(64)
+        self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.list.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
         self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.list.customContextMenuRequested.connect(self._context_menu)
         self.list.itemActivated.connect(lambda item: self.edit(item.data(Qt.ItemDataRole.UserRole)))
         layout.addWidget(self.list, 1)
-        self.empty = QLabel('', objectName='muted')
+        self.empty = QLabel('', self.list.viewport(), objectName='muted')
         self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.empty)
+        empty_layout = QVBoxLayout(self.list.viewport())
+        empty_layout.setContentsMargins(0, 0, 0, 0)
+        empty_layout.addWidget(self.empty)
         footer = QHBoxLayout()
         self.completed = QPushButton('Completed', objectName='reminderCompleted')
         self.completed.setCheckable(True)
@@ -145,8 +194,7 @@ class ReminderPanel(QFrame):
         self.completed.clicked.connect(lambda checked: self.set_view('Completed' if checked else 'All'))
         footer.addWidget(self.completed)
         footer.addStretch()
-        self.add_button = QToolButton(objectName='newReminder')
-        self.add_button.setText('+')
+        self.add_button = _ReminderSymbolButton('plus', objectName='newReminder')
         self.add_button.setFixedSize(38, 38)
         self.add_button.setAccessibleName('New reminder')
         self.add_button.setToolTip('New reminder')
@@ -202,10 +250,9 @@ class ReminderPanel(QFrame):
             box = QHBoxLayout(row)
             box.setContentsMargins(2, 12, 2, 12)
             box.setSpacing(10)
-            check = QToolButton(objectName='reminderCheck')
+            check = _ReminderSymbolButton('check', objectName='reminderCheck')
             check.setCheckable(True)
             check.setChecked(task.completed)
-            check.setText('✓' if task.completed else '')
             check.setFixedSize(24, 24)
             check.setAccessibleName(('Restore ' if task.completed else 'Complete ') + task.title)
             check.clicked.connect(lambda checked, value=task: self._save(replace(value, completed=checked)))

@@ -2217,6 +2217,9 @@ class CorrelationTests(unittest.TestCase):
             self.assertEqual(
                 export_labels, {"Reference · DP Ref", "Raw Data · DP Raw"}
             )
+            exported = page.export_plot_data()[0]['series']
+            self.assertEqual([(item['name'], item.get('source')) for item in exported],
+                             [('Reference · DP Ref', 'Reference'), ('Raw Data · DP Raw', 'Raw Data')])
         finally:
             window.raw_model.undo.setClean()
             window.reference_model.undo.setClean()

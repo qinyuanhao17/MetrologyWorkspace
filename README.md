@@ -2,8 +2,8 @@
 
 Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、径向图、相关性图和 Die Seq 趋势图。主窗口依次提供 **Match Workbook**、**Wafer Map**、**Correlation and Trend** 和 **Dynamic** 四个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例；窗口可命名、勾选随 WKB 保存。当前正式源码版本为 **v3.2.0**，在 `main` 分支维护；功能、验证及已知限制见 [v3.2.0 发布说明](docs/releases/v3.2.0.md)。历史版本与开发版标签保持不变。
 
-当前开发快照为 **v4-dev2**（`VERSION`：`4.0.0-dev2`），在 dev1 基础上包含 NOVA 导出性能与坐标布局修复、Excel Match 数据范围编辑修复，以及固定高度的 Trend 显示。
-这是源码开发 tag，不替换 `main` 上的稳定快照，也没有新的 Windows 安装包；验证结果与未完成事项见 [v4-dev2 开发版说明](docs/releases/v4-dev2.md)。
+当前开发快照为 **v4-dev3**（`VERSION`：`4.0.0-dev3`），在 dev2 基础上收紧导出图的数值横轴范围、增强点线与完整坐标边框，并修正 Reference Trend 的实线叠放顺序；也包含提醒事项的蓝色界面、内部滚动和独立用户目录存储。
+这是源码开发 tag，不替换 `main` 上的稳定快照，也没有新的 Windows 安装包；验证结果与未完成事项见 [v4-dev3 开发版说明](docs/releases/v4-dev3.md)。
 
 ## 运行
 
@@ -36,12 +36,30 @@ complete a task; **Completed** lets you restore it. Double-click or F2 edits a
 task. Right-click provides Edit, Complete, Flag and confirmed Delete; Delete
 also works from the focused list. Today includes overdue tasks; Scheduled,
 All, Flagged and search provide other views.
+Only the reminder body scrolls: the title, filters, search and footer actions
+stay fixed above the Log. The redundant Workspace heading is omitted.
 
-Edits save immediately to `config/reminders.sqlite3` in source runs, or
-`reminders.sqlite3` beside a packaged executable. This file is independent of
-settings and every Tool/WKB; retain it when moving the application. No account,
-cloud synchronization or closed-application notification service is used.
-These changes follow, and are not included in, the `v3.2.0` source tag; they are included in `v4-dev1`.
+Edits save immediately, without a separate Save command, to
+`%LOCALAPPDATA%\MetrologyWorkspace\reminders.sqlite3`. Updated source and portable
+versions share this one file for the same Windows user, regardless of their
+installation directory or version. It is independent of settings and every
+Tool/WKB/WMAP. Close older instances before the first update: on first use, an
+uninitialized user file imports the old `config/reminders.sqlite3` (source) or
+`reminders.sqlite3` beside the executable (portable), retaining the old file.
+Keep that old file in its original directory until migration has succeeded;
+the application cannot discover an old installation that has already been removed.
+Once initialized, the user file is authoritative: old copies are not reimported
+or merged, so they cannot overwrite edits or restore deleted tasks. Corrupt or
+unsupported files report an error rather than silently resetting the list.
+Older versions using the installation-local path do not share later updates.
+For an intentionally separate reminder list, launch with
+`METROLOGY_REMINDERS_PATH` pointing to another SQLite file; explicit paths bypass
+automatic migration. Back up the user file (with all instances closed) before
+moving computers or reinstalling Windows. No account, cloud synchronization or
+closed-application notification service is used.
+The original reminder feature is included in `v4-dev1`, not `v3.2.0`.
+The blue palette, scrolling/calendar fixes and fixed user-directory storage
+are included in `v4-dev3`.
 Interaction references: [Planify](https://github.com/alainm23/planify) and
 [Reminders](https://github.com/remindersdevs/Reminders); no code was copied.
 
@@ -130,6 +148,8 @@ Card 的定义为：
 **Export Excel** exports editable native charts; **Export Matplotlib** embeds the plots in a single Excel file without separate PNG files. Both use the same layout: each Match sheet starts with Raw Data at A1, followed by compact parameter tables and top-aligned charts on their right. Preview sheets end with `(WO Card)` and Final sheets with `(W Card)`; Final has no duplicate `PMISH+Card` column. FullMap contains its own mapped-parameter Trends and, when already drawn, the software's Wafer Map/Radius PNGs. Original Reference strings and chart provenance remain in a hidden plot-data sheet. Generated text is English and the default font is Times New Roman.
 
 Each stage also has a chart-free **Original** sheet: literal Raw Data remains in its original order, with matched Reference values in a separate area to the right. Group reports collect rows by Group, while **Wafer** follows each Wafer/Lot/PAD identity's first appearance in Original. Both reports reference Original by source row. Matplotlib panels have fixed physical heights (11 cm), a 15 cm Match width and at least 25 cm Trend/Bias width with compact expanded Wafer captions. Native output uses square-cornered Excel-theme charts and editable local data ranges. Analysis-window menu entries can be deleted through their right-click menu after confirmation; deletion persists when the WKB is saved.
+
+In a native Match chart, select the scatter points to expose the draggable X/Y source-range outlines. Selecting the whole chart does not highlight both the measurement series and the separate fixed-fit series together. Paired Reference Trends use solid orange strokes above Raw Data; All Trend retains its Group colours with Reference curves on top. Exported plots retain all data with compact numeric X margins and stronger points, strokes and four-sided frames.
 
 Large menu exports prepare an owned report in a separate process, with up to six bounded Agg rendering workers on machines with at least 12 logical CPUs (up to four on smaller machines). Repeated Wafer layouts are reused within that export, redundant merged-caption work is avoided, and `lxml` accelerates XML writing. Data, panel count, resolution and physical sizes are unchanged. The owner publishes only the complete report; cancellation or a failed publication retains the previous file. Cancellation during final XLSX serialization waits for that write to finish safely. See [NOVA export measurements](docs/plans/nova-export-performance-2026-10-16.md) for machine-specific timings and remaining performance work.
 

@@ -138,8 +138,8 @@ class ExcelExportTests(unittest.TestCase):
             self.assertEqual(trend["G4"].value, '=IF(ISNUMBER(F4),$N$1*F4+$N$2,NA())')
             references = [chart.series[index].val.numRef.f
                           for chart in trend._charts for index in range(len(chart.series))]
-            self.assertEqual(references, ["'All Trend (WO Card)'!$C$4:$C$5", "'All Trend (WO Card)'!$D$4:$D$5",
-                                          "'All Trend (WO Card)'!$G$4", "'All Trend (WO Card)'!$H$4"])
+            self.assertEqual(references, ["'All Trend (WO Card)'!$C$4:$C$5", "'All Trend (WO Card)'!$G$4",
+                                          "'All Trend (WO Card)'!$D$4:$D$5", "'All Trend (WO Card)'!$H$4"])
             rsq = book["RSQ (WO Card)"]
             self.assertEqual(rsq["C1"].value, "CD R²")
             self.assertEqual(rsq["A2"].value, "W1")
@@ -268,8 +268,8 @@ class ExcelExportTests(unittest.TestCase):
             self.assertAlmostEqual(trend.y_axis.scaling.min, 2.)
             self.assertAlmostEqual(trend.y_axis.scaling.max, 8.)
             self.assertEqual(trend.y_axis.majorUnit, 1.)
-            self.assertAlmostEqual(match.x_axis.scaling.min, .5)
-            self.assertAlmostEqual(match.x_axis.scaling.max, 3.5)
+            self.assertAlmostEqual(match.x_axis.scaling.min, .95)
+            self.assertAlmostEqual(match.x_axis.scaling.max, 3.05)
             self.assertIsNone(match.legend)
 
     def test_dynamic_exports_own_cycle_values_and_software_three_sigma(self):

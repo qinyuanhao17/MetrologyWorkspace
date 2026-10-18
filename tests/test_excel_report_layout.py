@@ -18,6 +18,119 @@ class ExcelReportLayoutTests(unittest.TestCase):
         self.window = fixtures.MatchingWindow()
         self.window.match_type.setCurrentText("NOVA")
 
+    def test_continuous_x_limits_follow_only_drawable_pairs_without_outer_tick_rounding(self):
+        import numpy as np
+        from metrology_app.analysis_export import plot_figure, append_report
+        from openpyxl import Workbook
+        for title in ('Correlation', 'Trend'):
+            plot = {'sheet': title, 'title': 'CD', 'x': 'PMISH', 'y': 'NOVA',
+                    'series': [{'name': 'NOVA', 'data': pd.DataFrame({
+                        'X': [10., 10.1, 10.2, 999.], 'Y': [20., 21., 22., np.nan]})}]}
+            figure = plot_figure(plot)
+            try:
+                self.assertAlmostEqual(figure.axes[0].get_xlim()[0], 9.995)
+                self.assertAlmostEqual(figure.axes[0].get_xlim()[1], 10.205)
+            finally:
+                figure.clear()
+            book = Workbook()
+            append_report(book, set(), {'suffix': '', 'frames': {}, 'pictures': [], 'plots': [plot]})
+            chart = book[title]._charts[0]
+            self.assertAlmostEqual(chart.x_axis.scaling.min, 9.995)
+            self.assertAlmostEqual(chart.x_axis.scaling.max, 10.205)
+
+    def test_match_and_trend_use_readable_strokes_and_reference_is_solid_on_top(self):
+        from metrology_app.excel_export import parameter_figure
+        data = pd.DataFrame({'Raw': [10., 10.1, 10.2], 'Reference': [10., 10.1, 10.2]})
+        for reference in ('TEM', 'NOVA', 'KLA'):
+            figure = parameter_figure('CD', data, None, 'Final', 'All', panel='Trend', reference_label=reference)
+            try:
+                raw, ref = figure.axes[0].lines[:2]
+                self.assertEqual(ref.get_linestyle(), '-')
+                self.assertGreater(ref.get_zorder(), raw.get_zorder())
+                self.assertGreaterEqual(ref.get_linewidth(), 1.8)
+                self.assertGreaterEqual(ref.get_markersize(), 4)
+                self.assertTrue(all(spine.get_linewidth() >= 1.2 for spine in figure.axes[0].spines.values()))
+            finally:
+                figure.clear()
+        figure = parameter_figure('CD', data, None, 'Final', 'All')
+        try:
+            self.assertAlmostEqual(figure.axes[0].get_xlim()[0], 9.995)
+            self.assertAlmostEqual(figure.axes[0].get_xlim()[1], 10.205)
+            self.assertGreaterEqual(figure.axes[0].collections[0].get_sizes()[0], 25)
+        finally:
+            figure.clear()
+
+    def test_child_trend_reference_stays_orange_and_above_raw_independent_of_selection_order(self):
+        from metrology_app.analysis_export import plot_figure, append_report
+        from openpyxl import Workbook
+        data = pd.DataFrame({'X': [1., 2., 3.], 'Y': [2., 4., 3.]})
+        plot = {'sheet': 'Trend', 'title': 'CD', 'x': 'Die Seq', 'y': 'CD', 'series': [
+            {'name': 'Reference · CD', 'source': 'Reference', 'data': data.copy()},
+            {'name': 'Raw Data · CD', 'source': 'Raw Data', 'data': data.copy()}]}
+        figure = plot_figure(plot)
+        try:
+            reference, raw = figure.axes[0].lines
+            self.assertEqual(reference.get_color(), '#ED7D31')
+            self.assertEqual(reference.get_linestyle(), '-')
+            self.assertGreater(reference.get_zorder(), raw.get_zorder())
+        finally:
+            figure.clear()
+        book = Workbook()
+        append_report(book, set(), {'suffix': '', 'frames': {}, 'pictures': [], 'plots': [plot]})
+        chart = book['Trend']._charts[0]
+        self.assertEqual(chart.series[-1].tx.v, 'Reference · CD')
+        self.assertEqual(chart.series[-1].graphicalProperties.line.solidFill.srgbClr, 'ED7D31')
+        self.assertEqual(chart.series[-1].graphicalProperties.line.prstDash, 'solid')
+        # Draw order must not reorder or replace the source records in the report.
+        self.assertEqual(book['Trend']['A4'].value, 'Reference · CD')
+        pd.testing.assert_frame_equal(plot['series'][0]['data'], data)
+
+    def test_native_charts_have_four_sided_frame_and_readable_solid_reference(self):
+        reference, raw = self.frames()
+        self.window.set_reference_frame(reference)
+        self.window.set_raw_frame(raw)
+        self.window.run_analysis()
+        with tempfile.TemporaryDirectory() as folder:
+            book = self.export(folder)
+            match, trend, bias = book['Match (WO Card)']._charts
+            from zipfile import ZipFile
+            from xml.etree import ElementTree as ET
+            ns = {'c': 'http://schemas.openxmlformats.org/drawingml/2006/chart',
+                  'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'}
+            with ZipFile(Path(folder) / 'export.xlsx') as archive:
+                for index in (1, 2, 3):
+                    xml = ET.fromstring(archive.read(f'xl/charts/chart{index}.xml'))
+                    frame = xml.find('c:chart/c:plotArea/c:spPr/a:ln', ns)
+                    self.assertGreaterEqual(int(frame.get('w')), 15240)
+                    self.assertIsNotNone(frame.find('a:solidFill', ns))
+            for chart in (match, trend, bias):
+                for axis in (chart.x_axis, chart.y_axis):
+                    self.assertGreaterEqual(axis.spPr.ln.w, 15240)
+            self.assertGreaterEqual(match.series[0].marker.size, 5)
+            self.assertEqual(match.x_axis.numFmt.formatCode, '0.00',
+                             'A tight .95 boundary must not be labelled as integer 1')
+            self.assertEqual(trend.series[-1].tx.strRef.f, "'Match (WO Card)'!E8")
+            self.assertEqual(trend.series[-1].graphicalProperties.line.prstDash, 'solid')
+            self.assertGreaterEqual(trend.series[-1].graphicalProperties.line.w, 22860)
+            self.assertGreaterEqual(trend.series[-1].marker.size, 4)
+
+    def test_group_reference_curves_overlay_later_raw_groups_without_losing_group_colours(self):
+        from metrology_app.analysis_export import plot_figure
+        data = pd.DataFrame({'X': [1., 2., 3.], 'Y': [2., 4., 3.]})
+        series = [{'name': name, 'data': data.copy(), 'reference': reference}
+                  for name, reference in [('A PMISH', False), ('A NOVA', True),
+                                          ('B PMISH', False), ('B NOVA', True)]]
+        figure = plot_figure({'title': 'Group trends', 'x': 'Row', 'y': 'CD', 'series': series})
+        try:
+            lines = figure.axes[0].lines
+            self.assertGreater(lines[1].get_zorder(), lines[2].get_zorder())
+            self.assertGreater(lines[3].get_zorder(), lines[0].get_zorder())
+            self.assertEqual([line.get_color() for line in lines],
+                             ['#5B9BD5', '#ED7D31', '#70AD47', '#A879C2'])
+            self.assertTrue(all(line.get_linestyle() == '-' for line in lines))
+        finally:
+            figure.clear()
+
     def test_compact_match_table_in_both_renderers(self):
         reference, raw = self.frames()
         raw["Lot ID"], raw["PAD Name"] = "L1", "ARRAY"

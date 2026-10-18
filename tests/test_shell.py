@@ -109,12 +109,9 @@ class ShellTests(unittest.TestCase):
         shell = MainWindow()
         try:
             labels = shell.findChildren(QLabel)
-            workspace = next(label for label in labels if label.text() == "Workspace")
+            self.assertFalse(any(label.text() == "Workspace" for label in labels))
             activity = next(label for label in labels if label.text() == "Activity")
             log = next(label for label in labels if label.text() == "Log")
-            self.assertEqual(
-                workspace.toolTip(), "Open a tool in its own analysis window."
-            )
             self.assertEqual(
                 activity.toolTip(), "Windows and files opened in this session."
             )

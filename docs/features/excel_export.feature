@@ -16,9 +16,31 @@ Feature: Export analysis with editable Excel charts or Matplotlib pictures
 
   Scenario: Change a native Match chart's selected data range
     Given a Match chart contains scatter points and a software-fitted line
-    When the analyst changes its selected X and Y ranges
+    When the analyst selects the scatter series and changes its X and Y ranges
     Then its points follow the newly selected cells on the same sheet
     And its fit remains the software result without an Excel refit
+
+  # Executable examples: tests.test_excel_report_layout.ExcelReportLayoutTests
+  Scenario: Read the full numeric range without excessive X padding
+    Given the drawable X values are 10, 10.1 and 10.2
+    And an unpaired source row has X 999 and no Y value
+    When either renderer exports the numeric plot
+    Then its X range is 9.995 to 10.205 without cropping any plotted points
+    And the unpaired source row remains in the data table
+    And native axis labels retain the decimal boundary precision
+
+  Scenario: Distinguish Reference and Raw Data on exported Trends
+    Given a Trend compares Reference and Raw Data in either selection order
+    When either renderer exports the Trend
+    Then the orange Reference is a solid line above Raw Data
+    And the report retains the source records in their original table order
+    And points, strokes and all four frame edges are visible at the requested size
+
+  Scenario: Compare grouped Reference curves without changing Group colours
+    Given All Trend contains Head A and Head B with their own colours and source rows
+    When either renderer exports All Trend
+    Then all Reference curves are solid and drawn above all Raw Data curves
+    And Group colours, source rows and software Cards are unchanged
 
   Scenario: Trace grouped reports back to Original
     Given Original rows alternate between W1 and W2 in Head A and Head B

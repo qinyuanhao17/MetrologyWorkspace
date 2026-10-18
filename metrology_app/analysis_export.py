@@ -117,6 +117,11 @@ def _check_draw(page):
         page.refresh_previous_selection()
 
 
+def _series_color(series, index):
+    source_index = {"Raw Data": 0, "Reference": 1}.get(series.get("source"), index)
+    return PLOT_COLORS[source_index % len(PLOT_COLORS)]
+
+
 def plot_figure(plot):
     """Render a report panel with Matplotlib, preserving all selected values."""
     from matplotlib.figure import Figure
@@ -130,7 +135,7 @@ def plot_figure(plot):
     second_axes = {}
     values_by_axis = {}
     for index, series in enumerate(plot["series"]):
-        color = "#" + PLOT_COLORS[index % len(PLOT_COLORS)]
+        color = "#" + _series_color(series, index)
         target = axis
         if series.get("secondary"):
             key = series.get("unit", series["name"])
@@ -150,23 +155,18 @@ def plot_figure(plot):
             target.set_ylim(bottom=0)
         elif series.get("line", True):
             target.plot(x, data["Y"], marker=("o" if index % 2 == 0 else "s") if series.get("markers", True) else None,
-                markersize=2.5, linewidth=1.2, linestyle="--" if index % 2 and series.get("markers", True) else "-",
-                color=color, label=series["name"])
+                markersize=4, linewidth=1.8, linestyle="-",
+                color=color, label=series["name"],
+                zorder=3 if series.get("reference") or series.get("source") == "Reference" else 2)
         else:
-            target.scatter(x, data["Y"], s=14, color=color, edgecolors="none", label=series["name"])
+            target.scatter(x, data["Y"], s=25, color=color, edgecolors="none", label=series["name"])
     style_plot_axis(axis, title=plot["title"], xlabel=plot["x"], ylabel=plot["y"])
     for target, values in values_by_axis.items():
         plot_axis_limits(target, values, bars=plot.get("kind") == "bar")
         if target is not axis:
             target.tick_params(labelsize=10, colors="#334155")
     if plot.get("kind") != "bar" and plot["series"]:
-        positions = np.concatenate([series["data"]["X"].to_numpy(float) for series in plot["series"]])
-        finite = positions[np.isfinite(positions)]
-        if plot.get("sheet") == "Correlation":
-            plot_axis_limits(axis, values_by_axis.get(axis, []), positions)
-        elif len(finite):
-            padding = max(.5, (finite.max() - finite.min()) * .01)
-            axis.set_xlim(finite.min() - padding, finite.max() + padding)
+        plot_axis_limits(axis, values_by_axis.get(axis, []), _plotted_positions(plot))
     if sequence:
         axis.set_xticks([position for position, _ in sequence["ticks"]],
                         [label for _, label in sequence["ticks"]], fontsize=10)
@@ -192,6 +192,13 @@ def plot_figure(plot):
                            top=min(.79, 1 - (1.1 + .5 * legend_rows) / PANEL_HEIGHT_CM) if not plot.get("notes") else .70)
     set_export_font(figure)
     return figure
+
+
+def _plotted_positions(plot):
+    """Axis extent only: keep missing observations in the exported source data."""
+    return np.concatenate([data.loc[np.isfinite(data['X'].to_numpy(float)) &
+                                    np.isfinite(data['Y'].to_numpy(float)), 'X'].to_numpy(float)
+                           for data in (series['data'] for series in plot['series'])])
 
 
 def append_report(book, used, report, *, native=True, images=None, prefix=""):
@@ -222,6 +229,7 @@ def append_report(book, used, report, *, native=True, images=None, prefix=""):
         row = start + 3
         secondary_axes = {}
         values_by_chart = {}
+        reference_series = set()
         for index, series in enumerate(plot["series"]):
             data = series["data"]
             sheet.cell(row=row, column=1, value=series["name"])
@@ -255,14 +263,19 @@ def append_report(book, used, report, *, native=True, images=None, prefix=""):
                             secondary_axes[unit] = second
                         target = secondary_axes[unit]
                     target.series.append(item)
-                    style_native_series(item, index, markers=series.get("markers", True))
+                    style_native_series(item, index, markers=series.get("markers", True), color=_series_color(series, index))
+                    if series.get("reference") or series.get("source") == "Reference":
+                        reference_series.add(id(item))
                 values_by_chart.setdefault(target if plot.get("kind") != "bar" else chart, []).extend(data["Y"].to_numpy(float))
             row = last + 3
         for target, values in values_by_chart.items():
+            # Excel paints later series above earlier ones. Only the drawing
+            # order changes; the detached source tables retain their row order.
+            target.series.sort(key=lambda item: id(item) in reference_series)
             chart_limits(target, values, bars=plot.get("kind") == "bar")
         if plot.get("kind") != "bar" and plot["series"]:
             chart_limits(chart, values_by_chart.get(chart, []),
-                         np.concatenate([series["data"]["X"].to_numpy(float) for series in plot["series"]]))
+                         _plotted_positions(plot))
         if native:
             if secondary_axes:
                 from openpyxl.utils import get_column_letter

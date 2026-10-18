@@ -153,6 +153,8 @@ def theme_stylesheet(theme=None):
     replacements = {
         "__ARROW_DOWN__": (assets / f"arrow_down_{theme}.png").as_posix(),
         "__ARROW_UP__": (assets / f"arrow_up_{theme}.png").as_posix(),
+        "__ARROW_LEFT__": (assets / "chevron_left.svg").as_posix(),
+        "__ARROW_RIGHT__": (assets / "chevron_right.svg").as_posix(),
         "__CHECK__": (assets / "check_white.png").as_posix(),
     }
     if theme != "light":

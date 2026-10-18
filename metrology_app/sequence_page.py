@@ -1303,6 +1303,8 @@ class SequencePage(QWidget):
                     **{"Source row": np.concatenate([group["source_positions"] for group in selected]) - offset + 1,
                        "Die Seq": np.concatenate([group["frame"]["__die"].to_numpy() for group in selected]),
                        "Wafer": np.concatenate([np.repeat(group["wafer"], len(group["frame"])) for group in selected])})
+                if owner is not None:
+                    item["source"] = owner["name"]
                 if specification is not None and specification["kind"] == "second-axis":
                     item["secondary"] = True
                     item["unit"] = str(specification["secondary_unit"] or name)
