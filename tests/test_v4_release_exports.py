@@ -245,3 +245,6 @@ class ReleaseExportTests(unittest.TestCase):
                 self.assertEqual([''.join(t.text for t in anchor.findall('.//a:t', ns)) for anchor in captions], names)
                 for left, right in zip(captions, captions[1:]):
                     self.assertLess(float(left.find('d:to/d:x', ns).text), float(right.find('d:from/d:x', ns).text))
+                for anchor in root:
+                    if anchor.find('d:sp/d:nvSpPr/d:cNvPr', ns).get('name').startswith('Boundary'):
+                        self.assertLess(float(anchor.find('d:to/d:y', ns).text), .82)

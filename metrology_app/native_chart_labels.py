@@ -86,7 +86,7 @@ def _drawing(labels):
     boundaries = sorted({item['start'] for item in labels} | {item['end'] for item in labels})
     for value in boundaries:
         x = .10 + .85 * value
-        _shape(root, index, 'Boundary', (x, .78), (x, .95))
+        _shape(root, index, 'Boundary', (x, .76), (x, .81))
         index += 1
     return ET.tostring(root, encoding='utf-8', xml_declaration=True)
 

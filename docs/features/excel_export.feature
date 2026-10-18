@@ -4,14 +4,15 @@ Feature: Export analysis with editable Excel charts or Matplotlib pictures
   Scenario: Find exported plots immediately after opening a large report
     Given NOVA contains 7731 original measurement rows
     When the analyst opens either completed export
-    Then Match opens at the first parameter and its plots
-    And Original remains chartless and its source rows remain unchanged
+    Then Match Original opens at the first parameter with its data visible
+    And its raw source rows remain unchanged above the parameter blocks
 
   Scenario: Keep complete identity labels after Excel redraws its chart
     Given a NOVA parameter contains several Groups and 255 measurement identities
     When the export is opened and redrawn in Excel
     Then Group and Wafer captions are not repeated for each data point
-    And no Group or Wafer is dropped by row-based tick skipping
+    And short neighboring Groups retain their names with separated captions
+    And dense Wafer names may be sampled without dropping source rows
     And Matplotlib Trend and Bias include real Die Seq ticks and separated identity captions
 
   Scenario: Change a native Match chart's selected data range
@@ -36,29 +37,33 @@ Feature: Export analysis with editable Excel charts or Matplotlib pictures
     And the report retains the source records in their original table order
     And points, strokes and all four frame edges are visible at the requested size
 
-  Scenario: Compare grouped Reference curves without changing Group colours
-    Given All Trend contains Head A and Head B with their own colours and source rows
-    When either renderer exports All Trend
-    Then all Reference curves are solid and drawn above all Raw Data curves
-    And Group colours, source rows and software Cards are unchanged
+  # Executable examples: tests.test_v4_release_exports.ReleaseExportTests
+  Scenario: Navigate the three Match views without redundant sheets
+    Given NOVA contains Head A and Head B with their own source rows
+    When either renderer exports the Workbook
+    Then Match Original uses Die ticks in original source-row order
+    And Match Group uses Group and Die labels at the same panel width
+    And Match Wafer collects contiguous Wafer identities with sparse captions
+    And the individual group sheets retain Head A and Head B in their names
+    And no separate Original, Match, Group Fits, Order or All Trend sheet is added
 
   Scenario: Trace grouped reports back to Original
     Given Original rows alternate between W1 and W2 in Head A and Head B
     When the grouped Workbook is exported in either mode
-    Then Original retains the source strings and original row order
+    Then Match Original retains the source strings and original row order
     And grouped parameter tables collect each Group and Wafer, Lot and PAD identity
-    And their PMISH values reference the matching Original source row
+    And their PMISH values reference the matching Match Original source row
     And the source document and its selected plotting order remain unchanged
 
   Scenario: Read a separate Wafer report without changing Original
     Given original rows alternate between W2 and W1 across different Groups
     When the Workbook is exported in either mode
-    Then Original contains source data in its unchanged original order and no plots
+    Then Match Original contains unchanged source data above its parameter plots
     And a separate matched Reference area leaves its literal Raw Data columns intact
-    And Wafer collects W2 before W1 with original row order within each Wafer, Lot and PAD identity
-    And Wafer PMISH and Reference values reference the matching Original source rows
+    And Match Wafer collects W2 before W1 with original row order within each Wafer, Lot and PAD identity
+    And Match Wafer PMISH and Reference values reference the matching Match Original source rows
     And its Trend and Bias use compact expanded Wafer captions without a Group overview
-    And every available stage has its own Original and Wafer sheets
+    And every available stage has its own Match Original and Match Wafer sheets
 
   Scenario: Edit native Trend ranges without hidden plot coordinates
     Given a parameter contains repeated measurements of Wafer W1
@@ -74,7 +79,9 @@ Feature: Export analysis with editable Excel charts or Matplotlib pictures
     When the Workbook is exported in either mode
     Then each Match panel is 15 cm wide and 11 cm high
     And Trend and Bias panels are 11 cm high and at least 25 cm wide
-    And the Group overview precedes separate Wafer detail panels with every identity caption
+    And Match Original and Match Group Trend panels have the same width
+    And Group and Wafer separator bars sit below, detached from the coordinate axes
+    And Wafer views do not add a redundant Wafer axis title
     And independent panels align with the full-width parameter heading
     And ordinal horizontal limits leave only a small margin around the observations
 
@@ -96,7 +103,7 @@ Feature: Export analysis with editable Excel charts or Matplotlib pictures
   Scenario: Read a compact Match report beside its charts
     Given Preview contains PMISH and NOVA measurements for Wafer W1
     When the Workbook is exported in either mode
-    Then Match begins with its original Raw Data at A1
+    Then Match Original begins with its original Raw Data at A1
     And each parameter table contains Wafer, Die Seq, PMISH, PMISH+Card, NOVA, Bias and Bias %
     And Group is included only when grouping is enabled
     And Wafer captions follow the plot label choices
@@ -110,12 +117,34 @@ Feature: Export analysis with editable Excel charts or Matplotlib pictures
     And its Bias uses the accepted values without applying a Card again
 
   Scenario: Export only mapped FullMap Trends
-    Given FullMap contains CD and an unmapped Other column
+    Given a TEM FullMap contains CD and an unmapped Other column
     And Parameter mapping includes only CD
     When the Workbook is exported in either mode
     Then FullMap contains its own data and the CD Trend
     And the Other column is not plotted
     And successful software Wafer Map and Radius pictures are placed on FullMap beside the data
+
+  # Executable examples: tests.test_v4_release_exports.ReleaseExportTests
+  Scenario: Keep NOVA and KLA FullMap focused on maps and radius
+    Given a NOVA or KLA analysis has successfully drawn Wafer Map and Radius
+    When either renderer exports FullMap
+    Then those software PNGs have a fixed physical height with their aspect ratio preserved
+    And no additional FullMap Trend is added
+
+  Scenario: Read Dynamic results in one aligned view
+    Given Dynamic has selected parameters with Cycle and Die measurements
+    When either renderer exports Dynamic
+    Then literal source data is on the left of one Dynamic sheet
+    And each parameter's Cycle by Die table is stacked in the middle
+    And its 3 Sigma chart aligns to that table's top on the right
+    And a grouped 3 Sigma summary starts at the top farther right
+    And selected Cycle trends remain on the same sheet
+    And native tables reference the raw cells and retain sample standard deviation
+
+  Scenario: Compare positive and negative Bias fairly
+    Given Bias contains unequal positive and negative extremes
+    When either renderer exports Bias or Bias percent
+    Then its lower Y limit is the negative of its upper Y limit
 
   Scenario: Export independent child analyses
     Given a named child window has its own data and successful drawing choices
