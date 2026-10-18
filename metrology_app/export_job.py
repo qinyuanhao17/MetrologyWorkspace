@@ -3,7 +3,7 @@ from pathlib import Path
 from threading import Event
 
 from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal
-from PyQt6.QtWidgets import QMessageBox, QProgressDialog
+from PyQt6.QtWidgets import QLabel, QMessageBox, QProgressDialog
 
 
 def _write_export(path, snapshot, matching, native, cancelled, progress):
@@ -149,6 +149,8 @@ def start_export(window, path, snapshot, *, matching=False, native=True):
         return
     progress = QProgressDialog("Exporting Excel charts…" if native else "Exporting Matplotlib…",
                                "Cancel", 0, 0, window)
+    progress.setFixedWidth(480)
+    label = progress.findChild(QLabel)
     progress.setWindowModality(Qt.WindowModality.ApplicationModal)
     progress.setMinimumDuration(0)
     job = ExportJob(path, snapshot, matching=matching, native=native, parent=window)
@@ -162,7 +164,9 @@ def start_export(window, path, snapshot, *, matching=False, native=True):
     progress.canceled.connect(cancel)
     def update(message):
         if not job.cancelled.is_set():
-            progress.setLabelText(message)
+            label.setToolTip(message)
+            progress.setLabelText(label.fontMetrics().elidedText(
+                message, Qt.TextElideMode.ElideRight, label.contentsRect().width()))
     job.status.connect(update)
     def success(path):
         progress.close()

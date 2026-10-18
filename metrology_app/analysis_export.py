@@ -32,7 +32,7 @@ def capture_window(window, *, parameters=None):
     stage = next((part for part in scope.split(".") if part in ("preview", "final")), None)
     report = {"frames": {"Data": window.model.document_frame().copy(deep=True)},
               "plots": [], "pictures": [], "suffix": stage_suffix(stage) if stage else "",
-              "title": window.windowTitle()}
+              "title": window.windowTitle(), "kind": window.workspace_type}
     if window.workspace_type == "correlation_trend":
         report["frames"] = {"Ref Data": window.reference_model.document_frame().copy(deep=True),
                             "Raw Data": window.model.document_frame().copy(deep=True)}
@@ -128,7 +128,7 @@ def plot_figure(plot):
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     sequence = sequence_layout(plot["labels"]) if plot.get("labels") else None
     width = (sequence["width"] if sequence else MATCH_WIDTH_CM
-             if plot.get("sheet") == "Correlation" or plot.get("kind") == "bar" else TREND_WIDTH_CM)
+             if plot.get("sheet") == "Correlation" else TREND_WIDTH_CM)
     figure = Figure(figsize=(width / 2.54, PANEL_HEIGHT_CM / 2.54), facecolor="white")
     FigureCanvasAgg(figure)
     axis = figure.subplots()
@@ -150,7 +150,9 @@ def plot_figure(plot):
              if sequence else data["X"])
         values_by_axis.setdefault(target, []).extend(data["Y"].to_numpy(float))
         if plot.get("kind") == "bar":
-            target.bar(np.arange(len(data)), data["Y"], label=series["name"], color=color, width=.65)
+            count = len(plot['series'])
+            target.bar(np.arange(len(data)) + (index - (count - 1) / 2) * .8 / count,
+                       data["Y"], label=series["name"], color=color, width=.8 / count)
             target.set_xticks(np.arange(len(data)), data["X"].astype(str))
             target.set_ylim(bottom=0)
         elif series.get("line", True):
@@ -208,10 +210,14 @@ def append_report(book, used, report, *, native=True, images=None, prefix=""):
         sheet = book.create_sheet(sheet_title(prefix + title, used, suffix))
         sheet.freeze_panes = "A2"
         return sheet
+    if report.get('kind') == 'dynamic' or any(name.startswith('Pivot ') for name in report['frames']):
+        write_dynamic_report(create('Dynamic'), report, native=native, images=images)
+        return
     if "fullmap_parameters" in report:
         from .excel_export import write_fullmap
         write_fullmap(create("FullMap"), report["frames"]["Data"], report["fullmap_parameters"],
-                      native=native, images=images, plot_labels=report.get("plot_labels"), pictures=report["pictures"])
+                      native=native, images=images, plot_labels=report.get("plot_labels"), pictures=report["pictures"],
+                      include_trends=report.get('include_fullmap_trends', True))
         return
     for title, frame in report["frames"].items():
         _write_frame(create(title), frame)
@@ -303,6 +309,134 @@ def append_report(book, used, report, *, native=True, images=None, prefix=""):
         sheet.add_image(image, "A4")
         if images is not None:
             images.append((prefix + title + suffix, contents))
+
+
+def write_dynamic_report(sheet, report, *, native=True, images=None):
+    """One Dynamic view: literal sources, vertical pivots, local charts and summary."""
+    from openpyxl.utils import get_column_letter
+    from openpyxl.styles import Font, Alignment
+    from openpyxl.chart.series import SeriesLabel
+    from .excel_export import _next_plot_column, EXPORT_FONT
+    from .export_rendering import embed_plot, flush_pictures
+    raw = report['frames'].get('Data', pd.DataFrame())
+    _write_frame(sheet, raw)
+    from .dynamic import prepare_dynamic_frame
+    from .match_groups import normalized
+    die_column = next((name for name in raw if normalized(name) in ('dieseq', 'dieid', 'diesequence')), None)
+    prepared = prepare_dynamic_frame(raw.rename(columns={die_column: 'Die Seq'})) if die_column is not None else None
+    table_column = len(raw.columns) + 2
+    pivots = [(name.removeprefix('Pivot '), frame) for name, frame in report['frames'].items()
+              if name.startswith('Pivot ')]
+    table_width = max((len(frame.columns) for _, frame in pivots), default=1)
+    for column in range(table_column, table_column + table_width):
+        sheet.column_dimensions[get_column_letter(column)].width = 15
+    plot_column = table_column + table_width + 1
+    summary_column = _next_plot_column(sheet, plot_column, TREND_WIDTH_CM * 96 / 2.54)
+    row, sigma_cells, dies = 1, {}, []
+    for parameter, pivot in pivots:
+        source_rows = {}
+        if prepared is not None and parameter in prepared:
+            numeric = pd.to_numeric(prepared[parameter], errors='coerce')
+            for position in np.flatnonzero(numeric.notna().to_numpy()):
+                source_rows[prepared.iloc[position]['Cycle'], prepared.iloc[position]['Die Seq']] = int(position) + 2
+        sheet.cell(row, table_column, parameter).font = Font(name=EXPORT_FONT, size=14, bold=True)
+        for offset, name in enumerate(pivot.columns):
+            cell = sheet.cell(row + 1, table_column + offset, _value(name))
+            cell.font = Font(name=EXPORT_FONT, bold=True)
+            cell.alignment = Alignment(horizontal='center')
+        for offset, values in enumerate(pivot.itertuples(index=False, name=None), row + 2):
+            for column, value in enumerate(values, table_column):
+                if column > table_column and str(values[0]) == '3 Sigma':
+                    letter = get_column_letter(column)
+                    cells = f'{letter}{row + 2}:{letter}{offset - 1}'
+                    value = f'=IF(COUNT({cells})>1,3*STDEV({cells}),NA())'
+                elif column > table_column and parameter in raw:
+                    source_row = source_rows.get((values[0], pivot.columns[column - table_column]))
+                    if source_row is not None:
+                        source = f'{get_column_letter(raw.columns.get_loc(parameter) + 1)}{source_row}'
+                        value = f'=IF({source}="","",IFERROR({source}*1,""))'
+                sheet.cell(offset, column, _value(value))
+        sigma_index = next((index for index, value in enumerate(pivot.iloc[:, 0])
+                            if str(value) == '3 Sigma'), None)
+        if sigma_index is not None:
+            sigma_row = row + 2 + sigma_index
+            for index, die in enumerate(pivot.columns[1:], table_column + 1):
+                if die not in dies:
+                    dies.append(die)
+                sigma_cells[parameter, die] = sheet.cell(sigma_row, index).coordinate
+            if native:
+                chart = BarChart()
+                chart.title = f'{parameter} 3 Sigma'
+                chart.x_axis.title, chart.y_axis.title = 'Die Seq', '3 Sigma'
+                chart.height, chart.width = PANEL_HEIGHT_CM, TREND_WIDTH_CM
+                chart.add_data(Reference(sheet, min_col=table_column + 1,
+                    max_col=table_column + len(pivot.columns) - 1, min_row=sigma_row, max_row=sigma_row),
+                    from_rows=True)
+                chart.series[0].tx = SeriesLabel(v=parameter)
+                chart.set_categories(Reference(sheet, min_col=table_column + 1,
+                    max_col=table_column + len(pivot.columns) - 1, min_row=row + 1, max_row=row + 1))
+                chart_limits(chart, pivot.iloc[sigma_index, 1:].to_numpy(float), bars=True)
+                chart.legend = None
+                sheet.add_chart(chart, f'{get_column_letter(plot_column)}{row}')
+            else:
+                plot = {'title': f'{parameter} 3 Sigma', 'kind': 'bar', 'x': 'Die Seq', 'y': '3 Sigma',
+                    'series': [_series(parameter, list(pivot.columns[1:]), pivot.iloc[sigma_index, 1:].to_numpy(float))]}
+                embed_plot(sheet, plot, f'{get_column_letter(plot_column)}{row}',
+                           sheet.title + ' ' + plot['title'], images)
+        row += max(len(pivot) + 4, 26)
+    summary_row = 26
+    for offset, name in enumerate(['Die Seq', *(parameter for parameter, _ in pivots)], summary_column):
+        sheet.cell(summary_row, offset, name).font = Font(name=EXPORT_FONT, bold=True)
+        sheet.column_dimensions[get_column_letter(offset)].width = 15
+    for offset, die in enumerate(dies, summary_row + 1):
+        sheet.cell(offset, summary_column, _value(die))
+        for column, (parameter, _pivot) in enumerate(pivots, summary_column + 1):
+            source = sigma_cells.get((parameter, die))
+            sheet.cell(offset, column, f'={source}' if source else '=NA()')
+    if pivots and dies:
+        if native:
+            chart = BarChart()
+            chart.title, chart.x_axis.title, chart.y_axis.title = 'Dynamic 3 Sigma', 'Die Seq', '3 Sigma'
+            chart.height, chart.width = PANEL_HEIGHT_CM, TREND_WIDTH_CM
+            chart.add_data(Reference(sheet, min_col=summary_column + 1,
+                max_col=summary_column + len(pivots), min_row=summary_row, max_row=summary_row + len(dies)),
+                titles_from_data=True)
+            chart.set_categories(Reference(sheet, min_col=summary_column,
+                min_row=summary_row + 1, max_row=summary_row + len(dies)))
+            chart_limits(chart, [float(frame.iloc[-1, column]) for _, frame in pivots
+                for column in range(1, len(frame.columns))], bars=True)
+            sheet.add_chart(chart, f'{get_column_letter(summary_column)}1')
+        else:
+            curves = []
+            for parameter, pivot in pivots:
+                values = dict(zip(pivot.columns[1:], pivot.iloc[-1, 1:].to_numpy(float)))
+                curves.append(_series(parameter, dies, [values.get(die, np.nan) for die in dies]))
+            plot = {'title': 'Dynamic 3 Sigma', 'kind': 'bar', 'x': 'Die Seq', 'y': '3 Sigma', 'series': curves}
+            embed_plot(sheet, plot, f'{get_column_letter(summary_column)}1', sheet.title + ' Summary', images)
+    # Keep selected Cycle trends in the same view, below the summary data.
+    trend_row = max(52, summary_row + len(dies) + 4)
+    for plot in report['plots']:
+        if plot.get('sheet') != 'Dynamic Trend':
+            continue
+        chart = ScatterChart()
+        chart.title, chart.x_axis.title, chart.y_axis.title = plot['title'], plot['x'], plot['y']
+        chart.width, chart.height = TREND_WIDTH_CM, PANEL_HEIGHT_CM
+        first = trend_row + 2
+        for series in plot['series']:
+            for offset, values in enumerate(series['data'].itertuples(index=False, name=None), first):
+                for column, value in enumerate(values, summary_column):
+                    sheet.cell(offset, column, _value(value))
+            last = first + len(series['data']) - 1
+            if last >= first:
+                chart.series.append(Series(Reference(sheet, min_col=summary_column + 1, min_row=first, max_row=last),
+                    Reference(sheet, min_col=summary_column, min_row=first, max_row=last), title=series['name']))
+        anchor = f'{get_column_letter(_next_plot_column(sheet, summary_column, TREND_WIDTH_CM * 96 / 2.54))}{trend_row}'
+        if native:
+            sheet.add_chart(chart, anchor)
+        else:
+            embed_plot(sheet, plot, anchor, sheet.title + ' ' + plot['title'], images)
+        trend_row = max(trend_row + 26, first + max((len(s['data']) for s in plot['series']), default=0) + 3)
+    flush_pictures(sheet.parent)
 
 
 def write_window(window, path, *, native=True, images=None):

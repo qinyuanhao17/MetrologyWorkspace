@@ -5028,11 +5028,11 @@ class MatchingWindowTests(unittest.TestCase):
 
             with pd.ExcelFile(excel_path, engine="openpyxl") as book:
                 self.assertEqual(book.sheet_names, [
-                    "_Plot data", "Original (WO Card)", "Match (WO Card)", "Wafer (WO Card)",
+                    "_Plot data", "Match Original (WO Card)", "Match Wafer (WO Card)",
                     "RSQ (WO Card)", "FullMap (WO Card)", "FullMap (W Card)",
                 ])
             from openpyxl import load_workbook
-            preview = load_workbook(excel_path)["Match (WO Card)"]
+            preview = load_workbook(excel_path)["Match Original (WO Card)"]
             preview_fullmap = pd.read_excel(
                 excel_path, sheet_name="FullMap (WO Card)", engine="openpyxl"
             )
@@ -5049,7 +5049,7 @@ class MatchingWindowTests(unittest.TestCase):
             self.assertTrue(image_workbook.is_file())
             self.assertEqual(list(image_folder.glob("*.png")), [])
             from openpyxl import load_workbook
-            self.assertTrue(load_workbook(image_workbook)["Match (WO Card)"]._images)
+            self.assertTrue(load_workbook(image_workbook)["Match Original (WO Card)"]._images)
 
     def test_match_image_export_uses_matplotlib_instead_of_widget_capture(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
@@ -5062,7 +5062,7 @@ class MatchingWindowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = self.window.save_plot_images(folder)
             from openpyxl import load_workbook
-            picture = load_workbook(path)["Match (WO Card)"]._images[0]
+            picture = load_workbook(path)["Match Original (WO Card)"]._images[0]
             match_image = QImage.fromData(picture._data())
 
         self.assertFalse(match_image.isNull())

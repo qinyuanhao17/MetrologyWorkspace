@@ -4779,6 +4779,7 @@ class MatchingWindow(QMainWindow):
         # PAD, Lot, ...) are joined with "/" in classification order so the
         # cell shows the whole label instead of eliding after the first line.
         display = summary.copy()
+        display.insert(min(2, len(display.columns)), 'Row', np.arange(1, len(display) + 1))
         group["wafer_summary"] = summary
         selected = self._single_wafer_checks.setdefault(self.workbook.result_mode, {}).setdefault(parameter, [])
         display["Draw"] = [label in selected for label in summary.get("Wafer", [])]
@@ -5122,6 +5123,7 @@ class MatchingWindow(QMainWindow):
             report = capture_window(child, parameters=parameters if map_child else None)
             if map_child:
                 report.update(scope=scope, fullmap_parameters=parameters,
+                              include_fullmap_trends=self.workbook.match_type == 'TEM',
                               plot_labels=dict(self._plot_label_options["trend"]))
             reports.append((f"{name} ", report))
         return {"reference": self.reference_model.document_frame().copy(deep=True), "stages": stages,

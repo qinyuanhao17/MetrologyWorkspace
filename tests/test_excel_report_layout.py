@@ -92,7 +92,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
         self.window.run_analysis()
         with tempfile.TemporaryDirectory() as folder:
             book = self.export(folder)
-            match, trend, bias = book['Match (WO Card)']._charts
+            match, trend, bias = book['Match Original (WO Card)']._charts
             from zipfile import ZipFile
             from xml.etree import ElementTree as ET
             ns = {'c': 'http://schemas.openxmlformats.org/drawingml/2006/chart',
@@ -109,7 +109,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
             self.assertGreaterEqual(match.series[0].marker.size, 5)
             self.assertEqual(match.x_axis.numFmt.formatCode, '0.00',
                              'A tight .95 boundary must not be labelled as integer 1')
-            self.assertEqual(trend.series[-1].tx.strRef.f, "'Match (WO Card)'!E8")
+            self.assertEqual(trend.series[-1].tx.strRef.f, "'Match Original (WO Card)'!E8")
             self.assertEqual(trend.series[-1].graphicalProperties.line.prstDash, 'solid')
             self.assertGreaterEqual(trend.series[-1].graphicalProperties.line.w, 22860)
             self.assertGreaterEqual(trend.series[-1].marker.size, 4)
@@ -144,8 +144,8 @@ class ExcelReportLayoutTests(unittest.TestCase):
                 book = load_workbook(self.window.export_excel(Path(folder) / f"{native}.xlsx", native=native))
                 books.append(book)
                 self.assertEqual([s.title for s in book if s.sheet_state == "visible"],
-                                 ["Original (WO Card)", "Match (WO Card)", "Wafer (WO Card)", "RSQ (WO Card)"])
-                sheet = book["Match (WO Card)"]
+                                 ["Match Original (WO Card)", "Match Wafer (WO Card)", "RSQ (WO Card)"])
+                sheet = book["Match Original (WO Card)"]
                 self.assertEqual(sheet["A1"].value, "Wafer ID")
                 self.assertEqual(sheet["C2"].value, "1.000")
                 headers = next(row for row in sheet.values if "PMISH+Card" in row)
@@ -160,7 +160,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
                 values = [c.value for row in sheet for c in row]
                 self.assertNotIn("Card source", values)
                 self.assertNotIn("Source row", values)
-            self.assertEqual(list(books[0]["Match (WO Card)"].values), list(books[1]["Match (WO Card)"].values))
+            self.assertEqual(list(books[0]["Match Original (WO Card)"].values), list(books[1]["Match Original (WO Card)"].values))
         after = self.window.workspace_snapshot()
         self.assertEqual(before.states, after.states)
         for name in before.frames:
@@ -175,15 +175,15 @@ class ExcelReportLayoutTests(unittest.TestCase):
         self.window.run_analysis()
         with tempfile.TemporaryDirectory() as folder:
             book = self.export(folder)
-            sheet = book["Match (W Card)"]
+            sheet = book["Match Original (W Card)"]
             headers = next(row for row in sheet.values if "Bias %" in row)
             self.assertEqual(headers[:6], ("Wafer", "Die Seq", "PMISH", "NOVA", "Bias", "Bias %"))
             self.assertNotIn("PMISH+Card", [c.value for row in sheet for c in row])
             row = next(c.row for cells in sheet for c in cells if c.value == "PMISH") + 1
-            self.assertEqual(book["Original (W Card)"]["C2"].value, "3.000")
-            self.assertIn("'Original (W Card)'!$C$2", sheet.cell(row, 3).value)
+            self.assertEqual(book["Match Original (W Card)"]["C2"].value, "3.000")
+            self.assertIn("'Match Original (W Card)'!$C$2", sheet.cell(row, 3).value)
 
-    def test_export_opens_at_match_plots_instead_of_the_chartless_original(self):
+    def test_export_opens_at_match_original_plots(self):
         reference, raw = self.frames()
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
@@ -191,12 +191,18 @@ class ExcelReportLayoutTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             for native in (True, False):
                 book = load_workbook(self.window.export_excel(Path(folder) / f'opening-{native}.xlsx', native=native))
-                self.assertEqual(book.active.title, 'Match (WO Card)')
-                self.assertEqual(book.active.sheet_view.pane.topLeftCell, 'I7')
-                self.assertEqual(book.active.sheet_view.topLeftCell, 'I1')
-                self.assertEqual(book.active.sheet_view.selection[-1].activeCell, 'I7')
-                self.assertEqual(book['Original (WO Card)']._images, [])
-                self.assertEqual(book['Match (WO Card)']['C2'].value, '1.000')
+                self.assertEqual(book.active.title, 'Match Original (WO Card)')
+                self.assertEqual(book.active.sheet_view.pane.topLeftCell, 'A7')
+                self.assertEqual(book.active.sheet_view.topLeftCell, 'A1')
+                self.assertEqual(book.active.sheet_view.selection[-1].activeCell, 'A7')
+                sheet = book['Match Original (WO Card)']
+                self.assertEqual(sheet['C2'].value, '1.000')
+                if native:
+                    self.assertEqual(len(sheet._charts), 3)
+                    self.assertEqual(sheet._images, [])
+                else:
+                    self.assertEqual(sheet._charts, [])
+                    self.assertEqual(len(sheet._images), 3)
 
     def test_both_renderers_use_physical_panel_sizes_and_full_width_parameter_heading(self):
         reference, raw = self.frames()
@@ -206,7 +212,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             for native in (True, False):
                 book = load_workbook(self.window.export_excel(Path(folder) / f"sizes-{native}.xlsx", native=native))
-                sheet = book["Match (WO Card)"]
+                sheet = book["Match Original (WO Card)"]
                 objects = sheet._charts if native else sheet._images
                 self.assertEqual(len(objects), 3, "Match, Trend and Bias must be independently sized panels")
                 dimensions = [(obj.anchor.ext.cx / 360000, obj.anchor.ext.cy / 360000) for obj in objects]
@@ -228,22 +234,19 @@ class ExcelReportLayoutTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             for native in (True, False):
                 book = load_workbook(self.window.export_excel(Path(folder) / f"identities-{native}.xlsx", native=native))
-                sheet = book["Match (WO Card)"]
+                sheet = book["Match Original (WO Card)"]
                 panels = sheet._charts if native else sheet._images
-                self.assertEqual(len(panels), 5, "Match, Group Trend/Bias, then Wafer Trend/Bias")
+                self.assertEqual(len(panels), 3, 'Original has its own Match, Die Trend and Bias')
                 dimensions = [panel.anchor.ext.cx / 360000 for panel in panels]
                 self.assertEqual(dimensions[0], 15)
-                self.assertGreater(dimensions[3], dimensions[1])
                 self.assertGreaterEqual(dimensions[1], 25)
                 self.assertTrue(all(left.anchor._from.col < right.anchor._from.col for left, right in zip(panels, panels[1:])))
                 if native:
-                    categories = panels[3].series[0].cat.multiLvlStrRef
-                    self.assertTrue(categories.f.startswith("'Match (WO Card)'!"))
-                    captions = [point.v for point in categories.multiLvlStrCache.lvl[1].pt]
-                    for index in range(20):
-                        self.assertTrue(any(f"WAFER-{index:03}" in caption for caption in captions))
-                    self.assertEqual(len(captions), 20)
-                    self.assertEqual(panels[3].x_axis.tickLblSkip, 1)
+                    detail = book['Match Wafer (WO Card)']._charts[1]
+                    categories = detail.series[0].cat.strRef
+                    self.assertTrue(categories.f.startswith("'Match Wafer (WO Card)'!"))
+                    self.assertEqual([point.v for point in categories.strCache.pt], ['1', '2', '3'] * 20)
+                    self.assertEqual(detail.x_axis.tickLblSkip, 4)
 
     def test_fullmap_matplotlib_trend_keeps_tight_ordinal_limits(self):
         from metrology_app.analysis_export import plot_figure
@@ -311,13 +314,13 @@ class ExcelReportLayoutTests(unittest.TestCase):
         self.window.run_analysis()
         with tempfile.TemporaryDirectory() as folder:
             path = self.window.export_excel(Path(folder) / "editable.xlsx")
-            sheet = load_workbook(path)["Match (WO Card)"]
+            sheet = load_workbook(path)["Match Original (WO Card)"]
             trend = sheet._charts[1]
-            category = trend.series[0].cat.multiLvlStrRef
+            category = trend.series[0].cat.strRef
             self.assertIsNotNone(category, "Native categories must reference the visible identity columns")
-            self.assertEqual(category.f, "'Match (WO Card)'!$A$9:$B$11")
-            self.assertEqual(trend.series[0].val.numRef.f, "'Match (WO Card)'!$D$9:$D$11")
-            self.assertEqual(trend.series[1].val.numRef.f, "'Match (WO Card)'!$E$9:$E$11")
+            self.assertEqual(category.f, "'Match Original (WO Card)'!$B$9:$B$11")
+            self.assertEqual(trend.series[0].val.numRef.f, "'Match Original (WO Card)'!$D$9:$D$11")
+            self.assertEqual(trend.series[1].val.numRef.f, "'Match Original (WO Card)'!$E$9:$E$11")
             self.assertEqual(trend.series[1].graphicalProperties.line.solidFill.srgbClr, "ED7D31")
             self.assertIn("A9:A11", {str(area) for area in sheet.merged_cells.ranges})
             self.assertEqual([sheet.cell(row, 1).value for row in range(9, 12)], ["W1", None, None])
@@ -335,12 +338,12 @@ class ExcelReportLayoutTests(unittest.TestCase):
                                            pd.DataFrame({'TestFlag': [0, 0, 1]}))
         self.window.group_controls.apply_button.click()
         with tempfile.TemporaryDirectory() as folder:
-            sheet = self.export(folder)['Match (WO Card)']
+            sheet = self.export(folder)['Match Original (WO Card)']
             self.assertIn('A9:A10', {str(area) for area in sheet.merged_cells.ranges})
             self.assertEqual(sheet._charts[1].x_axis.tickLblSkip, 1)
             for series in sheet._charts[0].series:
-                self.assertTrue(series.xVal.numRef.f.startswith("'Match (WO Card)'!"))
-                self.assertTrue(series.yVal.numRef.f.startswith("'Match (WO Card)'!"))
+                self.assertTrue(series.xVal.numRef.f.startswith("'Match Original (WO Card)'!"))
+                self.assertTrue(series.yVal.numRef.f.startswith("'Match Original (WO Card)'!"))
 
     def test_grouped_exports_reference_original_rows_instead_of_copying_reordered_values(self):
         raw = pd.DataFrame({"Wafer ID": ["W1", "W2", "W1", "W2"], "Die Seq": ["01", "01", "02", "02"],
@@ -354,16 +357,16 @@ class ExcelReportLayoutTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             for native in (True, False):
                 book = load_workbook(self.window.export_excel(Path(folder) / f"original-{native}.xlsx", native=native))
-                original = book["Original (WO Card)"]
+                original = book["Match Original (WO Card)"]
                 self.assertEqual([original.cell(row, 3).value for row in range(2, 6)], ["1.000", "8.000", "2.000", "9.000"])
-                sheet = book["Match (WO Card)"]
+                sheet = book["Match Group (WO Card)"]
                 header = next(cell.row for row in sheet for cell in row if cell.value == "PMISH+Card")
                 self.assertEqual([sheet.cell(row, 1).value for row in range(header + 1, header + 5)], ["Head A", None, "Head B", None])
                 values = [sheet.cell(row, 4).value for row in range(header + 1, header + 5)]
                 for formula, source_row in zip(values, (2, 4, 3, 5)):
-                    self.assertIn(f"'Original (WO Card)'!$C${source_row}", formula)
+                    self.assertIn(f"'Match Original (WO Card)'!$C${source_row}", formula)
                 group = book["Match Head A (WO Card)"]
-                self.assertIn("'Original (WO Card)'!$C$4", group["D4"].value)
+                self.assertIn("'Match Original (WO Card)'!$C$4", group["D4"].value)
         after = self.window.workspace_snapshot()
         self.assertEqual(before.states, after.states)
         for name in before.frames:
@@ -384,7 +387,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
                 with self.subTest(native=native):
                     path = self.window.export_excel(Path(folder) / f'captions-{native}.xlsx', native=native)
                     book = load_workbook(path)
-                    sheet = book['Match (WO Card)']
+                    sheet = book['Match Original (WO Card)']
                     self.assertEqual({str(area) for area in sheet.merged_cells.ranges},
                                      {'A10:H10', 'A12:A15', 'A16:A17', 'B12:B13', 'B14:B15', 'B16:B17'})
                     self.assertEqual([sheet.cell(row, 2).value for row in range(12, 18)],
@@ -400,17 +403,17 @@ class ExcelReportLayoutTests(unittest.TestCase):
                         self.assertIsNone(numeric.alignment.horizontal)
                         self.assertIsNone(numeric.alignment.wrap_text)
                         self.assertTrue(numeric.protection.locked)
-                        self.assertIn(f"'Original (WO Card)'!$E${row - 10}", numeric.value)
+                        self.assertIn(f"'Match Original (WO Card)'!$E${row - 10}", numeric.value)
                     self.assertEqual([sheet.cell(row, 1).value for row in range(12, 18)],
                                      ['Head A', None, None, None, 'Head B', None])
-                    self.assertEqual([book['Original (WO Card)'].cell(row, 5).value for row in range(2, 8)],
+                    self.assertEqual([book['Match Original (WO Card)'].cell(row, 5).value for row in range(2, 8)],
                                      raw['CD'].tolist())
                     # The exported merge remains an ordinary editable Excel merge.
                     sheet.unmerge_cells('B12:B13')
                     sheet['B13'] = 'Edited caption'
                     edited = Path(folder) / f'edited-{native}.xlsx'
                     book.save(edited)
-                    self.assertEqual(load_workbook(edited)['Match (WO Card)']['B13'].value, 'Edited caption')
+                    self.assertEqual(load_workbook(edited)['Match Original (WO Card)']['B13'].value, 'Edited caption')
 
     def test_wafer_sheet_references_original_in_first_appearance_order_in_both_modes(self):
         raw = pd.DataFrame({"Wafer ID": ["W2", "W1", "W2", "W1"], "Die Seq": ["01", "01", "02", "02"],
@@ -424,31 +427,33 @@ class ExcelReportLayoutTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             for native in (True, False):
                 book = load_workbook(self.window.export_excel(Path(folder) / f"wafer-{native}.xlsx", native=native))
-                original = book["Original (WO Card)"]
-                self.assertEqual((len(original._charts), len(original._images)), (0, 0))
+                original = book["Match Original (WO Card)"]
+                original_panels = original._charts if native else original._images
+                self.assertGreaterEqual(len(original_panels), 1)
                 self.assertEqual([original.cell(row, 3).value for row in range(2, 6)], ["1.000", "8.000", "2.000", "9.000"])
                 self.assertEqual(original["E1"].value, "CD Reference (NOVA)")
                 self.assertEqual([original.cell(row, 5).value for row in range(2, 6)], [3, 17, 5, 19])
-                wafer = book["Wafer (WO Card)"]
+                wafer = book["Match Wafer (WO Card)"]
                 self.assertEqual([wafer.cell(row, 3).value for row in range(3, 7)], ["01", "02", "01", "02"])
                 self.assertEqual([wafer.cell(row, 2).value for row in range(3, 7)], ["W2", None, "W1", None])
                 for row, source_row in zip(range(3, 7), (2, 4, 3, 5)):
-                    self.assertIn(f"'Original (WO Card)'!$C${source_row}", wafer.cell(row, 4).value)
-                    self.assertIn(f"'Original (WO Card)'!$E${source_row}", wafer.cell(row, 6).value)
+                    self.assertIn(f"'Match Original (WO Card)'!$C${source_row}", wafer.cell(row, 4).value)
+                    self.assertIn(f"'Match Original (WO Card)'!$E${source_row}", wafer.cell(row, 6).value)
                 panels = wafer._charts if native else wafer._images
                 self.assertEqual(len(panels), 3, "Match, Wafer Trend and Wafer Bias, without a Group overview")
                 self.assertTrue(all(panel.anchor._from.row == 0 for panel in panels))
                 self.assertGreaterEqual(panels[1].anchor.ext.cx / 360000, 25)
                 if native:
-                    categories = panels[1].series[0].cat.multiLvlStrRef
-                    self.assertEqual(categories.f, "'Wafer (WO Card)'!$B$3:$C$6")
-                    self.assertEqual([point.v for point in categories.multiLvlStrCache.lvl[1].pt], ["W2", "W1"])
+                    categories = panels[1].series[0].cat.strRef
+                    self.assertEqual(categories.f, "'Match Wafer (WO Card)'!$C$3:$C$6")
+                    self.assertEqual([point.v for point in categories.strCache.pt], ['01', '02', '01', '02'])
         after = self.window.workspace_snapshot()
         self.assertEqual(before.states, after.states)
         for name in before.frames:
             pd.testing.assert_frame_equal(before.frames[name], after.frames[name])
 
     def test_fullmap_trend_uses_own_data_and_only_mapped_parameters(self):
+        self.window.match_type.setCurrentText('TEM')
         reference, raw = self.frames()
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
@@ -508,8 +513,8 @@ class ExcelReportLayoutTests(unittest.TestCase):
                 book = load_workbook(self.window.export_excel(Path(folder) / f"drawn-{native}.xlsx", native=native))
                 books.append(book)
                 sheet = book["FullMap (WO Card)"]
-                # One software Map and one Radius, plus only CD's Trend.
-                self.assertEqual((len(sheet._charts), len(sheet._images)), (1, 2) if native else (0, 3))
+                # NOVA retains software Map/Radius; Trends belong to the Match views.
+                self.assertEqual((len(sheet._charts), len(sheet._images)), (0, 2))
                 self.assertTrue(all(image.anchor._from.col > len(full.columns) - 1 for image in sheet._images))
                 self.assertTrue(all(obj.anchor._from.row == 0 for obj in [*sheet._charts, *sheet._images]))
             for index in (0, 1):

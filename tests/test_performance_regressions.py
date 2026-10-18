@@ -1202,7 +1202,7 @@ class WorkbookPerformanceTests(unittest.TestCase):
                 path = window.export_excel(Path(folder) / "immediate.xlsx")
                 from openpyxl import load_workbook
                 helper = load_workbook(path)["_Plot data"]
-                saved_raw = pd.read_excel(path, sheet_name="Match (WO Card)", dtype=str, nrows=3)
+                saved_raw = pd.read_excel(path, sheet_name="Match Original (WO Card)", dtype=str, nrows=3)
                 self.assertAlmostEqual(helper["K10"].value, 2)
                 self.assertAlmostEqual(helper["K11"].value, 0)
                 self.assertEqual(saved_raw["CD"].tolist(), ["2.000", "3.000", "4.000"])
