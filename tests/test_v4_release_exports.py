@@ -205,6 +205,9 @@ class ReleaseExportTests(unittest.TestCase):
                 captions = root.findall('.//cdr:sp[@textlink]', ns)
                 self.assertTrue(captions)
                 self.assertTrue(all('Match Group' in shape.attrib['textlink'] for shape in captions))
+                drawing_ns = {'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'}
+                self.assertTrue(all(shape.find('.//a:fld[@type="TxLink"]', drawing_ns) is not None
+                                    for shape in captions))
                 for anchor in root.findall('cdr:relSizeAnchor', ns):
                     self.assertGreater(float(anchor.find('cdr:from/cdr:y', ns).text), .70)
                     self.assertGreaterEqual(float(anchor.find('cdr:from/cdr:x', ns).text), 0)

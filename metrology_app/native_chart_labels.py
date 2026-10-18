@@ -6,6 +6,7 @@ avoid overlap; leader lines retain the actual ordinal position of each span.
 from pathlib import PurePosixPath
 import shutil
 import tempfile
+from uuid import uuid4
 from xml.etree import ElementTree as ET
 from zipfile import ZipFile
 
@@ -46,10 +47,13 @@ def _shape(root, index, name, start, end, *, text=None, source=None):
         body = _child(shape, D, 'txBody')
         _child(body, A, 'bodyPr', wrap='square', anchor='t', lIns='0', rIns='0', tIns='0', bIns='0')
         _child(body, A, 'lstStyle')
-        for value in str(text).splitlines():
+        for value in ([str(text)] if source else str(text).splitlines()):
             paragraph = _child(body, A, 'p')
             _child(paragraph, A, 'pPr', algn='ctr')
-            run = _child(paragraph, A, 'r')
+            # Excel recognizes textlink alone in the formula bar, but only a
+            # TxLink field updates its cached text when the source cell changes.
+            run = (_child(paragraph, A, 'fld', id='{' + str(uuid4()).upper() + '}', type='TxLink')
+                   if source else _child(paragraph, A, 'r'))
             style = _child(run, A, 'rPr', sz='1100')
             _child(style, A, 'latin', typeface='Times New Roman')
             _child(run, A, 't', value)
