@@ -112,7 +112,9 @@ class ReleaseExportTests(unittest.TestCase):
                 book = Workbook()
                 book.remove(book.active)
                 append_report(book, set(), {'frames': frames, 'plots': plots, 'pictures': [],
-                    'suffix': '', 'kind': 'dynamic'}, native=native)
+                    'suffix': '', 'kind': 'dynamic', 'pivot_sources': {
+                        parameter: {(i // 2, i % 2): (i + 1, raw.columns.get_loc(parameter)) for i in range(6)}
+                        for parameter in ('DP', 'EW')}}, native=native)
                 self.assertEqual(book.sheetnames, ['Dynamic'])
                 sheet = book['Dynamic']
                 self.assertEqual(sheet['C2'].value, '1.000')
@@ -146,6 +148,49 @@ class ReleaseExportTests(unittest.TestCase):
             self.assertLess(len(figure.axes[0].get_yticks()), 20)
         finally:
             figure.clear()
+
+    def test_dynamic_export_keeps_selected_second_sets_exact_source_cells(self):
+        from metrology_app.dynamic_window import DynamicWindow
+        from metrology_app.analysis_export import capture_window
+        from openpyxl.utils import get_column_letter
+        window = DynamicWindow()
+        try:
+            window.set_table(pd.DataFrame({'Wafer ID': ['W1'] * 6 + ['W2'] * 6,
+                'Die Seq': ['01', '02'] * 6,
+                'DP': ['10', '20', '12', '22', '14', '24', '100', '200', '120', '220', '140', '240']}), 'QA')
+            fixtures.APP.processEvents()
+            window.refresh_timer.stop()
+            raw = window.model.document_frame()
+            window.dynamic_page.set_input(raw, {'metrics': ['DP'], 'wafers': ['second'],
+                'groups': {'second': list(range(6, 12))}})
+            report = capture_window(window)
+            book = Workbook()
+            book.remove(book.active)
+            append_report(book, set(), report)
+            sheet = book['Dynamic']
+            column = get_column_letter(raw.columns.get_loc('DP') + 1)
+            formula = f'=IF({column}8="","",IFERROR({column}8*1,""))'
+            self.assertEqual(float(report['frames']['Pivot DP'].iloc[0, 1]), 100)
+            formulas = [cell.value for row in sheet for cell in row if cell.data_type == 'f']
+            self.assertIn(formula, formulas)
+        finally:
+            window.document.force_close = True
+            window.close()
+            window.deleteLater()
+            fixtures.APP.processEvents()
+
+    def test_dynamic_source_derived_labels_starting_with_equals_remain_literal(self):
+        from metrology_app.dynamic import dynamic_pivot, prepare_dynamic_frame
+        raw = pd.DataFrame({'Die Seq': ['=1+1', '02'] * 3, '=DP': range(6)})
+        pivot = dynamic_pivot(prepare_dynamic_frame(raw), '=DP').reset_index()
+        book = Workbook()
+        book.remove(book.active)
+        append_report(book, set(), {'frames': {'Data': raw, 'Pivot =DP': pivot},
+            'plots': [], 'pictures': [], 'suffix': '', 'kind': 'dynamic'})
+        for label in ('=1+1', '=DP'):
+            cells = [cell for row in book.active for cell in row if cell.value == label]
+            self.assertGreater(len(cells), 1)
+            self.assertTrue(all(cell.data_type == 's' for cell in cells))
 
     def test_native_identity_captions_are_detached_editable_chart_shapes(self):
         from zipfile import ZipFile

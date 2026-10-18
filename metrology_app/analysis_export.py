@@ -58,8 +58,10 @@ def capture_window(window, *, parameters=None):
             report["plots"].extend(page.export_plot_data())
     elif window.workspace_type == "dynamic":
         page = window.dynamic_page
+        report['pivot_sources'] = {}
         for parameter, model in page.parameter_models.items():
             pivot = model.frame.copy(deep=True)
+            report['pivot_sources'][parameter] = dict(model.cell_sources)
             report["frames"][f"Pivot {parameter}"] = pivot.reset_index()
             report["plots"].append({"sheet": "Dynamic", "title": f"{parameter} 3 Sigma",
                 "kind": "bar", "x": "Die Seq", "y": "3 Sigma", "series": [
@@ -320,10 +322,11 @@ def write_dynamic_report(sheet, report, *, native=True, images=None):
     from .export_rendering import embed_plot, flush_pictures
     raw = report['frames'].get('Data', pd.DataFrame())
     _write_frame(sheet, raw)
-    from .dynamic import prepare_dynamic_frame
-    from .match_groups import normalized
-    die_column = next((name for name in raw if normalized(name) in ('dieseq', 'dieid', 'diesequence')), None)
-    prepared = prepare_dynamic_frame(raw.rename(columns={die_column: 'Die Seq'})) if die_column is not None else None
+    def literal(row, column, value):
+        cell = sheet.cell(row, column, _value(value))
+        if isinstance(value, str):
+            cell.data_type = 's'
+        return cell
     table_column = len(raw.columns) + 2
     pivots = [(name.removeprefix('Pivot '), frame) for name, frame in report['frames'].items()
               if name.startswith('Pivot ')]
@@ -334,14 +337,10 @@ def write_dynamic_report(sheet, report, *, native=True, images=None):
     summary_column = _next_plot_column(sheet, plot_column, TREND_WIDTH_CM * 96 / 2.54)
     row, sigma_cells, dies = 1, {}, []
     for parameter, pivot in pivots:
-        source_rows = {}
-        if prepared is not None and parameter in prepared:
-            numeric = pd.to_numeric(prepared[parameter], errors='coerce')
-            for position in np.flatnonzero(numeric.notna().to_numpy()):
-                source_rows[prepared.iloc[position]['Cycle'], prepared.iloc[position]['Die Seq']] = int(position) + 2
-        sheet.cell(row, table_column, parameter).font = Font(name=EXPORT_FONT, size=14, bold=True)
+        source_cells = report.get('pivot_sources', {}).get(parameter, {})
+        literal(row, table_column, parameter).font = Font(name=EXPORT_FONT, size=14, bold=True)
         for offset, name in enumerate(pivot.columns):
-            cell = sheet.cell(row + 1, table_column + offset, _value(name))
+            cell = literal(row + 1, table_column + offset, name)
             cell.font = Font(name=EXPORT_FONT, bold=True)
             cell.alignment = Alignment(horizontal='center')
         for offset, values in enumerate(pivot.itertuples(index=False, name=None), row + 2):
@@ -350,12 +349,16 @@ def write_dynamic_report(sheet, report, *, native=True, images=None):
                     letter = get_column_letter(column)
                     cells = f'{letter}{row + 2}:{letter}{offset - 1}'
                     value = f'=IF(COUNT({cells})>1,3*STDEV({cells}),NA())'
-                elif column > table_column and parameter in raw:
-                    source_row = source_rows.get((values[0], pivot.columns[column - table_column]))
-                    if source_row is not None:
-                        source = f'{get_column_letter(raw.columns.get_loc(parameter) + 1)}{source_row}'
+                elif column > table_column:
+                    source_cell = source_cells.get((offset - row - 2, column - table_column - 1))
+                    if source_cell is not None:
+                        source_row, source_column = source_cell
+                        source = f'{get_column_letter(source_column + 1)}{source_row + 1}'
                         value = f'=IF({source}="","",IFERROR({source}*1,""))'
-                sheet.cell(offset, column, _value(value))
+                if column == table_column:
+                    literal(offset, column, value)
+                else:
+                    sheet.cell(offset, column, _value(value))
         sigma_index = next((index for index, value in enumerate(pivot.iloc[:, 0])
                             if str(value) == '3 Sigma'), None)
         if sigma_index is not None:
@@ -386,10 +389,10 @@ def write_dynamic_report(sheet, report, *, native=True, images=None):
         row += max(len(pivot) + 4, 26)
     summary_row = 26
     for offset, name in enumerate(['Die Seq', *(parameter for parameter, _ in pivots)], summary_column):
-        sheet.cell(summary_row, offset, name).font = Font(name=EXPORT_FONT, bold=True)
+        literal(summary_row, offset, name).font = Font(name=EXPORT_FONT, bold=True)
         sheet.column_dimensions[get_column_letter(offset)].width = 15
     for offset, die in enumerate(dies, summary_row + 1):
-        sheet.cell(offset, summary_column, _value(die))
+        literal(offset, summary_column, die)
         for column, (parameter, _pivot) in enumerate(pivots, summary_column + 1):
             source = sigma_cells.get((parameter, die))
             sheet.cell(offset, column, f'={source}' if source else '=NA()')
