@@ -51,7 +51,10 @@ class _Pictures:
             self.cancelled = context.Event()
             cores = os.cpu_count() or 2
             workers = min(6 if cores >= 12 else 4, cores - 1)
-            self.limit = 2 * workers
+            # Keep enough detached jobs ready when a wide Wafer panel outlasts
+            # its neighbours. Rasters still have the same bounded worker cap;
+            # result/anchor order and cancellation remain unchanged.
+            self.limit = 4 * workers
             self.pool = ProcessPoolExecutor(max_workers=workers, mp_context=context,
                 initializer=_configure_renderer, initargs=(dict(matplotlib.rcParams), self.cancelled))
             self.pending = deque((*item[:-1], self.pool.submit(_render_picture, item[4], item[5], item[6], item[2]))
@@ -139,4 +142,4 @@ def embed_parameter(sheet, anchor, title, images, parameter, data, card, stage, 
         _embed_figure(sheet, parameter_figure(parameter, data, card, stage, scope, **kwargs), anchor, title, images)
     else:
         pictures.add(sheet, anchor, title, images, 'parameter',
-                     (parameter, data[['Raw', 'Reference']], card, stage, scope), kwargs, len(data))
+                     (parameter, data[[name for name in ('Raw', 'Reference', 'Die Seq') if name in data]], card, stage, scope), kwargs, len(data))

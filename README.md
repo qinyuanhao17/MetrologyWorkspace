@@ -2,8 +2,8 @@
 
 Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、径向图、相关性图和 Die Seq 趋势图。主窗口依次提供 **Match Workbook**、**Wafer Map**、**Correlation and Trend** 和 **Dynamic** 四个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例；窗口可命名、勾选随 WKB 保存。当前正式源码版本为 **v3.2.0**，在 `main` 分支维护；功能、验证及已知限制见 [v3.2.0 发布说明](docs/releases/v3.2.0.md)。历史版本与开发版标签保持不变。
 
-当前开发快照为 **v4-dev1**（`VERSION`：`4.0.0-dev1`），包含独立提醒事项、映射逐行右键删除和 NOVA 导出优化。
-这是源码开发 tag，不替换 `main` 上的稳定快照，也没有新的 Windows 安装包；验证结果与未完成事项见 [v4-dev1 开发版说明](docs/releases/v4-dev1.md)。
+当前开发快照为 **v4-dev2**（`VERSION`：`4.0.0-dev2`），在 dev1 基础上包含 NOVA 导出性能与坐标布局修复、Excel Match 数据范围编辑修复，以及固定高度的 Trend 显示。
+这是源码开发 tag，不替换 `main` 上的稳定快照，也没有新的 Windows 安装包；验证结果与未完成事项见 [v4-dev2 开发版说明](docs/releases/v4-dev2.md)。
 
 ## 运行
 

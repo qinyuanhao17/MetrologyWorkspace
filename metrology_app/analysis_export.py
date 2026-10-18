@@ -187,7 +187,7 @@ def plot_figure(plot):
     if plot.get("notes"):
         figure.suptitle(plot["notes"].replace("; ", "\n"), fontsize=9, color="#475569")
     lines = max((len(label.splitlines()) for _, label in sequence["ticks"]), default=1) if sequence else 1
-    figure.subplots_adjust(left=1.6 / width, right=1 - (.45 + .9 * len(second_axes)) / width,
+    figure.subplots_adjust(left=2.0 / width, right=1 - (.7 + .9 * len(second_axes)) / width,
                            bottom=(.9 + .45 * lines) / PANEL_HEIGHT_CM,
                            top=min(.79, 1 - (1.1 + .5 * legend_rows) / PANEL_HEIGHT_CM) if not plot.get("notes") else .70)
     set_export_font(figure)

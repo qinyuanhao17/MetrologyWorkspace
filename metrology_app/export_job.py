@@ -25,6 +25,13 @@ def _write_export(path, snapshot, matching, native, cancelled, progress):
 
 def _export_process(path, snapshot, matching, native, cancelled, messages, settings):
     """Only owned data and an IPC endpoint enter this non-GUI process."""
+    import gc
+    collecting = gc.isenabled()
+    # This one-shot process owns the report until it exits. Repeatedly scanning
+    # millions of still-live cells costs seconds but collects almost nothing.
+    # Keep the GUI, small in-process exports and Agg workers on their normal GC
+    # policies; reference-counted cleanup and all cancellation checks still run.
+    gc.disable()
     try:
         import tempfile
         tempfile.tempdir = str(Path(path).parent)
@@ -38,7 +45,11 @@ def _export_process(path, snapshot, matching, native, cancelled, messages, setti
     except Exception as error:
         messages.send(('failed', str(error)))
     finally:
-        messages.close()
+        try:
+            messages.close()
+        finally:
+            if collecting:
+                gc.enable()
 
 
 class ExportJob(QThread):

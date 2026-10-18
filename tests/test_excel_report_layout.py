@@ -70,6 +70,21 @@ class ExcelReportLayoutTests(unittest.TestCase):
             self.assertEqual(book["Original (W Card)"]["C2"].value, "3.000")
             self.assertIn("'Original (W Card)'!$C$2", sheet.cell(row, 3).value)
 
+    def test_export_opens_at_match_plots_instead_of_the_chartless_original(self):
+        reference, raw = self.frames()
+        self.window.set_reference_frame(reference)
+        self.window.set_raw_frame(raw)
+        self.window.run_analysis()
+        with tempfile.TemporaryDirectory() as folder:
+            for native in (True, False):
+                book = load_workbook(self.window.export_excel(Path(folder) / f'opening-{native}.xlsx', native=native))
+                self.assertEqual(book.active.title, 'Match (WO Card)')
+                self.assertEqual(book.active.sheet_view.pane.topLeftCell, 'I7')
+                self.assertEqual(book.active.sheet_view.topLeftCell, 'I1')
+                self.assertEqual(book.active.sheet_view.selection[-1].activeCell, 'I7')
+                self.assertEqual(book['Original (WO Card)']._images, [])
+                self.assertEqual(book['Match (WO Card)']['C2'].value, '1.000')
+
     def test_both_renderers_use_physical_panel_sizes_and_full_width_parameter_heading(self):
         reference, raw = self.frames()
         self.window.set_reference_frame(reference)
@@ -115,6 +130,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
                     for index in range(20):
                         self.assertTrue(any(f"WAFER-{index:03}" in caption for caption in captions))
                     self.assertEqual(len(captions), 20)
+                    self.assertEqual(panels[3].x_axis.tickLblSkip, 1)
 
     def test_fullmap_matplotlib_trend_keeps_tight_ordinal_limits(self):
         from metrology_app.analysis_export import plot_figure
@@ -125,6 +141,53 @@ class ExcelReportLayoutTests(unittest.TestCase):
         self.assertAlmostEqual(figure.get_figwidth() * 2.54, 25, places=3)
         self.assertAlmostEqual(figure.get_figheight() * 2.54, 11, places=3)
         figure.clear()
+
+    def test_report_trend_keeps_die_sequence_and_once_per_span_identity_captions(self):
+        from metrology_app.excel_export import parameter_figure, sequence_layout
+        data = pd.DataFrame({'Raw': [1., 2., 3., 4., 5., 6.], 'Reference': [1., 2., 3., 4., 5., 6.],
+                             'Die Seq': ['10', '20', '30', '10', '20', '30']})
+        figure = parameter_figure('CD', data, None, 'Final', 'All', panel='Trend',
+                                  sequence=sequence_layout(['W1'] * 3 + ['W2'] * 3))
+        axis = figure.axes[0]
+        self.assertEqual(axis.get_xlabel(), 'Die Seq')
+        self.assertEqual([label.get_text() for label in axis.get_xticklabels()], data['Die Seq'].tolist())
+        self.assertEqual([text.get_text() for text in axis.texts], ['W1', 'W2'])
+        figure.canvas.draw()
+        renderer = figure.canvas.get_renderer()
+        for text in (*axis.get_xticklabels(), *axis.texts, axis.xaxis.label, axis.yaxis.label, axis.title):
+            bounds = text.get_window_extent(renderer)
+            self.assertGreaterEqual(bounds.x0, 0)
+            self.assertGreaterEqual(bounds.y0, 0)
+            self.assertLessEqual(bounds.x1, figure.bbox.width)
+            self.assertLessEqual(bounds.y1, figure.bbox.height)
+        self.assertEqual(axis.get_xlim(), (.5, 6.5))
+        figure.clear()
+
+    def test_expanded_axis_keeps_the_true_boundary_between_unequal_wafer_spans(self):
+        import numpy as np
+        from metrology_app.excel_export import sequence_layout
+        layout = sequence_layout(['W1', 'W2', 'W2', 'W2'])
+        # Equally wide captions each receive half the compact expanded axis,
+        # even though the second Wafer contains three observations.
+        self.assertAlmostEqual(float(np.interp(1.5, layout['source'], layout['display'])), 2.5)
+
+    def test_report_axes_keep_decimal_ticks_and_signed_bias_inside_fixed_size(self):
+        from metrology_app.excel_export import parameter_figure, sequence_layout
+        data = pd.DataFrame({'Raw': [138.43, 139.56, 140.12],
+                             'Reference': [138.5, 139.7, 140.2], 'Die Seq': ['1', '2', '3']})
+        for panel in ('Match', 'Trend', 'Bias'):
+            with self.subTest(panel=panel):
+                figure = parameter_figure('CutDeponFin_Reference', data, None, 'Final', 'All',
+                    panel=panel, reference_label='NOVA', unit='nm',
+                    sequence=None if panel == 'Match' else sequence_layout(['W1'] * 3))
+                figure.canvas.draw()
+                bounds = figure.axes[0].get_tightbbox(figure.canvas.get_renderer())
+                self.assertGreaterEqual(bounds.x0, 0)
+                self.assertGreaterEqual(bounds.y0, 0)
+                self.assertLessEqual(bounds.x1, figure.bbox.width)
+                self.assertLessEqual(bounds.y1, figure.bbox.height)
+                self.assertAlmostEqual(figure.get_figheight() * 2.54, 11)
+                figure.clear()
 
     def test_native_trend_uses_editable_local_ranges_square_excel_style_and_merged_wafer(self):
         from zipfile import ZipFile
@@ -151,6 +214,21 @@ class ExcelReportLayoutTests(unittest.TestCase):
                 ns = {"c": "http://schemas.openxmlformats.org/drawingml/2006/chart"}
                 self.assertEqual(chart.find("c:roundedCorners", ns).get("val"), "0")
 
+    def test_native_group_captions_are_merged_and_match_series_share_the_visible_sheet(self):
+        reference, raw = self.frames()
+        self.window.set_reference_frame(reference)
+        self.window.set_raw_frame(raw)
+        self.window.group_controls.restore({'enabled': True, 'head_names': {'0': 'Head A', '1': 'Head B'}},
+                                           pd.DataFrame({'TestFlag': [0, 0, 1]}))
+        self.window.group_controls.apply_button.click()
+        with tempfile.TemporaryDirectory() as folder:
+            sheet = self.export(folder)['Match (WO Card)']
+            self.assertIn('A9:A10', {str(area) for area in sheet.merged_cells.ranges})
+            self.assertEqual(sheet._charts[1].x_axis.tickLblSkip, 1)
+            for series in sheet._charts[0].series:
+                self.assertTrue(series.xVal.numRef.f.startswith("'Match (WO Card)'!"))
+                self.assertTrue(series.yVal.numRef.f.startswith("'Match (WO Card)'!"))
+
     def test_grouped_exports_reference_original_rows_instead_of_copying_reordered_values(self):
         raw = pd.DataFrame({"Wafer ID": ["W1", "W2", "W1", "W2"], "Die Seq": ["01", "01", "02", "02"],
                             "CD": ["1.000", "8.000", "2.000", "9.000"]})
@@ -167,7 +245,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
                 self.assertEqual([original.cell(row, 3).value for row in range(2, 6)], ["1.000", "8.000", "2.000", "9.000"])
                 sheet = book["Match (WO Card)"]
                 header = next(cell.row for row in sheet for cell in row if cell.value == "PMISH+Card")
-                self.assertEqual([sheet.cell(row, 1).value for row in range(header + 1, header + 5)], ["Head A", "Head A", "Head B", "Head B"])
+                self.assertEqual([sheet.cell(row, 1).value for row in range(header + 1, header + 5)], ["Head A", None, "Head B", None])
                 values = [sheet.cell(row, 4).value for row in range(header + 1, header + 5)]
                 for formula, source_row in zip(values, (2, 4, 3, 5)):
                     self.assertIn(f"'Original (WO Card)'!$C${source_row}", formula)
@@ -195,7 +273,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
                     book = load_workbook(path)
                     sheet = book['Match (WO Card)']
                     self.assertEqual({str(area) for area in sheet.merged_cells.ranges},
-                                     {'A10:H10', 'B12:B13', 'B14:B15', 'B16:B17'})
+                                     {'A10:H10', 'A12:A15', 'A16:A17', 'B12:B13', 'B14:B15', 'B16:B17'})
                     self.assertEqual([sheet.cell(row, 2).value for row in range(12, 18)],
                                      ['W1', None, 'W1', None, 'W1', None])
                     for row in (12, 14, 16):
@@ -211,7 +289,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
                         self.assertTrue(numeric.protection.locked)
                         self.assertIn(f"'Original (WO Card)'!$E${row - 10}", numeric.value)
                     self.assertEqual([sheet.cell(row, 1).value for row in range(12, 18)],
-                                     ['Head A'] * 4 + ['Head B'] * 2)
+                                     ['Head A', None, None, None, 'Head B', None])
                     self.assertEqual([book['Original (WO Card)'].cell(row, 5).value for row in range(2, 8)],
                                      raw['CD'].tolist())
                     # The exported merge remains an ordinary editable Excel merge.

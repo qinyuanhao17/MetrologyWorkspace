@@ -1,6 +1,25 @@
 # Executable examples: tests/test_excel_export.py
 Feature: Export analysis with editable Excel charts or Matplotlib pictures
   # Layout automation: tests.test_excel_report_layout.ExcelReportLayoutTests
+  Scenario: Find exported plots immediately after opening a large report
+    Given NOVA contains 7731 original measurement rows
+    When the analyst opens either completed export
+    Then Match opens at the first parameter and its plots
+    And Original remains chartless and its source rows remain unchanged
+
+  Scenario: Keep complete identity labels after Excel redraws its chart
+    Given a NOVA parameter contains several Groups and 255 measurement identities
+    When the export is opened and redrawn in Excel
+    Then Group and Wafer captions are not repeated for each data point
+    And no Group or Wafer is dropped by row-based tick skipping
+    And Matplotlib Trend and Bias include real Die Seq ticks and separated identity captions
+
+  Scenario: Change a native Match chart's selected data range
+    Given a Match chart contains scatter points and a software-fitted line
+    When the analyst changes its selected X and Y ranges
+    Then its points follow the newly selected cells on the same sheet
+    And its fit remains the software result without an Excel refit
+
   Scenario: Trace grouped reports back to Original
     Given Original rows alternate between W1 and W2 in Head A and Head B
     When the grouped Workbook is exported in either mode

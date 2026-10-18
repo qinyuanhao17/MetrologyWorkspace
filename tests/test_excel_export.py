@@ -69,7 +69,7 @@ class ExcelExportTests(unittest.TestCase):
             points = charts[0].series[0]
             self.assertEqual(points.xVal.numRef.f, "'Match (WO Card)'!$C$9:$C$11")
             self.assertEqual(points.yVal.numRef.f, "'Match (WO Card)'!$E$9:$E$11")
-            self.assertEqual(charts[0].series[1].yVal.numRef.f, "'_Plot data'!$D$7:$D$8")
+            self.assertEqual(charts[0].series[1].yVal.numRef.f, "'Match (WO Card)'!$E$13:$E$14")
             self.assertEqual(charts[1].series[0].val.numRef.f, "'Match (WO Card)'!$D$9:$D$11")
             self.assertEqual(charts[1].series[1].val.numRef.f, "'Match (WO Card)'!$E$9:$E$11")
             self.assertEqual(charts[2].series[0].val.numRef.f, "'Match (WO Card)'!$F$9:$F$11")
@@ -127,7 +127,7 @@ class ExcelExportTests(unittest.TestCase):
                 self.assertEqual(sheet["A2"].value, "Group")
                 filled = [sheet.cell(row=row, column=1).value
                           for row in range(3, 3 + rows)]
-                self.assertEqual(filled, [title.removeprefix("Match ")] * rows)
+                self.assertEqual(filled, [title.removeprefix("Match ")] + [None] * (rows - 1))
                 self.assertIsNone(sheet.cell(row=3 + rows, column=1).value)
             trend = book["All Trend (WO Card)"]
             self.assertEqual(trend["C3"].value, "Head A PMISH")
@@ -195,7 +195,7 @@ class ExcelExportTests(unittest.TestCase):
 
     def test_large_matplotlib_report_keeps_all_panels_and_matches_serial_pixels(self):
         from io import BytesIO
-        from metrology_app.excel_export import parameter_figure
+        from metrology_app.excel_export import parameter_figure, sequence_layout
         self.window.match_type.setCurrentText('NOVA')
         count = 3000
         raw = pd.DataFrame({'Wafer ID': ['W1'] * count, 'Die Seq': range(1, count + 1),
@@ -205,21 +205,30 @@ class ExcelExportTests(unittest.TestCase):
         self.window.set_raw_frame(raw)
         self.window.run_analysis()
         before = self.window.workspace_snapshot()
-        data = pd.DataFrame({'Raw': range(1, count + 1), 'Reference': reference['CD Reference']})
-        figure = parameter_figure('CD', data, self.window.result.card('CD'), 'Preview', 'All', reference_label='NOVA')
-        expected = BytesIO()
-        figure.savefig(expected, format='png', dpi=150, facecolor='white')
-        figure.clear()
+        data = pd.DataFrame({'Raw': range(1, count + 1), 'Reference': reference['CD Reference'],
+                             'Die Seq': [str(value) for value in range(1, count + 1)]})
+        expected = []
+        for panel in ('Match', 'Trend', 'Bias'):
+            figure = parameter_figure('CD', data, self.window.result.card('CD'), 'Preview', 'All',
+                panel=panel, reference_label='NOVA', unit='nm',
+                sequence=None if panel == 'Match' else sequence_layout(['W1'] * count))
+            buffer = BytesIO()
+            figure.savefig(buffer, format='png', dpi=150, facecolor='white')
+            figure.clear()
+            expected.append(buffer.getvalue())
         with tempfile.TemporaryDirectory() as folder:
             book = load_workbook(self.window.export_excel(Path(folder) / 'large.xlsx', native=False))
             self.assertEqual(sum(len(sheet._images) for sheet in book), 7)
             self.assertEqual(book['Original (WO Card)']['C3001'].value, '3000.000')
             self.assertEqual(book['Wafer (WO Card)']['C3002'].value,
                              '=IF(\'Original (WO Card)\'!$C$3001="",NA(),IFERROR(\'Original (WO Card)\'!$C$3001*1,NA()))')
-            with PillowImage.open(BytesIO(book['Match (WO Card)']._images[0]._data())) as actual, \
-                    PillowImage.open(BytesIO(expected.getvalue())) as serial:
-                self.assertEqual(actual.size, serial.size)
-                self.assertEqual(actual.convert('RGBA').tobytes(), serial.convert('RGBA').tobytes())
+            for panel, image, contents in zip(('Match', 'Trend', 'Bias'),
+                                             book['Match (WO Card)']._images, expected, strict=True):
+                with self.subTest(panel=panel), \
+                        PillowImage.open(BytesIO(image._data())) as actual, \
+                        PillowImage.open(BytesIO(contents)) as serial:
+                    self.assertEqual(actual.size, serial.size)
+                    self.assertEqual(actual.convert('RGBA').tobytes(), serial.convert('RGBA').tobytes())
         after = self.window.workspace_snapshot()
         self.assertEqual(before.states, after.states)
         for name in before.frames:
@@ -601,6 +610,79 @@ class ExcelExportTests(unittest.TestCase):
                     self.assertTrue(any('CD' in message for message in messages))
                     self.assertEqual(target.read_bytes(), previous)
                     self.assertEqual(list(Path(folder).glob('.export-*')), [])
+
+    def test_cancel_during_large_sheet_serialization_keeps_previous_report(self):
+        from threading import Event
+        from metrology_app.excel_export import write_workbook
+        count = 2500
+        self.window.set_reference_frame(pd.DataFrame({'CD Reference': range(count)}))
+        self.window.set_raw_frame(pd.DataFrame({'Wafer ID': ['W1'] * count,
+            'Die Seq': range(count), 'CD': [f'{value}.000' for value in range(count)]}))
+        self.window.run_analysis()
+        snapshot = self.window.excel_export_snapshot()
+        with tempfile.TemporaryDirectory() as folder:
+            target = self.window.export_excel(Path(folder) / 'previous.xlsx')
+            previous = target.read_bytes()
+            for native in (True, False):
+                with self.subTest(native=native):
+                    stopped, messages = Event(), []
+                    def progress(message):
+                        messages.append(message)
+                        if message.startswith('Writing worksheet Original'):
+                            stopped.set()
+                    with self.assertRaises(InterruptedError):
+                        write_workbook(target, **snapshot, native=native,
+                            progress=progress, cancelled=stopped.is_set)
+                    self.assertTrue(any(message.startswith('Writing worksheet Original') for message in messages))
+                    self.assertEqual(target.read_bytes(), previous)
+                    self.assertEqual(list(Path(folder).glob('.export-*')), [])
+
+    def test_large_export_preserves_literal_xml_text_precision_and_typed_values(self):
+        from datetime import datetime
+        from metrology_app.excel_export import write_workbook
+        count = 2500
+        notes = [' \r\nA<&>\"\' Ω中文\t ', '=SUM(A1:A2)', '0000000000000000123.4500']
+        self.window.set_reference_frame(pd.DataFrame({'CD Reference': range(count)}))
+        raw = pd.DataFrame({'Wafer ID': ['W1'] * count, 'Die Seq': range(count),
+            'CD': [f'{value}.000' for value in range(count)],
+            'Note': [notes[index % len(notes)] for index in range(count)]})
+        self.window.set_raw_frame(raw)
+        self.window.run_analysis()
+        snapshot = self.window.excel_export_snapshot()
+        typed = pd.DataFrame({'Date': [datetime(2026, 10, 16, 3, 4, 5)],
+            'Value': [1.234567890123456], 'Enabled': [True], 'Blank': [None]})
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / 'literal.xlsx'
+            write_workbook(target, **{**snapshot, 'extra_frames': [('Typed', typed)]})
+            book = load_workbook(target)
+            for title in ('Original (WO Card)', 'Match (WO Card)'):
+                sheet = book[title]
+                for index, text in enumerate(notes, 2):
+                    self.assertEqual(sheet.cell(index, 4).value, text)
+                    self.assertEqual(sheet.cell(index, 4).data_type, 's')
+                self.assertEqual(sheet['C2501'].value, '2499.000')
+            self.assertEqual(book['Typed']['A2'].value, datetime(2026, 10, 16, 3, 4, 5))
+            self.assertEqual(book['Typed']['B2'].value, 1.234567890123456)
+            self.assertIs(book['Typed']['C2'].value, True)
+            self.assertIsNone(book['Typed']['D2'].value)
+
+    def test_invalid_xml_text_in_large_export_never_replaces_previous_report(self):
+        from metrology_app.excel_export import write_workbook
+        count = 2500
+        self.window.set_reference_frame(pd.DataFrame({'CD Reference': range(count)}))
+        self.window.set_raw_frame(pd.DataFrame({'Wafer ID': ['W1'] * count,
+            'Die Seq': range(count), 'CD': range(count)}))
+        self.window.run_analysis()
+        snapshot = self.window.excel_export_snapshot()
+        with tempfile.TemporaryDirectory() as folder:
+            target = self.window.export_excel(Path(folder) / 'previous.xlsx')
+            previous = target.read_bytes()
+            for invalid in ('\uffff', '\ud800'):
+                with self.subTest(invalid=repr(invalid)), self.assertRaises(ValueError):
+                    write_workbook(target, **{**snapshot,
+                        'extra_frames': [('Invalid', pd.DataFrame({'Note': [invalid]}))]})
+                self.assertEqual(target.read_bytes(), previous)
+                self.assertEqual(list(Path(folder).glob('.export-*')), [])
 
     def test_failed_export_cleans_partial_file_and_keeps_previous_workbook(self):
         from openpyxl import Workbook

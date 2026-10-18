@@ -228,6 +228,266 @@ Evidence: `.cache/v320-resume/next-export-full.txt`,
 also exits successfully. This is not a packaged-binary or native long-session
 verification. User settings and original NOVA file hashes remain unchanged.
 
+## Follow-up after v4-dev1: 30-second investigation
+
+The published `v4-dev1` source tag remains unchanged. This follow-up is local;
+it does not push, retag, build or publish a release. It targets the same full
+NOVA fixture and output, not a reduced report or a raw-cell-only benchmark.
+
+### GitHub research and rejected experiments
+
+- [XlsxWriter's official writer benchmark](https://github.com/jmcnamara/XlsxWriter/blob/main/dev/performance/bench_excel_writers.py)
+  compares simple cell-writing workloads. Its
+  [constant-memory documentation](https://xlsxwriter.readthedocs.io/working_with_memory.html)
+  says performance is approximately normal-mode performance and limits
+  cross-row merging. It is not a drop-in speed switch for these reports.
+- [PyExcelerate's scalar serializer](https://github.com/kz26/PyExcelerate/blob/dev/pyexcelerate/Worksheet.py)
+  uses 15-significant-digit numeric formatting. Replacing the current writer
+  without precision and complete chart/layout validation was not adopted.
+- [Matplotlib issue 26150](https://github.com/matplotlib/matplotlib/issues/26150)
+  concerns repeated layout/bounding-box work and a fix shipped in 3.10. The
+  measured runtime is already 3.11.2; report panels already use explicit axes
+  margins. This is not evidence of another untested automatic speedup.
+- Full-report PNG compression level 1 measured 47.772 s and 214,800,517 bytes;
+  run-length PNG encoding measured 48.447 s and 214,381,949 bytes. Both are
+  slower and larger than the frozen 46.683/47.023 s, 159,622,965-byte report.
+  Neither changes production PNG encoding.
+- Eight render processes measured 43.272 s versus 43.366 s for the same
+  batched-parser prototype with six. This negligible single-run difference
+  does not justify extra processes/memory; the existing six-process cap stays.
+
+### Retained implementation
+
+Large reports now batch validated scalar cells into one bounded XML row,
+instead of using multiple Python XML context managers per cell. Styles are
+resolved per worksheet; numeric serialization still uses openpyxl's existing
+`safe_string`, including its precision and non-finite handling. XML escaping
+preserves literal CR, Unicode and formula-as-text source strings. Illegal XML
+characters fail safely rather than publishing unreadable output.
+
+`xlsx_serialization.save_workbook` contains this implementation behind the
+existing atomic-save interface. Openpyxl still writes worksheet metadata,
+merges, styles, native charts, drawings, relationships and the XLSX package.
+Dates, rich text, array/data-table formulas, hyperlinks and comments use its
+normal row writer. Small reports, write-only workbooks and non-lxml environments
+retain normal `Workbook.save`. No process-global writer monkeypatch is used.
+The adapter targets the installed openpyxl 3.1 writer seams; dependency upgrades
+must retain the export regressions. Its derived orchestration retains the MIT
+notice in the source file.
+
+Large XLSX reports store already-compressed PNGs directly in ZIP, keeping the
+exact PNG bytes instead of compressing them a second time. This increases the
+full Matplotlib report from 159,622,965 to 167,000,883 bytes (about 4.6%), without
+changing pixels, DPI, metadata or drawing dimensions. XML compression is unchanged.
+
+Serialization checks cancellation every 256 rows and at worksheet boundaries;
+the old report is replaced only after complete success and the final cancellation
+check. Owned XML files and partial XLSX files are closed and cleaned on failure.
+
+### Fresh sequential measurements
+
+The frozen baseline is the clean `11acb44` package, copied before source edits.
+This session runs substantially faster even on the unchanged package than the
+earlier follow-up. The cause is not isolated, so **do not subtract the older
+70/91-second results from this session**. Only the following same-session,
+sequential full-report measurements support this improvement:
+
+| Complete ExportJob | Frozen v4-dev1 | Final local implementation |
+| --- | ---: | ---: |
+| Native Excel, sample 1 | 31.612 s | 25.938 s |
+| Native Excel, sample 2 | 31.729 s | 26.095 s |
+| Matplotlib in XLSX, sample 1 | 46.683 s | 38.550 s |
+| Matplotlib in XLSX, sample 2 | 47.023 s | 38.282 s |
+
+The same input SHA256, Python environment, isolated settings/cache/temp paths
+and full output are used. No heavy comparison or test process runs alongside
+these measurements. Snapshot capture, measured separately, is 0.146/0.149 s;
+opening the WKB and the save dialog are not counted as export writing time.
+Maximum final sample-2 offscreen GUI timer gaps are 0.197 s Native and 0.017 s
+Matplotlib; these are not native Windows frame-rate measurements.
+
+Both modes improve by more than 10% against their own frozen sample. Native
+Excel meets the machine-local 30-second goal; **Matplotlib does not**. Its full
+210-picture report still takes about 38 seconds. The 30-second combined goal
+check is intentionally still red, not relaxed or removed. Rendering and
+preparing all panels remain substantial costs; no claim of impossibility or
+universal timing guarantee is made.
+
+### Equivalence and validation
+
+The final sample-2 comparison passes all **296 uncompressed XLSX members per
+mode, byte-for-byte**, excluding only creation/modified timestamps. This covers
+all 2,555,474 cells, literal strings, formulas, styles, row heights, merge ranges,
+chart definitions, chart-category caches, drawing geometry and PNG bytes. ZIP
+compression choice does not change the uncompressed members. All probes also
+assert unchanged source frames, participation/UI state and the input WKB hash.
+
+An independent differential fixture also matches the normal library writer for
+Unicode/CR/XML special characters, numeric precision, dates/times/durations,
+rich text, array/data-table formulas, links, comments, styled blanks, bordered
+merges and row attributes. New public export regressions cover large-sheet
+cancellation, literal/typed values and invalid-XML failure preserving an older
+valid report. The cancellation tracer fails on the frozen behavior before the
+implementation and passes afterward.
+
+The final focused export/layout run passes **35 tests in 39.261 seconds**.
+The complete `python run_tests.py` runs **746 tests in 615.759 seconds: 744 pass,
+two UI timing assertions fail**. This is not an all-green full-suite result:
+
+| UI timing check | Full modified suite | Fresh frozen v4-dev1 repeat | Fresh modified repeat |
+| --- | ---: | --- | --- |
+| Correlation check/uncheck, <0.150 s | 0.185 s, fail | pass | pass |
+| Wafer window opening, <0.400 s | 0.512 s, fail | 0.477 s, fail | 0.490 s, fail |
+
+The frozen checker prints the copied package path before loading the unchanged
+test selectors. Wafer-opening latency therefore also exceeds the limit before
+this optimization. The Correlation failure does not reproduce in either fresh
+two-case process; this does not erase its full-suite failure or establish the
+cause of context-dependent timing variation. Neither workflow calls the changed
+export serializer. No budgets are relaxed and no tests are skipped. Broader
+interactive/background-work optimization remains pending.
+
+Real File-menu cancellation on the same full fixture preserves the previous
+valid report and leaves no owned partial output: Native preparation 0.234 s,
+Matplotlib rendering 2.469 s, Native worksheet writing 1.454 s, Matplotlib
+worksheet writing 1.672 s. Both source frames and UI-state snapshots remain
+unchanged. This is cooperative cancellation, not a guarantee of instant
+interruption inside every library/compression operation.
+
+Logs: `.cache/v320-resume/target30-focused-final.txt`, `target30-full.txt`,
+`target30-baseline-cases.txt`, `target30-current-cases.txt`, and
+`.cache/export-speed-20261016/target30-cancel-final.txt`. Earlier suite failures
+above remain historical results, not silently reclassified.
+
+The isolated source `main.py --self-test` exits 0
+(`.cache/v320-resume/target30-smoke.txt`). `git diff --check` passes.
+The original Desktop WKB and personal `config/settings.yaml` retain their
+pre-pass SHA256 values. This is source/offscreen validation, not a new packaged
+binary or a native Windows long-session validation.
+
+Evidence is in `.cache/export-target30-20261016/` (`run.ps1`, `phase_probe.py`,
+`goal_check.py`, `parts_compare.py`, `review_cells.py`, `verify.ps1`) and
+`.cache/export-speed-20261016/target30-*` (logs and complete reports).
+These diagnostics are ignored local artifacts; no measurement data is published.
+
+## Further local pass: GC ownership and bounded render scheduling
+
+The next frozen package is the previous **local** implementation, not a new
+release or another checkout of `v4-dev1`. It includes the scalar XLSX writer
+above. The original WKB, literal source strings, calculation rules and complete
+report scope remain unchanged. No dependency, tag or remote branch changes.
+
+### Diagnosis and retained changes
+
+A renderer-process profile of the complete 210-image report puts most rendering
+time in Agg text drawing, not figure cleanup. RGB PNG encoding with an opacity
+scan measured 38.593 s against the initial 38.414 s baseline; it was not retained.
+A process-local font-metrics cache gave little benefit (69.119 s versus a nearby
+70.912 s unchanged run during a machine-wide slowdown), so it was not retained
+either. The unchanged serializer also doubled in time during that interval;
+these slow samples are not mixed into the final stable comparisons below.
+ZIP compression level 3 saved approximately one writing second but increased
+Native output from 20,876,692 to 23,602,252 bytes. This tradeoff was not retained.
+The production PNG encoding, ZIP compression level and image bytes stay unchanged.
+
+The export owner instead spent about 2.3 seconds in **17 generation-2 cyclic-GC
+scans** per report, collecting only 6 objects in the Native sample and 45 in the
+Matplotlib sample. The millions of still-live worksheet cells were repeatedly
+scanned without being reclaimable. Only the existing one-shot export subprocess
+now pauses cyclic GC, restoring its incoming policy in `finally` after closing
+the IPC endpoint. The GUI, direct/small exports and separate Agg workers retain
+their existing collection policies. Reference-counted cleanup, cancellation and
+atomic publication are unchanged; this is not a global application GC switch.
+
+The bounded pending render queue also grows from twice to four times the worker
+count (24 jobs on this machine), keeping workers fed while an early wide Wafer
+panel takes longer than its neighbours. The worker cap remains six, not twelve;
+figures still render once with the same resolution and numerical inputs.
+Completed images are attached in the original order and cancellation still
+signals/cancels owned work before joining the workers. A GC-only prototype
+measured 36.967 s for Matplotlib, versus 35.805 s with the larger bounded queue.
+
+### Sequential full-report measurements
+
+Both fresh baseline/final pairs run the same public `ExportJob`, with isolated
+settings, recovery, font-cache and temporary paths. No other heavy benchmark or
+test runs alongside them. These are complete 25-sheet, 2,555,474-cell reports,
+including all 210 PNGs in Matplotlib mode, not reduced selections or raw-writing
+microbenchmarks. Snapshot preparation and WKB opening remain outside these times.
+
+| Complete ExportJob | Frozen preceding local version | Final local version |
+| --- | ---: | ---: |
+| Native Excel, sample 1 | 25.916 s | 23.361 s |
+| Native Excel, sample 2 | 26.069 s | 23.289 s |
+| Matplotlib in XLSX, sample 1 | 38.836 s | 35.504 s |
+| Matplotlib in XLSX, sample 2 | 38.685 s | 35.457 s |
+
+The mean improvement is approximately 10.3% Native and 8.5% Matplotlib for this
+fixture and machine. **The Matplotlib 30-second goal is still red**: the final
+sample is 35.457 s, not rounded down to 30 and not a universal timing guarantee.
+The explicit goal check keeps the original 30-second limit for both modes.
+
+Peak export-owner working set changes from 1,165,922,304 to 1,180,569,600 bytes
+Native, and 1,280,122,880 to 1,294,540,800 bytes Matplotlib in sample 1: about
+14 MiB more in each owner. These are Windows process peak counters, not a
+simultaneous total for the GUI and six render workers. The bounded worker/raster
+cap is unchanged. Final sample-2 maximum offscreen GUI timer gaps are 0.188 s
+Native and 0.019 s Matplotlib; native Windows long-session validation remains
+separate and pending.
+
+### Equivalence and repeatability
+
+Both final samples pass the all-part comparison: **296 uncompressed XLSX parts
+per mode are byte-identical**, excluding only the core creation/modified
+metadata part. This includes every PNG, cell/formula, row height, merged range,
+style, chart definition and drawing anchor. CRC checks pass. There is no new
+file-size tradeoff beyond timestamp/container variation. Probes assert unchanged
+source frames, participation/UI state and WKB hash.
+
+The existing large-export public regression now also compares the parallel
+Trend and Bias PNGs to the ordinary serial render, in addition to Match; it
+checks the exact number of panels rather than truncating an unequal comparison.
+The export/layout subset passes 35 tests in 38.200 s. The final guarded
+`python run_tests.py` passes **all 746 tests in 332.657 s**, with no timing
+threshold relaxed or test skipped. This is a new run, not a relabeling of the
+earlier 744/746 result. The strengthened Match/Trend/Bias pixel check also passes
+in this complete run.
+
+Actual-menu cancellation on the real fixture passes during Native preparation
+(0.281 s), Matplotlib rendering (1.844 s), Native worksheet writing (1.140 s)
+and Matplotlib worksheet writing (1.203 s). Each old valid report remains
+byte-identical, no owned partial report remains, both actions re-enable and
+the source frames/UI state stay unchanged. The full suite also retains the
+existing publish-failure and invalid-text failure protections.
+
+The isolated source `main.py --self-test` exits 0. `git diff --check` passes.
+The personal settings SHA256 remains
+`2E0A712DE33DD735AE531FBA2B2D3051CB7575A45A0CDE4C0E6C9C61CCA235F6`;
+the original and copied WKB both remain
+`FBE22DA2A55571B136A1F3E17DB1F69284C391E9A2FAC86019C5ABB919336B4F`.
+No native Windows long-session or frozen-binary claim is made. Asynchronous
+WKB open/complete restoration, version-owned background analysis and formal
+background WKB saving remain outside this export-only pass.
+
+Owned diagnostic scripts and logs are under `.cache/export-render-next-20261016`
+and `.cache/export-speed-20261016/render-next-*`. Reproduction commands:
+
+```powershell
+& .cache/export-render-next-20261016/run.ps1 reproduce-before .cache/export-render-next-20261016/baseline both
+& .cache/export-render-next-20261016/run.ps1 reproduce-after . both
+& 'C:/Users/Yuanhao Qin/.conda/envs/metrology-workspace/python.exe' .cache/export-next-20261016/strict_compare.py reproduce-before reproduce-after
+& .cache/export-render-next-20261016/cancel.ps1 reproduce-cancel
+& .cache/export-render-next-20261016/verify.ps1 focused
+& .cache/export-render-next-20261016/verify.ps1 full
+```
+
+The full action invokes the repository's `python run_tests.py` through a
+config-write guard, not an alternative reduced suite. `check_budget.py` reports
+the actual final sample against the unchanged 30-second goal and intentionally
+returns failure while Matplotlib exceeds it. TDD/Matplotlib guidance keeps the
+public export guards and exact rendering comparison; the minimal-change policy
+rejects new renderer internals, additional processes and new dependencies.
+
 ## Method references
 
 The Matplotlib skill influenced explicit Agg ownership, bounded rendering,

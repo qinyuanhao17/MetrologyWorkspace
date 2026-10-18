@@ -263,6 +263,7 @@ def sequence_layout(labels, *, name="Wafer", cache=None):
     if len(runs) > 1:
         required = max(required, float(np.max((widths[1:] + widths[:-1]) / 2 * count / np.diff(centers))))
     layout = {"name": name, "x": spacing.forward(np.arange(1, count + 1) * factor) / factor,
+            "source": spacing.source / factor, "display": spacing.display / factor,
             "native_width": max(TREND_WIDTH_CM, (required + 110) * 2.54 / 96),
             "ticks": ticks, "width": max(TREND_WIDTH_CM, (spacing.width + 110) * 2.54 / 96), "limits": limits}
     if cache is not None:
@@ -282,6 +283,37 @@ def native_categories(sheet, first, last, identities):
         # ptCount is optional in OOXML; openpyxl 3.1 cannot serialize its
         # plain-integer descriptor here. The complete inner level sets depth.
         multiLvlStrCache=MultiLevelStrData(lvl=levels)))
+
+
+def draw_sequence_axis(axis, sequence, dies=()):
+    """The WKB hierarchy: real Die Seq ticks, then one caption per span."""
+    from matplotlib.font_manager import FontProperties
+    from matplotlib.backends.backend_agg import RendererAgg
+    from .plotting.sequence_axis import fit_tick_labels
+    selected = sequence['ticks']
+    axis.set_xlim(sequence['limits'])
+    if not len(dies):
+        axis.set_xticks([x for x, _ in selected], [label for _, label in selected], fontsize=10)
+        axis.set_xlabel(sequence['name'], fontsize=12, labelpad=8)
+        return
+    font = FontProperties(family=EXPORT_FONT, size=10)
+    renderer = RendererAgg(1, 1, axis.figure.dpi)
+    measure = lambda text: renderer.get_text_width_height_descent(str(text), font, False)[0]
+    ticks = fit_tick_labels(list(zip(sequence['x'], map(str, dies))), sequence['limits'],
+                            axis.bbox.width, measure)
+    axis.set_xticks([x for x, _ in ticks], [label for _, label in ticks], fontsize=10)
+    axis.set_xlabel('Die Seq', fontsize=12, labelpad=6)
+    for x, label in selected:
+        axis.annotate(label, (x, 0), xycoords=('data', 'axes fraction'), xytext=(0, -40),
+                      textcoords='offset points', ha='center', va='top', fontsize=11,
+                      annotation_clip=False)
+    lines = max((len(label.splitlines()) for _, label in selected), default=1)
+    for x, label in sequence.get('group_ticks', ()):
+        axis.annotate(label, (x, 0), xycoords=('data', 'axes fraction'), xytext=(0, -50 - 12 * lines),
+                      textcoords='offset points', ha='center', va='top', fontsize=11,
+                      annotation_clip=False)
+    for x in sequence.get('boundaries', ()):
+        axis.axvline(x, color='#9CA3AF', linewidth=.65, linestyle='--', zorder=0)
 
 
 def _next_plot_column(sheet, column, pixels):
@@ -346,6 +378,13 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
     identities = (["Group"] if "Group label" in data else []) + ["Wafer", "Die Seq"]
     headers = identities + ["PMISH"] + ([] if final else ["PMISH+Card"]) + [reference_label, "Bias", "Bias %"]
     columns = {name: index for index, name in enumerate(headers, 1)}
+    if (count and worksheet.title.startswith('Match (')
+            and worksheet.sheet_view.pane.topLeftCell.startswith('A')):
+        first_plot = f'{get_column_letter(len(headers) + 2)}{row}'
+        worksheet.sheet_view.topLeftCell = f'{get_column_letter(len(headers) + 2)}1'
+        worksheet.sheet_view.pane.topLeftCell = first_plot
+        worksheet.sheet_view.selection[-1].activeCell = first_plot
+        worksheet.sheet_view.selection[-1].sqref = first_plot
     worksheet.merge_cells(start_row=row, start_column=1,
                           end_row=row, end_column=len(headers))
     title = worksheet.cell(row=row, column=1, value=parameter)
@@ -390,12 +429,16 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
     keys = data['Wafer key'].tolist() if wafer_only else list(zip(data['Group'], data['Wafer key']))
     wafer_spans = _label_spans(keys, limit=None)
     wafer_starts = {start for start, _end, _key in wafer_spans}
+    group_spans = _label_spans(identity_values['Group'], limit=None) if 'Group' in columns else []
+    group_starts = {start for start, _end, _key in group_spans}
     for index in range(count):
         if index % 256 == 0:
             _checkpoint(worksheet.parent)
         target = first_row + index
         for name in identities:
             if name == 'Wafer' and index not in wafer_starts:
+                continue
+            if name == 'Group' and index not in group_starts:
                 continue
             value = identity_values[name][index]
             cell = worksheet.cell(row=target, column=columns[name], value=_value(value))
@@ -442,6 +485,12 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         if end == start:
             worksheet.row_dimensions[first_row + start].height = 15 * max(1, len(str(cell.value).splitlines()))
+    for start, end, _key in group_spans:
+        if end > start:
+            column = get_column_letter(columns['Group'])
+            worksheet.merged_cells.add(f'{column}{first_row + start}:{column}{first_row + end}')
+        worksheet.cell(first_row + start, columns['Group']).alignment = Alignment(
+            horizontal='center', vertical='center', wrap_text=True)
     if fit:
         finite = raw[np.isfinite(raw) & np.isfinite(reference)]
         if len(finite):
@@ -450,6 +499,15 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
                 helper.cell(row=helper_row + offset, column=4,
                             value=f"={slope_cell}*C{helper_row + offset}+{intercept_cell}")
     last_row = first_row + count - 1
+    # Excel suppresses range-selection outlines when one scatter chart mixes
+    # sheets. Keep its two fixed software-fit endpoints on this sheet too, in
+    # hidden support rows, without adding visible columns to the report.
+    if fit and count:
+        for offset in range(2):
+            target = last_row + 2 + offset
+            worksheet.row_dimensions[target].hidden = True
+            worksheet.cell(target, columns['PMISH'], f"='{helper.title}'!C{helper_row + offset}")
+            worksheet.cell(target, columns[reference_label], f"='{helper.title}'!D{helper_row + offset}")
     evaluated_values = raw if stage.lower() == "final" else (slope * raw + intercept if fit else np.full(count, np.nan))
     percentages = np.full(count, np.nan)
     np.divide((evaluated_values - reference) * 100, reference, out=percentages,
@@ -460,7 +518,15 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
     layouts = [sequence_layout(primary_labels, name="Group" if "Group label" in data and not wafer_only else "Wafer", cache=layout_cache)]
     if "Group label" in data and not wafer_only:
         labels = [f"{group}\n{wafer}" for group, wafer in zip(data["Group label"], data["Wafer"])]
-        layouts.append(sequence_layout(labels, cache=layout_cache))
+        detail = sequence_layout(labels, cache=layout_cache)
+        detail['ticks'] = [(position, label.split('\n', 1)[1]) for position, label in detail['ticks']]
+        detail['group_ticks'] = [(float(np.interp((start + end + 2) / 2, detail['source'], detail['display'])), label)
+                                 for start, end, label in _label_spans(data['Group label'], limit=None)]
+        layouts.append(detail)
+    for layout in layouts:
+        layout['boundaries'] = [float(np.interp(start + .5, layout['source'], layout['display']))
+                                 for start, _end, _label in _label_spans(primary_labels if layout['name'] == 'Group'
+                                     else list(zip(data.get('Group label', [''] * count), data['Wafer key'])), limit=None)[1:]]
     category_columns = [(columns["Group"], data["Group label"].tolist())] if "Group" in columns and not wafer_only else None
     detailed_columns = ([(columns["Group"], data["Group label"].tolist())] if "Group" in columns and not wafer_only else []) + [
         (columns["Wafer"], data["Wafer"].tolist()), (columns["Die Seq"], data["Die Seq"].tolist())]
@@ -484,7 +550,7 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
                 unit="" if mapping is None else _unit(mapping.reference_column), sequence=layout)
             width = MATCH_WIDTH_CM if panel == 'Match' else layout['width']
             anchor = _next_plot_column(worksheet, anchor, (width / 2.54) * 96)
-    return max(first_row + count, row + BLOCK_MIN_ROWS) + 3
+    return max(first_row + count + 3, row + BLOCK_MIN_ROWS) + 3
 
 
 def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_percent=False,
@@ -492,7 +558,7 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
     anchor = len(columns) + 2
     def add(chart):
         nonlocal anchor
-        chart.visible_cells_only = False  # Fit endpoints/captions are on the hidden plot-data sheet.
+        chart.visible_cells_only = False  # Fixed-fit support rows are hidden, but still part of the chart.
         worksheet.add_chart(chart, f"{get_column_letter(anchor)}{row}")
         anchor = _next_plot_column(worksheet, anchor, chart.width * 96 / 2.54)
     match = ScatterChart()
@@ -512,8 +578,8 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
     match.series.append(points)
     if fit:
         fit_series = Series(
-            Reference(helper, min_col=4, min_row=helper_row, max_row=helper_row + 1),
-            Reference(helper, min_col=3, min_row=helper_row, max_row=helper_row + 1),
+            Reference(worksheet, min_col=columns[reference_label], min_row=last_row + 2, max_row=last_row + 3),
+            Reference(worksheet, min_col=columns['PMISH'], min_row=last_row + 2, max_row=last_row + 3),
             title="Fit")
         fit_series.marker = Marker(symbol=None)
         style_native_series(fit_series, 1, markers=False, color="E09F3E")
@@ -624,6 +690,9 @@ def write_parameter_sheets(book, used_titles, result, workbook, *, native=True, 
     _fill_title(sheet)
     _write_frame(sheet, raw)
     row = len(raw) + 4 if raw is not None else 1
+    # Original deliberately has no drawings. Open the delivered report at its
+    # first parameter instead of making thousands of raw rows hide the plots.
+    sheet.sheet_view.pane.topLeftCell = f"A{row}"
     for parameter in result.parameter_names:
         mapping = next((item for item in workbook.mappings if item.name == parameter), None)
         row = _write_parameter_block(
@@ -896,7 +965,8 @@ def _write_workbook(book, path, *, reference, stages, native, images, reports, e
                 continue
             append_report(book, used, report, prefix=prefix, native=native, images=images)
     style_workbook(book)
-    book.active = next(index for index, sheet in enumerate(book) if sheet.sheet_state == "visible")
+    book.active = next((index for index, sheet in enumerate(book) if sheet.title.startswith("Match (")),
+                       next(index for index, sheet in enumerate(book) if sheet.sheet_state == "visible"))
     return save_atomic(book, path, cancelled=cancelled)
 
 
@@ -938,8 +1008,9 @@ def style_workbook(book):
             if hasattr(chart.x_axis, "noMultiLvlLbl"):
                 chart.x_axis.noMultiLvlLbl = False
                 if any(series.cat is not None and series.cat.multiLvlStrRef is not None for series in chart.series):
-                    count = getattr(chart, "_identity_count", 1)
-                    chart.x_axis.tickLblSkip = max(1, int(np.ceil(count * 35 / (chart.width * 96 / 2.54))))
+                    # Row-based skipping also skips whole outer Wafer/Group
+                    # captions in Excel, even when there is room for them.
+                    chart.x_axis.tickLblSkip = 1
                     chart.x_axis.majorTickMark = "none"
             # Use Excel's own chart theme rather than copying Matplotlib's frame.
             chart.y_axis.majorGridlines = ChartLines(spPr=GraphicalProperties(
@@ -1096,7 +1167,8 @@ def save_atomic(book, path, *, cancelled=lambda: False):
     try:
         if cancelled():
             raise InterruptedError("Export cancelled")
-        book.save(temporary)
+        from .xlsx_serialization import save_workbook
+        save_workbook(book, temporary, lambda message=None: _checkpoint(book, message))
         if cancelled():
             raise InterruptedError("Export cancelled")
         os.replace(temporary, target)
@@ -1156,11 +1228,16 @@ def parameter_figure(parameter, data, card, stage, scope, *, panel="Match", refe
             plot_axis_limits(axis, bias)
         selected = ([(float((start + end) / 2 + 1), label) for start, end, label in _label_spans(data["Label"])]
                     if sequence is None and "Label" in data else [] if sequence is None else sequence["ticks"])
-        axis.set_xticks([position for position, _label in selected], [label for _position, label in selected], fontsize=10)
-        axis.set_xlim(.5, max(1, len(data)) + .5)
-        if sequence is not None:
-            axis.set_xlabel(sequence["name"], fontsize=12, labelpad=8)
         bottom = .8 + .45 * max((len(label.splitlines()) for _position, label in selected), default=1)
-    figure.subplots_adjust(left=1.6 / width, right=1 - .45 / width, bottom=bottom / PANEL_HEIGHT_CM, top=.81)
+        if sequence is not None and 'Die Seq' in data:
+            bottom += .9 + .45 * max((len(label.splitlines()) for _, label in sequence.get('group_ticks', ())), default=0)
+        else:
+            axis.set_xticks([position for position, _label in selected], [label for _position, label in selected], fontsize=10)
+            axis.set_xlim(.5, max(1, len(data)) + .5)
+            if sequence is not None:
+                axis.set_xlabel(sequence["name"], fontsize=12, labelpad=8)
+    figure.subplots_adjust(left=2.0 / width, right=1 - .7 / width, bottom=bottom / PANEL_HEIGHT_CM, top=.81)
+    if panel != 'Match' and sequence is not None and 'Die Seq' in data:
+        draw_sequence_axis(axis, sequence, data['Die Seq'].tolist())
     set_export_font(figure)
     return figure

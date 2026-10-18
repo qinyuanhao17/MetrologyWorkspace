@@ -1743,6 +1743,63 @@ class CorrelationTests(unittest.TestCase):
             window.model.undo.setClean()
             window.close()
 
+    def test_single_trend_stays_compact_when_the_window_is_taller(self):
+        """A lone Trend leaves space below instead of filling the whole page."""
+        window, page = self._overlay_page(("DP [nm]",))
+        try:
+            window.resize(1500, 1100)
+            window.show()
+            QTest.qWait(30)
+            panel = page.panel_hosts[0]
+            self.assertEqual(panel.height(), 320)
+            self.assertGreater(page.interactive_scroll.viewport().height(), panel.height() * 2)
+            self.assertEqual(panel.mapTo(page.interactive_scroll.viewport(), QPoint(0, 0)).y(), 0)
+            page.ensure_export_figure()
+            export_size = page.figure.get_size_inches().copy()
+            window.resize(1500, 1400)
+            QTest.qWait(30)
+            self.assertEqual(panel.height(), 320)
+            page.ensure_export_figure()
+            np.testing.assert_array_equal(page.figure.get_size_inches(), export_size)
+        finally:
+            window.model.undo.setClean()
+            window.close()
+
+    def test_trend_filter_and_columns_keep_compact_rows_without_replacing_curves(self):
+        """Fewer visible Trends leave spare space; more Trends scroll below."""
+        window, page = self._overlay_page(("DP [nm]", "EW [V]", "TG [nm]", "UC [s]"))
+        try:
+            window.resize(1500, 1100)
+            window.show()
+            page.columns.setCurrentText("1")
+            QTest.qWait(30)
+            self.assertEqual([panel.height() for panel in page.panel_hosts], [320] * 4)
+            self.assertGreater(page.interactive_scroll.verticalScrollBar().maximum(), 0)
+            source = window.model.document_frame().copy()
+            plot = page.plot_widgets[0]
+            curves = plot.listDataItems()
+            view = plot.getViewBox()
+            view.setRange(xRange=(1.5, 6.5), yRange=(1, 7), padding=0)
+            zoom = view.viewRange()
+
+            page.parameter_filter.buttons["DP [nm]"].click()
+            QTest.qWait(30)
+            self.assertEqual([panel.height() for panel in page.panel_hosts if panel.isVisible()], [320])
+            self.assertEqual(page.interactive_scroll.verticalScrollBar().maximum(), 0)
+            self.assertEqual(plot.listDataItems(), curves)
+            self.assertEqual(view.viewRange(), zoom)
+
+            page.parameter_filter.buttons[None].click()
+            page.columns.setCurrentText("2")
+            window.resize(1500, 1400)
+            QTest.qWait(30)
+            self.assertEqual([panel.height() for panel in page.panel_hosts], [320] * 4)
+            self.assertEqual(view.viewRange(), zoom)
+            pd.testing.assert_frame_equal(window.model.document_frame(), source)
+        finally:
+            window.model.undo.setClean()
+            window.close()
+
     def test_trend_overlay_control_is_disabled_without_a_second_parameter(self):
         window, page = self._overlay_page(("DP [nm]",))
         try:

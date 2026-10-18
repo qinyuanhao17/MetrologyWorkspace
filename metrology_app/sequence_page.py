@@ -1416,6 +1416,7 @@ class SequencePage(QWidget):
                     metric, comparisons, panel_source
                 ),
             )
+            container.setFixedHeight(panel_height)
             chosen = self._chosen_groups(panel, groups)
             axis = plot.getAxis("bottom")
             source_mode = bool(self.selection.get("sources"))
