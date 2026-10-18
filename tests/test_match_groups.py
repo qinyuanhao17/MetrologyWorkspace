@@ -1108,9 +1108,12 @@ class MatchGroupTests(unittest.TestCase):
             self.assertFalse(window.group_plot_page.page_image().isNull())
             with tempfile.TemporaryDirectory() as directory:
                 path = window.export_excel(Path(directory) / "groups.xlsx")
-                output = pd.read_excel(path, sheet_name="Group Fits (WO Card)")
-                self.assertEqual(output["Group"].tolist(), ["TestFlag 1"])
-                self.assertEqual(output["Valid pairs"].tolist(), [3])
+                from openpyxl import load_workbook
+                output = load_workbook(path)
+                self.assertNotIn('Group Fits (WO Card)', output.sheetnames)
+                group = output['Match TestFlag 1 (WO Card)']
+                self.assertEqual(group['A3'].value, 'TestFlag 1')
+                self.assertTrue(group._charts[0].series[0].xVal.numRef.f.endswith('$D$3:$D$5'))
         finally:
             window.close()
             restored.close()

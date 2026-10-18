@@ -1806,7 +1806,8 @@ class MatchingWindowTests(unittest.TestCase):
         window.run_analysis()
         model = window.plot_groups["CD"]["wafer_model"]
         self.assertEqual(model.frame.columns.tolist(),
-                         ["Wafer", "Group", "Slope", "Intercept", "R²", "Valid pairs", "Draw"])
+                         ["Wafer", "Group", "Row", "Slope", "Intercept", "R²", "Valid pairs", "Draw"])
+        self.assertEqual(model.frame['Row'].tolist(), [1, 2])
         self.assertEqual(model.data(model.index(0, 1)),
                          "Mixed: Old Optical A / New Optical A / New Optical B")
         self.assertEqual(model.data(model.index(1, 1)), "New Optical B")
