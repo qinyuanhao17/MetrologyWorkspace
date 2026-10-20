@@ -24,12 +24,12 @@ class StorageV2Tests(unittest.TestCase):
         self.match.preview_dynamic_frame = self.match.raw_frame.copy()
         wafer = self.match.open_stage_workspace("preview")
         dynamic = self.match.open_dynamic_workspace("preview")
-        self.match.save_workbook(self.folder / "project.wkb")
+        self.match.save_workbook(self.folder / "project.mwkb")
         column = dynamic.model.document_frame().columns.get_loc("CD")
         original_value = dynamic.model.document_frame().iloc[0, column]
         dynamic.model.edit({(1, column): "99.0000"})
         wafer.plot_page.font_size.setCurrentText("12")
-        self.match.document.recovery_path = self.folder / "draft.wkb"
+        self.match.document.recovery_path = self.folder / "draft.mwkb"
         self.match.document.request_recovery()
         deadline = monotonic() + 5
         while self.match.document.recovery_pending and monotonic() < deadline:
@@ -61,7 +61,7 @@ class StorageV2Tests(unittest.TestCase):
         independent = MainWindow()
         dialog = SettingsDialog()
         try:
-            self.match.save_workbook(self.folder / "project.wkb")
+            self.match.save_workbook(self.folder / "project.mwkb")
             dialog.recovery_interval.setValue(180)
             dialog.save()
             self.assertEqual(self.match.document.timer.interval(), 180_000)
@@ -107,7 +107,7 @@ class StorageV2Tests(unittest.TestCase):
 
     def test_copy_contains_current_child_draft_without_saving_match(self):
         child = self.match.open_stage_workspace("preview")
-        original = self.match.save_workbook(self.folder / "project.wkb")
+        original = self.match.save_workbook(self.folder / "project.mwkb")
         accepted = original.read_bytes()
         column = child.model.document_frame().columns.get_loc("CD")
         child.model.edit({(1, column): "9.999"})
@@ -152,7 +152,7 @@ class StorageV2Tests(unittest.TestCase):
 
     def test_copy_cannot_overwrite_owner_or_samefile_alias(self):
         child = self.match.open_stage_workspace("preview")
-        original = self.match.save_workbook(self.folder / "project.wkb")
+        original = self.match.save_workbook(self.folder / "project.mwkb")
         before = original.read_bytes()
         alias = self.folder / "alias.wmap"
         os.link(original, alias)
@@ -172,7 +172,7 @@ class StorageV2Tests(unittest.TestCase):
 
     def test_shared_axis_change_is_parent_dirty_not_child_local_edit(self):
         child = self.match.open_correlation_workspace()
-        self.match.save_workbook(self.folder / "project.wkb")
+        self.match.save_workbook(self.folder / "project.mwkb")
         self.match.set_second_axis_ratio(2.75)
         self.match.set_trend_axis_mode("dual")
         self.assertTrue(self.match.document.is_dirty())
@@ -184,7 +184,7 @@ class StorageV2Tests(unittest.TestCase):
 
     def test_failed_child_save_keeps_file_and_discard_baseline(self):
         child = self.match.open_stage_workspace("preview")
-        path = self.match.save_workbook(self.folder / "project.wkb")
+        path = self.match.save_workbook(self.folder / "project.mwkb")
         accepted = path.read_bytes()
         old = child.model.document_frame().copy()
         col = old.columns.get_loc("CD")
@@ -204,7 +204,7 @@ class StorageV2Tests(unittest.TestCase):
 
     def test_new_edit_during_atomic_write_is_not_marked_saved(self):
         child = self.match.open_stage_workspace("preview")
-        path = self.match.save_workbook(self.folder / "project.wkb")
+        path = self.match.save_workbook(self.folder / "project.mwkb")
         col = child.model.document_frame().columns.get_loc("CD")
         child.model.edit({(1, col): "10"})
         real_replace = os.replace
@@ -241,9 +241,9 @@ class StorageV2Tests(unittest.TestCase):
 
     def test_recovery_uses_version_gate_and_formal_save_removes_recovery_tables(self):
         child = self.match.open_stage_workspace("preview")
-        self.match.save_workbook(self.folder / "project.wkb")
+        self.match.save_workbook(self.folder / "project.mwkb")
         child.model.edit({(1, child.model.document_frame().columns.get_loc("CD")): "10"})
-        self.match.document.recovery_path = self.folder / "recovery.wkb"
+        self.match.document.recovery_path = self.folder / "recovery.mwkb"
         self.match.document.write_recovery()
         recovery = self.match.document.recovery_path
         with closing(sqlite3.connect(recovery)) as connection:
@@ -251,7 +251,7 @@ class StorageV2Tests(unittest.TestCase):
         restored = MatchingWindow()
         try:
             restored.load_workbook(recovery)
-            saved = restored.save_workbook(self.folder / "restored.wkb")
+            saved = restored.save_workbook(self.folder / "restored.mwkb")
             snapshot = load_workspace(saved)
             self.assertNotIn("recovery", snapshot.states)
             self.assertFalse(any(name.startswith("__recovery__.") for name in snapshot.frames))
@@ -340,7 +340,7 @@ class StorageV2Tests(unittest.TestCase):
         child.model.edit({(1, child.model.document_frame().columns.get_loc("CD")): "99"})
         flat = self.match.workspace_snapshot(include_drafts=True)
         flat.states["recovery"] = {"original_path": "", "revision": None}
-        path = save_workspace(self.folder / "old-recovery.wkb", flat)
+        path = save_workspace(self.folder / "old-recovery.mwkb", flat)
         restored = MatchingWindow()
         try:
             restored.load_workbook(path)
@@ -348,7 +348,7 @@ class StorageV2Tests(unittest.TestCase):
             with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Discard), \
                     patch.object(QMessageBox, "warning"):
                 self.assertFalse(reopened.close())
-            saved = restored.save_workbook(self.folder / "new-baseline.wkb")
+            saved = restored.save_workbook(self.folder / "new-baseline.mwkb")
             self.assertFalse(restored.document.untrusted_recovery)
             self.assertTrue(saved.exists())
             reopened.model.edit({(1, reopened.model.document_frame().columns.get_loc("CD")): "100"})
@@ -361,7 +361,7 @@ class StorageV2Tests(unittest.TestCase):
             APP.processEvents()
 
     def test_future_recovery_version_is_rejected_before_changing_window(self):
-        self.match.document.recovery_path = self.folder / "recovery.wkb"
+        self.match.document.recovery_path = self.folder / "recovery.mwkb"
         self.match.document.write_recovery()
         path = self.match.document.recovery_path
         with closing(sqlite3.connect(path)) as connection, connection:
@@ -373,7 +373,7 @@ class StorageV2Tests(unittest.TestCase):
 
     def test_successful_file_is_accepted_even_if_title_update_fails(self):
         child = self.match.open_stage_workspace("preview")
-        path = self.match.save_workbook(self.folder / "project.wkb")
+        path = self.match.save_workbook(self.folder / "project.mwkb")
         child.model.edit({(1, child.model.document_frame().columns.get_loc("CD")): "10"})
         with patch.object(child, "setWindowTitle", side_effect=RuntimeError("display unavailable")):
             self.assertTrue(child.save_wkb())
@@ -382,7 +382,7 @@ class StorageV2Tests(unittest.TestCase):
 
     def test_explicit_workbook_data_reset_is_confirmed_and_remains_a_draft(self):
         child = self.match.open_stage_workspace("preview")
-        path = self.match.save_workbook(self.folder / "project.wkb")
+        path = self.match.save_workbook(self.folder / "project.mwkb")
         col = child.model.document_frame().columns.get_loc("CD")
         child.model.edit({(1, col): "99"})
         self.assertTrue(child.save_wkb())
@@ -480,7 +480,7 @@ class StorageV2Tests(unittest.TestCase):
 
     def test_parent_close_prompts_for_child_editor_that_has_not_lost_focus(self):
         child = self.match.open_stage_workspace("preview")
-        self.match.save_workbook(self.folder / "project.wkb")
+        self.match.save_workbook(self.folder / "project.mwkb")
         child.show()
         child.activateWindow()
         APP.processEvents()
@@ -497,7 +497,7 @@ class StorageV2Tests(unittest.TestCase):
 
     def test_importing_an_independent_workspace_into_child_keeps_match_ownership(self):
         child = self.match.open_stage_workspace("preview")
-        original = self.match.save_workbook(self.folder / "project.wkb")
+        original = self.match.save_workbook(self.folder / "project.mwkb")
         imported = save_workspace(self.folder / "import.wmap", WorkspaceSnapshot("wafer_map", {
             "input_data": pd.DataFrame({"Wafer ID": ["001"], "Die Seq": [1], "CD": ["7.00"]})}, {"ui": {}}))
         imported_bytes = imported.read_bytes()
@@ -519,12 +519,12 @@ class StorageV2Tests(unittest.TestCase):
         self.match.preview_dynamic_frame = self.match.raw_frame.copy()
         wafer = self.match.open_stage_workspace("preview")
         dynamic = self.match.open_dynamic_workspace("preview")
-        original = self.match.save_workbook(self.folder / "project.wkb")
+        original = self.match.save_workbook(self.folder / "project.mwkb")
         col = dynamic.model.document_frame().columns.get_loc("CD")
         before = dynamic.model.document_frame().copy()
         dynamic.model.edit({(1, col): "99"})
         wafer.plot_page.font_size.setCurrentText("12")
-        self.match.document.recovery_path = self.folder / "recovery.wkb"
+        self.match.document.recovery_path = self.folder / "recovery.mwkb"
         self.assertTrue(wafer.save_wkb())
         self.assertTrue(dynamic.document.is_dirty())
         self.assertTrue(self.match.document.recovery_path.exists())

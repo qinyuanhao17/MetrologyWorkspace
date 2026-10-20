@@ -16,15 +16,13 @@ import shutil
 import sqlite3
 import tempfile
 
-import pandas as pd
-
-
 FORMAT_VERSION = 1
 WORKSPACE_TYPES = {"match_workbook", "wafer_map", "dynamic", "correlation_trend", "auto_weighting"}
-EXTENSIONS = {"match_workbook": ".wkb", "wafer_map": ".wmap", "dynamic": ".wdyn", "correlation_trend": ".wct", "auto_weighting": ".waw"}
+EXTENSIONS = {"match_workbook": ".mwkb", "wafer_map": ".wmap", "dynamic": ".wdyn", "correlation_trend": ".wct", "auto_weighting": ".waw"}
 WORKSPACE_LABELS = {"match_workbook": "Match Workbook", "wafer_map": "Wafer Map / Radius",
                     "dynamic": "Dynamic", "correlation_trend": "Correlation and Trend", "auto_weighting": "AutoWeighting Writer"}
-WORKSPACE_FILTER = "Metrology workspaces (*.wkb *.wmap *.wdyn *.wct *.waw)"
+WORKSPACE_FILTER = "Metrology workspaces (*.mwkb *.wkb *.wmap *.wdyn *.wct *.waw *.bak);;Backups (*.bak)"
+MATCH_FILTER = "Match Workbook (*.mwkb *.wkb *.bak);;Backups (*.bak)"
 _UNCHECKED = object()
 REQUIRED_FRAMES = {"match_workbook": {"reference", "raw"}, "wafer_map": {"input_data"},
                    "dynamic": {"input_data"}, "correlation_trend": {"reference_data", "raw_data"},
@@ -38,6 +36,11 @@ class WorkspaceSnapshot:
     states: dict = field(default_factory=dict)
     revision: str | None = None
     warnings: list = field(default_factory=list)
+
+
+def is_workspace_path(path):
+    """Route backups by their manifest as well as supporting legacy WKBs."""
+    return Path(path).suffix.lower() in {*EXTENSIONS.values(), ".wkb", ".bak"}
 
 
 def workspace_path(path, kind):
@@ -63,12 +66,13 @@ def same_file(first, second):
     return first == second or (first.exists() and second.exists() and os.path.samefile(first, second))
 
 
-def json_text(value):
+def json_text(value, *, check_circular=True):
     def scalar(item):
         if hasattr(item, "item"):
             return item.item()
         raise TypeError(f"Unsupported document state: {type(item).__name__}")
-    return json.dumps(value, ensure_ascii=False, allow_nan=False, default=scalar)
+    return json.dumps(value, ensure_ascii=False, allow_nan=False, default=scalar,
+                      check_circular=check_circular)
 
 
 def file_revision(path):
@@ -84,6 +88,8 @@ def file_revision(path):
 
 
 def _validate(snapshot):
+    import pandas as pd
+
     if snapshot.workspace_type not in WORKSPACE_TYPES:
         raise ValueError(f"Unknown workspace type: {snapshot.workspace_type}")
     if not REQUIRED_FRAMES[snapshot.workspace_type].issubset(snapshot.frames):
@@ -117,6 +123,8 @@ def save_workspace(path, snapshot, *, expected_revision=_UNCHECKED, backup=True)
     Passing the revision returned by load_workspace refuses a stale overwrite.
     Save As intentionally uses the revision of the newly selected destination.
     """
+    import pandas as pd
+
     _validate(snapshot)
     target = workspace_path(path, snapshot.workspace_type)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -210,6 +218,8 @@ def save_workspace(path, snapshot, *, expected_revision=_UNCHECKED, backup=True)
 
 def load_workspace(path, expected_type=None):
     """Read without creating a missing file or partially loading a wrong type."""
+    import pandas as pd
+
     source = Path(path).resolve()
     if not source.is_file():
         raise FileNotFoundError(source)

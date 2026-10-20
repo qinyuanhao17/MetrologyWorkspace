@@ -2,6 +2,7 @@
 from io import BytesIO
 from html import escape
 from pathlib import Path
+from weakref import WeakSet
 
 import numpy as np
 from matplotlib import rcParams
@@ -26,6 +27,8 @@ from .map_selector import MapSelector
 from .plot import auto_cmap_range, display_colormap, restyle_panel_title
 from .settings import get_settings, save_settings
 from .plotting.identity_labels import measurement_caption
+
+_PLOT_PAGES = WeakSet()
 
 rcParams["font.family"] = ["Segoe UI", "Microsoft YaHei", "DejaVu Sans"]
 rcParams["axes.unicode_minus"] = False
@@ -168,6 +171,16 @@ class PlotPage(QWidget):
                                 "the same blended colours as the maps.")
         self.opacity.currentIndexChanged.connect(self.queue_plot_style)
         appearance.addWidget(self.opacity)
+        appearance.addWidget(QLabel("Decimals", objectName="muted"))
+        self.point_decimals = QSpinBox(objectName="pointValueDecimals")
+        self.point_decimals.setRange(0, 10)
+        self.point_decimals.setValue(prefs.get("point_value_decimals", 2))
+        self.point_decimals.setFixedWidth(60)
+        self.point_decimals.setToolTip("Decimal places for Point values (0–10). Does not change source values.")
+        self.point_decimals.setKeyboardTracking(False)
+        self.point_decimals.valueChanged.connect(self.change_point_precision)
+        _PLOT_PAGES.add(self)
+        appearance.addWidget(self.point_decimals)
         appearance.addStretch()
         header.addLayout(appearance)
         layout.addLayout(header)
@@ -329,7 +342,9 @@ class PlotPage(QWidget):
         combo.blockSignals(False)
 
     def set_input(self, frame, selection):
-        signature = (id(frame), tuple(selection["wafers"]), tuple(selection["metrics"]), selection["wafer_column"])
+        signature = (id(frame), tuple(selection["wafers"]), tuple(selection["metrics"]), selection["wafer_column"],
+                     tuple((key, tuple(selection["groups"].get(key, ()))) for key in selection["wafers"])
+                     if "groups" in selection else None)
         if signature == self.signature:
             return
         # Only a data change may redraw by itself. Adding or removing wafers or
@@ -527,6 +542,7 @@ class PlotPage(QWidget):
                                    smoothing=float(get_settings().get("smoothing", 0.0)),
                                    cmap_range=self.color_range.range(),
                                    opacity=self.opacity.currentData() / 100,
+                                   point_decimals=self.point_decimals.value(),
                                    cmap=self.color_map.currentData(), show_colorbar=self.scale_bar.isChecked())
             cells = self.selector.selected_cells()
             if not cells:
@@ -618,6 +634,11 @@ class PlotPage(QWidget):
         try:
             saved_view = self.capture_view() if getattr(self, "_preserve_view", False) else None
             self.result = result
+            # A worker may finish after this presentation-only control changed.
+            result["settings"].point_decimals = self.point_decimals.value()
+            for scene in result["scenes"]:
+                if "options" in scene:
+                    scene["options"].point_decimals = self.point_decimals.value()
             self.artists = draw_array(self.figure, result, int(self.font_size.currentText()))
             self._apply_identity_labels()
             self.dirty = False
@@ -914,21 +935,45 @@ class PlotPage(QWidget):
         self.status.setText("Updating points and contours…")
         self.overlay_timer.start()
 
+    def change_point_precision(self, decimals):
+        """One application preference, independent of document Save/Discard."""
+        try:
+            save_settings({"point_value_decimals": decimals})
+        except OSError as error:
+            self.status.setText(f"Could not save point decimals: {error}")
+        self.sync_point_precision(decimals)
+
+    @staticmethod
+    def sync_point_precision(decimals):
+        for page in tuple(_PLOT_PAGES):
+            try:
+                page.point_decimals.blockSignals(True)
+                page.point_decimals.setValue(decimals)
+                page.point_decimals.blockSignals(False)
+                page.queue_overlay_visibility()
+            except RuntimeError:
+                _PLOT_PAGES.discard(page)  # Deleted Qt widget still awaiting Python GC.
+
     def apply_overlay_visibility(self, *_):
         """Toggle values and measured points without recalculating map surfaces."""
-        if self.result is None or self.stack.currentWidget() is not self.scroll:
+        if self.result is None:
             return
         show_labels, show_points = self.labels.isChecked(), self.points.isChecked()
         self.result["settings"].labels = show_labels
         self.result["settings"].points = show_points
+        decimals = self.point_decimals.value()
+        self.result["settings"].point_decimals = decimals
         for plot, scene in self.artists:
             if plot.value_labels is not None:
+                plot.value_labels.set_decimals(decimals)
                 plot.value_labels.set_visible(show_labels)
             if plot.point_markers is not None:
                 plot.point_markers.set_visible(show_points)
             scene["options"].labels = show_labels
             scene["options"].points = show_points
-        self.blit_overlays()
+            scene["options"].point_decimals = decimals
+        if self.stack.currentWidget() is self.scroll:
+            self.blit_overlays()
         values = "shown" if show_labels else "hidden"
         points = "shown" if show_points else "hidden"
         self.status.setText(f"Point values: {values} · Measurement points: {points}.")
@@ -1043,6 +1088,7 @@ class PlotPage(QWidget):
         """Write the complete array as PNG (chosen quality) or as SVG / PDF vector."""
         if self.result is None or not self.artists:
             return
+        self.apply_overlay_visibility()
         path, chosen = QFileDialog.getSaveFileName(
             self, "Export wafer map array", "wafer_maps.png",
             "PNG image (*.png);;SVG vector (*.svg);;PDF vector (*.pdf)")
@@ -1071,6 +1117,7 @@ class PlotPage(QWidget):
     def copy_png(self):
         if self.result is None or not self.artists:
             return
+        self.apply_overlay_visibility()
         _render_scale, requested = resolution_settings(self.resolution)
         dpi = export_dpi(self.figure, requested, MAX_COPY_PIXELS)
         note = f" · capped from {requested} dpi" if dpi < requested else ""

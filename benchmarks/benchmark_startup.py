@@ -18,11 +18,15 @@ from time import perf_counter
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--wkb', type=Path)
+    parser.add_argument('--code-root', type=Path, default=Path.cwd(),
+                        help='Current or frozen source package for before/after measurements')
     args = parser.parse_args()
+    sys.path.insert(0, str(args.code_root.resolve()))
     source_hash = hashlib.sha256(args.wkb.read_bytes()).hexdigest() if args.wkb else None
     with tempfile.TemporaryDirectory(prefix="metrology-startup-") as scratch:
         os.environ["METROLOGY_SETTINGS_PATH"] = str(Path(scratch) / "settings.yaml")
         os.environ["METROLOGY_RECOVERY_DIR"] = str(Path(scratch) / "recovery")
+        os.environ["METROLOGY_REMINDERS_PATH"] = str(Path(scratch) / "reminders.sqlite3")
         os.environ["MPLCONFIGDIR"] = str(Path(scratch) / "matplotlib")
         os.environ["QT_QPA_PLATFORM"] = "offscreen"
         start = perf_counter()
@@ -44,6 +48,9 @@ def main():
                           "analysis_modules_loaded": [name for name in (
                               "metrology_app.matching_window", "metrology_app.window",
                               "metrology_app.correlation_window", "metrology_app.dynamic_window")
+                              if name in sys.modules],
+                          "deferred_dependencies_loaded": [name for name in (
+                              "pandas", "numpy", "matplotlib", "scipy", "onnxruntime")
                               if name in sys.modules]}), flush=True)
         if args.wkb:
             from PyQt6.QtCore import QTimer

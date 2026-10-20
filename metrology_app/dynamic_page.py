@@ -9,7 +9,7 @@ from PyQt6.QtCore import QAbstractTableModel, QItemSelection, QItemSelectionMode
 from PyQt6.QtGui import QFont, QKeySequence
 from PyQt6.QtWidgets import (
     QApplication, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel,
-    QPushButton, QScrollArea, QSplitter, QTableView, QVBoxLayout, QWidget,
+    QScrollArea, QSplitter, QTableView, QVBoxLayout, QWidget,
 )
 from pyqtgraph.graphicsItems.LegendItem import ItemSample, LegendItem
 
@@ -568,15 +568,6 @@ class DynamicPage(QWidget):
         heading = QHBoxLayout()
         heading.addWidget(QLabel(str(parameter), objectName="sectionTitle"))
         heading.addStretch()
-        restore = QPushButton("Restore", objectName="subtle")
-        restore.setToolTip(
-            "Put this parameter's cells back to the values it was loaded with.\n"
-            "Ctrl+Z still undoes one step at a time."
-        )
-        restore.clicked.connect(
-            lambda _checked=False, name=parameter: self.restore_parameter(name)
-        )
-        heading.addWidget(restore)
         section_layout.addLayout(heading)
 
         model = DynamicPivotModel(section)

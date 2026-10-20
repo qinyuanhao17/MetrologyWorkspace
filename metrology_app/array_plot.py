@@ -27,6 +27,7 @@ class ArrayOptions:
     limits: tuple | None = None
     opacity: float = 1.0
     cmap_range: tuple | None = None
+    point_decimals: int = 2
 
 
 def prepare_array(frame, selection, options, progress=lambda *_: None, cancelled=lambda: False):
@@ -92,6 +93,7 @@ def prepare_array(frame, selection, options, progress=lambda *_: None, cancelled
                                        contour=options.contour, point_outline=options.point_outline,
                                        smoothing=options.smoothing, limits=options.limits,
                                        opacity=options.opacity, cmap_range=options.cmap_range,
+                                       point_decimals=options.point_decimals,
                                        cmap=options.cmap, show_colorbar=options.show_colorbar)
             scene = {"wafer": wafer, "label": selection.get("labels", {}).get(wafer, wafer),
                      "metric": metric, "layer": layer, "options": plot_options, "error": "",

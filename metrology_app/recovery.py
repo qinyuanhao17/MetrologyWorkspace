@@ -150,7 +150,8 @@ def _prepare(target, current, baseline, children, forced_dirty, original_path, r
     candidate = target.with_name(f".{target.stem}-pending-{uuid.uuid4().hex}{target.suffix}")
     prepared = PreparedRecovery(target, "write", old_revision, candidate, snapshot)
     try:
-        save_workspace(candidate, snapshot, backup=False)
+        candidate = save_workspace(candidate, snapshot, backup=False)
+        prepared.candidate = candidate
         # Keep ready candidates out of Recover's workspace-file filter and
         # out of valid Save As targets until their owner publishes them.
         temporary = candidate.with_suffix(".tmp")

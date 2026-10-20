@@ -32,7 +32,7 @@ class PasteFeedbackTests(unittest.TestCase):
                 window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7.]}))
                 window.set_raw_frame(pd.DataFrame({"CD": ["1.000", "2.000", "3.000"]}))
                 window.run_analysis()
-                path = Path(scratch) / "source.wkb"
+                path = Path(scratch) / "source.mwkb"
                 window.save_workbook(path)
                 self.assertFalse(window.document.is_dirty())
                 window.raw_view.setCurrentIndex(window.raw_view.model().index(1, 0))

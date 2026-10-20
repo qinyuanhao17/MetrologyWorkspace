@@ -272,7 +272,7 @@ class TrendWaferLabelTests(unittest.TestCase):
         self.assertEqual({text for widget in page.plot_widgets
                           for _, _, text in widget._wafer_axis.spans}, {"Old"})
         with TemporaryDirectory() as folder:
-            path = Path(folder) / "wafer-captions.wkb"
+            path = Path(folder) / "wafer-captions.mwkb"
             parent.save_workbook(path)
             self.close(child)
             parent.group_controls.mark_enabled.setChecked(False)
@@ -408,7 +408,7 @@ class TrendWaferLabelTests(unittest.TestCase):
         first.sequence_page.expand_wafer_ids.setChecked(True)
         self.assertFalse(second.sequence_page.expand_wafer_ids.isChecked())
         with TemporaryDirectory() as folder:
-            path = Path(folder) / "expanded.wkb"
+            path = Path(folder) / "expanded.mwkb"
             parent.save_workbook(path)
             parent.load_workbook(path)
             self.assertTrue(parent.expand_wafer_ids.isChecked())
@@ -435,7 +435,7 @@ class TrendWaferLabelTests(unittest.TestCase):
         child.set_reference_table(parent.reference_model.frame(), "Manual Reference")
         self.draw_child(child)
         with TemporaryDirectory() as folder:
-            path = Path(folder) / "classification-enabled.wkb"
+            path = Path(folder) / "classification-enabled.mwkb"
             parent.save_workbook(path)
             self.close(child)
             parent.group_controls.mark_enabled.setChecked(True)
@@ -474,7 +474,8 @@ class TrendWaferLabelTests(unittest.TestCase):
         grouping = parent.workspace_snapshot().states["match"]["grouping_state"]
         child = parent.open_correlation_workspace()
         page = self.draw_child(child)
-        self.assertEqual(len(child.raw_model.frame()), 6)
+        self.assertEqual(len(child.raw_model.frame()), 12)
+        self.assertTrue(all(len(curve.yData) == 6 for widget in page.plot_widgets for curve in widget.listDataItems()))
         self.assertTrue(child.reference_model.document_frame().empty)
         self.assertIsNotNone(child._group_plan, "Raw-only Trend still uses Workbook classification")
         self.assertEqual({label for widget in page.plot_widgets for _, _, label in widget._wafer_axis.spans}, {"Head A"})
@@ -489,7 +490,7 @@ class TrendWaferLabelTests(unittest.TestCase):
         self.assertEqual({label for widget in page.plot_widgets for _, _, label in widget._wafer_axis.spans}, {"Head A", "Head B"})
         self.assertTrue(all(len(curve.yData) == 12 for widget in page.plot_widgets for curve in widget.listDataItems()))
         with TemporaryDirectory() as folder:
-            path = Path(folder) / "group-full-scope.wkb"
+            path = Path(folder) / "group-full-scope.mwkb"
             parent.save_workbook(path)
             parent.load_workbook(path)
             child = parent.open_correlation_workspace()

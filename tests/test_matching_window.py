@@ -467,7 +467,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual([text for _, text in plot._wafer_axis._tickLevels[0]],
                          ["W1\nLOT: LOT-ONE\nPAD: ARRAY", "W2\nLOT: LOT-TWO\nPAD: ARRAY"])
         self.assertLess(plot._wafer_axis.sceneBoundingRect().top(), plot._group_axis.sceneBoundingRect().top())
-        self.assertEqual(plot._wafer_axis.boundary_width, 1)
+        self.assertEqual(plot._wafer_axis.boundary_width, 2)
         self.assertEqual(plot._group_axis.boundary_width, 2)
         for axis in (plot._wafer_axis, plot._group_axis):
             image = QImage(1900, 1000, QImage.Format.Format_ARGB32)
@@ -1418,7 +1418,8 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(window.raw_frame.to_dict("list"), raw.to_dict("list"))
         self.assertEqual(window.plot_groups["CD"]["plots"]["match"].listDataItems()[0].xData.tolist(), [1., 2., 3.])
         child = window.open_stage_workspace("preview")
-        self.assertEqual(len(child.model.frame()), 3)
+        self.assertEqual(len(child.model.frame()), 6)
+        self.assertEqual(len(child.participating_positions(child.model.frame())), 3)
         window.restore_workspace(window.workspace_snapshot())
         self.assertEqual(window.result.summary["Valid pairs"].tolist(), [3])
 
@@ -1534,7 +1535,8 @@ class MatchingWindowTests(unittest.TestCase):
         rows = sorted({row for values in child.correlation_page.selection["groups"].values() for row in values})
         # Only copied Raw supplies rows; Reference stays manually empty.
         self.assertEqual(rows, [0, 1, 2])
-        self.assertEqual(len(child.raw_model.frame()), 3)
+        self.assertEqual(len(child.raw_model.frame()), 6)
+        self.assertEqual(len(child.participating_positions(child.raw_model.frame())), 3)
         self.assertRegex(child.reference_footer.text(), r"^\d[\d,]* rows × \d+ columns$")
         def exclude_all():
             dialog = APP.activeModalWidget()
@@ -1567,11 +1569,11 @@ class MatchingWindowTests(unittest.TestCase):
         QTimer.singleShot(0, exclude_w2)
         window.data_selection_action.trigger()
         child = window.open_stage_workspace("preview")
-        self.assertEqual(len(child.model.frame()), 3)
+        self.assertEqual(len(child.model.frame()), 4)
         context = window.child_selection_context(child)
         self.assertEqual([name for name, _frame in context], ["Order", "Reference"])
-        self.assertEqual(len(context[0][1]), 3)
-        self.assertEqual(len(context[1][1]), 3)
+        self.assertEqual(len(context[0][1]), 4)
+        self.assertEqual(len(context[1][1]), 4)
 
     def test_child_scope_switch_reloads_selected_and_full_data(self):
         from PyQt6.QtWidgets import QLineEdit, QPushButton
@@ -1592,7 +1594,8 @@ class MatchingWindowTests(unittest.TestCase):
         QTimer.singleShot(0, exclude_w2)
         window.data_selection_action.trigger()
         child = window.open_stage_workspace("preview")
-        self.assertEqual(len(child.model.frame()), 3)
+        self.assertEqual(len(child.model.frame()), 6)
+        self.assertEqual(len(child.participating_positions(child.model.frame())), 3)
         self.assertTrue(child.workbook_selection_action.isChecked())
 
         child.full_data_action.trigger()
@@ -1602,7 +1605,8 @@ class MatchingWindowTests(unittest.TestCase):
 
         child.workbook_selection_action.trigger()
         APP.processEvents()
-        self.assertEqual(len(child.model.frame()), 3)
+        self.assertEqual(len(child.model.frame()), 6)
+        self.assertEqual(len(child.participating_positions(child.model.frame())), 3)
         self.assertTrue(child._workbook_selection_applies)
 
     def test_excluded_record_stays_excluded_after_source_identity_edit_and_undo(self):
@@ -1975,7 +1979,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertTrue(window.plot_groups["CD_Bot"]["card"].isAncestorOf(area))
         pd.testing.assert_frame_equal(window.result.series("CD_Bot"), data)
         with tempfile.TemporaryDirectory() as folder:
-            path = window.save_workbook(Path(folder) / "plot-layout.wkb")
+            path = window.save_workbook(Path(folder) / "plot-layout.mwkb")
             self.assertFalse(window.document.has_changes())
             reopened = MatchingWindow()
             reopened.document.confirm_close = lambda: True
@@ -2040,7 +2044,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(red_lines(bias_plot), [])
         show.setChecked(True)
         with tempfile.TemporaryDirectory() as folder:
-            path = window.save_workbook(Path(folder) / "bias-limit.wkb")
+            path = window.save_workbook(Path(folder) / "bias-limit.mwkb")
             self.assertFalse(window.document.has_changes())
             limit.setValue(.125)
             self.assertTrue(window.document.has_changes())
@@ -2090,7 +2094,7 @@ class MatchingWindowTests(unittest.TestCase):
     def save_child_and_close(self, child):
         """An explicit Save decision replaces the old silent close-and-save."""
         if self.window.workbook_path is None:
-            self.window.save_workbook(Path(self._documents.name) / "workspace.wkb")
+            self.window.save_workbook(Path(self._documents.name) / "workspace.mwkb")
         with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Save):
             self.assertTrue(child.close())
 
@@ -2252,7 +2256,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.window.run_analysis()
 
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "drawn-correlation-state.wkb"
+            path = Path(folder) / "drawn-correlation-state.mwkb"
             self.window.save_workbook(path)
             first = self.window.open_correlation_workspace()
             first.set_reference_table(self.reference(), "Manual Reference")
@@ -2479,11 +2483,11 @@ class MatchingWindowTests(unittest.TestCase):
         self.window.run_analysis()
 
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "current.wkb"
+            path = Path(folder) / "current.mwkb"
             with patch.object(
                 QFileDialog,
                 "getSaveFileName",
-                return_value=(str(path), "Matching Workbook (*.wkb)"),
+                return_value=(str(path), "Matching Workbook (*.mwkb)"),
             ) as first_prompt:
                 self.window.save_action.trigger()
 
@@ -2507,7 +2511,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.window.run_analysis()
 
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "opened.wkb"
+            path = Path(folder) / "opened.mwkb"
             self.window.save_workbook(path)
 
             reopened = MatchingWindow()
@@ -2536,15 +2540,15 @@ class MatchingWindowTests(unittest.TestCase):
         self.window.run_analysis()
 
         with tempfile.TemporaryDirectory() as folder:
-            original = Path(folder) / "original.wkb"
-            renamed = Path(folder) / "renamed.wkb"
+            original = Path(folder) / "original.mwkb"
+            renamed = Path(folder) / "renamed.mwkb"
             self.window.save_workbook(original)
 
             self.window.match_type.setCurrentText("TEM")
             with patch.object(
                 QFileDialog,
                 "getSaveFileName",
-                return_value=(str(renamed), "Matching Workbook (*.wkb)"),
+                return_value=(str(renamed), "Matching Workbook (*.mwkb)"),
             ):
                 self.window.save_as_action.trigger()
 
@@ -3497,7 +3501,7 @@ class MatchingWindowTests(unittest.TestCase):
         saved_sizes = tuple(self.window.setup_splitter.sizes())
 
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "layout.wkb"
+            path = Path(folder) / "layout.mwkb"
             self.window.save_workbook(path)
             reopened = MatchingWindow()
             try:
@@ -3524,7 +3528,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.window.run_analysis()
 
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "diagnostic.wkb"
+            path = Path(folder) / "diagnostic.mwkb"
             with self.assertLogs("metrology_workspace", level="INFO") as captured:
                 self.window.save_workbook(path)
                 self.window.load_workbook(path)
@@ -3539,7 +3543,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.window.run_analysis()
 
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "recent-analysis.wkb"
+            path = Path(folder) / "recent-analysis.mwkb"
             self.window.save_workbook(path)
             with (
                 patch(
@@ -3573,13 +3577,13 @@ class MatchingWindowTests(unittest.TestCase):
         self.window.run_analysis()
 
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "remember-opened.wkb"
+            path = Path(folder) / "remember-opened.mwkb"
             self.window.save_workbook(path)
             with (
                 patch.object(
                     QFileDialog,
                     "getOpenFileName",
-                    return_value=(str(path), "Matching Workbook (*.wkb)"),
+                    return_value=(str(path), "Matching Workbook (*.mwkb)"),
                 ),
                 patch(
                     "metrology_app.matching_window.remember_recent_wkb",
@@ -3600,7 +3604,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.window.run_analysis()
 
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "still-saved.wkb"
+            path = Path(folder) / "still-saved.mwkb"
             self.window.save_workbook(path)
             with (
                 patch(
@@ -3621,7 +3625,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.window.run_analysis()
 
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "locate-this.wkb"
+            path = Path(folder) / "locate-this.mwkb"
             self.window.save_workbook(path)
             self.assertTrue(self.window.reveal_wkb_action.isEnabled())
 
@@ -3648,7 +3652,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(self.window.parameter_order(), ("SPA", "CD_Bot"))
 
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "order.wkb"
+            path = Path(folder) / "order.mwkb"
             self.window.save_workbook(path)
             reopened = MatchingWindow()
             try:
@@ -3795,7 +3799,7 @@ class MatchingWindowTests(unittest.TestCase):
         workspace.model.load(edited)
 
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "edited-map.wkb"
+            path = Path(folder) / "edited-map.mwkb"
             self.window.save_workbook(path)
             reopened = MatchingWindow(wafer_window_factory=FakeWaferWorkspace)
             try:
@@ -3852,7 +3856,7 @@ class MatchingWindowTests(unittest.TestCase):
         final_workspace.model.load(final_dynamic)
 
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "dynamic-edits.wkb"
+            path = Path(folder) / "dynamic-edits.mwkb"
             self.window.save_workbook(path)
             reopened = MatchingWindow(
                 dynamic_window_factory=FakeDynamicWorkspace
@@ -3882,7 +3886,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.window.run_analysis()
 
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "managed-map.wkb"
+            path = Path(folder) / "managed-map.mwkb"
             self.window.save_workbook(path)
             workspace = self.window.open_stage_workspace("preview")
             try:
@@ -3917,7 +3921,7 @@ class MatchingWindowTests(unittest.TestCase):
         })
 
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "managed-dynamic.wkb"
+            path = Path(folder) / "managed-dynamic.mwkb"
             self.window.save_workbook(path)
             workspace = self.window.open_dynamic_workspace("preview")
             try:
@@ -4092,7 +4096,7 @@ class MatchingWindowTests(unittest.TestCase):
             )
 
             with tempfile.TemporaryDirectory() as folder:
-                path = Path(folder) / "second-axis.wkb"
+                path = Path(folder) / "second-axis.mwkb"
                 self.window.save_workbook(path)
                 self.window._close_stage_windows()
                 reopened = MatchingWindow()
@@ -4179,7 +4183,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.window.set_second_axis_ratio(4.125)
         self.window.set_trend_axis_mode("auto")
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "shared-axis.wkb"
+            path = Path(folder) / "shared-axis.mwkb"
             self.window.save_workbook(path)
             reopened = MatchingWindow()
             try:
@@ -4559,7 +4563,7 @@ class MatchingWindowTests(unittest.TestCase):
         })
 
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "close-with-analysis-windows.wkb"
+            path = Path(folder) / "close-with-analysis-windows.mwkb"
             self.window.save_workbook(path)
             map_workspace = self.window.open_stage_workspace("preview")
             dynamic_workspace = self.window.open_dynamic_workspace("preview")
@@ -4671,7 +4675,7 @@ class MatchingWindowTests(unittest.TestCase):
             APP.processEvents()
 
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "quality.wkb"
+            path = Path(directory) / "quality.mwkb"
             self.window.save_workbook(path)
             reopened = MatchingWindow()
             try:
@@ -4760,7 +4764,7 @@ class MatchingWindowTests(unittest.TestCase):
             APP.processEvents()
 
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "drawn-map-state.wkb"
+            path = Path(folder) / "drawn-map-state.mwkb"
             self.window.save_workbook(path)
             reopened = MatchingWindow()
             try:
@@ -4823,7 +4827,7 @@ class MatchingWindowTests(unittest.TestCase):
             APP.processEvents()
 
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "drawn-radius-state.wkb"
+            path = Path(folder) / "drawn-radius-state.mwkb"
             self.window.save_workbook(path)
             reopened = MatchingWindow()
             try:
@@ -4854,7 +4858,7 @@ class MatchingWindowTests(unittest.TestCase):
         })
 
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "sidebar-selections.wkb"
+            path = Path(folder) / "sidebar-selections.mwkb"
             self.window.save_workbook(path)
             map_workspace = self.window.open_stage_workspace("preview")
             dynamic_workspace = self.window.open_dynamic_workspace("preview")
@@ -4950,7 +4954,7 @@ class MatchingWindowTests(unittest.TestCase):
         workspace.model.load(tem_map)
 
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "tem-map.wkb"
+            path = Path(folder) / "tem-map.mwkb"
             self.window.save_workbook(path)
             reopened = MatchingWindow(wafer_window_factory=FakeWaferWorkspace)
             try:
@@ -5059,7 +5063,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.window.run_analysis()
 
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "independent-modes.wkb"
+            path = Path(folder) / "independent-modes.mwkb"
             self.window.save_workbook(path)
             reopened = MatchingWindow()
             try:

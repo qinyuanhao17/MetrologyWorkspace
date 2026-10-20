@@ -11,6 +11,30 @@ from metrology_app.match_groups import GroupPlan, group_state, row_ids
 
 
 class MatchGroupTests(unittest.TestCase):
+    def test_group_state_copies_detach_nested_records_and_mark_assignments(self):
+        from metrology_app.match_groups import copy_group_state
+        state = {"mark_rows": {"New": ["001", "002"]},
+                 "data_selection": {"records": [{"key": "source", "id": "001"}]},
+                 "nested": ([{"values": ["literal", 1]}],)}
+        copied = copy_group_state(state)
+        self.assertEqual(copied, state)
+        copied["mark_rows"]["New"].append("003")
+        copied["data_selection"]["records"][0]["key"] = "changed"
+        copied["nested"][0][0]["values"][0] = "changed"
+        self.assertEqual(state["mark_rows"]["New"], ["001", "002"])
+        self.assertEqual(state["data_selection"]["records"][0]["key"], "source")
+        self.assertEqual(state["nested"][0][0]["values"], ["literal", 1])
+
+    def test_repeated_flags_keep_typed_missing_values_and_validation(self):
+        raw = pd.DataFrame({"Wafer ID": ["W1"] * 6, "CD": range(6)})
+        flags = pd.DataFrame({"TestFlag": [np.nan, "", " 01.0 ", 1, 0, -1]}, dtype=object)
+        plan = GroupPlan(raw, flags, {"enabled": True, "mark_enabled": False})
+        self.assertEqual(plan.flags, ("", "", "1", "1", "0", "-1"))
+        for value in ("nan", "1.5", "Infinity"):
+            flags.iloc[1, 0] = value
+            with self.assertRaisesRegex(ValueError, "Invalid TestFlag"):
+                GroupPlan(raw, flags, {"enabled": True})
+
     def test_mark_alone_groups_without_test_flags(self):
         """Mark still forms Old/New groups when no TestFlag was entered."""
         raw = pd.DataFrame({"Wafer ID": ["W1"] * 4, "P": [1., 2., 3., 4.]})
@@ -440,8 +464,8 @@ class MatchGroupTests(unittest.TestCase):
         np.testing.assert_allclose(result.group_series("P", trend=True, card_mode="group")["Trend value"], ref.iloc[:, 0])
         pd.testing.assert_frame_equal(book.raw, raw)
         with tempfile.TemporaryDirectory() as directory:
-            book.save(Path(directory) / "groups.wkb")
-            restored = MatchWorkbook.load(Path(directory) / "groups.wkb")
+            book.save(Path(directory) / "groups.mwkb")
+            restored = MatchWorkbook.load(Path(directory) / "groups.mwkb")
             pd.testing.assert_frame_equal(restored.raw, raw)
             self.assertEqual(restored.analyze().group_plan.group_keys, ("Old:0", "New:1"))
 
@@ -478,8 +502,8 @@ class MatchGroupTests(unittest.TestCase):
         self.assertAlmostEqual(result.group_card("P", "Old:2").slope, 2.)
         self.assertAlmostEqual(result.group_card("P", "New:-3").slope, 3.)
         with tempfile.TemporaryDirectory() as directory:
-            book.save(Path(directory) / "numeric-flags.wkb")
-            loaded = MatchWorkbook.load(Path(directory) / "numeric-flags.wkb").analyze()
+            book.save(Path(directory) / "numeric-flags.mwkb")
+            loaded = MatchWorkbook.load(Path(directory) / "numeric-flags.mwkb").analyze()
             self.assertEqual(loaded.group_plan.label("New:-3"), "New Head D")
         from metrology_app.match_groups import flag_value
         self.assertEqual(flag_value("9007199254740993"), "9007199254740993")
@@ -970,7 +994,7 @@ class MatchGroupTests(unittest.TestCase):
             for name in ("trend", "bias", "bias-percent"):
                 plot = plots[name]
                 self.assertEqual([line.value() for line in plot._group_boundaries], [3.5])
-                self.assertTrue(all(line.pen.widthF() == 2 and line.zValue() > 0
+                self.assertTrue(all(line.pen.widthF() == 2 and line.zValue() < 0
                                     and line.pen.style() == Qt.PenStyle.DashLine
                                     for line in plot._group_boundaries))
                 self.assertTrue(all(line.pen.color().name() == "#000000" for line in plot._group_boundaries))
@@ -1194,7 +1218,7 @@ class MatchGroupTests(unittest.TestCase):
             self.assertEqual(pd.to_numeric(copy.sequence_page.groups[0]["frame"]["P Reference"]).tolist(), [8., 11., 14.])
             with tempfile.TemporaryDirectory() as directory:
                 from metrology_app.workspace_store import load_workspace
-                path = window.save_workbook(Path(directory) / "parent.wkb")
+                path = window.save_workbook(Path(directory) / "parent.mwkb")
                 loaded.restore_workspace(load_workspace(path))
                 reopened = loaded.open_correlation_workspace()
                 app.processEvents()

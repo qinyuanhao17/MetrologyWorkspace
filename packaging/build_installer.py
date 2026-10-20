@@ -32,7 +32,7 @@ def build(archive, compiler, output, *, version='4.0.0', portable_sha256=PORTABL
         payload = scratch / 'MetrologyWorkspace'
         files = sorted(path.relative_to(payload) for path in payload.rglob('*') if path.is_file())
         forbidden = {'settings.yaml', 'reminders.sqlite3'}
-        if any(path.name in forbidden or path.suffix in ('.wkb', '.log') for path in files):
+        if any(path.name in forbidden or path.suffix.lower() in ('.wkb', '.mwkb', '.log') for path in files):
             raise ValueError('User data may not be distributed in an installer.')
         if (payload / 'VERSION').read_text(encoding='utf-8').strip() != version:
             raise ValueError(f'Payload version is not {version}.')

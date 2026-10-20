@@ -275,7 +275,9 @@ class WorkbookPerformanceTests(unittest.TestCase):
                 plot.plot(np.arange(100.), np.sin(np.arange(100.)), pen='blue')
                 plot.show()
             for position in positions:
-                native.addItem(pg.InfiniteLine(position, angle=90, pen=pen))
+                line = pg.InfiniteLine(position, angle=90, pen=pen)
+                line.setZValue(-10)
+                native.addItem(line)
             batched.add_vertical_boundaries(positions, pen)
             for limits in ((0, 100, -1, 1), (5, 50, -3, 3)):
                 for plot in (native, batched):
@@ -927,7 +929,7 @@ class WorkbookPerformanceTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as directory:
                 child = window.open_correlation_workspace()
                 child.check_all(child.parameter_list, True)
-                window.save_workbook(Path(directory) / "accepted.wkb")
+                window.save_workbook(Path(directory) / "accepted.mwkb")
                 child.document.force_close = True
                 child.close()
                 child.deleteLater()
@@ -973,7 +975,8 @@ class WorkbookPerformanceTests(unittest.TestCase):
             elapsed = perf_counter() - start
             self.assertAlmostEqual(child.parameter_cards["CD"][0], 1.03)
             self.assertAlmostEqual(child.parameter_cards["CD"][1], 2)
-            self.assertEqual(len(child.model.document_frame()), 5999)
+            self.assertEqual(len(child.model.document_frame()), 6000)
+            self.assertEqual(len(child.participating_positions(child.model.frame())), 5999)
             child.document.force_close = True
             child.close()
             child.deleteLater()
@@ -1047,14 +1050,14 @@ class WorkbookPerformanceTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as directory:
                 child = window.open_correlation_workspace()
                 child.check_all(child.parameter_list, True)
-                window.save_workbook(Path(directory) / "accepted.wkb")
+                window.save_workbook(Path(directory) / "accepted.mwkb")
                 child.document.force_close = True
                 child.close()
                 child.deleteLater()
                 app.processEvents()
                 window.raw_model.edit({(1, 2): "9.9990"})
                 app.processEvents()
-                window.document.recovery_path = Path(directory) / "draft.wkb"
+                window.document.recovery_path = Path(directory) / "draft.mwkb"
                 window.document.write_recovery()
                 stamp = window.document.recovery_path.stat().st_mtime_ns
                 times = []
@@ -1630,7 +1633,7 @@ class WorkbookPerformanceTests(unittest.TestCase):
                     self.assertTrue(window._analysis_current)
                     if sheet_row == 12:
                         with tempfile.TemporaryDirectory(prefix="metrology-blank-tail-") as scratch:
-                            path = window.current_workbook().save(Path(scratch) / "blank-tail.wkb")
+                            path = window.current_workbook().save(Path(scratch) / "blank-tail.mwkb")
                             restored = MatchWorkbook.load(path)
                             self.assertEqual(len(restored.raw), 12)
                             self.assertEqual(restored.analyze().source_rows, expected_rows)

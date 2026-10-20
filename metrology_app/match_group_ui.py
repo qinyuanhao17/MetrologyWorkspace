@@ -1,5 +1,5 @@
 """Workbook group controls and source-mapped editable sheet projections."""
-from copy import deepcopy
+from copy import copy, deepcopy
 from collections.abc import Mapping
 from itertools import chain
 from math import ceil
@@ -24,7 +24,7 @@ from .match_groups import (GroupPlan, applied_state, copy_group_state, flag_orde
                            row_ids)
 from .plotting import InteractivePlotWidget, place_legend_above_frame
 from .plotting.identity_labels import measurement_caption
-from .sheet import SheetModel, clipboard_rows, nonempty_cell_bounds
+from .sheet import SheetModel, clipboard_rows, nonempty_cell_bounds, rectangular_cell_bounds
 from .table_clipboard import attach_copy_feedback
 
 
@@ -144,10 +144,12 @@ class ProjectedSheetModel(QAbstractProxyModel):
             return self.sourceModel().selection_bounds()
         source = self.sourceModel()
         if self._bounds_revision != source.revision:
-            positions = {row: position + 1 for position, row in enumerate(self.rows)}
-            # Traverse each source cell once; Mapping.items() otherwise maps the
-            # visible row back to its source again for every value lookup.
-            self._bounds = nonempty_cell_bounds(source.cells.items(), positions)
+            width = len(source.source_headers())
+            if (len(self.rows) + 1) * width <= 4 * len(source.cells):
+                self._bounds = rectangular_cell_bounds(source.cells, (0, *self.rows), width)
+            else:
+                positions = {row: position + 1 for position, row in enumerate(self.rows)}
+                self._bounds = nonempty_cell_bounds(source.cells.items(), positions)
             self._bounds_revision = source.revision
         return self._bounds
 
@@ -166,6 +168,8 @@ class ProjectedSheetModel(QAbstractProxyModel):
         return {(self.source_row(r), c): value for (r, c), value in changes.items()}
 
     def paste_cells(self, changes, *, bounds=None):
+        if self.rows is not None and bounds is not None and bounds[2] > len(self.rows):
+            raise ValueError("Paste exceeds the displayed rows. Hidden rows will not be changed.")
         mapped = self._source_changes(changes)
         if bounds is not None:
             top, left, bottom, right = bounds
@@ -174,6 +178,8 @@ class ProjectedSheetModel(QAbstractProxyModel):
         self.sourceModel().paste_cells(mapped, bounds=bounds)
 
     def replace_matrix(self, matrix, *, report_paste=False):
+        if self.rows is not None:
+            raise ValueError("Rows are hidden or sorted. Use Ctrl+V to edit visible rows, or show all rows before replacing the entire table.")
         self.sourceModel().replace_matrix(matrix, report_paste=report_paste)
 
 
@@ -444,6 +450,16 @@ class GroupControls(QWidget):
             state = {key: value for key, value in self.state.items() if key != 'applied'}
             cached = next((plan for ref, raw, saved, plan in self._source_plans
                            if ref is self.reference and raw is self.raw and saved == state), None)
+            if cached is None:
+                previous = next((plan for ref, raw, saved, plan in self._source_plans
+                                 if saved == state and raw.equals(self.raw)
+                                 and (ref is self.reference or ref.equals(self.reference))), None)
+                if previous is not None:
+                    # Undo can replay an exact detached snapshot. Rebind a new
+                    # plan shell, never mutate the earlier result's sources or
+                    # infer equality from row counts/numeric approximations.
+                    cached = copy(previous)
+                    cached.raw, cached.reference = self.raw, self.reference
             self.plan = cached or GroupPlan(self.raw, self.order_model.flags_frame(len(self.raw)),
                                             state, self.reference)
             self._source_plans = [(ref, raw, saved, plan) for ref, raw, saved, plan in self._source_plans
@@ -1018,15 +1034,15 @@ class GroupLabelAxis(pg.AxisItem):
                                  QColor("#000000" if self.boundary_width == 2 else "#929292"))
 
 
-def _group_boundary(plot, position):
-    line = pg.InfiniteLine(position, angle=90, pen=pg.mkPen("#000000", width=2, style=Qt.PenStyle.DashLine))
-    if plot.palette().color(QPalette.ColorRole.Base).lightness() < 128:
+def _group_boundary(plot, position, *, wafer=False):
+    line = pg.InfiniteLine(position, angle=90, pen=pg.mkPen("#929292" if wafer else "#000000", width=1 if wafer else 2, style=Qt.PenStyle.DashLine))
+    if not wafer and plot.palette().color(QPalette.ColorRole.Base).lightness() < 128:
         halo = pg.InfiniteLine(position, angle=90, pen=pg.mkPen("#eeeeee", width=4, style=Qt.PenStyle.DashLine))
-        halo.setZValue(5)
+        halo.setZValue(-10)
         plot.addItem(halo, ignoreBounds=True)
         line.contrast_halo = halo
-    line.setZValue(6)
-    line.setToolTip("Group boundary")
+    line.setZValue(-9 if not wafer else -10)
+    line.setToolTip("Wafer boundary" if wafer else "Group boundary")
     plot.addItem(line, ignoreBounds=True)
     return line
 
@@ -1091,9 +1107,8 @@ def set_group_axes(plot, result, data, *, show_wafers=None):
     for start in wafer_starts:
         boundary = int(start - .5)
         if row_order or groups[boundary] == groups[boundary - 1]:
-            line = pg.InfiniteLine(start, angle=90, pen=pg.mkPen("#929292", width=1, style=Qt.PenStyle.DashLine))
+            line = _group_boundary(plot, start, wafer=True)
             line.setToolTip("Wafer boundary")
-            plot.addItem(line, ignoreBounds=True)
         else:
             line = _group_boundary(plot, start)
         plot._group_boundaries.append(line)
@@ -1105,7 +1120,7 @@ def set_group_axes(plot, result, data, *, show_wafers=None):
         plot._group_axis.linkToView(plot.getViewBox())
         plot.getPlotItem().layout.addItem(plot._group_axis, 4, 1)
     if not hasattr(plot, "_wafer_axis"):
-        plot._wafer_axis = GroupLabelAxis(boundary_width=1)
+        plot._wafer_axis = GroupLabelAxis()
         plot._wafer_axis.linkToView(plot.getViewBox())
         layout = plot.getPlotItem().layout
         layout.removeItem(plot._group_axis)
@@ -1193,13 +1208,14 @@ def set_group_axes(plot, result, data, *, show_wafers=None):
     plot._refresh_group_axis()
 
 
-def draw_group_trend(plot, result, parameter, key="all", card_mode="raw", *, group_only=False):
+def draw_group_trend(plot, result, parameter, key="all", card_mode="raw", *, group_only=False, data=None):
     """Append measurement spans; keep NaN gaps and the shared Trend chrome."""
     plot.clear()
     legend = place_legend_above_frame(plot)
     legend.clear()
     legend.setZValue(10)
-    data = result.group_series(parameter, key, trend=True, card_mode=card_mode)
+    if data is None:
+        data = result.group_series(parameter, key, trend=True, card_mode=card_mode)
     plan = result.group_plan
     x = np.arange(1, len(data) + 1, dtype=float)
     reference = plot.plot(x, data["Reference"].to_numpy(float), pen=pg.mkPen("#ed7d31", width=2.2),
@@ -1224,8 +1240,8 @@ def draw_group_trend(plot, result, parameter, key="all", card_mode="raw", *, gro
                 if groups[offset] != previous_group:
                     boundaries.append(_group_boundary(plot, offset + .5))
                 else:
-                    line = pg.InfiniteLine(offset + .5, angle=90, pen=pg.mkPen("#929292", style=Qt.PenStyle.DashLine))
-                    plot.addItem(line, ignoreBounds=True)
+                    line = _group_boundary(plot, offset + .5, wafer=True)
+                    line.setToolTip("Wafer boundary")
                     boundaries.append(line)
             labels.append((offset + (len(span["rows"]) + 1) / 2,
                            measurement_caption(span["label"], getattr(plot, "_identity_labels", {}))))
@@ -1488,12 +1504,14 @@ class GroupPlotPage(QWidget):
         self._restored = None
         self._render_pending = False
         layout = QVBoxLayout(self)
-        self.card = QCheckBox("Apply Card to Trend")
+        self.card = QCheckBox("Apply All-parameter Card to Trend")
         self.card.setChecked(True)
         self.use_group_card = parent.group_controls.card
+        self.use_group_card.setText("Apply Group Card to Trend")
         self.use_group_card.setParent(self)
         self.use_group_card.show()
-        self.use_group_card.setToolTip("Checked: this Group's Card (a combined Group fits its own Card).\nUnchecked: the corresponding All parameter plots Card. Data scope never changes.")
+        self.card.setToolTip("Use the Card fitted in All parameter plots. Mutually exclusive with Group Card; never applies two calibrations.")
+        self.use_group_card.setToolTip("Use this Group plots block's fitted Card (combined Groups fit their own). Mutually exclusive with All-parameter Card.")
         self.use_group_card.toggled.connect(self.card_source_changed)
         self.status = QLabel(objectName="hint")
         self.status.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -1529,7 +1547,7 @@ class GroupPlotPage(QWidget):
             return
         if self._restored is None and (self.result is None or self.result.result_mode != result.result_mode):
             self.card.blockSignals(True)
-            self.card.setChecked(result.result_mode == "preview")
+            self.card.setChecked(result.result_mode == "preview" and not self.use_group_card.isChecked())
             self.card.blockSignals(False)
         self.result = result
         plan = result.group_plan
@@ -1545,7 +1563,7 @@ class GroupPlotPage(QWidget):
             for key in self.scopes:
                 for parameter in result.parameter_names:
                     owner._trend_card_state.setdefault(
-                        (result.result_mode, f"group-plots:{key}:{parameter}"), self.card.isChecked())
+                        (result.result_mode, f"group-plots:{key}:{parameter}"), self.card.isChecked() or self.use_group_card.isChecked())
             self._update_status()
             return
         self.render()
@@ -1564,10 +1582,12 @@ class GroupPlotPage(QWidget):
         controls = self.workbook_window.group_controls
         if controls._loading:
             return
+        if checked:
+            with QSignalBlocker(self.card):
+                self.card.setChecked(False)
         controls.state["use_group_card"] = bool(checked)
         controls.state.setdefault("applied", {})["use_group_card"] = bool(checked)
-        self.render()
-        self.changed.emit()
+        self.trend_card_changed(checked)
 
     def scope_label(self, key):
         return self.scopes[key][0]
@@ -1615,7 +1635,7 @@ class GroupPlotPage(QWidget):
             data = scoped.group_series(parameter, trend=True, card_mode="global")
             owner = self.workbook_window
             card_key = (self.result.result_mode, f"group-plots:{key}:{parameter}")
-            trend_card = owner._trend_card_state.get(card_key, self.card.isChecked())
+            trend_card = owner._trend_card_state.get(card_key, self.card.isChecked() or self.use_group_card.isChecked())
             signature = (label, mode, trend_card, show_wafers, scoped.group_plan.state["trend_order"], scoped.group_plan.trend_spans(),
                          owner._selected_bias_views(), owner.workbook.mappings, self.result.result_mode, self.result.match_type,
                          tuple(owner._plot_label_options["trend"].items()) if show_wafers else ())
@@ -1671,10 +1691,18 @@ class GroupPlotPage(QWidget):
     def block_card_changed(self, parameter, block, checked):
         self.workbook_window._trend_card_state[block["trend_card_key"]] = bool(checked)
         self.workbook_window._draw_trend_plot(parameter, block)
+        self.workbook_window._decorate_sequence_plots(block)
         self.workbook_window._expand_parameter_group(block)
         self.changed.emit()
 
     def trend_card_changed(self, checked):
+        if self.card.isChecked() and self.use_group_card.isChecked():
+            with QSignalBlocker(self.use_group_card):
+                self.use_group_card.setChecked(False)
+            controls = self.workbook_window.group_controls
+            controls.state["use_group_card"] = False
+            controls.state.setdefault("applied", {})["use_group_card"] = False
+        checked = self.card.isChecked() or self.use_group_card.isChecked()
         if self.result is not None:
             for key in self.scopes:
                 for parameter in self.result.parameter_names:
@@ -1721,7 +1749,7 @@ class GroupPlotPage(QWidget):
         self._restored = deepcopy(state or {})
         self.block_order = [tuple(cell) for cell in self._restored.get("block_order", [])]
         self.card.blockSignals(True)
-        self.card.setChecked(self._restored.get("card", True))
+        self.card.setChecked(self._restored.get("card", True) and not self.use_group_card.isChecked())
         self.card.blockSignals(False)
 
     def page_image(self):

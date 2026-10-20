@@ -76,6 +76,7 @@ from .match_group_ui import CombinedGroupDialog, GroupControls, GroupPlotPage, P
 from .data_selection import DataSelectionDialog
 from .plotting import InteractivePlotWidget, place_legend_above_frame
 from .plotting.sequence_axis import SpanLabelAxis, space_wafer_plot
+from .plotting.annotations import attach_point_hover, plain_y_axes, set_plot_statistics
 from .plotting.identity_labels import plot_label_options
 from .settings import (
     apply_theme, forget_recent_wkb, recent_wkb_paths, remember_recent_wkb,
@@ -83,7 +84,7 @@ from .settings import (
 from .sheet import DuplicateHeaderBanner, SheetModel, SheetView, column_letter
 from .table_clipboard import attach_copy_feedback
 from .widgets import ScrollSafeComboBox
-from .workspace_store import WorkspaceSnapshot, file_revision, load_workspace, save_workspace, workspace_path
+from .workspace_store import EXTENSIONS, MATCH_FILTER, WorkspaceSnapshot, file_revision, load_workspace, save_workspace, workspace_path
 from .workspace_document import WkbDocument, commit_editors, local_snapshot, local_ui, recovery_decision, recovery_directory, writable_path
 from .workbook_startup import AXIS_MODE_LABELS, analysis_settings as normalized_analysis_settings
 
@@ -757,6 +758,7 @@ class MatchingWindow(QMainWindow):
         self._displayed_raw_mode = "preview"
         self._raw_sources = {"preview": "No data", "final": "No data"}
         self._trend_card_state = {}
+        self._statistics_state = {}
         self._plot_layout_states = {}
         self._single_wafer_checks = {"preview": {}, "final": {}}
         self._plot_label_options = plot_label_options()
@@ -865,7 +867,8 @@ class MatchingWindow(QMainWindow):
               "plot_layouts": capture(self._plot_layout_states),
               "plot_labels": capture(self._plot_label_options),
               "expand_wafer_ids": self.expand_wafer_ids.isChecked(),
-              "trend_cards": [[list(key), value] for key, value in self._trend_card_state.items()]}
+              "trend_cards": [[list(key), value] for key, value in self._trend_card_state.items()],
+              "statistics": [[list(key), value] for key, value in self._statistics_state.items()]}
         snapshot = WorkspaceSnapshot("match_workbook", frames,
                                      {"match": state, "match_ui": ui, **capture(self._workspace_states)})
         if validate and not state["draft"]:
@@ -938,12 +941,13 @@ class MatchingWindow(QMainWindow):
                                   if name not in ("match", "match_ui", "recovery")}
         self._workspace_frames = {name: frame.copy() for name, frame in snapshot.frames.items() if "." in name}
         self._trend_card_state = {tuple(key): value for key, value in snapshot.states.get("match_ui", {}).get("trend_cards", [])}
+        self._statistics_state = {tuple(key): bool(value) for key, value in snapshot.states.get("match_ui", {}).get("statistics", [])}
         self._plot_layout_states = plot_layouts
         self._single_wafer_checks = {stage: deepcopy(checks.get(stage, {})) for stage in ("preview", "final")}
         if not state.get("draft"):
             workbook = MatchWorkbook.from_snapshot(snapshot)
             return self._restore_analyzed_workbook(
-                workbook, self.workbook_path or "Workspace.wkb", analysis_settings=analysis_settings,
+                workbook, self.workbook_path or "Workspace.mwkb", analysis_settings=analysis_settings,
                 mapping_choices=mapping_choices)
         else:
             self._restore_draft(snapshot)
@@ -1051,7 +1055,7 @@ class MatchingWindow(QMainWindow):
             self._restore_setup_splitter_layout(sizes)
 
     def recover_draft(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Recover Match draft", str(recovery_directory()), "WKB draft (*.wkb)")
+        path, _ = QFileDialog.getOpenFileName(self, "Recover Match draft", str(recovery_directory()), MATCH_FILTER)
         if path and self.document.confirm_close():
             try:
                 self.document.recover(path)
@@ -1530,6 +1534,8 @@ class MatchingWindow(QMainWindow):
         inputs.setSizes([280, 570, 650])
         inputs.setChildrenCollapsible(False)
         inputs.setMinimumHeight(280)
+        from .floating_editor import FloatingEditor
+        self.raw_floating_editor = FloatingEditor(self, self.raw_card, self.raw_view, inputs)
         for card in (self.order_card, self.reference_card, self.raw_card):
             card.setSizePolicy(
                 QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding
@@ -1883,6 +1889,7 @@ class MatchingWindow(QMainWindow):
             axis = plot_item.getAxis(axis_name)
             axis.setPen(frame_pen)
             axis.setTextPen(frame_pen)
+        plain_y_axes(plot)
         return plot
 
     def paste_reference(self):
@@ -2057,6 +2064,10 @@ class MatchingWindow(QMainWindow):
         """
         from .match_groups import participation_ids, reuse_row_ids, row_ids
         current = self._active_raw_frame()
+        if current.empty:
+            # An empty stage has no replacement records. Keep the shared
+            # selection for the other stage and for a later paste/undo.
+            return
         reuse_row_ids(previous_raw, current)
         old_keys, new_keys = row_ids(previous_raw), row_ids(current)
         if old_keys == new_keys and all(
@@ -2072,7 +2083,11 @@ class MatchingWindow(QMainWindow):
                     # Both the draft and applied states must receive the same
                     # mapping, or the settings would look pending forever.
                     old_ids = participation_ids(previous_raw, selection)
-                    by_key = {key: identifier for key, identifier in zip(old_keys, old_ids)}
+                    # The persisted records may belong to the other stage when
+                    # this stage is first populated. Do not discard their IDs
+                    # just because this stage's previous table was empty.
+                    by_key = {record["key"]: record["id"] for record in selection["records"]}
+                    by_key.update(zip(old_keys, old_ids))
                     # A cell clear/edit cannot move another record to this row,
                     # even if two records now have identical blank identities.
                     positional = preserve_positions
@@ -2132,8 +2147,13 @@ class MatchingWindow(QMainWindow):
         controls = self.group_controls
         controls.set_sources(self.reference_frame, self._active_raw_frame())
         plan = controls.plan
-        projected = plan is not None and bool(controls.state["filters"] or controls.state["sort"])
+        selection = controls.state.get("applied", controls.state).get("data_selection") or {}
+        hide = bool(selection.get("hide_excluded"))
+        projected = plan is not None and bool(hide or controls.state["filters"] or controls.state["sort"])
         rows = plan.display_rows if projected else None
+        if projected and hide:
+            included = set(plan.included_rows)
+            rows = tuple(row for row in rows if row in included)
         mode = self.result_mode.currentText().lower()
         for name, view, source in (("reference", self.reference_view, self.reference_model),
                                    (mode, self.raw_view, self.final_raw_model if mode == "final" else self.raw_model),
@@ -3184,8 +3204,7 @@ class MatchingWindow(QMainWindow):
         if manual_new:
             frame = pd.DataFrame()
         elif book is not None:
-            frame = book.stage_frame(stage, apply_card=False,
-                                     apply_selection=self._saved_workspace_selection_applies("map", stage, scope))
+            frame = book.stage_frame(stage, apply_card=False, apply_selection=False)
         else:
             frame = getattr(self, f"{stage}_map_frame")
             if frame is None:
@@ -3279,7 +3298,8 @@ class MatchingWindow(QMainWindow):
                     workspace.document.baseline = deepcopy(recovered["baseline"])
                     if kind == "correlation":
                         self._offer_second_axis_settings(workspace)
-                workspace.document.refresh_identity()
+                if self.document.untrusted_recovery or recovered:
+                    workspace.document.refresh_identity()
                 workspace._managed_after_close_handler = lambda child=workspace: self._forget_stage_workspace(child)
         self._offer_plot_labels(workspace)
         if hasattr(workspace, "destroyed"):
@@ -3582,10 +3602,10 @@ class MatchingWindow(QMainWindow):
             applies = getattr(workspace, "_workbook_selection_applies", True)
             if kind == "map" and not self._workspace_data_follows_workbook():
                 source = book.final_match_raw if stage == "final" and book.final_match_raw is not None else book.raw
-                frame = book.participating_frame(source, paired_source=True, apply_selection=applies)
+                frame = book.participating_frame(source, paired_source=True, apply_selection=False)
             else:
                 frame = (
-                    self.workbook.stage_frame(stage, apply_card=False, apply_selection=applies,
+                    self.workbook.stage_frame(stage, apply_card=False, apply_selection=False,
                                               use_snapshot=not (reset_data or getattr(workspace, "_copy_from_wkb", False)))
                     if kind == "map"
                     else self.workbook.dynamic_frame(stage, apply_card=False, apply_selection=applies)
@@ -3629,17 +3649,8 @@ class MatchingWindow(QMainWindow):
             workspace._workbook_source_frames = deepcopy(current_frames)
 
     def _child_correlation_frames(self, workspace, *, book=None):
-        """Reference/Raw pair for one child; honours its selection scope."""
+        """Complete editor sources; participation and visibility are separate."""
         raw = self._active_raw_frame()
-        if (getattr(workspace, "_workbook_selection_applies", True)
-                and len(self.reference_frame) <= len(raw) and not raw.empty):
-            from .match_groups import applied_state, participation_rows
-            selection = applied_state(book.grouping_state if book is not None else self.group_controls.state)["data_selection"]
-            if selection is not None:
-                allowed = list(participation_rows(raw, selection))
-                reference = self.reference_frame.reset_index(drop=True).reindex(range(len(raw)))
-                return (reference.iloc[allowed].reset_index(drop=True),
-                        raw.iloc[allowed].reset_index(drop=True))
         return self.reference_frame, raw
 
     def child_selection_context(self, workspace):
@@ -3666,7 +3677,9 @@ class MatchingWindow(QMainWindow):
         if kind == "correlation":
             raw = self._active_raw_frame()
         selection = applied_state(book.grouping_state)["data_selection"]
-        if getattr(workspace, "_workbook_selection_applies", True) and selection is not None:
+        if len(raw) == current_rows:
+            allowed = list(range(len(raw)))
+        elif getattr(workspace, "_workbook_selection_applies", True) and selection is not None:
             allowed = list(participation_rows(raw, selection))
         else:
             allowed = list(range(len(raw)))
@@ -3909,7 +3922,7 @@ class MatchingWindow(QMainWindow):
     def _save_managed_workspace_on_close(
         self, kind, stage, frame, workspace=None
     ):
-        if self.workbook_path is None or not writable_path(self.workbook_path) or self.workbook_path.suffix.lower() != ".wkb":
+        if self.workbook_path is None or not writable_path(self.workbook_path) or self.workbook_path.suffix.lower() != EXTENSIONS[self.workspace_type]:
             return self.save_wkb_dialog(capture_children=False, child=workspace) or False
         return self.save_workbook(self.workbook_path, capture_children=False, child=workspace)
 
@@ -4083,6 +4096,7 @@ class MatchingWindow(QMainWindow):
             event.ignore()
             return
         self.group_settings_dialog.hide()
+        self.raw_floating_editor.dock()
         workspaces = tuple(self._stage_windows)
         if not workspaces:
             self._auto_run_pending = False
@@ -4354,7 +4368,7 @@ class MatchingWindow(QMainWindow):
                     plot.clear()
                     if plot.getPlotItem().legend is not None:
                         plot.getPlotItem().legend.clear()
-            self._draw_parameter_group(parameter, group, refresh=mode)
+            self._draw_parameter_group(parameter, group, refresh=mode, data=data)
             group["source_identity"] = identity
             group["source_mapping"] = source_mapping
             group["source_data"] = data.copy()
@@ -4383,6 +4397,7 @@ class MatchingWindow(QMainWindow):
         heading = QHBoxLayout()
         heading.addWidget(_ParameterDragHandle(storage_key, card))
         heading.addStretch()
+        statistics = None  # Statistics are automatic empty-space hover readouts.
         note = _label("", "hint")
         heading.addWidget(note)
         card_layout.addLayout(heading)
@@ -4446,8 +4461,9 @@ class MatchingWindow(QMainWindow):
         )
 
         if detail_key is not None:
-            return {"parameter": parameter, "card": card, "note": note, "plots": plots, "plot_area": plot_container, "plot_scroll": plot_scroll,
-                    "trend_card_key": trend_card_key, "storage_key": storage_key}
+            group = {"parameter": parameter, "card": card, "note": note, "plots": plots, "plot_area": plot_container, "plot_scroll": plot_scroll,
+                     "trend_card_key": trend_card_key, "storage_key": storage_key, "statistics": statistics}
+            return group
 
         wafer_card = self._create_parameter_section(parameter)
         wafer_layout = wafer_card.layout()
@@ -4530,6 +4546,7 @@ class MatchingWindow(QMainWindow):
             "wafer_details": {},
             "trend_card_key": trend_card_key,
         }
+        group["statistics"] = statistics
         return group
 
     def _parameter_plot_layout_changed(self, parameter, stage, variant, area, scroll):
@@ -4543,7 +4560,7 @@ class MatchingWindow(QMainWindow):
         if hasattr(self, "document"):
             self._plot_layout_identity_timer.start()
 
-    def _draw_parameter_group(self, parameter, group, *, refresh="full"):
+    def _draw_parameter_group(self, parameter, group, *, refresh="full", data=None):
         """Paint one parameter card.
 
         ``refresh="axes"`` keeps every plotted row; ``refresh="sequence"`` keeps
@@ -4556,9 +4573,10 @@ class MatchingWindow(QMainWindow):
         workbook = group.get("workbook", self.workbook)
         grouped = result.group_plan.enabled
         collect = result is self.result and self._trend_collects_wafers()
-        data = (result.group_series(parameter, trend=True, collect_wafers=collect)
-                if grouped or collect or result.group_plan.state["trend_order"] == "wafers"
-                else result.series(parameter))
+        if data is None:
+            data = (result.group_series(parameter, trend=True, collect_wafers=collect)
+                    if grouped or collect or result.group_plan.state["trend_order"] == "wafers"
+                    else result.series(parameter))
         card = result.card(parameter)
         fit_card = group.get("fit_card", card)
         mapping = next(
@@ -4580,6 +4598,11 @@ class MatchingWindow(QMainWindow):
             bias_all, bias_percent_all,
             limit=PLOT_LIMIT,
         )
+        source_rows = data["Source row"].tolist() if "Source row" in data else result.source_rows
+        source = result.group_plan.raw
+        die_column = next((column for column in source if str(column).lower().replace(" ", "") == "dieseq"), None)
+        dies_all = source[die_column].astype(str).to_numpy()[list(source_rows)].tolist() if die_column is not None else ["N/A"] * len(source_rows)
+        group["annotation_data"] = (indices, dies_all, workbook.match_type)
         row = np.arange(1, len(data) + 1, dtype=float)[indices]
         reference = reference_all[indices]
         raw = raw_all[indices]
@@ -4633,8 +4656,9 @@ class MatchingWindow(QMainWindow):
         valid = np.isfinite(raw) & np.isfinite(reference)
         if not axes_only and not sequence_only:
             fit_text = ""
-            match_plot.plot(raw[valid], reference[valid], pen=None, symbol="o", symbolSize=5,
-                            symbolBrush=CORRELATION_POINT_COLOR, symbolPen=None)
+            points = match_plot.plot(raw[valid], reference[valid], pen=None, symbol="o", symbolSize=5,
+                                     symbolBrush=CORRELATION_POINT_COLOR, symbolPen=None)
+            attach_point_hover(points, np.asarray(dies_all, dtype=object)[indices][valid])
             if valid.any() and np.isfinite(fit_card.slope) and np.isfinite(fit_card.intercept):
                 low, high = float(np.min(raw[valid])), float(np.max(raw[valid]))
                 x_line = np.array([low, high])
@@ -4657,7 +4681,7 @@ class MatchingWindow(QMainWindow):
             # Trend and Bias curve keeps its identity while its ordinals move.
             self._draw_collected_trend(parameter, group, row, reference, raw, card_value)
         else:
-            self._draw_trend_plot(parameter, group)
+            self._draw_trend_plot(parameter, group, data=data)
 
         bias_plot = plots.get("bias")
         if bias_plot is not None and axes_only:
@@ -4728,12 +4752,50 @@ class MatchingWindow(QMainWindow):
                     set_group_axes(plot, result, data, show_wafers=group.get("show_wafers"))
         if axes_only:
             self._draw_bias_limit(parameter, group)
+        if not grouped:
+            for name in ("trend", "bias", "bias-percent"):
+                plot = plots.get(name)
+                if plot is None:
+                    continue
+                old = getattr(plot, "_measurement_boundaries", None)
+                if old is not None and old.scene() is not None:
+                    plot.removeItem(old)
+                plot._measurement_boundaries = plot.add_vertical_boundaries(
+                    [start for start, _end, _label in measurement_spans[1:]],
+                    pg.mkPen("#929292", width=1, style=Qt.PenStyle.DashLine))
+                plot.wafer_boundaries = plot._measurement_boundaries
+        self._decorate_sequence_plots(group, data)
         if "wafer_card" in group:
             if self.isVisible() and not self.wafer_groups_widget.isVisible() and "wafer_summary" in group:
                 group["wafer_metrics_pending"] = True
             else:
                 self._draw_wafer_metrics(parameter, group)
         self._expand_parameter_group(group)
+
+    def _decorate_sequence_plots(self, group, data=None):
+        if "annotation_data" not in group:
+            return
+        indices, dies, reference_name = group["annotation_data"]
+        plots = group["plots"]
+        trend = plots["trend"]
+        card = trend.card_checkbox.isChecked()
+        enabled = True
+        if enabled and data is None:
+            data = group.get("result", self.result).series(group["parameter"])
+        series = ({"trend": [("PMISH", data["Card Value" if card else "Raw"].to_numpy(float)),
+                             (reference_name, data["Reference"].to_numpy(float))],
+                  "bias": [("Bias", data["Bias"].to_numpy(float))],
+                  "bias-percent": [("Bias %", data["Bias %"].to_numpy(float))]}
+                  if enabled else {name: [] for name in ("trend", "bias", "bias-percent")})
+        for name, values in series.items():
+            plot = plots.get(name)
+            if plot is None:
+                continue
+            for item in plot.listDataItems():
+                if item.opts.get("symbol") is not None and item.xData is not None:
+                    labels = dies if len(item.xData) == len(dies) else np.asarray(dies, dtype=object)[indices]
+                    attach_point_hover(item, labels)
+            set_plot_statistics(plot, values, enabled)
 
     @staticmethod
     def _reorder_curve(plot, row, values):
@@ -4788,10 +4850,11 @@ class MatchingWindow(QMainWindow):
             return
         self._trend_card_state[group["trend_card_key"]] = bool(checked)
         self._draw_trend_plot(parameter, group)
+        self._decorate_sequence_plots(group)
         plot = group["plots"]["trend"]
         space_wafer_plot(plot, getattr(plot, "_wafer_spacing", None))
 
-    def _draw_trend_plot(self, parameter, group):
+    def _draw_trend_plot(self, parameter, group, *, data=None):
         """Redraw only Trend so its Card control feels immediate and stable."""
         if "trend_data" not in group:
             return
@@ -4800,8 +4863,11 @@ class MatchingWindow(QMainWindow):
         workbook = group.get("workbook", self.workbook)
         if result.group_plan.enabled:
             mode = "global" if trend_plot.card_checkbox.isChecked() else "raw"
+            if data is not None:
+                data = data.copy()
+                data["Trend value"] = data["Card Value"] if mode == "global" else data["Raw"]
             draw_group_trend(trend_plot, result, parameter, card_mode=mode,
-                             group_only=not group.get("show_wafers", False))
+                             group_only=not group.get("show_wafers", False), data=data)
             return
         for item in tuple(trend_plot.listDataItems()):
             trend_plot.removeItem(item)
@@ -5414,7 +5480,7 @@ class MatchingWindow(QMainWindow):
             QMessageBox.warning(self, "Cannot reveal WKB", str(error))
 
     def save_wkb(self):
-        if (self.workbook_path is None or self.workbook_path.suffix.lower() != ".wkb"
+        if (self.workbook_path is None or self.workbook_path.suffix.lower() != EXTENSIONS[self.workspace_type]
                 or self.document.untrusted_recovery or not writable_path(self.workbook_path)):
             return self.save_wkb_dialog()
         try:
@@ -5427,16 +5493,19 @@ class MatchingWindow(QMainWindow):
 
     def save_wkb_dialog(self, *, capture_children=True, child=None):
         try:
-            default = str(
+            default_source = (
                 self.workbook_path
                 if self.workbook_path is not None
-                else Path.home() / "matching-analysis.wkb"
+                else Path.home() / "matching-analysis.mwkb"
             )
+            if default_source.suffix.lower() == ".bak":
+                default_source = default_source.with_suffix("")
+            default = str(workspace_path(default_source, self.workspace_type))
             path, _ = QFileDialog.getSaveFileName(
                 self,
                 "Save Matching Workbook As",
                 default,
-                "Matching Workbook (*.wkb)",
+                "Matching Workbook (*.mwkb)",
             )
             if path:
                 saved = self.save_workbook(path, capture_children=capture_children, child=child)
@@ -5620,7 +5689,7 @@ class MatchingWindow(QMainWindow):
     def open_wkb_dialog(self):
         try:
             path, _ = QFileDialog.getOpenFileName(self, "Open Matching Workbook", "",
-                                                  "Matching Workbook (*.wkb)")
+                                                  MATCH_FILTER)
             if path:
                 self.start_workbook(path=path)
         except Exception as error:

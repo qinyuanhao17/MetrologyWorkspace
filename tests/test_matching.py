@@ -54,7 +54,7 @@ class MatchWorkbookTests(unittest.TestCase):
         self.assertEqual(result.bias_limit, 0)
         book.bias_limit = .125
         with tempfile.TemporaryDirectory() as folder:
-            path = book.save(Path(folder) / "bias-limit.wkb")
+            path = book.save(Path(folder) / "bias-limit.mwkb")
             loaded = MatchWorkbook.load(path)
             self.assertEqual(loaded.bias_limit, .125)
             self.assertEqual(loaded.analyze().summary["Bias out of range"].tolist(), [4])
@@ -422,7 +422,7 @@ class MatchWorkbookTests(unittest.TestCase):
             parameter_order=("SPA", "CD_Bot"),
         )
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "analysis.wkb"
+            path = Path(folder) / "analysis.mwkb"
             workbook.save(path)
             restored = MatchWorkbook.load(path)
 
@@ -457,7 +457,7 @@ class MatchWorkbookTests(unittest.TestCase):
         )
 
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "map-snapshot.wkb"
+            path = Path(folder) / "map-snapshot.mwkb"
             workbook.save(path)
             restored = MatchWorkbook.load(path)
 
@@ -489,7 +489,7 @@ class MatchWorkbookTests(unittest.TestCase):
         )
 
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "dynamic-snapshots.wkb"
+            path = Path(folder) / "dynamic-snapshots.mwkb"
             workbook.save(path)
             restored = MatchWorkbook.load(path)
 
@@ -540,7 +540,7 @@ class MatchWorkbookTests(unittest.TestCase):
         )
 
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "workspace-selections.wkb"
+            path = Path(folder) / "workspace-selections.mwkb"
             workbook.save(path)
             restored = MatchWorkbook.load(path)
 
@@ -582,7 +582,7 @@ class MatchWorkbookTests(unittest.TestCase):
         )
 
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "correlation-selections.wkb"
+            path = Path(folder) / "correlation-selections.mwkb"
             workbook.save(path)
             restored = MatchWorkbook.load(path)
 
@@ -694,7 +694,7 @@ class MatchWorkbookTests(unittest.TestCase):
             trend_axis_settings={"ratio": 1.875, "mode": "auto"},
         )
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "shared-axis-policy.wkb"
+            path = Path(folder) / "shared-axis-policy.mwkb"
             workbook.save(path)
             restored = MatchWorkbook.load(path)
         self.assertEqual(

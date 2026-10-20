@@ -164,7 +164,7 @@ class NamedAnalysisWindowTests(unittest.TestCase):
         self.assertTrue(keep.isVisible())
         pd.testing.assert_frame_equal(self.parent.raw_model.document_frame(), source)
         with TemporaryDirectory() as folder:
-            path = Path(folder) / "deleted-window.wkb"
+            path = Path(folder) / "deleted-window.mwkb"
             self.parent.save_workbook(path)
             restored = MatchingWindow()
             self.addCleanup(lambda: (setattr(restored.document, "force_close", True), restored.close()))
@@ -209,7 +209,7 @@ class NamedAnalysisWindowTests(unittest.TestCase):
         self.assertTrue(all(all(frame.empty for frame in child.workspace_snapshot().frames.values())
                             for child in children))
         with TemporaryDirectory() as folder:
-            path = Path(folder) / "blank-windows.wkb"
+            path = Path(folder) / "blank-windows.mwkb"
             self.parent.save_workbook(path)
             self.parent.document.force_close = True
             self.parent.close()
@@ -239,7 +239,7 @@ class NamedAnalysisWindowTests(unittest.TestCase):
         self.assertTrue(child.copy_from_wkb_action.isChecked())
         self.assertEqual(child.model.document_frame()["CD"].iloc[0], "0")
         with TemporaryDirectory() as folder:
-            path = Path(folder) / "linked-tem-map.wkb"
+            path = Path(folder) / "linked-tem-map.mwkb"
             self.parent.save_workbook(path)
             restored = MatchingWindow()
             self.addCleanup(lambda: (setattr(restored.document, "force_close", True), restored.close()))
@@ -373,7 +373,7 @@ class NamedAnalysisWindowTests(unittest.TestCase):
             self.window_choices(button)[f"{label} baseline"].trigger()
         raw_before = self.parent.raw_model.document_frame().copy()
         with TemporaryDirectory() as folder:
-            path = Path(folder) / "named-analysis.wkb"
+            path = Path(folder) / "named-analysis.mwkb"
             self.parent.save_workbook(path)
             self.parent.document.force_close = True
             self.parent.close()
@@ -413,19 +413,19 @@ class NamedAnalysisWindowTests(unittest.TestCase):
         for child in (first, second):
             child.set_table(self.parent.raw_model.document_frame(), "Manual measurements")
         with TemporaryDirectory() as folder:
-            accepted = Path(folder) / "accepted.wkb"
+            accepted = Path(folder) / "accepted.mwkb"
             self.parent.save_workbook(accepted)
             original = accepted.read_bytes()
             first.model.edit({(1, 5): "7.123456789010000"})
             second.model.edit({(1, 5): "8.123456789010000"})
             expected = {"Map baseline": first.model.document_frame().copy(),
                         "Map adjusted": second.model.document_frame().copy()}
-            recovery = Path(folder) / "recovered.wkb"
+            recovery = Path(folder) / "recovered.mwkb"
             self.parent.document.recovery_path = recovery
             self.parent.document.write_recovery()
             restored = MatchingWindow()
             restored.document.recover(recovery)
-            saved = Path(folder) / "recovery-saved.wkb"
+            saved = Path(folder) / "recovery-saved.mwkb"
             restored.save_workbook(saved)
             restored.document.force_close = True
             restored.close()
@@ -448,7 +448,7 @@ class NamedAnalysisWindowTests(unittest.TestCase):
         expected = child.workspace_snapshot()
         self.assertNotIn("match_groups", expected.states)
         with TemporaryDirectory() as folder:
-            path = Path(folder) / "independent-correlation.wkb"
+            path = Path(folder) / "independent-correlation.mwkb"
             self.parent.save_workbook(path)
             restored = MatchingWindow()
             self.addCleanup(lambda: (setattr(restored.document, "force_close", True), restored.close()))
@@ -464,7 +464,7 @@ class NamedAnalysisWindowTests(unittest.TestCase):
         for child in (first, second):
             child.set_table(self.parent.raw_model.document_frame(), "Manual measurements")
         with TemporaryDirectory() as folder:
-            path = Path(folder) / "selective-save.wkb"
+            path = Path(folder) / "selective-save.mwkb"
             self.parent.save_workbook(path)
             baseline = first.model.document_frame().copy()
             first.model.edit({(1, 5): "7.123456789010000"})
@@ -531,7 +531,7 @@ class NamedAnalysisWindowTests(unittest.TestCase):
         self.assertIn("Final", final.windowTitle())
         self.assertEqual(set(self.window_choices(self.parent.final_open_button)), {"Wafer Map / Radius 1", "Map tuned"})
         with TemporaryDirectory() as folder:
-            path = Path(folder) / "renamed-analysis.wkb"
+            path = Path(folder) / "renamed-analysis.mwkb"
             self.parent.save_workbook(path)
             restored = MatchingWindow()
             self.addCleanup(lambda: (setattr(restored.document, "force_close", True), restored.close()))

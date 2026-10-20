@@ -127,7 +127,7 @@ class IncompleteWorkbookWorkspaceTests(unittest.TestCase):
                                "CD": ["4.100", "5.200", "6.300"]})
         wafer.set_table(manual, "Manual")
         with TemporaryDirectory() as folder:
-            path = Path(folder) / "empty-with-manual-map.wkb"
+            path = Path(folder) / "empty-with-manual-map.mwkb"
             window.save_workbook(path)
             restored = MatchingWindow()
             self.addCleanup(self.close_window, restored)

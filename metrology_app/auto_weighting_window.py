@@ -611,7 +611,7 @@ class AutoWeightingWindow(QMainWindow):
             QMessageBox.warning(self, 'Cannot save project', str(error))
 
     def open_project(self):
-        path, _ = QFileDialog.getOpenFileName(self, 'Open AutoWeighting project', '', 'AutoWeighting Writer (*.waw)')
+        path, _ = QFileDialog.getOpenFileName(self, 'Open AutoWeighting project', '', 'AutoWeighting Writer (*.waw *.bak);;Backups (*.bak)')
         if path:
             try:
                 self.load_workspace(path)
@@ -620,7 +620,7 @@ class AutoWeightingWindow(QMainWindow):
 
     def recover_draft(self):
         from .workspace_document import recovery_directory
-        path, _ = QFileDialog.getOpenFileName(self, 'Recover AutoWeighting draft', str(recovery_directory()), 'AutoWeighting Writer (*.waw)')
+        path, _ = QFileDialog.getOpenFileName(self, 'Recover AutoWeighting draft', str(recovery_directory()), 'AutoWeighting Writer (*.waw *.bak)')
         if path:
             try:
                 self.load_workspace(path)

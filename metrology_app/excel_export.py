@@ -132,6 +132,7 @@ def style_plot_axis(axis, *, title, xlabel, ylabel):
         spine.set_linewidth(1.2)
     axis.yaxis.set_major_locator(MaxNLocator(nbins=5))
     axis.yaxis.set_major_formatter(ScalarFormatter(useOffset=False))
+    axis.ticklabel_format(axis="y", style="plain", useOffset=False)
 
 
 def plot_legend(axis, handles=None, labels=None, *, columns=3):
@@ -336,12 +337,12 @@ def draw_sequence_axis(axis, sequence, dies=(), *, boundary_gap=0.0):
                       textcoords='offset points', ha='center', va='top', fontsize=11,
                       annotation_clip=False)
     for x in sequence.get('boundaries', ()):
-        axis.axvline(x, ymin=boundary_gap, ymax=1, color='#9CA3AF',
-                     linewidth=.65, linestyle='--', zorder=0)
+        axis.axvline(x, ymin=boundary_gap, ymax=1, color='#000000',
+                     linewidth=2, linestyle='--', zorder=0)
     if sequence.get('mode') in ('group', 'wafer'):
         for x in (sequence['limits'][0], *sequence.get('boundaries', ()), sequence['limits'][1]):
             axis.plot([x, x], [-.14, -.31], transform=axis.get_xaxis_transform(),
-                      clip_on=False, color='#64748B', linewidth=.65)
+                      clip_on=False, color='#000000', linewidth=2)
         if sequence.get('mode') == 'wafer':
             axis.set_xlabel('')
 

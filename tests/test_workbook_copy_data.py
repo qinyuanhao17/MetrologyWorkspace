@@ -34,7 +34,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
         child.raw_model.edit({(1, column): "9.9990000"})
         child.recognize()
         with TemporaryDirectory() as folder:
-            path = Path(folder) / "manual-raw-save-first.wkb"
+            path = Path(folder) / "manual-raw-save-first.mwkb"
             parent.save_workbook(path)
             self.assertFalse(child.copy_from_wkb_action.isChecked())
             restored = MatchingWindow()
@@ -65,7 +65,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
                     snapshot.states["map.preview"]["data_override"] = override
                     self.assertTrue(snapshot.states["map.preview"]["ui"]["copy_from_wkb"])
                     with TemporaryDirectory() as folder:
-                        path = Path(folder) / "old-linked-map.wkb"
+                        path = Path(folder) / "old-linked-map.mwkb"
                         save_workspace(path, snapshot)
                         restored = MatchingWindow()
                         self.addCleanup(self.close_window, restored)
@@ -193,7 +193,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
         pd.testing.assert_frame_equal(child.raw_model.document_frame(), updated)
         pd.testing.assert_frame_equal(child.reference_model.document_frame(), manual)
         with TemporaryDirectory() as folder:
-            path = Path(folder) / "manual-reference-linked-raw.wkb"
+            path = Path(folder) / "manual-reference-linked-raw.mwkb"
             parent.save_workbook(path)
             restored = MatchingWindow()
             self.addCleanup(self.close_window, restored)
@@ -250,7 +250,8 @@ class WorkbookCopyDataTests(unittest.TestCase):
         self.assertEqual(failures, [])
         for child in (parent.open_stage_workspace("preview"), parent.open_correlation_workspace()):
             self.addCleanup(self.close_window, child)
-            self.assertEqual(len(child.model.document_frame()), 3)
+            self.assertEqual(len(child.model.document_frame()), 4)
+            self.assertEqual(len(child.participating_positions(child.model.frame())), 3)
             child.full_data_action.trigger()
             self.assertEqual(len(child.model.document_frame()), 4)
             if child.workspace_type == "wafer_map":
@@ -258,9 +259,9 @@ class WorkbookCopyDataTests(unittest.TestCase):
                 child.data_selection_action.trigger()
                 self.assertEqual(failures, [])
         with TemporaryDirectory() as folder:
-            path = Path(folder) / "full-data-scope.wkb"
+            path = Path(folder) / "full-data-scope.mwkb"
             parent.save_workbook(path)
-            legacy = Path(folder) / "legacy-full-data-scope.wkb"
+            legacy = Path(folder) / "legacy-full-data-scope.mwkb"
             snapshot = load_workspace(path)
             for scope in ("map.preview", "correlation.preview"):
                 snapshot.states[scope]["ui"].pop("copy_from_wkb")
@@ -284,7 +285,8 @@ class WorkbookCopyDataTests(unittest.TestCase):
                         child.workbook_selection_action.trigger()
                         self.assertTrue(child.workbook_selection_action.isChecked())
                         self.assertFalse(child.full_data_action.isChecked())
-                        self.assertEqual(len(child.model.document_frame()), 3)
+                        self.assertEqual(len(child.model.document_frame()), 4)
+                        self.assertEqual(len(child.participating_positions(child.model.frame())), 3)
                         child.full_data_action.trigger()
                         self.assertFalse(child.workbook_selection_action.isChecked())
                         self.assertTrue(child.full_data_action.isChecked())
@@ -327,7 +329,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
         self.assertEqual(copied["CD"].tolist(), ["9.1", "9.2", "9.3", "9.4"])
         self.assertEqual(copied.columns.tolist(), ["Wafer ID", "Die Seq", "X", "Y", "CD", "Depth"])
         with TemporaryDirectory() as folder:
-            path = Path(folder) / "protected-copy.wkb"
+            path = Path(folder) / "protected-copy.mwkb"
             parent.save_workbook(path)
             restored = MatchingWindow()
             self.addCleanup(self.close_window, restored)
@@ -619,7 +621,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
         choice = child.copy_from_wkb_action
         choice.trigger()
         with TemporaryDirectory() as folder:
-            path = Path(folder) / "copy-choice.wkb"
+            path = Path(folder) / "copy-choice.mwkb"
             parent.save_workbook(path)
             updated = raw.copy()
             updated["CD"] = ["21.000", "22.000", "23.000", "24.000"]
@@ -704,14 +706,16 @@ class WorkbookCopyDataTests(unittest.TestCase):
         self.assertEqual(errors, [])
         for child in (parent.open_stage_workspace("preview"), parent.open_correlation_workspace()):
             self.addCleanup(self.close_window, child)
-            self.assertEqual(len(child.model.frame()), 3)
+            self.assertEqual(len(child.model.frame()), 4)
+            self.assertEqual(len(child.participating_positions(child.model.frame())), 3)
             child.copy_from_wkb_action.trigger()
             child.set_table(raw, "Manual measurements")
             self.assertEqual(set().union(*child.selection["groups"].values()), {0, 1, 2, 3})
             child.copy_from_wkb_action.trigger()
             self.assertTrue(child.workbook_selection_action.isChecked())
             self.assertTrue(child.workbook_selection_action.isEnabled())
-            self.assertEqual(len(child.model.frame()), 3)
+            self.assertEqual(len(child.model.frame()), 4)
+            self.assertEqual(len(child.participating_positions(child.model.frame())), 3)
 
 
 if __name__ == "__main__":

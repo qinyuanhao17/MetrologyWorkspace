@@ -68,7 +68,7 @@ class WorkspaceStoreTests(unittest.TestCase):
 
     def test_each_document_uses_its_own_extension(self):
         for kind, suffix, frames, states in (
-            ("match_workbook", ".wkb", {"reference": pd.DataFrame(), "raw": pd.DataFrame()}, {"match": {}}),
+            ("match_workbook", ".mwkb", {"reference": pd.DataFrame(), "raw": pd.DataFrame()}, {"match": {}}),
             ("wafer_map", ".wmap", {"input_data": pd.DataFrame()}, {}),
             ("dynamic", ".wdyn", {"input_data": pd.DataFrame()}, {}),
             ("correlation_trend", ".wct", {"reference_data": pd.DataFrame(), "raw_data": pd.DataFrame()}, {}),

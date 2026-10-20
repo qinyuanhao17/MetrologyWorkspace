@@ -145,7 +145,7 @@ class CorrelationSourceIdentityTests(unittest.TestCase):
             self.assertEqual(child.selected(child.reference_wafer_list), selected)
             self.assertTrue(child.reference_model.undo.canUndo())
             with TemporaryDirectory() as folder:
-                path = Path(folder) / "manual-ref-identity.wkb"
+                path = Path(folder) / "manual-ref-identity.mwkb"
                 parent.save_workbook(path)
                 restored = MatchingWindow()
                 restored.load_workbook(path)

@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
 from .matching import MatchWorkbook
 from .matching.analysis import _normalized_trend_axis_settings
 from .settings import apply_theme, recent_wkb_paths
-from .workspace_store import load_workspace
+from .workspace_store import MATCH_FILTER, load_workspace
 
 
 AXIS_MODE_LABELS = {
@@ -151,7 +151,7 @@ class WorkbookStartupDialog(QDialog):
         layout.addWidget(QLabel("Recent Workbooks", objectName="sectionTitle"))
         self.recent_list = QListWidget(objectName="recentWorkbooks")
         for path in recent_wkb_paths():
-            if path.suffix.lower() != ".wkb" or not path.is_file():
+            if path.suffix.lower() not in (".mwkb", ".wkb", ".bak") or not path.is_file():
                 continue
             try:
                 snapshot = load_workspace(path)
@@ -238,7 +238,7 @@ class WorkbookStartupDialog(QDialog):
         self._show_settings()
 
     def choose_workbook(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Open Match Workbook", "", "Match Workbook (*.wkb)")
+        path, _ = QFileDialog.getOpenFileName(self, "Open Match Workbook", "", MATCH_FILTER)
         if path:
             self.select_workbook(path)
 

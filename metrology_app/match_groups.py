@@ -15,10 +15,16 @@ from .measurements import Measurement, default_identity_columns, detect_measurem
 def _copy_state_value(value):
     """Copy only the containers of one grouping value; scalars stay shared."""
     if isinstance(value, dict):
+        if all(type(item) is str for item in value.values()):
+            return value.copy()
         return {key: _copy_state_value(item) for key, item in value.items()}
     if isinstance(value, list):
+        if all(type(item) is str for item in value):
+            return value.copy()
         return [_copy_state_value(item) for item in value]
     if isinstance(value, tuple):
+        if all(type(item) is str for item in value):
+            return value
         return tuple(_copy_state_value(item) for item in value)
     return value
 
@@ -157,6 +163,8 @@ def group_state(state=None):
     if selection is not None:
         if not isinstance(selection, dict) or not isinstance(selection.get("records"), list) or not isinstance(selection.get("excluded"), list):
             raise ValueError("Invalid data participation state.")
+        if type(selection.get("hide_excluded", False)) is not bool:
+            raise ValueError("Hide excluded rows needs a checkbox value.")
         records = selection["records"]
         if any(not isinstance(record, dict) or not isinstance(record.get("id"), str)
                or not isinstance(record.get("key"), str) for record in records):
@@ -251,6 +259,11 @@ def reuse_row_ids(previous, current):
     _remember_row_ids(current, row_ids(previous))
 
 
+@lru_cache(maxsize=16384)
+def _encoded_row_id(columns, values, ordinal):
+    return json.dumps([columns, values, ordinal], ensure_ascii=False)
+
+
 @lru_cache(maxsize=6)
 def _encoded_row_ids(columns, values):
     """Bounded immutable identities shared by equal source snapshots."""
@@ -258,7 +271,7 @@ def _encoded_row_ids(columns, values):
     for key in values:
         ordinal = seen[key]
         seen[key] += 1
-        ids.append(json.dumps([columns, key, ordinal], ensure_ascii=False))
+        ids.append(_encoded_row_id(columns, key, ordinal))
     return tuple(ids)
 
 
@@ -274,8 +287,11 @@ def row_ids(raw):
     if cached is not None:
         return cached
     columns = row_identity_columns(raw)
-    values = tuple(tuple(str(v).strip() for v in row) if columns else ("row", str(position))
-                   for position, row in enumerate(raw[columns].fillna("").astype(str).values))
+    if columns:
+        identity = raw[columns].fillna("").astype(str)
+        values = tuple(zip(*(identity[column].str.strip() for column in columns)))
+    else:
+        values = tuple(("row", str(position)) for position in range(len(raw)))
     ids = _encoded_row_ids(tuple(columns), values)
     _remember_row_ids(raw, ids)
     return ids
@@ -342,9 +358,15 @@ class GroupPlan:
         values = test_flags.iloc[:, 0].tolist() if len(test_flags.columns) else []
         values += [""] * (len(raw) - len(values))
         selected = set(participation_rows(raw, self.state["data_selection"]))
+        parsed_values = {}
         def parsed_flag(i, value):
             try:
-                return flag_value(value)
+                # A workbook usually repeats a few flags over thousands of
+                # rows. Keep type in the key: numeric NaN is blank, "nan" is invalid.
+                key = (type(value), str(value))
+                if key not in parsed_values:
+                    parsed_values[key] = flag_value(value)
+                return parsed_values[key]
             except ValueError:
                 if i in selected:
                     raise
@@ -373,7 +395,8 @@ class GroupPlan:
             f"{mark if self.mark_enabled else 'All'}:{'' if mark_groups else flag}"
             for mark, flag in zip(self.marks, self.flags)
         )
-        self.labels = tuple(self.label(key) for key in self.row_groups)
+        labels = {key: self.label(key) for key in set(self.row_groups)}
+        self.labels = tuple(labels[key] for key in self.row_groups)
         self.order_frame = pd.DataFrame({"TestFlag": values,
                                          "Head": [self.head(flag) if head_groups else "" for flag in self.flags],
                                          "Mark": [self.mark_names[mark] if self.mark_enabled else ""

@@ -26,7 +26,7 @@ from .module_registry import create_default_registry
 from .reminder_panel import ReminderPanel
 from .diagnostics import get_logger
 from .settings import apply_theme, get_settings, load_settings, save_settings, recent_wkb_paths
-from .workspace_store import EXTENSIONS, WORKSPACE_FILTER, WORKSPACE_LABELS, load_workspace
+from .workspace_store import EXTENSIONS, WORKSPACE_FILTER, WORKSPACE_LABELS, load_workspace, is_workspace_path
 from .settings_dialog import SettingsDialog
 
 
@@ -489,12 +489,12 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Cannot open workspace", str(error))
 
     def dragEnterEvent(self, event):
-        if any(Path(url.toLocalFile()).suffix.lower() in EXTENSIONS.values() for url in event.mimeData().urls()):
+        if any(is_workspace_path(url.toLocalFile()) for url in event.mimeData().urls()):
             event.acceptProposedAction()
 
     def dropEvent(self, event):
         for url in event.mimeData().urls():
-            if url.isLocalFile() and Path(url.toLocalFile()).suffix.lower() in EXTENSIONS.values():
+            if url.isLocalFile() and is_workspace_path(url.toLocalFile()):
                 self.open_recent_workspace(url.toLocalFile())
         event.acceptProposedAction()
 
@@ -578,10 +578,10 @@ class MainWindow(QMainWindow):
 
     def load_path(self, path):
         """Route a typed WKB to its owner; measurement imports use Wafer Map."""
-        if Path(path).suffix.lower() in EXTENSIONS.values():
+        if is_workspace_path(path):
             snapshot = load_workspace(path)
             suffix = Path(path).suffix.lower()
-            if suffix != EXTENSIONS[snapshot.workspace_type] and not (suffix == ".wkb" and snapshot.workspace_type != "match_workbook"):
+            if suffix != EXTENSIONS[snapshot.workspace_type] and suffix not in (".wkb", ".bak"):
                 if QMessageBox.question(self, "Workspace type mismatch",
                                         f"The {suffix} extension does not match {WORKSPACE_LABELS[snapshot.workspace_type]}.\n"
                                         "Open using its actual type? Saving will require the correct extension.",

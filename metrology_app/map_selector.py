@@ -1,5 +1,5 @@
 """Selectable wafer × parameter boxes, using native spreadsheet selection."""
-from PyQt6.QtCore import QItemSelection, QItemSelectionModel, Qt, pyqtSignal
+from PyQt6.QtCore import QItemSelection, QItemSelectionModel, QSignalBlocker, Qt, pyqtSignal
 from PyQt6.QtWidgets import QAbstractItemView, QHeaderView, QTableWidget, QTableWidgetItem
 
 from .table_clipboard import attach_copy_feedback
@@ -98,6 +98,7 @@ class MapSelector(QTableWidget):
         }
 
     def set_array(self, wafers, metrics, labels=None, enabled_cells=None):
+        wafers, metrics = list(wafers), list(metrics)
         labels = labels or {}
         enabled_cells = None if enabled_cells is None else set(enabled_cells)
         if (wafers == self.wafers and metrics == self.metrics
@@ -108,12 +109,15 @@ class MapSelector(QTableWidget):
         if list(wafers) != self.wafers or parameters_changed:
             self.pending_draw = True
         previous = self.selected_cells()
+        old_wafers, old_metrics = set(self.wafers), set(self.metrics)
         old_cells = (
             {(w, m) for w in self.wafers for m in self.metrics}
             if self.enabled_cells is None else set(self.enabled_cells)
         )
         self.blockSignals(True)
         reused = self._reuse_cells(wafers, metrics, labels)
+        wafer_headers_changed = not reused or wafers != self.wafers or labels != self.labels
+        metric_headers_changed = not reused or metrics != self.metrics
         self.wafers, self.metrics = list(wafers), list(metrics)
         self.labels = labels.copy()
         self.enabled_cells = enabled_cells
@@ -121,48 +125,62 @@ class MapSelector(QTableWidget):
             self.clear()
             self.setRowCount(len(wafers))
             self.setColumnCount(len(metrics))
-        self.setVerticalHeaderLabels([labels.get(w, w) for w in wafers])
-        self.setHorizontalHeaderLabels(metrics)
+        if wafer_headers_changed:
+            self.setVerticalHeaderLabels([labels.get(w, w) for w in wafers])
+        if metric_headers_changed:
+            self.setHorizontalHeaderLabels(metrics)
         chosen_cells = set()
+        selectable = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+        unselectable = ~selectable
+        flag_variants = {}
+        # Notify the native view once after the complete box update, rather
+        # than repeatedly clipping its selection for each flag/tooltip change.
+        model_blocker = QSignalBlocker(self.model())
         for row, wafer in enumerate(wafers):
+            name = labels.get(wafer, wafer)
             for col, metric in enumerate(metrics):
-                name = labels.get(wafer, wafer)
-                item = self.item(row, col) if reused else None
-                new_item = item is None
+                cell = (wafer, metric)
+                enabled = enabled_cells is None or cell in enabled_cells
+                if enabled and (parameters_changed or cell in previous or cell not in old_cells):
+                    chosen_cells.add(cell)
+                new_item = not reused or wafer not in old_wafers or metric not in old_metrics
+                if not new_item and enabled == (cell in old_cells):
+                    continue
+                item = None if new_item else self.item(row, col)
                 if new_item:
                     item = QTableWidgetItem(f"{metric}\n{name}")
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                enabled = (
-                    enabled_cells is None or (wafer, metric) in enabled_cells
-                )
-                if enabled and (new_item or (wafer, metric) not in old_cells):
-                    item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+                if new_item or enabled != (cell in old_cells):
+                    flags = item.flags()
+                    if flags not in flag_variants:
+                        flag_variants[flags] = (flags & unselectable, flags | selectable)
+                    item.setFlags(flag_variants[flags][enabled])
+                if enabled and (new_item or cell not in old_cells):
                     item.setToolTip(
                         f"{name} / {metric}\n"
                         "Drag to select; Ctrl adds or removes boxes."
                     )
-                elif not enabled and (new_item or (wafer, metric) in old_cells):
-                    item.setFlags(
-                        item.flags()
-                        & ~Qt.ItemFlag.ItemIsEnabled
-                        & ~Qt.ItemFlag.ItemIsSelectable
-                    )
+                elif not enabled and (new_item or cell in old_cells):
                     item.setToolTip(
                         f"{metric} is not selected for this data source."
                     )
                 if new_item:
                     self.setItem(row, col, item)
-                if enabled and (
-                    parameters_changed or (wafer, metric) in previous
-                    or (wafer, metric) not in old_cells
-                ):
-                    chosen_cells.add((wafer, metric))
         for header, count, size, minimum in ((self.horizontalHeader(), len(metrics), 260, 170),
                                              (self.verticalHeader(), len(wafers), 190, 110)):
             header.setMinimumSectionSize(minimum)
             header.setDefaultSectionSize(size)
             header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch if count <= 4 else QHeaderView.ResizeMode.Interactive)
+        model_blocker.unblock()
+        self._invalidate_selected_cells()
         self._select_cells(chosen_cells)
+        if wafers and metrics:
+            self.model().dataChanged.emit(self.model().index(0, 0),
+                                          self.model().index(len(wafers) - 1, len(metrics) - 1), [])
+        # This exact set was just installed in the native selection model.
+        # Reading thousands of QModelIndexes again in every changed listener
+        # is redundant. Subsequent user/model mutations invalidate it as usual.
+        self._selected_cells = frozenset(chosen_cells)
         self.blockSignals(False)
         self.changed.emit()
 

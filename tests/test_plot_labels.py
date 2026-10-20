@@ -191,7 +191,7 @@ class PlotLabelTests(unittest.TestCase):
         window.plot_label_checks["trend"]["lot"].click()
         window.plot_label_checks["map"]["pad"].click()
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "captions.wkb"
+            path = Path(folder) / "captions.mwkb"
             window.save_workbook(path)
             restored = MatchingWindow()
             self.addCleanup(restored.deleteLater)

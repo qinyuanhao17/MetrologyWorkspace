@@ -11,11 +11,12 @@ from .curve import ResponsivePlotDataItem
 
 class _VerticalBoundaries(pg.GraphicsObject):
     """Full-height reference lines in one item, excluded from data auto-range."""
-    def __init__(self, positions, pen):
+    def __init__(self, positions, pen, halo=None):
         super().__init__()
         self.positions = tuple(positions)
         self.pen = pg.mkPen(pen)
         self.pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+        self.halo = pg.mkPen(halo) if halo is not None else None
 
     def boundingRect(self):
         rect = self.viewRect()
@@ -28,9 +29,13 @@ class _VerticalBoundaries(pg.GraphicsObject):
 
     def paint(self, painter, *args):
         rect = self.boundingRect()
+        lines = [QLineF(x, rect.top(), x, rect.bottom())
+                 for x in self.positions if rect.left() <= x <= rect.right()]
+        if self.halo is not None:
+            painter.setPen(self.halo)
+            painter.drawLines(lines)
         painter.setPen(self.pen)
-        painter.drawLines([QLineF(x, rect.top(), x, rect.bottom())
-                           for x in self.positions if rect.left() <= x <= rect.right()])
+        painter.drawLines(lines)
 
 
 def place_legend_above_frame(plot, *, columns=2):
@@ -141,6 +146,7 @@ class InteractivePlotWidget(pg.PlotWidget):
         axis.setPen(pg.mkPen(color))
         axis.setTextPen(pg.mkPen(color))
         axis.setLabel(label, color=color)
+        axis.enableAutoSIPrefix(False)
         view = _PlotViewBox(auto_x_range=self.view_box._fixed_auto_x_range)
         menu = view.getMenu(None)
         if menu is not None:
@@ -175,9 +181,10 @@ class InteractivePlotWidget(pg.PlotWidget):
         item.rendering_changed.connect(self._render_status_changed)
         return item
 
-    def add_vertical_boundaries(self, positions, pen):
+    def add_vertical_boundaries(self, positions, pen, *, halo=None):
         """Draw every wafer edge without adding hundreds of scene objects."""
-        item = _VerticalBoundaries(positions, pen)
+        item = _VerticalBoundaries(positions, pen, halo)
+        item.setZValue(-10)
         self.getPlotItem().addItem(item, ignoreBounds=True)
         return item
 

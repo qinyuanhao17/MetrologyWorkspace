@@ -85,6 +85,11 @@ class SettingsDialog(QDialog):
         form.addRow("Recovery interval", self.recovery_interval)
 
         self.point_values = QCheckBox("Show point values by default")
+        self.point_decimals = QDoubleSpinBox()
+        self.point_decimals.setDecimals(0)
+        self.point_decimals.setRange(0, 10)
+        self.point_decimals.setKeyboardTracking(False)
+        form.addRow("Point value decimals (half up)", self.point_decimals)
         self.measurement_points = QCheckBox("Show measurement points by default")
         self.fill_edge = QCheckBox("Fill edge by default")
         self.shared_scale = QCheckBox("Shared scale by default")
@@ -121,6 +126,7 @@ class SettingsDialog(QDialog):
         self.min_rsq.setValue(float(settings.get("min_rsq", 0.50)))
         self.recovery_interval.setValue(settings.get("recovery_interval_seconds", 120))
         self.point_values.setChecked(bool(settings.get("point_values", True)))
+        self.point_decimals.setValue(settings.get("point_value_decimals", 2))
         self.measurement_points.setChecked(bool(settings.get("measurement_points", True)))
         self.fill_edge.setChecked(bool(settings.get("fill_edge", True)))
         self.shared_scale.setChecked(bool(settings.get("shared_scale", False)))
@@ -146,6 +152,7 @@ class SettingsDialog(QDialog):
             "min_rsq": round(self.min_rsq.value(), 2),
             "recovery_interval_seconds": int(self.recovery_interval.value()),
             "point_values": self.point_values.isChecked(),
+            "point_value_decimals": int(self.point_decimals.value()),
             "measurement_points": self.measurement_points.isChecked(),
             "fill_edge": self.fill_edge.isChecked(),
             "shared_scale": self.shared_scale.isChecked(),
@@ -156,6 +163,8 @@ class SettingsDialog(QDialog):
 
     def save(self):
         save_settings(self._collect())
+        from .plot_page import PlotPage
+        PlotPage.sync_point_precision(int(self.point_decimals.value()))
         from .workspace_document import apply_recovery_settings
         apply_recovery_settings()
         self.accept()

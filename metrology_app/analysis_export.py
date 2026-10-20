@@ -113,6 +113,9 @@ def capture_window(window, *, parameters=None):
 
 
 def _check_draw(page):
+    if getattr(page, "overlay_timer", None) is not None and page.overlay_timer.isActive():
+        page.overlay_timer.stop()
+        page.apply_overlay_visibility()
     if getattr(page, "has_drawn_once", False) and page.selector.pending_draw:
         raise ValueError("Click Draw selected to apply pending plot choices before exporting.")
     if getattr(page, "input_refresh_timer", None) is not None and page.input_refresh_timer.isActive():

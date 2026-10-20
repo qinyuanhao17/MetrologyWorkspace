@@ -166,7 +166,7 @@ class MappingRowControlTests(unittest.TestCase):
         self.assertEqual(window.selected_mappings(), original)
         window.mapping_table.cellWidget(1, 3).setCurrentText("Depth")
         with TemporaryDirectory() as folder:
-            path = Path(folder) / "shared-reference-draft.wkb"
+            path = Path(folder) / "shared-reference-draft.mwkb"
             window.save_workbook(path)
             restored = MatchingWindow()
             try:
@@ -209,7 +209,7 @@ class MappingRowControlTests(unittest.TestCase):
         self.assertEqual(window.mapping_table.item(2, 4).text(), "", "Unused mapping has no Card")
         expected = window.selected_mappings()
         with TemporaryDirectory() as folder:
-            path = Path(folder) / "shared-reference-analyzed.wkb"
+            path = Path(folder) / "shared-reference-analyzed.mwkb"
             window.save_workbook(path)
             restored = MatchingWindow()
             try:
@@ -293,7 +293,7 @@ class MappingRowControlTests(unittest.TestCase):
         self.assertEqual(window.mapping_table.cellWidget(1, 3).currentText(), "")
         self.assertEqual([mapping.name for mapping in window.selected_mappings()], ["Original calibration"])
         with TemporaryDirectory() as folder:
-            path = Path(folder) / "unused-renamed.wkb"
+            path = Path(folder) / "unused-renamed.mwkb"
             window.save_workbook(path)
             restored = MatchingWindow()
             try:
@@ -320,7 +320,7 @@ class MappingRowControlTests(unittest.TestCase):
                         row["reference_column"]: {key: value for key, value in row.items() if key != "reference_column"}
                         for row in snapshot.states["match_ui"]["mapping_choices"]
                     }
-                    path = Path(folder) / f"legacy-{analyzed}.wkb"
+                    path = Path(folder) / f"legacy-{analyzed}.mwkb"
                     save_workspace(path, snapshot)
                     restored = MatchingWindow()
                     try:
@@ -339,7 +339,7 @@ class MappingRowControlTests(unittest.TestCase):
     def test_canceling_an_added_mapping_does_not_change_the_saved_workbook(self):
         window = self.window
         with TemporaryDirectory() as folder:
-            window.save_workbook(Path(folder) / "before-cancel.wkb")
+            window.save_workbook(Path(folder) / "before-cancel.mwkb")
             before = window.selected_mappings()
             QTimer.singleShot(0, lambda: APP.activeModalWidget().reject())
             window.mapping_add_button.click()
@@ -369,7 +369,7 @@ class MappingRowControlTests(unittest.TestCase):
         window.mapping_table.item(1, 0).setCheckState(Qt.CheckState.Unchecked)
         self.delete_mapping(0)
         with TemporaryDirectory() as folder:
-            path = Path(folder) / "mapping-rows.wkb"
+            path = Path(folder) / "mapping-rows.mwkb"
             for analyzed in (False, True):
                 with self.subTest(analyzed=analyzed):
                     if analyzed:

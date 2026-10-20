@@ -27,6 +27,7 @@ DEFAULTS = {
     "fill_edge": True,
     "shared_scale": False,
     "point_values": True,
+    "point_value_decimals": 2,
     "measurement_points": True,
     "scale_bar": True,
     "contour": False,
@@ -50,6 +51,9 @@ _loaded_path = None
 
 
 def _normalize_recovery_interval():
+    decimals = _current.get("point_value_decimals")
+    if type(decimals) is not int or not 0 <= decimals <= 10:
+        _current["point_value_decimals"] = DEFAULTS["point_value_decimals"]
     value = _current.get("recovery_interval_seconds")
     if type(value) is not int or not 30 <= value <= 1800:
         _current["recovery_interval_seconds"] = DEFAULTS["recovery_interval_seconds"]

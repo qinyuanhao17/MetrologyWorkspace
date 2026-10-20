@@ -1,6 +1,7 @@
 """Scientific wafer rendering, independent of Qt; also usable for batch export."""
 
 from dataclasses import dataclass
+from decimal import Decimal, ROUND_HALF_UP, localcontext
 
 import numpy as np
 from matplotlib.artist import Artist
@@ -44,6 +45,7 @@ class PlotOptions:
     smoothing: float = 0.0
     opacity: float = 1.0
     cmap_range: tuple | None = None
+    point_decimals: int = 2
 
 
 class ValueLabels(Artist):
@@ -54,19 +56,41 @@ class ValueLabels(Artist):
     _glyphs = {}
     _top = 0.
 
-    def __init__(self, positions, values, fontsize):
+    def __init__(self, positions, values, fontsize, decimals=2):
         super().__init__()
         self.positions = np.asarray(positions, dtype=float)
         self.fontsize = fontsize
-        self.labels = [f"{value:.4g}" for value in values]
+        self.values = tuple(values)
         self.drawn_indices = []
         self.drawn_boxes = []
+        self.set_decimals(decimals)
+
+    def set_decimals(self, decimals):
+        """Round display text only; keep the original measurements intact."""
+        if not isinstance(decimals, int) or not 0 <= decimals <= 10:
+            raise ValueError("Point value decimals must be an integer between 0 and 10.")
+        if getattr(self, "decimals", None) == decimals:
+            return
+        self.decimals = decimals
+        self.labels = []
+        for value in self.values:
+            decimal = Decimal(str(value))
+            with localcontext() as context:
+                context.prec = max(28, len(decimal.as_tuple().digits),
+                                   decimal.adjusted() + 1 if decimal.is_finite() else 0) + decimals + 2
+                rounded = (decimal.quantize(Decimal(1).scaleb(-decimals), rounding=ROUND_HALF_UP)
+                           if decimal.is_finite() else decimal)
+                label = f"{rounded:.{decimals}f}"
+            if label.startswith("-") and float(label) == 0:
+                label = label[1:]
+            self.labels.append(label)
         for character in set("".join(self.labels)):
             if character not in self._glyphs:
                 glyph = TextPath((0, 0), character, size=1, prop=self._font)
                 advance = self._text_to_path.get_text_width_height_descent(character, self._font, False)[0]
                 self._glyphs[character] = glyph, advance
                 self.__class__._top = max(self._top, glyph.get_extents().y1)
+        self.stale = True
 
     def set_fontsize(self, size):
         self.fontsize = size
@@ -448,7 +472,7 @@ class WaferPlot:
         size = max(4.5, font_size * (0.55 if compact else 0.65))
         if len(values) > 100:
             size = max(4.5, size - 1)
-        self.value_labels = ValueLabels(positions, values, size)
+        self.value_labels = ValueLabels(positions, values, size, options.point_decimals)
         self.value_labels.set_visible(options.labels)
         self.value_labels.set_zorder(4)
         self.value_labels.set_clip_path(ax.patch)

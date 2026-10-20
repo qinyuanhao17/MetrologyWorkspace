@@ -18,7 +18,7 @@ APP = QApplication.instance() or QApplication([])
 class WorkbookStartupTests(unittest.TestCase):
     def setUp(self):
         self.scratch = tempfile.TemporaryDirectory()
-        self.path = Path(self.scratch.name) / "project.wkb"
+        self.path = Path(self.scratch.name) / "project.mwkb"
         self.windows = []
         source = self.window()
         source.set_reference_frame(pd.DataFrame({"CD Reference": [2., 4., 6.]}), "Ref")
@@ -147,7 +147,7 @@ class WorkbookStartupTests(unittest.TestCase):
         raw = pd.DataFrame({"Wafer ID": ["001"] * 3, "Die Seq": ["002", "036", "085"],
                             "CD": ["1.000", "2.000", "3.000"]})
         source.set_raw_frame(raw)
-        path = self.path.parent / "raw-only.wkb"
+        path = self.path.parent / "raw-only.mwkb"
         source.save_workbook(path)
         original_file = path.read_bytes()
         window = self.window()
@@ -178,7 +178,7 @@ class WorkbookStartupTests(unittest.TestCase):
     def test_opened_complete_draft_can_launch_each_analysis_without_running_it_first(self):
         snapshot = self.windows[0].workspace_snapshot()
         snapshot.states["match"]["draft"] = True
-        path = self.path.parent / "ready-draft.wkb"
+        path = self.path.parent / "ready-draft.mwkb"
         save_workspace(path, snapshot)
         window = self.window()
         window.load_workbook(path)
@@ -198,7 +198,7 @@ class WorkbookStartupTests(unittest.TestCase):
         raw = pd.DataFrame({"Wafer ID": ["001"] * 3, "Die Seq": ["002", "036", "085"],
                             "CD": ["1.000", "2.000", "3.000"]})
         source.set_raw_frame(raw)
-        path = self.path.parent / "final-raw-only.wkb"
+        path = self.path.parent / "final-raw-only.mwkb"
         source.save_workbook(path)
         window = self.window()
         window.load_workbook(path)

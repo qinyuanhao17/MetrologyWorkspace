@@ -199,7 +199,9 @@ class RadiusPage(QWidget):
         combo.blockSignals(False)
 
     def set_input(self, frame, selection):
-        signature = (id(frame), tuple(selection["wafers"]), tuple(selection["metrics"]), selection["wafer_column"])
+        signature = (id(frame), tuple(selection["wafers"]), tuple(selection["metrics"]), selection["wafer_column"],
+                     tuple((key, tuple(selection["groups"].get(key, ()))) for key in selection["wafers"])
+                     if "groups" in selection else None)
         if signature == self.signature:
             return
         # Only a data change may redraw by itself. Adding or removing wafers or

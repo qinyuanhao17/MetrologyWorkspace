@@ -385,50 +385,67 @@ class CorrelationWindow(DataWorkspaceWindow):
         # The base restore now applies the full UI once, after Group keys exist:
         # overlays, pending Draw choices, page index and saved boxes included.
 
+    def _trend_source_parts(self, selection):
+        """Reuse row ownership across sidebar checks, not across source/group edits."""
+        cached = getattr(self, "_trend_parts_cache", None)
+        plan = self._group_plan
+        split = len(self.reference_model.frame())
+        groups = selection["groups"]
+        if cached is not None and cached[:2] == (plan, split) and cached[2] == groups:
+            return cached[3]
+        spans = plan.trend_spans()
+        labels = {key: plan.label(key, multiline=True) for key in {span["group"] for span in spans}}
+        sources = {}
+        for name, offset in (("Reference", 0), ("Raw Data", split)):
+            keys = [key for key in groups if key[0] == name]
+            order = {key: index for index, key in enumerate(keys)}
+            owners = {}
+            for key in keys:
+                for row in set(groups[key]):
+                    owners.setdefault(row, []).append(key)
+            parts = []
+            for n, span in enumerate(spans):
+                matches = {}
+                for row in span["rows"]:
+                    position = offset + row
+                    for key in owners.get(position, ()):
+                        matches.setdefault(key, []).append(position)
+                parts.append((n, span, [(key, tuple(matches[key]))
+                                       for key in sorted(matches, key=order.__getitem__)]))
+            occurrences = Counter(key for _, _, matches in parts for key, _ in matches)
+            sources[name] = (parts, occurrences)
+        result = sources, labels
+        self._trend_parts_cache = (plan, split, groups.copy(), result)
+        return result
+
     def _grouped_trend_selection(self, selection):
         if not self._match_groups or self._group_plan is None:
             return selection
         plan = self._group_plan
         if not plan.enabled and plan.state["trend_order"] == "groups":
             return selection
-        split = len(self.reference_model.frame())
         grouped = {**selection, "wafers": [], "groups": {}, "labels": {},
                    "group_labels": {}, "available_cells": set()}
         metrics_by_key = {}
         for old_key, metric in selection["available_cells"]:
             metrics_by_key.setdefault(old_key, []).append(metric)
-        spans = plan.trend_spans()
+        parts_by_source, group_labels = self._trend_source_parts(selection)
+        selected = set(selection["wafers"])
         source_keys = {}
         for source in selection["sources"]:
             name = source["name"]
-            offset = 0 if name == "Reference" else split
             source_keys[name] = []
-            keys = [key for key in selection["wafers"] if key[0] == name]
-            order = {key: index for index, key in enumerate(keys)}
-            owners = {}
-            for old_key in keys:
-                for row in set(selection["groups"][old_key]):
-                    owners.setdefault(row, []).append(old_key)
-            # Visit only wafers owning this span's rows. A checkbox must not
-            # scan every wafer and every parameter for every Group span.
-            parts = []
-            for n, span in enumerate(spans):
-                matches = {}
-                for row in span["rows"]:
-                    position = offset + row
-                    for old_key in owners.get(position, ()):
-                        matches.setdefault(old_key, []).append(position)
-                parts.append((n, span, matches))
-            occurrences = Counter(old_key for _, _, matches in parts for old_key in matches)
+            parts, occurrences = parts_by_source[name]
             for n, span, matches in parts:
-                for old_key in sorted(matches, key=order.__getitem__):
-                    rows = tuple(matches[old_key])
+                for old_key, rows in matches:
+                    if old_key not in selected:
+                        continue
                     key = (old_key if not plan.enabled and occurrences[old_key] == 1
                            else (name, f"group:{n}:{old_key[1]}"))
                     grouped["wafers"].append(key)
                     grouped["groups"][key] = rows
                     grouped["labels"][key] = f"{name} · {span['label']}"
-                    grouped["group_labels"][key] = plan.label(span["group"], multiline=True)
+                    grouped["group_labels"][key] = group_labels[span["group"]]
                     source_keys[name].append(key)
                     for metric in metrics_by_key.get(old_key, ()):
                         grouped["available_cells"].add((key, metric))
@@ -1081,6 +1098,7 @@ class CorrelationWindow(DataWorkspaceWindow):
             return
         if self._restoring_source_tables or self._workbook_sources is True:
             return  # No provisional selection/plots between the two table loads.
+        self._refresh_table_projection()
         if not self._workbook_sources:
             super().update_plan()
             if hasattr(self, "correlation_page"):

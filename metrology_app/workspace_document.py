@@ -153,7 +153,8 @@ def legacy_match_recovery(live, baseline):
 PAGE_NAMES = ("plot_page", "radius_page", "correlation_page", "sequence_page", "dynamic_page", "dynamic_trend")
 CONTROL_NAMES = ("x_column", "y_column", "diameter", "color_map", "opacity", "labels", "points",
                  "contour", "point_outline", "fill_edge", "shared", "scale_bar", "font_size",
-                 "resolution", "columns", "min_rsq", "page_size", "axis_ratio", "axis_mode", "zoom", "expand_wafer_ids")
+                 "resolution", "columns", "min_rsq", "page_size", "axis_ratio", "axis_mode", "zoom", "expand_wafer_ids",
+                 "show_statistics", "view_mode")
 
 
 def _key(value):
@@ -204,6 +205,7 @@ def analysis_state(window):
                 for (source, metric), comparisons in page.source_overlay.items()]
         if name == "dynamic_trend":
             saved["selected_dies"] = dict(page.selected_dies)
+            saved["comparisons"] = deepcopy(page.comparisons)
         state["pages"][name] = saved
     # Cards are plain coefficients, not pickled calibration objects.
     state["cards"] = {
@@ -255,6 +257,8 @@ def restore_analysis_state(window, state):
         if hasattr(page, "expand_wafer_ids"):
             controls = {"expand_wafer_ids": False, **controls}
         for field, value in controls.items():
+            if field == "point_decimals":
+                continue  # Legacy document preference; the application setting wins.
             control = getattr(page, field, None)
             if control is None:
                 continue
@@ -278,6 +282,9 @@ def restore_analysis_state(window, state):
             page._source_overlay_initialised = True
         if name == "dynamic_trend":
             page.selected_dies = dict(saved.get("selected_dies", {}))
+            page.comparisons = {str(name): list(dict.fromkeys(map(str, choices)))
+                                for name, choices in saved.get("comparisons", {}).items()
+                                if isinstance(choices, list)}
         if name == "correlation_page":
             page.restore_axis_state(saved.get("axis_directions", []))
     selection = deepcopy(state.get("selection", {}))
@@ -297,14 +304,31 @@ def restore_analysis_state(window, state):
             page.parameter_filter.set_selection(saved.get("parameter_filter"))
         if name == "correlation_page":
             page.set_page(int(saved.get("page_index", 0)))
+        if name == "dynamic_trend":
+            # Restoring the same measurement values can take the value-only
+            # fast path. Rebuild once after every presentation control and
+            # comparison choice has been restored, even when data is equal.
+            page.refresh()
+        if name == "plot_page":
+            page.apply_overlay_visibility()
     window.tabs.setCurrentIndex(min(max(0, int(state.get("tab", 0))), window.tabs.count() - 1))
+
+
+def _comparison_json(state):
+    # GUI state is normally an acyclic value tree. Avoid a visited-container
+    # hash table on every comparison, retaining the original validation for a
+    # cycle/deep state. Save still uses the fully checked encoder by default.
+    try:
+        return json_text(state, check_circular=False)
+    except RecursionError:
+        return json_text(state)
 
 
 def same_snapshot(first, second):
     return (first.workspace_type == second.workspace_type
             and first.frames.keys() == second.frames.keys()
             and all(frame.equals(second.frames[name]) for name, frame in first.frames.items())
-            and json_text(first.states) == json_text(second.states))
+            and _comparison_json(first.states) == _comparison_json(second.states))
 
 
 def recovery_directory():
@@ -443,7 +467,10 @@ class WkbDocument:
     def choose_target(self, path=None):
         kind = self.window.workspace_type
         if path is None:
-            default = workspace_path(self.path or f"workspace{EXTENSIONS[kind]}", kind)
+            default_source = self.path or Path(f"workspace{EXTENSIONS[kind]}")
+            if default_source.suffix.lower() == ".bak":
+                default_source = default_source.with_suffix("")
+            default = workspace_path(default_source, kind)
             chosen, _ = QFileDialog.getSaveFileName(self.window, f"Save {WORKSPACE_LABELS[kind]}",
                                                    str(default), f"{WORKSPACE_LABELS[kind]} (*{EXTENSIONS[kind]})")
             if not chosen:

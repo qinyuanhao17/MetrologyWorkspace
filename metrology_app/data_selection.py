@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFrame, QHBoxLayout,
+    QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFrame, QHBoxLayout,
     QLabel, QLineEdit, QMenu, QPushButton, QTableView, QToolButton,
     QVBoxLayout, QWidget,
 )
@@ -557,6 +557,16 @@ class DataSelectionDialog(SelectionDialog):
         super().__init__(frame, ids, checked, saved_groups, parent,
                          row_bools=saved_row_bools, group_bools=saved_group_bools,
                          show=(self.selection or {}).get("view_show", "all"))
+        self.hide_excluded = QCheckBox("Hide excluded rows in tables", objectName="hideExcludedRows")
+        self.hide_excluded.setChecked(bool((self.selection or {}).get("hide_excluded", False)))
+        self.hide_excluded.setToolTip("Apply hides unchecked records in Order, Reference, Raw Data and linked Match-selection views. Uncheck and Apply to restore them; source data is never deleted.")
+        buttons = self.findChild(QDialogButtonBox)
+        self.layout().removeWidget(buttons)
+        footer = QHBoxLayout()
+        footer.addWidget(self.hide_excluded)
+        footer.addStretch()
+        footer.addWidget(buttons)
+        self.layout().addLayout(footer)
 
     def accept(self):
         self.selection = {"records": [{"key": key, "id": identifier} for key, identifier in zip(row_ids(self.plan.raw), self.model.ids)],
@@ -564,7 +574,8 @@ class DataSelectionDialog(SelectionDialog):
                           "view_filter_groups": deepcopy([list(row) for row in self.filter_groups]),
                           "view_filter_row_bools": [list(bools) for bools in self.filter_row_bools],
                           "view_filter_group_bools": list(self.filter_group_bools),
-                          "view_show": self.show_rows.currentData()}
+                          "view_show": self.show_rows.currentData(),
+                          "hide_excluded": self.hide_excluded.isChecked()}
         super().accept()
 
 

@@ -557,13 +557,13 @@ class DynamicWindowTests(unittest.TestCase):
         self.assertIsNotNone(page.panel_hosts[0].side_widget)
         self.assertEqual(page.x_range, (0.5, 3.5))
 
-    def test_trend_tab_has_a_die_picker_instead_of_a_compare_control(self):
+    def test_trend_tab_has_a_die_picker_and_a_compare_control(self):
         self.window.set_table(self.frame(), "dynamic.csv")
         self.select_parameters("DP")
         page = self.window.dynamic_trend
 
         labels = [button.text() for button in page.findChildren(QPushButton)]
-        self.assertNotIn("Add Compare", labels)
+        self.assertIn("Add Compare", labels)
         self.assertEqual(list(page.die_pickers), ["DP"])
         self.assertFalse(page.die_pickers["DP"].currentText().startswith("Die 5"))
 

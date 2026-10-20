@@ -41,10 +41,11 @@ class InstallerPackagingTests(unittest.TestCase):
             self.assertTrue(output.is_file())
 
     def test_mismatched_hash_version_and_user_data_are_rejected_before_compilation(self):
-        for condition in ("hash", "version", "settings", "workbook", "path"):
+        for condition in ("hash", "version", "settings", "workbook", "mwkb", "path"):
             with self.subTest(condition=condition), TemporaryDirectory() as folder:
                 extra = {"settings": "MetrologyWorkspace/settings.yaml",
                          "workbook": "MetrologyWorkspace/personal.wkb",
+                         "mwkb": "MetrologyWorkspace/personal.MWKB",
                          "path": "../escape.txt"}.get(condition)
                 archive, digest = self.archive(folder, extra=extra)
                 with patch.object(BUILDER.subprocess, "run") as compile_payload:

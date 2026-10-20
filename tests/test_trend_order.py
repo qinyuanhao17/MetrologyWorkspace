@@ -178,14 +178,14 @@ class TrendOrderWindowTests(unittest.TestCase):
         controls.restore(state)
         self.window.run_analysis()
         child = self.window.open_correlation_workspace()
-        child.set_reference_table(self.reference.iloc[1:].reset_index(drop=True), "Manual Reference")
+        child.set_reference_table(self.reference, "Manual Reference")
         child.tabs.setCurrentWidget(child.sequence_page)
         child.sequence_page.selector.selectAll()
         child.sequence_page.draw_plot()
         APP.processEvents()
         self.assertEqual([plot.listDataItems()[0].yData.tolist() for plot in child.sequence_page.plot_widgets],
                          [[15., 5., 11., 7., 13., 9., 17.], [7., 2., 5., 3., 6., 4., 8.]])
-        pd.testing.assert_frame_equal(child.raw_model.frame(), self.raw.iloc[1:].reset_index(drop=True))
+        pd.testing.assert_frame_equal(child.raw_model.frame(), self.raw)
 
     def test_wkb_round_trip_retains_wafer_order_and_linked_plot_choices(self):
         controls = self.window.group_controls
@@ -199,7 +199,7 @@ class TrendOrderWindowTests(unittest.TestCase):
         APP.processEvents()
         expected = [[3., 15., 5., 11., 7., 13., 9., 17.], [1., 7., 2., 5., 3., 6., 4., 8.]]
         with TemporaryDirectory() as folder:
-            path = Path(folder) / "wafer-order.wkb"
+            path = Path(folder) / "wafer-order.mwkb"
             for _ in range(2):
                 self.window.save_workbook(path)
                 self.window.load_workbook(path)

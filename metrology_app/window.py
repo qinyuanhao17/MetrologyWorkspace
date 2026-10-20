@@ -24,7 +24,7 @@ from .radius_page import RadiusPage
 from .measurements import default_identity_columns, detect_measurements
 from .appearance import fit_window_to_screen, help_title_label
 from .settings import apply_theme, recent_wkb_paths
-from .workspace_store import EXTENSIONS, WORKSPACE_FILTER, WORKSPACE_LABELS, WorkspaceSnapshot, file_revision, load_workspace
+from .workspace_store import EXTENSIONS, WORKSPACE_FILTER, WORKSPACE_LABELS, WorkspaceSnapshot, file_revision, load_workspace, is_workspace_path
 from .workspace_document import WkbDocument, analysis_state, restore_analysis_state, recovery_decision, recovery_directory
 
 
@@ -262,6 +262,7 @@ class MainWindow(QMainWindow):
         states["data_selection"] = {
             "excluded": sorted(getattr(self, "_local_selection_excluded", set())),
             "follow_workbook": bool(getattr(self, "_workbook_selection_applies", True)),
+            "hide_workbook_excluded": bool(getattr(self, "_hide_workbook_excluded", False)),
             "view": (getattr(self, "_local_view", {}) if readonly
                      else deepcopy(getattr(self, "_local_view", {}))),
         }
@@ -276,6 +277,7 @@ class MainWindow(QMainWindow):
         self._participation_excluded = set(excluded)
         local = snapshot.states.get("data_selection", {})
         if isinstance(local, dict):
+            self._hide_workbook_excluded = bool(local.get("hide_workbook_excluded", False))
             saved_excluded = local.get("excluded", [])
             if isinstance(saved_excluded, list) and all(isinstance(key, str) for key in saved_excluded):
                 self._local_selection_excluded = set(saved_excluded)
@@ -994,8 +996,11 @@ class MainWindow(QMainWindow):
 
     def set_workbook_participation(self, book):
         """Update traceable exclusions without replacing a child's editable data."""
-        from .match_groups import applied_state, participation_rows, participation_source_keys
-        selection = applied_state(book.grouping_state)["data_selection"]
+        from .match_groups import participation_rows, participation_source_keys
+        # MatchWorkbook already validated this owned state. This read-only
+        # operation needs no second copy/normalization of every record mapping.
+        selection = book.grouping_state.get("applied", book.grouping_state)["data_selection"]
+        self._hide_workbook_excluded = bool((selection or {}).get("hide_excluded", False))
         source = book.final_match_raw if book.result_mode == "final" and book.final_match_raw is not None else book.raw
         allowed = set(participation_rows(source, selection)) if selection is not None else set(range(len(source)))
         self._participation_excluded = {key for row, key in enumerate(participation_source_keys(source)) if row not in allowed}
@@ -1019,6 +1024,7 @@ class MainWindow(QMainWindow):
         return set(i for i, key in enumerate(participation_source_keys(frame)) if key not in excluded)
 
     def _refresh_selection_badge(self):
+        self._refresh_table_projection()
         if not hasattr(self, "selection_count"):
             return
         frame = self._frame
@@ -1030,6 +1036,31 @@ class MainWindow(QMainWindow):
         self.data_badge.setText(f"{len(frame):,} rows × {len(frame.columns)} columns")
         self.selection_count.setText(
             f"{len(allowed):,} of {len(frame):,} rows used" if len(allowed) != len(frame) else "")
+
+    def _refresh_table_projection(self):
+        """A reversible editor view; the complete document remains authoritative."""
+        hidden = bool(getattr(self, "_hide_workbook_excluded", False)
+                      and getattr(self, "_workbook_selection_applies", True))
+        for name, view, model in (("raw", getattr(self, "sheet", None), self.model),
+                                  ("reference", getattr(self, "reference_sheet", None), getattr(self, "reference_model", None))):
+            if view is None or model is None:
+                continue
+            if hidden:
+                from .match_group_ui import ProjectedSheetModel
+                attribute = f"_{name}_participation_proxy"
+                proxy = getattr(self, attribute, None)
+                if proxy is None:
+                    proxy = ProjectedSheetModel(model, self)
+                    setattr(self, attribute, proxy)
+                if model.duplicate_header_count():
+                    continue  # Keep the previous safe row map while headers are repaired.
+                frame = model.document_frame()
+                raw = self.model.document_frame() if name == "reference" else frame
+                positions = self.participating_positions(raw if len(raw) == len(frame) else frame)
+                proxy.set_rows(sorted(positions))
+                view.setModel(proxy) if view.model() is not proxy else None
+            elif view.model() is not model:
+                view.setModel(model)
 
     def _selection_scope_changed(self, *_args):
         applies = self.workbook_selection_action.isChecked()
@@ -1089,6 +1120,7 @@ class MainWindow(QMainWindow):
         allowed = self.participating_positions(self._frame)
         self.selection["groups"] = {key: tuple(row for row in rows if row in allowed)
                                     for key, rows in self.selection["groups"].items()}
+        self.selection["wafers"] = [key for key in wafers if self.selection["groups"].get(key)]
         self.plot_page.set_input(self._frame, self.selection)
         self.radius_page.set_input(self._frame, self.selection)
         self.statusBar().showMessage(f"{len(wafers)} measurement sets selected    ·    {len(metrics)} parameters selected")
@@ -1145,42 +1177,43 @@ class MainWindow(QMainWindow):
                 previous_keys = list(participation_source_keys(self.model.frame()))
             except ValueError:
                 previous_keys = []
-        self.source_path = str(source)
-        self.file_label.setText(Path(source).name or "Untitled")
-        self.file_label.setToolTip(str(source))
-        self._reset_selection = True
-        headers_updated = (keep_local_selection and not report_paste and self.model.update_headers(frame))
-        if not headers_updated:
-            self.model.load(frame, report_paste=report_paste)
-        for i, column in enumerate(frame.columns):
-            width = 158 if column in ("Wafer ID", "PAD Name") else 118
-            self.sheet.setColumnWidth(i, width)
-        if not headers_updated:
-            self.sheet.setCurrentIndex(self.model.index(0, 0))
-        if report_paste and len(frame.columns):
-            self.sheet.mark_pasted_range((0, 0, len(frame), len(frame.columns) - 1))
-        self.tabs.setCurrentIndex(0)
-        self.recognize()
-        if keep_local_selection and previous_keys and previous_excluded:
-            # Keep this window's own selection when the Workbook refreshes its
-            # data: surviving identities win, otherwise the same row position does.
-            try:
-                keys = list(participation_source_keys(frame.reset_index(drop=True)))
-            except ValueError:
-                keys = []
-            exclusions = set()
-            for position, key in enumerate(keys):
-                if key in previous_excluded:
-                    exclusions.add(key)
-                elif position < len(previous_keys) and previous_keys[position] in previous_excluded:
-                    exclusions.add(key)
-            self._local_selection_excluded = exclusions
-            self._refresh_selection_badge()
-            self.update_plan()
-        if had_table:
-            self.restore_selection(previous_selection)
-        else:
-            self.check_all(self.wafer_list, True)
+        with self.input_update():
+            self.source_path = str(source)
+            self.file_label.setText(Path(source).name or "Untitled")
+            self.file_label.setToolTip(str(source))
+            self._reset_selection = True
+            headers_updated = (keep_local_selection and not report_paste and self.model.update_headers(frame))
+            if not headers_updated:
+                self.model.load(frame, report_paste=report_paste)
+            for i, column in enumerate(frame.columns):
+                width = 158 if column in ("Wafer ID", "PAD Name") else 118
+                self.sheet.setColumnWidth(i, width)
+            if not headers_updated:
+                self.sheet.setCurrentIndex(self.model.index(0, 0))
+            if report_paste and len(frame.columns):
+                self.sheet.mark_pasted_range((0, 0, len(frame), len(frame.columns) - 1))
+            self.tabs.setCurrentIndex(0)
+            self.recognize()
+            if keep_local_selection and previous_keys and previous_excluded:
+                # Keep this window's own selection when the Workbook refreshes its
+                # data: surviving identities win, otherwise the same row position does.
+                try:
+                    keys = list(participation_source_keys(frame.reset_index(drop=True)))
+                except ValueError:
+                    keys = []
+                exclusions = set()
+                for position, key in enumerate(keys):
+                    if key in previous_excluded:
+                        exclusions.add(key)
+                    elif position < len(previous_keys) and previous_keys[position] in previous_excluded:
+                        exclusions.add(key)
+                self._local_selection_excluded = exclusions
+                self._refresh_selection_badge()
+                self.update_plan()
+            if had_table:
+                self.restore_selection(previous_selection)
+            else:
+                self.check_all(self.wafer_list, True)
 
     def new_table(self):
         if self.allow_replace():
@@ -1188,13 +1221,13 @@ class MainWindow(QMainWindow):
 
     def open_file(self):
         kind = self.workspace_type
-        file_filter = f"{WORKSPACE_LABELS[kind]} (*{EXTENSIONS[kind]} *.wkb);;Tables (*.csv *.xlsx)"
+        file_filter = f"{WORKSPACE_LABELS[kind]} (*{EXTENSIONS[kind]} *.wkb *.bak);;Backups (*.bak);;Tables (*.csv *.xlsx)"
         path, _ = QFileDialog.getOpenFileName(self, "Open workspace or table", "", file_filter)
         if path:
             self.load_path(path)
 
     def load_path(self, path):
-        if Path(path).suffix.lower() in EXTENSIONS.values():
+        if is_workspace_path(path):
             try:
                 return self.load_workspace(path)
             except Exception as error:

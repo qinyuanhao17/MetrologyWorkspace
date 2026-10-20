@@ -334,7 +334,7 @@ class ParameterFilterTests(unittest.TestCase):
             QTest.keyRelease(page, Qt.Key.Key_Alt, Qt.KeyboardModifier.ControlModifier)
             QTest.keyRelease(page, Qt.Key.Key_Control)
         with TemporaryDirectory() as folder:
-            path = Path(folder) / "correlation-pair.wkb"
+            path = Path(folder) / "correlation-pair.mwkb"
             parent.save_workbook(path)
             restored = MatchingWindow()
             self.addCleanup(close, restored)
@@ -526,13 +526,13 @@ class ParameterFilterTests(unittest.TestCase):
                              Qt.KeyboardModifier.ControlModifier)
             self.assertEqual(page.parameter_filter.parameter, selected)
         with TemporaryDirectory() as folder:
-            path = Path(folder) / "multi-parameter.wkb"
+            path = Path(folder) / "multi-parameter.mwkb"
             parent.save_workbook(path)
             saved = load_workspace(path)
             for page_name in ("correlation_page", "sequence_page"):
                 self.assertEqual(saved.states["correlation.preview"]["ui"]["pages"][page_name]["parameter_filter"],
                                  selected)
-            legacy = Path(folder) / "single-parameter.wkb"
+            legacy = Path(folder) / "single-parameter.mwkb"
             for page_name in ("correlation_page", "sequence_page"):
                 saved.states["correlation.preview"]["ui"]["pages"][page_name]["parameter_filter"] = "DP"
             save_workspace(legacy, saved)

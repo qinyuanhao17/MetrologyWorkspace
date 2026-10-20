@@ -54,12 +54,11 @@ Feature: Review Dynamic repeatability by cycle and die
     And the affected 3 Sigma values are recomputed
     And the table stays on the same scroll position and current cell
 
-  Scenario: Undo one step or restore the whole table
+  Scenario: Undo one step without a redundant Restore button
     Given the engineer deleted several cells from a Dynamic table
     When the engineer presses Ctrl+Z
     Then only the most recent deletion is undone
-    When the engineer presses the Restore button of that parameter
-    Then every cell of that parameter returns to the value it was loaded with
+    And no Restore button is shown in the parameter section
 
   Scenario: Correct repeat measurements without disturbing other parameter views
     Given DP and EW repeatability results and Cycle trends are displayed
@@ -80,7 +79,7 @@ Feature: Review Dynamic repeatability by cycle and die
     And Cycle runs along the bottom axis of every panel
     And every panel draws exactly one Die Seq at a time
     And a Die selector sits to the right of each panel
-    And no Add Compare control is offered
+    And an Add Compare control can add other selected parameters for that same Die
     And no curve-box selector is required
 
   Scenario: Switch the Die of one Dynamic Trend panel
@@ -100,3 +99,21 @@ Feature: Review Dynamic repeatability by cycle and die
     Then the panels are redrawn without another command
     And the panel list keeps its scroll position
     And Copy PNG and Export PNG both use the Cycle axis and Die legends
+
+  # Automation: RequestedPlotControlsTests.test_dynamic_comparisons_follow_the_same_die_and_export_every_curve
+  Scenario: Compare multiple parameters for one Die
+    Given DP and EW are selected
+    When Add Compare adds EW to DP and the DP Die picker changes to Die 2
+    Then both curves in DP use Die 2 and keep their original values
+    And the independent EW panel keeps its selected Die
+    And removing the comparison removes only that curve
+    And PNG export includes every displayed comparison
+
+  # Automation: RequestedPlotControlsTests.test_dynamic_all_dies_view_keeps_missing_gaps_and_statistics
+  Scenario: Compare all Dies for the same parameter
+    When the engineer switches Trend to All Dies
+    Then each parameter has one plot with all of its Die curves
+    And the legend identifies each Die
+    And missing values remain gaps
+    And Y ticks use unscaled values without an axis multiplier
+    And Mean, sample sigma, Min and Max appear on empty-space hover without a title annotation

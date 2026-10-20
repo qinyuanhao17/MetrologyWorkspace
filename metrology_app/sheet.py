@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from html import escape
 from io import StringIO
+from itertools import chain, product
 from types import MappingProxyType
 
 import pandas as pd
@@ -51,7 +52,8 @@ def clipboard_rows(text):
 
 def nonempty_cell_bounds(items, row_positions=None):
     """Inclusive visible content bounds; internal gaps remain in the rectangle."""
-    bounds = None
+    top = left = float("inf")
+    bottom = right = -1
     for (row, column), value in items:
         if row_positions is not None and row:
             row = row_positions.get(row)
@@ -59,13 +61,34 @@ def nonempty_cell_bounds(items, row_positions=None):
                 continue
         if value is None or not str(value).strip():
             continue
-        if bounds is None:
-            bounds = row, column, row, column
-        else:
-            top, left, bottom, right = bounds
-            bounds = (row if row < top else top, column if column < left else left,
-                      row if row > bottom else bottom, column if column > right else right)
-    return bounds
+        if row < top:
+            top = row
+        if row > bottom:
+            bottom = row
+        if column < left:
+            left = column
+        if column > right:
+            right = column
+    return (top, left, bottom, right) if bottom >= 0 else None
+
+
+def rectangular_cell_bounds(cells, rows, columns):
+    """Find dense-table edges without visiting interior cells (including blanks)."""
+    def occupied(row, column):
+        value = cells.get((rows[row], column), "")
+        return value is not None and bool(str(value).strip())
+
+    top = next((row for row in range(len(rows))
+                if any(occupied(row, column) for column in range(columns))), None)
+    if top is None:
+        return None
+    bottom = next(row for row in range(len(rows) - 1, top - 1, -1)
+                  if any(occupied(row, column) for column in range(columns)))
+    left = next(column for column in range(columns)
+                if any(occupied(row, column) for row in range(top, bottom + 1)))
+    right = next(column for column in range(columns - 1, left - 1, -1)
+                 if any(occupied(row, column) for row in range(top, bottom + 1)))
+    return top, left, bottom, right
 
 
 @dataclass(frozen=True)
@@ -151,6 +174,7 @@ class SheetModel(QAbstractTableModel):
         self._selection_extent = None
         self._selection_bounds = None
         self._frame_change = None
+        self._prepared_load = False
         self.paste_report = None
         self.clipboard_locks = frozenset()
         self.changed.connect(self._invalidate_frames)
@@ -383,13 +407,8 @@ class SheetModel(QAbstractTableModel):
         document = frame.fillna("").astype(str).reset_index(drop=True)
         document.columns = [str(name) for name in document.columns]
         matrix = [list(document.columns)] + document.values.tolist() if len(document.columns) else []
-        revision = self.revision
-        self.load_matrix(matrix, report_paste=report_paste)
-        if not report_paste and self.revision == revision + 1 and self.cells:
-            # The loader already owns the exact string matrix. Reuse it rather
-            # than rebuilding the same document from hundreds of thousands of
-            # cell-dictionary lookups. Preserve legacy empty-tail width rules.
-            self._frames["document"] = document.iloc[:, :self._cell_extent()[1]].copy()
+        self._load_matrix(matrix, report_paste=report_paste,
+                          document=None if report_paste else document)
 
     def update_headers(self, frame):
         """Refresh linked aliases only when every literal data cell is unchanged."""
@@ -408,19 +427,52 @@ class SheetModel(QAbstractTableModel):
 
     def load_matrix(self, matrix, *, report_paste=False):
         """Replace every cell with a rectangular clipboard matrix."""
+        self._load_matrix(matrix, report_paste=report_paste)
+
+    def _load_matrix(self, matrix, *, report_paste=False, document=None):
         if report_paste:
             matrix = self._merge_clipboard_matrix(matrix)
-        state = self.state_from_matrix(matrix)
+        if document is not None and matrix and all(chain.from_iterable(matrix)):
+            # load() already produced a rectangular matrix of literal strings.
+            # The dense case needs neither padding nor another Python str()
+            # call per cell. Sparse/clipboard matrices keep the general path.
+            columns = len(matrix[0])
+            cells = dict(zip(product(range(len(matrix)), range(columns)), chain.from_iterable(matrix)))
+            state = cells, max(100, len(matrix) + 20), max(26, columns + 3)
+        else:
+            state = self.state_from_matrix(matrix)
         before = self._replacement_paste_before(state) if report_paste else None
-        self.restore(state, emit_changed=False)
+        if type(self).restore is SheetModel.restore:
+            # The loader alone owns this new dictionary and knows its final
+            # row marker. Undo snapshots/public restore must remain detached;
+            # subclasses keep their own restore hooks (e.g. calculated Order).
+            self._restore_owned(*state, max(0, len(matrix) - 1), emit_changed=False)
+        else:
+            self.restore(state, emit_changed=False)
         width = max((len(row) for row in matrix), default=0)
         if matrix and width and len(matrix[0]) == width and str(matrix[0][-1]):
             # A populated final header proves the exact column extent. The
             # retained final-row marker proves the height, even for blank rows.
             self._extent = (len(matrix), width)
+        if document is not None and self.cells:
+            # Publish the already converted strings before observers read the
+            # new sheet, not after they have reconstructed the same large table.
+            self._frames["document"] = document.iloc[:, :self._cell_extent()[1]].copy()
+            literal = self._frames["document"]
+            headers = self.headers(len(literal.columns))
+            if (len(literal) and len(set(headers)) == len(headers)
+                    and literal.iloc[:, 0].str.strip().ne("").all()):
+                # A nonblank first cell proves every source row survives the
+                # analysis view. Keep its exact strings and normalized headers;
+                # ambiguous headers/blank rows retain frame()'s general path.
+                self._frames["analysis"] = literal.set_axis(headers, axis=1)
         self.undo.clear()
         self.undo.setClean()
-        self.changed.emit()
+        self._prepared_load = True
+        try:
+            self.changed.emit()
+        finally:
+            self._prepared_load = False
         if before is not None:
             self._report_paste(*before, self._matrix_bounds(matrix))
 
@@ -466,15 +518,19 @@ class SheetModel(QAbstractTableModel):
         return cells, max(100, len(matrix) + 20), max(26, width + 3)
 
     def restore(self, state, emit_changed=True):
+        cells, height, width = state
+        self._restore_owned(dict(cells), height, width,
+                            max((row for row, _ in cells), default=0), emit_changed)
+
+    def _restore_owned(self, cells, height, width, document_rows, emit_changed=True):
         self._frame_change = None
         self.clear_paste_report()
         self._invalidate_frames()
         self._revision += 1
-        cells, height, width = state
         self._preserves_record_positions = False
         self.beginResetModel()
-        self.cells = dict(cells)
-        self._document_rows = max((row for row, _ in cells), default=0)
+        self.cells = cells
+        self._document_rows = document_rows
         self.height = height
         self.width = width
         self.endResetModel()
@@ -501,6 +557,11 @@ class SheetModel(QAbstractTableModel):
         return frame.copy()
 
     def _invalidate_frames(self):
+        if self._prepared_load:
+            # restore() already invalidated the previous sheet. Consume once
+            # so a reentrant edit/unknown notification still invalidates fully.
+            self._prepared_load = False
+            return
         changes = self._frame_change
         if (changes and self._extent is not None
                 and all(row > 0 and isinstance(value, str) and value.strip() and (row, column) in self.cells
@@ -549,7 +610,10 @@ class SheetModel(QAbstractTableModel):
 
     def selection_bounds(self):
         if self._selection_bounds is None:
-            self._selection_bounds = nonempty_cell_bounds(self.cells.items())
+            height, width = self._cell_extent()
+            self._selection_bounds = (rectangular_cell_bounds(self.cells, range(height), width)
+                                      if height * width <= 4 * len(self.cells)
+                                      else nonempty_cell_bounds(self.cells.items()))
         return self._selection_bounds
 
     def document_frame(self):
@@ -885,7 +949,10 @@ class SheetView(QTableView):
             return
         index = self.currentIndex()
         row, column = (index.row(), index.column()) if index.isValid() else (0, 0)
-        if not replace and (row, column) == (0, 0) and not was_empty and len(matrix) > 1:
+        projected = getattr(model, "rows", None) is not None
+        if projected and row + len(matrix) > model.rowCount():
+            raise ValueError(f"Paste fits only within displayed rows. Pasted {len(matrix):,} rows but only {max(0, model.rowCount() - row):,} remain. Hidden rows will not be changed.")
+        if not projected and not replace and (row, column) == (0, 0) and not was_empty and len(matrix) > 1:
             pasted = (max(len(line) for line in matrix), len(matrix) - 1)
             # Document bounds are an upper bound on occupied data rows. An
             # equal/larger rectangle cannot leave old cells outside it; only

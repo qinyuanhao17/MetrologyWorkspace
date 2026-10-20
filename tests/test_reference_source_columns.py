@@ -121,7 +121,7 @@ class ReferenceSourceColumnTests(unittest.TestCase):
                 "axis_directions": [{"sources": ["Reference"], "x": alias, "y": "W_Recess_Reference"}]})
             snapshot.frames[f"{scope}.reference_data"] = child.reference_model.document_frame().rename(columns={"OCD_DEPTH1": alias})
             with TemporaryDirectory() as folder:
-                path = Path(folder) / "legacy-reference-alias.wkb"
+                path = Path(folder) / "legacy-reference-alias.mwkb"
                 save_workspace(path, snapshot)
                 restored = MatchingWindow()
                 restored.load_workbook(path)
@@ -175,24 +175,26 @@ class ReferenceSourceColumnTests(unittest.TestCase):
             parent.run_analysis()
             child = parent.open_correlation_workspace()
             self.assertTrue(child.reference_model.document_frame().empty)
-            child.set_reference_table(self.reference.iloc[[0, 2]].reset_index(drop=True), "Manual Reference")
-            expected = pd.concat([self.raw.iloc[[0, 2], :4], self.reference.iloc[[0, 2]]], axis=1).reset_index(drop=True)
+            child.set_reference_table(self.reference, "Manual Reference")
+            expected = pd.concat([self.raw.iloc[:, :4], self.reference], axis=1).reset_index(drop=True)
             pd.testing.assert_frame_equal(child.reference_model.document_frame(), expected)
-            pd.testing.assert_frame_equal(child.raw_model.document_frame(), self.raw.iloc[[0, 2]].reset_index(drop=True))
+            pd.testing.assert_frame_equal(child.raw_model.document_frame(), self.raw)
+            self.assertEqual(child.participating_positions(child.raw_model.frame()), {0, 2})
             child.full_data_action.trigger()
             pd.testing.assert_frame_equal(child.reference_model.document_frame(), expected)
-            self.assertIn("Raw Data has 3 rows", child.reference_footer.text())
+            self.assertIn("3 rows", child.reference_footer.text())
             pd.testing.assert_frame_equal(child.raw_model.document_frame(), self.raw)
             child.workbook_selection_action.trigger()
             pd.testing.assert_frame_equal(child.reference_model.document_frame(), expected)
             with TemporaryDirectory() as folder:
-                path = Path(folder) / "aligned-reference.wkb"
+                path = Path(folder) / "aligned-reference.mwkb"
                 parent.save_workbook(path)
                 restored = MatchingWindow()
                 restored.load_workbook(path)
                 reopened = restored.open_correlation_workspace()
                 pd.testing.assert_frame_equal(reopened.reference_model.document_frame(), expected)
-                pd.testing.assert_frame_equal(reopened.raw_model.document_frame(), self.raw.iloc[[0, 2]].reset_index(drop=True))
+                pd.testing.assert_frame_equal(reopened.raw_model.document_frame(), self.raw)
+                self.assertEqual(reopened.participating_positions(reopened.raw_model.frame()), {0, 2})
             pd.testing.assert_frame_equal(parent.reference_model.document_frame(), self.reference)
             pd.testing.assert_frame_equal(parent.raw_model.document_frame(), self.raw)
         finally:

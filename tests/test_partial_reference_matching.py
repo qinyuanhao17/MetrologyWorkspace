@@ -108,7 +108,7 @@ class PartialReferenceMatchingTests(unittest.TestCase):
             window.open_correlation_workspace()
             window.open_stage_workspace("preview")
             with TemporaryDirectory() as folder:
-                path = Path(folder) / "partial-reference.wkb"
+                path = Path(folder) / "partial-reference.mwkb"
                 window.save_workbook(path)
                 restored = MatchingWindow()
                 restored.load_workbook(path)
@@ -159,8 +159,8 @@ class PartialReferenceMatchingTests(unittest.TestCase):
             self.assertEqual(result.source_rows, (0, 1, 3, 4, 5))
             self.assertEqual(result.card("CD").valid_pairs, 3)
             child = window.open_correlation_workspace()
-            pd.testing.assert_frame_equal(child.raw_model.document_frame(),
-                                          raw.iloc[[0, 1, 3, 4, 5]].reset_index(drop=True))
+            pd.testing.assert_frame_equal(child.raw_model.document_frame(), raw)
+            self.assertEqual(child.participating_positions(raw), {0, 1, 3, 4, 5})
             self.assertTrue(child.reference_model.document_frame().empty)
             pd.testing.assert_frame_equal(window.reference_model.document_frame(), reference)
         finally:

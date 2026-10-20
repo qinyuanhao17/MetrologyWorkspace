@@ -12,6 +12,13 @@ def number(series):
     return pd.to_numeric(series, errors="coerce").replace([np.inf, -np.inf], np.nan)
 
 
+def _has_numeric_value(series):
+    """Stop once finite data proves qualification; inspect all remaining rows otherwise."""
+    if number(series.iloc[:64]).notna().any():
+        return True
+    return len(series) > 64 and number(series.iloc[64:]).notna().any()
+
+
 def read_table(path=None, *, text=None, sheet=0, dtype=None):
     options = {"dtype": dtype, "keep_default_na": dtype is not str}
     if text is not None:
@@ -42,7 +49,7 @@ def inspect_table(frame, wafer_column=None, *, include_fit_quality=True):
         excluded -= {"mse", "gof", "ngof", "lbh", "cindex"}
     metrics = [c for c in frame if c != wafer_column
                and "".join(ch.lower() for ch in c if ch.isalnum()) not in excluded
-               and "path" not in c.lower() and number(frame[c]).notna().any()]
+               and "path" not in c.lower() and _has_numeric_value(frame[c])]
     counts = {}
     if wafer_column in frame:
         ids = frame[wafer_column].fillna("").astype(str).str.strip()

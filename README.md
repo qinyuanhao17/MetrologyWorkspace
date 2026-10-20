@@ -66,7 +66,7 @@ Interaction references: [Planify](https://github.com/alainm23/planify) and
 
 ## Windows 便携版
 
-从 [v4.0.1 Release](https://github.com/qinyuanhao17/MetrologyWorkspace/releases/tag/v4.0.1) 下载 `MetrologyWorkspace-Windows-x64-v4.0.1.zip`，完整解压后双击 `MetrologyWorkspace.exe` 即可运行，无需另装 Python；也可下载 `MetrologyWorkspace-Windows-x64-v4.0.1-Setup.exe` 安装到当前用户目录。`_internal` 文件夹必须和 EXE 放在同一目录；不要只复制 EXE。设置保存在 EXE 旁边的 `settings.yaml` 中，提醒事项使用上面说明的独立用户目录。更新前关闭旧版并备份自己的设置和数据；包内不附带用户数据。
+从 [v4.1.0 Release](https://github.com/qinyuanhao17/MetrologyWorkspace/releases/tag/v4.1.0) 下载 `MetrologyWorkspace-Windows-x64-v4.1.0.zip`，完整解压后双击 `MetrologyWorkspace.exe` 即可运行，无需另装 Python；也可下载 `MetrologyWorkspace-Windows-x64-v4.1.0-Setup.exe` 安装到当前用户目录。`_internal` 文件夹必须和 EXE 放在同一目录；不要只复制 EXE。设置保存在 EXE 旁边的 `settings.yaml` 中，提醒事项使用上面说明的独立用户目录。更新前关闭旧版并备份自己的设置和数据；包内不附带用户数据。
 
 重新构建便携版：
 
@@ -82,6 +82,12 @@ python -m PyInstaller --noconfirm --clean MetrologyWorkspace.spec
 点击 **Save** 后，源码版会把配置写入 `config/settings.yaml` 并立即生效。便携版仍保存到 EXE 旁边。**Load from YAML** 用于重新读取磁盘上的设置。浅色和深色主题都会同步应用到原生窗口标题栏。
 
 ## Data 工作区
+
+- **Groups → Data selection → Hide excluded rows in tables** 勾选并 Apply 后，Order / Reference / Raw Data 隐藏不参与分析的记录；取消勾选并 Apply 可恢复显示。此操作不删除源数据、不重新编号，也不改变原来的参与选择。子窗口选择 **Match Workbook selection** 时遵从相同显示规则；**Full data** 不沿用父级隐藏规则。
+- 隐藏/排序的表格中 **Ctrl+V** 按可见行映射到原始记录：允许只覆盖剩余可见行的一部分，超过范围会提示并阻止。隐藏行不被改动；若要整表替换或增加记录，请先恢复全部行。**Ctrl+Shift+V** 不允许绕过隐藏行保护。
+- 双击 Raw Data 卡片的标题或表格外空白处，可将同一编辑器变成非模态置顶工具窗口；再次双击或关闭该工具窗口即还原。原表格、复制粘贴、Undo/Redo 和分析联动保持不变，不产生数据副本。
+- Wafer Map 的 **Opacity** 后有 **Decimals**，默认 2 位、范围 0–10，使用十进制四舍五入（负数临界值也远离零舍入）。该项只影响点值文字，不改测量值、插值或统计；与主窗口 **Settings → Point value decimals** 共用设置，不随 WKB 保存，旧 WKB 也不能覆盖主设置。
+- Trend/Bias 的 Mean、样本 σ、Min、Max 在鼠标位于非数据点区域时自动显示；数据点处优先显示 Die、X、Y。此规则同样适用于 Correlation and Trend 子窗口及动态 Trend，不再占用图标题或单独的统计复选框。Group plots 的 **All-parameter Card** 与 **Group Card** 互斥选择，分别使用总图或当前组拟合的系数，不叠加校准。
 
 - 左侧表格支持单元格编辑、区域复制和粘贴、清空、撤销及重做。第一行始终作为字段名。
 - 可以导入 CSV 和 XLSX。Excel 文件包含多个工作表时，可选择要读取的工作表。`001` 这类文本 ID 和原始数值字符串会保留。
