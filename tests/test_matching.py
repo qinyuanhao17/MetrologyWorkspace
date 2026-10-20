@@ -15,6 +15,24 @@ from tests.legacy_wkb import save_legacy
 
 
 class MatchWorkbookTests(unittest.TestCase):
+    def test_linked_stage_frames_bypass_map_snapshots_without_mutating_them(self):
+        preview = self.raw().assign(CD_Bot=[40., 50., 60.])
+        final = self.raw().assign(CD_Bot=[140., 150., 160.])
+        saved_map = self.raw().assign(CD_Bot=[99., 99., 99.])
+        for match_type in ("NOVA", "KLA"):
+            book = MatchWorkbook(
+                self.reference(), self.raw(),
+                MatchWorkbook.suggest_mappings(self.reference(), self.raw()),
+                match_type=match_type, preview_raw=preview, final_raw=final,
+                preview_map=saved_map.copy(), final_map=saved_map.copy(),
+            )
+            for stage, expected in (("preview", preview), ("final", final)):
+                with self.subTest(match_type=match_type, stage=stage):
+                    pd.testing.assert_frame_equal(book.stage_frame(stage, apply_card=False), saved_map)
+                    fresh = book.stage_frame(stage, apply_card=False, use_snapshot=False)
+                    pd.testing.assert_frame_equal(fresh, expected)
+                    pd.testing.assert_frame_equal(book.stage_frame(stage, apply_card=False), saved_map)
+
     def test_bias_limit_counts_strict_exceedances_and_survives_wkb(self):
         reference = pd.DataFrame({"CD Reference": [10., 20., 30., 40., 50., 60.]})
         raw = pd.DataFrame({"CD": [10.5, 19.5, 30.5001, 39.4999, np.nan, np.inf]})
@@ -266,12 +284,20 @@ class MatchWorkbookTests(unittest.TestCase):
             ),
         )
 
-    def test_rejects_row_order_input_with_different_lengths(self):
-        with self.assertRaisesRegex(ValueError, "same number of rows"):
+    def test_rejects_reference_rows_beyond_raw_extent(self):
+        with self.assertRaisesRegex(ValueError, "more rows than Raw Data"):
             MatchWorkbook(
                 reference=self.reference(),
                 raw=self.raw().iloc[:2],
                 mappings=(ParameterMapping("CD_Bot", "CD_Bot Reference", "CD_Bot"),),
+            )
+
+    def test_partial_reference_cannot_bypass_raw_row_capacity(self):
+        with self.assertRaisesRegex(ValueError, "100,000 rows"):
+            MatchWorkbook(
+                pd.DataFrame({"CD Reference": [1.]}),
+                pd.DataFrame({"CD": np.arange(100_001)}),
+                [ParameterMapping("CD", "CD Reference", "CD")],
             )
 
     def test_reused_result_keeps_fitted_cards_while_group_labels_change(self):

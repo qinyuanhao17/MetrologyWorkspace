@@ -1,8 +1,10 @@
 # Metrology Workspace
 
-Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、径向图、相关性图和 Die Seq 趋势图。主窗口依次提供 **Match Workbook**、**Wafer Map**、**Correlation and Trend** 和 **Dynamic** 四个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例；窗口可命名、勾选随 WKB 保存。当前发布版本为 **v4.0.0**；功能、验证及已知限制见 [v4.0.0 发布说明](docs/releases/v4.0.0.md)。历史版本与开发版标签保持不变。
+Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、径向图、相关性图和趋势图。主窗口提供 **Match Workbook**、**Wafer Map**、**Correlation and Trend**、**Dynamic** 和 **AutoWeighting Writer** 五个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例；窗口可命名、勾选随 WKB 保存。当前发布版本为 **v4.0.1**；功能、验证及已知限制见 [v4.0.1 发布说明](docs/releases/v4.0.1.md)。历史版本与开发版标签保持不变。
 
 v4.0.0 在 v4-dev3 基础上整理 Excel/Matplotlib 导出：Match Original 合并原始数据与参数图，增加 Match Group，Match Wafer 提供独立 Wafer 视图；Bias 纵轴正负对称。Dynamic 的原始数据、逐参数 Cycle×Die 表和 3 Sigma 图集中到同一工作表；FullMap 同时放置已绘制的 Wafer Map、Radius 图片，TEM 额外保留 Trend。提醒事项继续使用独立用户目录存储。
+
+v4.0.1 增加独立工具 **AutoWeighting Writer**（v4.0.0 安装包不含此功能）：在软件内粘贴/打开截图，由本地 CPU 自动识别为基础四列和 Multiple Step 两张可编辑表，合并滚动截图，保留原图复核及冲突候选，支持 `.waw` 保存、恢复和 Excel 导出。无需聊天助手或联网识别服务，模型随完整软件包提供。用法、方案取舍和限制见 [AutoWeighting Writer V1](docs/auto_weighting_writer.md)。此版本还修复 REF/RAW 独立筛选及 WKB 同步；Trend 缺少 Die Seq 时按原始表格行号绘图。全量 854 项测试中 847 项通过、7 项耗时门槛未通过，具体限制在发布说明中列出。
 
 ## 运行
 
@@ -64,7 +66,7 @@ Interaction references: [Planify](https://github.com/alainm23/planify) and
 
 ## Windows 便携版
 
-从 [v4.0.0 Release](https://github.com/qinyuanhao17/MetrologyWorkspace/releases/tag/v4.0.0) 下载 `MetrologyWorkspace-Windows-x64-v4.0.0.zip`，完整解压后双击 `MetrologyWorkspace.exe` 即可运行，无需另装 Python。`_internal` 文件夹必须和 EXE 放在同一目录；不要只复制 EXE。设置保存在 EXE 旁边的 `settings.yaml` 中，提醒事项使用上面说明的独立用户目录。更新前关闭旧版并备份自己的设置和数据；包内不附带用户数据。
+从 [v4.0.1 Release](https://github.com/qinyuanhao17/MetrologyWorkspace/releases/tag/v4.0.1) 下载 `MetrologyWorkspace-Windows-x64-v4.0.1.zip`，完整解压后双击 `MetrologyWorkspace.exe` 即可运行，无需另装 Python；也可下载 `MetrologyWorkspace-Windows-x64-v4.0.1-Setup.exe` 安装到当前用户目录。`_internal` 文件夹必须和 EXE 放在同一目录；不要只复制 EXE。设置保存在 EXE 旁边的 `settings.yaml` 中，提醒事项使用上面说明的独立用户目录。更新前关闭旧版并备份自己的设置和数据；包内不附带用户数据。
 
 重新构建便携版：
 

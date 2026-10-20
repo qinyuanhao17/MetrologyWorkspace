@@ -10,6 +10,12 @@ QLabel#panelTitle { font-size: 16px; font-weight: 600; color: #18181b; }
 QLabel#subtitle { color: #6b6b70; }
 QLabel#muted { color: #6b6b70; }
 QLabel#hint { color: #8a8a90; font-size: 12px; }
+QFrame#parameterSourceGroup { background: #ffffff; border: 1px solid #d9d9de; border-left-width: 3px; border-radius: 8px; }
+QFrame#parameterSourceGroup[sourceRole="reference"] { background: #fffbf6; border-color: #e9ccb0; border-left-color: #dc802e; }
+QFrame#parameterSourceGroup[sourceRole="raw"] { background: #f6faff; border-color: #bfd1e9; border-left-color: #4f8bd6; }
+QLabel#parameterSourceBadge { color: #4b4b53; background: #f2f2f3; border-radius: 5px; padding: 0 8px; font-weight: 700; }
+QLabel#parameterSourceBadge[sourceRole="reference"] { color: #8f430c; background: #ffedd8; }
+QLabel#parameterSourceBadge[sourceRole="raw"] { color: #1f518d; background: #e4efff; }
 QLabel#eyebrow { color: #8a8a90; font-size: 11px; font-weight: 600; }
 QLabel#accent { color: #2563eb; font-weight: 600; }
 QLabel#ready { color: #15803d; background: #e9f7ef; border: 1px solid #8ed0a8; border-radius: 5px; padding: 5px 9px; font-size: 10px; font-weight: 700; }

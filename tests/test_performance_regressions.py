@@ -1143,12 +1143,19 @@ class WorkbookPerformanceTests(unittest.TestCase):
             self.assertEqual(restored.tabs.currentWidget(), restored.sequence_page)
             self.assertEqual(restored.correlation_page.selector.selected_cells(), expected_cor)
             self.assertEqual(restored.sequence_page.selector.selected_cells(), expected_trend)
-            self.assertEqual(len(restored.correlation_page.all_fits), 2)
+            self.assertEqual(len(restored.correlation_page.all_fits), 6)
+            equations = {("Reference", "Ref"): (1.03, 2.),
+                         ("Reference", "Thickness Ref"): (2.06, 5.09),
+                         ("Raw Data", "CD"): (1., 0.),
+                         ("Raw Data", "Thickness"): (2., 3.)}
             for pair in restored.correlation_page.all_fits:
+                x_scale, x_offset = equations[pair.parameter_keys[0]]
+                y_scale, y_offset = equations[pair.parameter_keys[1]]
+                slope = y_scale / x_scale
                 for source in pair.sources:
                     self.assertEqual(len(source.fit.x), 6000)
-                    self.assertAlmostEqual(source.fit.slope, 2)
-                    self.assertAlmostEqual(source.fit.intercept, 3 if source.name == "Raw Data" else 1.09)
+                    self.assertAlmostEqual(source.fit.slope, slope)
+                    self.assertAlmostEqual(source.fit.intercept, y_offset - slope * x_offset)
             self.assertEqual(sum(len(group["positions"]) for group in restored.sequence_page.groups), 12000)
             pd.testing.assert_frame_equal(restored.raw_model.document_frame(), child.raw_model.document_frame())
             self.assertLess(elapsed, 2.0, f"Restoring saved Correlation plots stalled for {elapsed:.3f}s")

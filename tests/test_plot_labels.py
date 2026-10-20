@@ -61,6 +61,7 @@ class PlotLabelTests(unittest.TestCase):
         self.assertEqual(block["plots"]["trend"].title_label.text(), "Depth")
         self.assertEqual(block["plots"]["trend"].getAxis("left").labelText, "Depth")
         child = self.child("correlation")
+        child.set_reference_table(self.window.reference_model.frame(), "Manual Reference")
         page = child.sequence_page
         page.selector.selectAll()
         page.draw_plot()

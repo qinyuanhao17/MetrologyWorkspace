@@ -99,6 +99,16 @@ def create_default_registry():
         "Repeatability analysis",
         create_dynamic_analysis,
     ))
+
+    def create_auto_weighting_writer():
+        from .auto_weighting_window import AutoWeightingWindow
+        return AutoWeightingWindow()
+
+    registry.register(ComponentSpec(
+        "auto_weighting_writer", "AutoWeighting Writer",
+        "Recognize screenshots locally, review parameter and Multiple Step tables, and export Excel.",
+        "Offline screenshot tools", create_auto_weighting_writer,
+    ))
     return registry
 
 

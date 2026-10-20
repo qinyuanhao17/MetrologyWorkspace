@@ -18,8 +18,7 @@ from .appearance import help_title_label
 from .correlation_page import CorrelationPage
 from .data import inspect_table, read_table
 from .measurements import default_identity_columns, detect_measurements
-from .matching import MatchWorkbook, ParameterMapping
-from .match_groups import row_ids, participation_source_keys
+from .match_groups import GroupPlan, row_ids, participation_source_keys
 from .sequence_page import SequencePage
 from .sheet import DuplicateHeaderBanner, SheetModel, SheetView, clipboard_rows
 from .window import (
@@ -74,6 +73,15 @@ def _aligned_reference_frame(reference, raw):
     return aligned
 
 
+def _reference_with_default_identity(reference, raw):
+    """Seed a value-only import once, never replace supplied identity fields."""
+    if (reference.empty or not reference.columns.is_unique or len(reference) != len(raw)
+            or any(_first_column(reference, aliases) is not None
+                   for _target, aliases in IDENTITY_COLUMNS)):
+        return reference
+    return _aligned_reference_frame(reference, raw)
+
+
 class CorrelationWindow(DataWorkspaceWindow):
     """Two editable source tables followed by the standard analysis pages."""
     workspace_type = "correlation_trend"
@@ -107,9 +115,46 @@ class CorrelationWindow(DataWorkspaceWindow):
         self.tabs.addTab(self.correlation_page, "3. Correlation")
         self.sequence_page = SequencePage()
         self.tabs.addTab(self.sequence_page, "4. Trend")
+        self.copy_from_wkb_action.setText("Copy Raw Data from WKB")
+        self.copy_from_wkb_action.setToolTip(
+            "Copy Raw Data from the owning Match Workbook and follow its changes. "
+            "Ref Data is manual and is never copied, cleared or replaced by this choice.")
         self.update_plan()
         self.sequence_page.document_scoped = True
         self.document.mark_clean()
+
+    def workbook_copy_sources(self):
+        """Reference measurements belong to this analysis, even with linked Raw."""
+        return {"raw_data": self._copy_from_wkb, "reference_data": False}
+
+    def set_workbook_sources(self, raw, mappings, mode="Preview"):
+        reference = self.reference_model.document_frame()
+        if not reference.empty and len(reference) != len(raw):
+            # Keep the manual Reference literally intact. A changed Raw row
+            # count cannot establish new cross-table pairs on its behalf.
+            self.set_table(raw, f"{mode} Raw Data", keep_local_selection=True)
+            self.reference_footer.setText(
+                f"{len(reference):,} rows × {len(reference.columns)} columns; Raw Data has {len(raw):,} rows")
+            self._populate_reference_choices()
+            return
+        self.set_sources(reference, raw, mappings, mode, align_reference=False)
+
+    def _copy_from_wkb_changed(self, checked):
+        owner = getattr(self, "_managed_owner", None)
+        if owner is None:
+            self.set_copy_from_wkb(self._copy_from_wkb)
+            return
+        if checked:
+            if not owner.reset_child_to_workbook(self, confirm=not self.raw_model.document_frame().empty):
+                self.set_copy_from_wkb(False)
+            return
+        with self.input_update():
+            self.set_table(pd.DataFrame(), "Manual Raw Data")
+        self._workbook_selection_applies = False
+        self.set_copy_from_wkb(False)
+        self._use_workbook_data = False
+        self._independent_data = True
+        self.document.refresh_identity()
 
     def set_workbook_groups(self, book):
         """Classification belongs to exact source records, not just wafer names."""
@@ -181,12 +226,11 @@ class CorrelationWindow(DataWorkspaceWindow):
             self.statusBar().showMessage("Group classification detached: source record identities changed.")
             return
         try:
-            book = MatchWorkbook(self.reference_model.frame(), raw,
-                                 [ParameterMapping(**m) for m in context["mappings"]],
-                                 test_flags=pd.DataFrame({"TestFlag": context["flags"]}),
-                                 grouping_state=context["grouping"], match_type=context["match_type"],
-                                 result_mode=context["result_mode"])
-            self._group_plan = book.analyze().group_plan
+            # Classification and display order do not require a regression or
+            # populated manual Ref columns. Reuse the same pure Group plan.
+            self._group_plan = GroupPlan(
+                raw, pd.DataFrame({"TestFlag": context["flags"]}),
+                context["grouping"], self.reference_model.frame())
             self._group_result_cache = (revisions, deepcopy(context), self._group_plan)
         except ValueError as error:
             self.statusBar().showMessage(f"Group analysis unavailable: {error}")
@@ -332,7 +376,8 @@ class CorrelationWindow(DataWorkspaceWindow):
         self._apply_selection_state(snapshot.states.get("ui", {}).get("selection", {}))
         if not self.raw_model.duplicate_header_count() and not self.reference_model.duplicate_header_count():
             raw, reference = self.raw_model.frame(), self.reference_model.frame()
-            if not raw.empty and not reference.empty and len(raw) == len(reference):
+            if not raw.empty and ((not reference.empty and len(raw) == len(reference))
+                                  or self._match_groups is not None):
                 # restore_analysis_state recognizes both sources immediately
                 # after installing the saved grouping choices. Avoid preparing
                 # an intermediate plan with the previous sidebar first.
@@ -436,7 +481,8 @@ class CorrelationWindow(DataWorkspaceWindow):
         heading = QHBoxLayout()
         heading.addWidget(help_title_label(
             "Reference table",
-            "Reference values use the row-aligned Raw Data identity fields.",
+            "Editable Reference values and identities. Value-only imports can "
+            "use identity fields from row-aligned Raw Data.",
         ))
         heading.addStretch()
         for title, callback in (
@@ -721,12 +767,14 @@ class CorrelationWindow(DataWorkspaceWindow):
         self.reference_parameter_count.setText(
             f"{len(metrics)} numeric / {len(frame.columns)} headers detected"
         )
-        self._reset_reference_selection = False
+        self._reset_reference_selection = frame.empty
         self._filter_reference_parameters()
 
     def set_reference_table(self, frame, source="Ref Data", *, report_paste=False):
         if report_paste:
             frame = self.reference_model.merge_clipboard_frame(frame)
+        if not self.raw_model.duplicate_header_count() and not self._restoring_source_tables:
+            frame = _reference_with_default_identity(frame, self.raw_model.frame())
         self._reset_reference_selection = True
         self.reference_model.load(frame.reset_index(drop=True), report_paste=report_paste)
         if report_paste and len(frame.columns):
@@ -785,18 +833,22 @@ class CorrelationWindow(DataWorkspaceWindow):
                 and not self.reference_model.duplicate_header_count()
                 and not self.reference_model.frame().empty
                 and len(self.reference_model.frame()) == len(frame)):
-            self._reset_reference_selection = True
+            reference = self.reference_model.frame()
+            seeded = _reference_with_default_identity(reference, frame)
+            if not seeded.equals(reference):
+                self.reference_model.load(seeded)
+                self._reset_reference_selection = True
             self._rebuild_source_analysis()
 
-    def set_sources(self, reference, raw, mappings, mode="Preview"):
+    def set_sources(self, reference, raw, mappings, mode="Preview", *, align_reference=True):
         """Load row-aligned WKB sources without merging their visible tables."""
         self._source_mappings = tuple(mappings)
         self._match_groups = None
         self._group_plan = None
-        self._reset_reference_selection = True
-        reference_frame = _aligned_reference_frame(
-            reference, raw
-        )
+        if align_reference:
+            self._reset_reference_selection = True
+        reference_frame = (_aligned_reference_frame(reference, raw)
+                           if align_reference and not reference.empty else reference.copy())
         raw_frame = raw.reset_index(drop=True)
         same_raw = (bool(self._workbook_sources)
                     and raw_frame.fillna("").astype(str).equals(self.raw_model.document_frame()))
@@ -977,15 +1029,9 @@ class CorrelationWindow(DataWorkspaceWindow):
             self._populate_reference_choices()
             return
         reference = self.reference_model.frame()
-        if not reference.empty:
-            reference = _aligned_reference_frame(
-                reference, self.raw_model.frame())
-        if not reference.equals(self.reference_model.frame().reset_index(drop=True)):
-            self.reference_model.blockSignals(True)
-            try:
-                self.reference_model.load(reference)
-            finally:
-                self.reference_model.blockSignals(False)
+        # Recognition and selector changes are read-only. Reloading this model
+        # here used to overwrite edited identities and clear the undo history.
+        reference = reference.reset_index(drop=True).copy()
         # Parameter identity comes from its source tab, not the match alias.
         raw_analysis = self.raw_model.frame().reset_index(drop=True).copy()
         reference.insert(0, SOURCE_COLUMN, "Reference")
@@ -1004,8 +1050,10 @@ class CorrelationWindow(DataWorkspaceWindow):
         )
         self._workbook_sources = tuple(source for source in (
             {"name": "Reference", "color": REFERENCE_COLOR,
+             "die_column": _first_column(reference, IDENTITY_COLUMNS[-1][1]),
              "rows": tuple(range(split)), "keys": reference_keys},
             {"name": "Raw Data", "color": RAW_COLOR,
+             "die_column": _first_column(raw_analysis, IDENTITY_COLUMNS[-1][1]),
              "rows": tuple(range(split, len(self._analysis_frame))),
              "keys": raw_keys},
         ) if source["rows"])
@@ -1013,12 +1061,19 @@ class CorrelationWindow(DataWorkspaceWindow):
         self.update_plan()
 
     def recognize(self):
-        if self._workbook_sources and not self._loading_workbook_sources:
-            self.refresh_timer.stop()
-            super().recognize()
-            self._rebuild_source_analysis()
-            return
         super().recognize()
+        if (self._loading_workbook_sources or self._restoring_source_tables
+                or not hasattr(self, "reference_model")):
+            return
+        if self.reference_model.duplicate_header_count() or self.raw_model.duplicate_header_count():
+            self._populate_reference_choices()
+            return
+        reference = self.reference_model.frame()
+        if self._workbook_sources or (not reference.empty and (
+                self._frame.empty or len(reference) == len(self._frame))):
+            self._rebuild_source_analysis()
+        else:
+            self._populate_reference_choices()
 
     def update_plan(self, *_args):
         if self._input_update_depth:
@@ -1090,9 +1145,14 @@ class CorrelationWindow(DataWorkspaceWindow):
             self.selection["groups"] = {key: tuple(row for row in rows
                 if (row if key[0] == "Reference" else row - split) in allowed)
                 for key, rows in self.selection["groups"].items()}
-        allowed = self.participating_positions(self.raw_model.frame())
+        raw = self.raw_model.frame()
+        allowed = self.participating_positions(raw)
+        # Shared exclusions are row-aligned only when both tables have the
+        # same extent. An empty Raw table must not exclude every Ref row.
+        reference_allowed = (allowed if len(raw) == split else
+                             self.participating_positions(self.reference_model.frame()))
         self.selection["groups"] = {key: tuple(row for row in rows
-            if (row if key[0] == "Reference" else row - split) in allowed)
+            if (row in reference_allowed if key[0] == "Reference" else row - split in allowed))
             for key, rows in self.selection["groups"].items()}
         self.correlation_page.set_input(self._analysis_frame, self.selection)
         self.sequence_page.set_input(self._analysis_frame, self._grouped_trend_selection(self.selection))

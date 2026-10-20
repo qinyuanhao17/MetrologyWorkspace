@@ -589,7 +589,8 @@ class MainWindow(QMainWindow):
                                         QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
                     return None
             component_id = {"match_workbook": "card_matching", "wafer_map": "wafer_map",
-                            "dynamic": "dynamic_analysis", "correlation_trend": "correlation_analysis"}[snapshot.workspace_type]
+                            "dynamic": "dynamic_analysis", "correlation_trend": "correlation_analysis",
+                            "auto_weighting": "auto_weighting_writer"}[snapshot.workspace_type]
             if snapshot.workspace_type == "match_workbook":
                 component = self.launch_match_workbook(path)
                 if component is None:

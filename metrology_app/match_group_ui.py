@@ -430,7 +430,7 @@ class GroupControls(QWidget):
         if self.reference is reference and self.raw is raw:
             return
         self.reference, self.raw = reference, raw
-        if len(raw) and len(raw) == len(reference):
+        if len(raw) and len(reference) <= len(raw):
             ids = participation_ids(raw, self.state.get("data_selection"))
             for config in (self.state, self.state.get("applied", {})):
                 selection = config.get("data_selection")
@@ -1031,8 +1031,8 @@ def _group_boundary(plot, position):
     return line
 
 
-def set_group_axes(plot, result, data, *, show_wafers=False):
-    """Sparse Die Seq; Group labels only for Group order, with optional wafer detail."""
+def set_group_axes(plot, result, data, *, show_wafers=None):
+    """Group axes; None uses per-Group visibility, bool overrides scoped plots."""
     plan = result.group_plan
     row_order = plan.state["trend_order"] == "original"
     rows = data["Source row"].tolist()
@@ -1043,7 +1043,7 @@ def set_group_axes(plot, result, data, *, show_wafers=False):
     wafer_spans, wafer_tooltips = [], []
     if row_order:
         spans = []
-    elif show_wafers:
+    elif show_wafers or (show_wafers is None and plan.state["show_wafer_groups"]):
         offset = 0
         names = {normalized(column): column for column in plan.raw}
         fields = [(label, next((names[key] for key in aliases if key in names), None))
@@ -1052,6 +1052,9 @@ def set_group_axes(plot, result, data, *, show_wafers=False):
                                          ("PAD Name", ("padname", "pad")))]
         for span in plan.trend_spans():
             end = offset + len(span["rows"])
+            if show_wafers is None and span["group"] not in plan.state["show_wafer_groups"]:
+                offset = end
+                continue
             labels, detail = [], []
             for label, column in fields:
                 if column is not None:
@@ -1087,7 +1090,7 @@ def set_group_axes(plot, result, data, *, show_wafers=False):
         wafer_starts = sorted({start for start, _, _ in spans[1:] + wafer_spans[1:]})
     for start in wafer_starts:
         boundary = int(start - .5)
-        if row_order or (show_wafers and groups[boundary] == groups[boundary - 1]):
+        if row_order or groups[boundary] == groups[boundary - 1]:
             line = pg.InfiniteLine(start, angle=90, pen=pg.mkPen("#929292", width=1, style=Qt.PenStyle.DashLine))
             line.setToolTip("Wafer boundary")
             plot.addItem(line, ignoreBounds=True)

@@ -22,6 +22,192 @@ APP = QApplication.instance() or QApplication([])
 
 
 class WorkbookCopyDataTests(unittest.TestCase):
+    def test_manual_raw_saved_before_parent_refresh_keeps_literal_edits_and_detaches_copy(self):
+        parent = MatchingWindow()
+        self.addCleanup(self.close_window, parent)
+        reference, raw, _mappings = self.sources()
+        parent.set_reference_frame(reference)
+        parent.set_raw_frame(raw)
+        parent.run_analysis()
+        child = parent.open_correlation_workspace()
+        column = child.raw_model.document_frame().columns.get_loc("CD")
+        child.raw_model.edit({(1, column): "9.9990000"})
+        child.recognize()
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "manual-raw-save-first.wkb"
+            parent.save_workbook(path)
+            self.assertFalse(child.copy_from_wkb_action.isChecked())
+            restored = MatchingWindow()
+            self.addCleanup(self.close_window, restored)
+            restored.load_workbook(path)
+            reopened = restored.open_correlation_workspace()
+            self.assertEqual(reopened.raw_model.document_frame()["CD"].iloc[0], "9.9990000")
+            self.assertFalse(reopened.copy_from_wkb_action.isChecked())
+            pd.testing.assert_frame_equal(parent.raw_model.document_frame(), raw)
+
+    def test_old_nova_and_kla_copy_checked_map_follows_raw_not_saved_snapshot(self):
+        for match_type in ("NOVA", "KLA"):
+            for override in (False, True):
+                with self.subTest(match_type=match_type, old_data_override=override):
+                    parent = MatchingWindow()
+                    self.addCleanup(self.close_window, parent)
+                    reference, raw, _mappings = self.sources()
+                    parent.match_type.setCurrentText(match_type)
+                    parent.set_reference_frame(reference)
+                    parent.set_raw_frame(raw)
+                    parent.run_analysis()
+                    child = parent.open_stage_workspace("preview")
+                    self.addCleanup(self.close_window, child)
+                    snapshot = parent.workspace_snapshot(include_drafts=True)
+                    # Legacy files could retain a Map snapshot independently
+                    # while their visible Copy from WKB checkbox stayed on.
+                    snapshot.frames["preview_map"] = child.model.document_frame().assign(CD=["99.0"] * len(raw))
+                    snapshot.states["map.preview"]["data_override"] = override
+                    self.assertTrue(snapshot.states["map.preview"]["ui"]["copy_from_wkb"])
+                    with TemporaryDirectory() as folder:
+                        path = Path(folder) / "old-linked-map.wkb"
+                        save_workspace(path, snapshot)
+                        restored = MatchingWindow()
+                        self.addCleanup(self.close_window, restored)
+                        restored.load_workbook(path)
+                        reopened = restored.open_stage_workspace("preview")
+                        self.addCleanup(self.close_window, reopened)
+                        self.assertTrue(reopened.copy_from_wkb_action.isChecked())
+                        column = restored.raw_model.document_frame().columns.get_loc("CD")
+                        restored.raw_model.edit({(1, column): "0"})
+                        restored.run_analysis()
+                        APP.processEvents()
+                        self.assertTrue(reopened.copy_from_wkb_action.isChecked())
+                        self.assertEqual(pd.to_numeric(reopened.model.document_frame()["CD"]).iloc[0], 0.)
+                        self.assertEqual(restored.preview_map_frame["CD"].tolist(), ["99.0"] * len(raw),
+                                         "Refreshing a linked child must not mutate the accepted Map snapshot")
+                        local_column = reopened.model.document_frame().columns.get_loc("CD")
+                        reopened.model.edit({(1, local_column): "123.4567000"})
+                        restored.raw_model.edit({(1, column): "9.000"})
+                        restored.run_analysis()
+                        self.assertEqual(reopened.model.document_frame()["CD"].iloc[0], "123.4567000",
+                                         "An unsaved local measurement draft must never be overwritten")
+
+    def test_tem_map_with_copy_checked_follows_repeated_workbook_raw_edits(self):
+        for stage in ("preview", "final"):
+            with self.subTest(stage=stage):
+                parent = MatchingWindow()
+                self.addCleanup(self.close_window, parent)
+                reference, raw, _mappings = self.sources()
+                parent.match_type.setCurrentText("TEM")
+                parent.result_mode.setCurrentText(stage.title())
+                parent.set_reference_frame(reference)
+                parent.set_raw_frame(raw)
+                parent.run_analysis()
+                child = parent.open_stage_workspace(stage)
+                self.addCleanup(self.close_window, child)
+                child.copy_from_wkb_action.trigger()
+                self.assertTrue(child.copy_from_wkb_action.isChecked())
+                model = parent.raw_model if stage == "preview" else parent.final_raw_model
+                column = model.document_frame().columns.get_loc("CD")
+                for value in ("0", "8.12345000"):
+                    model.edit({(1, column): value})
+                    APP.processEvents()
+                    self.assertEqual(child.model.document_frame()["CD"].iloc[0], value)
+                    parent.run_analysis()
+                    APP.processEvents()
+                    self.assertTrue(child.copy_from_wkb_action.isChecked())
+                    self.assertEqual(child.model.document_frame()["CD"].iloc[0], value)
+                model.edit({(0, column): "CD Updated"})
+                parent.run_analysis()
+                self.assertIn("CD Updated", child.model.document_frame())
+                self.assertNotIn("CD", child.model.document_frame())
+
+    def test_linked_correlation_and_trend_redraw_raw_values_and_renamed_columns(self):
+        parent = MatchingWindow()
+        self.addCleanup(self.close_window, parent)
+        reference, raw, _mappings = self.sources()
+        parent.set_reference_frame(reference)
+        parent.set_raw_frame(raw)
+        parent.run_analysis()
+        child = parent.open_correlation_workspace()
+        self.addCleanup(self.close_window, child)
+        for page in (child.correlation_page, child.sequence_page):
+            page.selector.selectAll()
+            page.draw_plot()
+            self.assertTrue(page.ready, page.status.text())
+        column = parent.raw_model.document_frame().columns.get_loc("CD")
+        parent.raw_model.edit({(1, column): "1.123456789"})
+        parent.run_analysis()
+        APP.processEvents()
+        fit = child.correlation_page.all_fits[0]
+        self.assertEqual(fit.sources[0].fit.x.tolist(), [1.123456789, 2., 3., 4.])
+        trend = child.sequence_page
+        index = next(i for i, panel in enumerate(trend.panel_specs) if panel["metric"] == "CD")
+        self.assertEqual(trend.plot_widgets[index].listDataItems()[0].yData.tolist(), [1.123456789, 2., 3., 4.])
+        parent.raw_model.edit({(0, column): "CD Updated"})
+        parent.run_analysis()
+        APP.processEvents()
+        self.assertTrue(child.correlation_page.ready, child.correlation_page.status.text())
+        self.assertTrue(child.sequence_page.ready, child.sequence_page.status.text())
+        self.assertIn(("Raw Data", "CD Updated"), child.correlation_page.all_fits[0].parameter_keys)
+        self.assertEqual({panel["metric"] for panel in child.sequence_page.panel_specs}, {"CD Updated", "Depth"})
+
+    def test_manual_raw_edits_are_preserved_and_stop_the_copy_link(self):
+        parent = MatchingWindow()
+        self.addCleanup(self.close_window, parent)
+        reference, raw, _mappings = self.sources()
+        parent.set_reference_frame(reference)
+        parent.set_raw_frame(raw)
+        parent.run_analysis()
+        child = parent.open_correlation_workspace()
+        self.addCleanup(self.close_window, child)
+        column = child.raw_model.document_frame().columns.get_loc("CD")
+        child.raw_model.edit({(1, column): "99.12345000"})
+        before = child.raw_model.document_frame().copy()
+        parent.set_raw_frame(raw.assign(CD=["9.000", "8.000", "7.000", "6.000"]))
+        parent.run_analysis()
+        self.assertFalse(child.copy_from_wkb_action.isChecked())
+        pd.testing.assert_frame_equal(child.raw_model.document_frame(), before)
+
+    def test_correlation_reference_is_manual_and_raw_copy_does_not_replace_or_clear_it(self):
+        parent = MatchingWindow()
+        self.addCleanup(self.close_window, parent)
+        reference, raw, _mappings = self.sources()
+        parent.match_type.setCurrentText("NOVA")
+        parent.set_reference_frame(reference)
+        parent.set_raw_frame(raw)
+        parent.run_analysis()
+        child = parent.open_correlation_workspace()
+        self.addCleanup(self.close_window, child)
+        self.assertTrue(child.copy_from_wkb_action.isChecked())
+        self.assertTrue(child.reference_model.document_frame().empty)
+        child.set_reference_table(reference, "Manual Reference")
+        manual = child.reference_model.document_frame().copy()
+        updated = raw.assign(CD=["10.000", "2.000", "3.000", "4.000"])
+        parent.set_raw_frame(updated)
+        parent.run_analysis()
+        pd.testing.assert_frame_equal(child.raw_model.document_frame(), updated)
+        pd.testing.assert_frame_equal(child.reference_model.document_frame(), manual)
+        self.assertTrue(child.document.baseline.frames["reference_data"].empty,
+                        "A Raw refresh must not accept the unsaved manual Reference draft")
+        child.copy_from_wkb_action.trigger()
+        self.assertTrue(child.raw_model.document_frame().empty)
+        pd.testing.assert_frame_equal(child.reference_model.document_frame(), manual)
+        child.copy_from_wkb_action.trigger()
+        pd.testing.assert_frame_equal(child.raw_model.document_frame(), updated)
+        pd.testing.assert_frame_equal(child.reference_model.document_frame(), manual)
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "manual-reference-linked-raw.wkb"
+            parent.save_workbook(path)
+            restored = MatchingWindow()
+            self.addCleanup(self.close_window, restored)
+            restored.load_workbook(path)
+            reopened = restored.open_correlation_workspace()
+            self.addCleanup(self.close_window, reopened)
+            pd.testing.assert_frame_equal(reopened.reference_model.document_frame(), manual)
+            self.assertTrue(reopened.copy_from_wkb_action.isChecked())
+            updated["CD"] = ["20.000", "2.000", "3.000", "4.000"]
+            restored.set_raw_frame(updated)
+            restored.run_analysis()
+            pd.testing.assert_frame_equal(reopened.raw_model.document_frame(), updated)
+            pd.testing.assert_frame_equal(reopened.reference_model.document_frame(), manual)
+
     def test_copy_menu_replaces_the_duplicate_file_command_but_dynamic_keeps_its_only_command(self):
         parent = MatchingWindow()
         self.addCleanup(self.close_window, parent)
@@ -94,7 +280,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
                             self.assertEqual(child.participating_positions(child.model.frame()), {1, 2, 3})
                             local_selection = child.workspace_snapshot().states["data_selection"]["excluded"]
                         else:
-                            self.assertEqual(len(child.reference_model.document_frame()), 4)
+                            self.assertTrue(child.reference_model.document_frame().empty)
                         child.workbook_selection_action.trigger()
                         self.assertTrue(child.workbook_selection_action.isChecked())
                         self.assertFalse(child.full_data_action.isChecked())
@@ -343,7 +529,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
                             ("map", parent.open_stage_workspace("preview"))):
             self.addCleanup(self.close_window, child)
             with self.subTest(kind=kind):
-                copies = [action for action in child.data_menu.actions() if action.text() == "Copy from WKB"]
+                copies = [action for action in child.data_menu.actions() if action is child.copy_from_wkb_action]
                 self.assertEqual(len(copies), 1, "Data needs one common source checkbox")
                 choice = copies[0]
                 copied = child.workspace_snapshot()
@@ -389,11 +575,11 @@ class WorkbookCopyDataTests(unittest.TestCase):
                 input_name = "raw_data" if kind == "correlation" else "input_data"
                 pd.testing.assert_frame_equal(child.model.document_frame(), copied.frames[input_name])
                 if kind == "correlation":
-                    self.assertFalse(child.reference_model.frame().empty)
+                    self.assertTrue(child.reference_model.frame().empty)
                     pd.testing.assert_frame_equal(child.reference_model.document_frame(),
                                                   copied.frames["reference_data"])
                     for page in pages:
-                        self.assertEqual({key[0] for key in page.selector.wafers}, {"Reference", "Raw Data"})
+                        self.assertEqual({key[0] for key in page.selector.wafers}, {"Raw Data"})
                         page.selector.selectAll()
                         page.draw_plot()
                         self.assertTrue(page.ready, page.status.text())
@@ -409,7 +595,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
         parent.run_analysis()
         child = parent.open_correlation_workspace()
         self.addCleanup(self.close_window, child)
-        choice = next(action for action in child.data_menu.actions() if action.text() == "Copy from WKB")
+        choice = child.copy_from_wkb_action
         choice.trigger()
         child.set_table(raw, "Manual measurements")
         before = child.workspace_snapshot()
@@ -430,7 +616,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
         parent.run_analysis()
         child = parent.open_correlation_workspace()
         self.addCleanup(self.close_window, child)
-        choice = next(action for action in child.data_menu.actions() if action.text() == "Copy from WKB")
+        choice = child.copy_from_wkb_action
         choice.trigger()
         with TemporaryDirectory() as folder:
             path = Path(folder) / "copy-choice.wkb"
@@ -448,7 +634,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
             restored.load_workbook(path)
             reopened = restored.open_correlation_workspace()
             self.addCleanup(self.close_window, reopened)
-            copied = next(action for action in reopened.data_menu.actions() if action.text() == "Copy from WKB")
+            copied = reopened.copy_from_wkb_action
             self.assertFalse(copied.isChecked())
             self.assertTrue(reopened.workbook_selection_action.isVisible())
             self.assertFalse(reopened.workbook_selection_action.isChecked())
@@ -471,7 +657,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
         parent.run_analysis()
         for child in (parent.open_stage_workspace("preview"), parent.open_correlation_workspace()):
             self.addCleanup(self.close_window, child)
-            choice = next(action for action in child.data_menu.actions() if action.text() == "Copy from WKB")
+            choice = child.copy_from_wkb_action
             selection = next(action for action in child.data_menu.actions() if action.text() == "Match Workbook selection")
             self.assertTrue(selection.isVisible())
             self.assertTrue(selection.isChecked())

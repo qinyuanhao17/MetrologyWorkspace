@@ -627,9 +627,9 @@ class MatchWorkbook:
     def _validate(self):
         if not isinstance(self.reference, pd.DataFrame) or not isinstance(self.raw, pd.DataFrame):
             raise TypeError("Reference and Raw Data must be pandas DataFrames.")
-        if len(self.reference) != len(self.raw):
-            raise ValueError("Reference and Raw Data must have the same number of rows for row-order matching.")
-        if len(self.reference) > MAX_ROWS:
+        if len(self.reference) > len(self.raw):
+            raise ValueError("Reference has more rows than Raw Data. Keep the sources aligned by original row position.")
+        if max(len(self.reference), len(self.raw)) > MAX_ROWS:
             raise ValueError(f"A workbook supports at most {MAX_ROWS:,} rows.")
         if not self.reference.columns.is_unique or not self.raw.columns.is_unique:
             raise ValueError("Reference and Raw Data column names must be unique.")
@@ -644,11 +644,11 @@ class MatchWorkbook:
         self._validate_workspace_snapshot(self.final_dynamic, "Final Dynamic")
         if (
             self.final_match_raw is not None
-            and len(self.reference) != len(self.final_match_raw)
+            and len(self.reference) > len(self.final_match_raw)
         ):
             raise ValueError(
-                "Reference and Final Raw Data must have the same number of rows "
-                "for row-order matching."
+                "Reference has more rows than Final Raw Data. "
+                "Keep the sources aligned by original row position."
             )
         if not self.mappings:
             raise ValueError("Select at least one Reference/Raw parameter mapping.")
@@ -819,7 +819,13 @@ class MatchWorkbook:
             # Bias limits are workbook inputs, not fit results.
             reuse.set_bias_limit(self.bias_limit)
             return reuse
-        reference_frame = self.reference.iloc[list(plan.included_rows)]
+        reference_frame = self.reference
+        if len(reference_frame) < len(analysis_raw):
+            # Missing trailing Reference is a missing pair, not a reason to
+            # discard Raw rows or compact later measurements into empty slots.
+            # Padding belongs only to derived analysis, never the source table.
+            reference_frame = reference_frame.reset_index(drop=True).reindex(range(len(analysis_raw)))
+        reference_frame = reference_frame.iloc[list(plan.included_rows)]
         analysis_raw = analysis_raw.iloc[list(plan.included_rows)]
         cards = {}
         for mapping in self.mappings:
@@ -860,13 +866,15 @@ class MatchWorkbook:
             return frame.reset_index(drop=True).copy()
         return frame.iloc[[i for i, key in enumerate(participation_source_keys(frame)) if key not in excluded]].reset_index(drop=True).copy()
 
-    def stage_frame(self, stage, *, apply_card=None, apply_selection=True):
+    def stage_frame(self, stage, *, apply_card=None, apply_selection=True, use_snapshot=True):
         """Build map-ready Preview or Final rows while preserving wafer metadata.
 
         ``apply_card`` defaults to the stage's historical behaviour: Preview
         runs every mapped parameter through its Card, Final uses the table as
         it was pasted. Passing ``apply_card=False`` returns the untouched
         measurement values so a workspace can offer the Card as a choice.
+        ``use_snapshot=False`` derives the current stage source for a linked
+        Map without replacing or mutating the stored independent Map snapshot.
         """
         stage = str(stage).lower()
         if stage not in _ALLOWED_RESULT_MODES:
@@ -874,7 +882,7 @@ class MatchWorkbook:
         if apply_card is None:
             apply_card = stage == "preview"
         snapshot = self.preview_map if stage == "preview" else self.final_map
-        if snapshot is not None:
+        if use_snapshot and snapshot is not None:
             return self.participating_frame(snapshot, apply_selection=apply_selection)
         source = self.preview_raw if stage == "preview" else self.final_raw
         if source is None:

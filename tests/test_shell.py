@@ -238,6 +238,7 @@ class ShellTests(unittest.TestCase):
                 "wafer_map",
                 "correlation_analysis",
                 "dynamic_analysis",
+                "auto_weighting_writer",
             ],
         )
 
@@ -245,7 +246,7 @@ class ShellTests(unittest.TestCase):
         shell = MainWindow()
         try:
             self.assertEqual(shell.loaded_component_ids, ())
-            self.assertEqual(len(shell.module_buttons), 4)
+            self.assertEqual(len(shell.module_buttons), 5)
             first = shell.open_component("wafer_map")
             second = shell.open_component("wafer_map")
             APP.processEvents()

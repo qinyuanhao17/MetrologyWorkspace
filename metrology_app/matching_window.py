@@ -1354,8 +1354,8 @@ class MatchingWindow(QMainWindow):
                     continue
                 plot._identity_labels = options["trend"]
                 if result.group_plan.enabled:
-                    if block.get("show_wafers", False):
-                        set_group_axes(plot, result, result.group_series(block["parameter"], trend=True), show_wafers=True)
+                    set_group_axes(plot, result, result.group_series(block["parameter"], trend=True),
+                                   show_wafers=block.get("show_wafers"))
                 else:
                     axis = plot.getAxis("bottom")
                     if isinstance(axis, SpanLabelAxis):
@@ -1973,8 +1973,9 @@ class MatchingWindow(QMainWindow):
             title = "Raw Data"
         try:
             states = (self.group_controls.state, self.group_controls.state.get("applied", {}))
-            preserve_rows = any(state.get("enabled") or state.get("mark_enabled")
-                                or state.get("data_selection") is not None for state in states)
+            preserve_rows = name == "reference" or any(
+                state.get("enabled") or state.get("mark_enabled")
+                or state.get("data_selection") is not None for state in states)
             document = model.document_frame()
             headers = model.headers()
             if preserve_rows:
@@ -2013,6 +2014,15 @@ class MatchingWindow(QMainWindow):
             self._sync_selection_to_raw(previous_raw, preserve_positions=model.preserves_record_positions)
         self._refresh_selection_columns_warning()
         changed = model.changed_cells
+        if (name != "reference" and frame is self._active_raw_frame()
+                and changed and all(row == 0 for row, _ in changed)
+                and len(previous_raw.columns) == len(frame.columns) == len(document.columns)):
+            # A literal header edit renames the same source column; it must not
+            # strand a valid mapping on a header that no longer exists.
+            renamed = {previous_raw.columns[column]: frame.columns[column] for _, column in changed
+                       if column < len(frame.columns)}
+            for mapping in mapping_state:
+                mapping["raw_column"] = renamed.get(mapping["raw_column"], mapping["raw_column"])
         same_raw_schema = (name != "reference" and changed is not None
                            and all(row > 0 for row, _ in changed)
                            and getattr(self, "_mapping_schema", None) == (tuple(self.reference_frame.columns), tuple(frame.columns)))
@@ -2210,6 +2220,8 @@ class MatchingWindow(QMainWindow):
                 )
             self._update_state()
             self._queue_auto_analysis()
+            if self._stage_windows:
+                QTimer.singleShot(0, self.sync_stage_windows)
         else:
             self._invalidate_analysis()
 
@@ -2804,7 +2816,7 @@ class MatchingWindow(QMainWindow):
         raw_frame = self._active_raw_frame()
         has_raw = not raw_frame.empty
         self.raw_view.setEnabled(True)
-        valid_rows = has_reference and has_raw and len(self.reference_frame) == len(raw_frame)
+        valid_rows = has_reference and has_raw and len(self.reference_frame) <= len(raw_frame)
         has_mapping = False
         missing_mapping_columns = []
         if valid_rows:
@@ -2860,7 +2872,7 @@ class MatchingWindow(QMainWindow):
                 "for each selected parameter."
             )
             warning = True
-        elif len(self.reference_frame) != len(raw_frame):
+        elif len(self.reference_frame) > len(raw_frame):
             message = (f"Row count differs: Reference {len(self.reference_frame):,}; "
                        f"Raw Data {len(raw_frame):,}.")
             warning = True
@@ -3130,9 +3142,13 @@ class MatchingWindow(QMainWindow):
         elif book is None:
             # No row-identity borrowing when the sources are not paired.
             workspace.set_table(raw, f"{mode} Raw Data")
-            workspace.set_reference_table(self.reference_frame, f"{mode} Reference")
+            reference = self.reference_frame if "ui" in self._workspace_states.get(scope, {}) else pd.DataFrame()
+            workspace.set_reference_table(reference, f"{mode} Reference")
         else:
             reference, scoped_raw = self._child_correlation_frames(workspace, book=book)
+            if ("ui" not in self._workspace_states.get(scope, {})
+                    or len(reference) != len(scoped_raw)):
+                reference = pd.DataFrame()
             workspace.set_sources(reference, scoped_raw, self.selected_mappings(), mode)
         if book is not None and not manual_new and hasattr(workspace, "set_workbook_groups"):
             workspace.set_workbook_groups(book)
@@ -3241,8 +3257,11 @@ class MatchingWindow(QMainWindow):
                     if frame is not None:
                         snapshot.frames[name] = frame.copy()
                 restore_linked = getattr(workspace, "restore_linked_workspace", None)
-                if (kind == "correlation" and not workspace._independent_data
-                        and saved["ui"].get("copy_from_wkb", True) and callable(restore_linked)):
+                # Manual Reference storage sets data_override even when Raw
+                # remains linked. Its checkbox, not that whole-window legacy
+                # flag, owns current Workbook classifications on restoration.
+                if (kind == "correlation" and saved["ui"].get("copy_from_wkb", True)
+                        and callable(restore_linked)):
                     restore_linked(snapshot)
                 else:
                     workspace.restore_workspace(snapshot)
@@ -3367,8 +3386,8 @@ class MatchingWindow(QMainWindow):
     def _workspace_data_follows_workbook(self):
         """KLA and NOVA derive Map/Dynamic from the workbook's Raw Data.
 
-        TEM keeps independent Map/Radius and Dynamic tables, so those windows
-        must never be overwritten automatically. Explicit Map Copy is separate.
+        TEM starts with independent Map/Radius and Dynamic tables. A Map can
+        opt into continued Raw updates with its explicit Copy checkbox.
         """
         return not self._single_stage_window()
 
@@ -3437,9 +3456,9 @@ class MatchingWindow(QMainWindow):
     def sync_stage_windows(self):
         """Refresh open analysis windows from the Match Workbook tables.
 
-        KLA and NOVA keep all three windows on the workbook's Reference/Raw
-        data. In TEM only Correlation and Trend follows, because its Map/Radius
-        and Dynamic tables are independent inputs.
+        Correlation follows Workbook sources. Map/Radius follows by default
+        for KLA/NOVA, or after an explicit Copy from WKB in TEM. Dynamic keeps
+        its independent input table.
         """
         if not self._stage_windows or self._syncing_stage_windows:
             return
@@ -3449,17 +3468,18 @@ class MatchingWindow(QMainWindow):
         self._syncing_stage_windows = True
         try:
             book = self._analysis_workspace_workbook()
-            if book is None:
-                return  # Incomplete parent input cannot overwrite child drafts.
             for workspace in tuple(self._stage_windows):
                 context = self._stage_window_context.get(workspace)
                 if context is None:
                     continue
                 kind, stage = context
-                # Dynamic keeps its own table in every match type; the Map data
-                # is only derived from Raw Data for KLA and NOVA.
+                if book is None and (kind != "correlation" or not hasattr(workspace, "workbook_copy_sources")):
+                    continue  # Derived Map/Card inputs still require a valid Workbook.
+                # TEM starts with independent Map data, but an explicit Copy
+                # opts this window into the same continuing Raw-data link.
                 follows = kind == "correlation" or (
-                    kind == "map" and self._workspace_data_follows_workbook()
+                    kind == "map" and (self._workspace_data_follows_workbook()
+                                       or getattr(workspace, "_copy_from_wkb", False))
                 )
                 if not follows:
                     if hasattr(workspace, 'set_workbook_participation'):
@@ -3477,12 +3497,12 @@ class MatchingWindow(QMainWindow):
             self._syncing_stage_windows = False
 
     def _refresh_stage_workspace(self, workspace, kind, stage, *, reset_data=False, book=None):
-        book = book or self.current_workbook()
+        book = book or (self._analysis_workspace_workbook() if kind == "correlation" else self.current_workbook())
         transaction = getattr(workspace, 'input_update', nullcontext)
         views = self._workspace_views(workspace)
         pages = self._workspace_pages(workspace)
         with transaction():
-            if hasattr(workspace, 'set_workbook_participation'):
+            if book is not None and hasattr(workspace, 'set_workbook_participation'):
                 workspace.set_workbook_participation(book)
             self._commit_stage_workspace(workspace, kind, stage, reset_data=reset_data, book=book)
         # Deferred plan/draw restoration can switch the stacked sub-page. Keep
@@ -3492,6 +3512,7 @@ class MatchingWindow(QMainWindow):
 
     def _commit_stage_workspace(self, workspace, kind, stage, *, reset_data, book):
         """Push the current workbook tables into one open analysis window."""
+        source_policy = workspace.workbook_copy_sources() if kind == "correlation" and hasattr(workspace, "workbook_copy_sources") else None
         if (not reset_data and hasattr(workspace, "copy_from_wkb_action")
                 and not workspace._copy_from_wkb):
             return  # Manual input is never replenished by a parent refresh.
@@ -3499,12 +3520,20 @@ class MatchingWindow(QMainWindow):
             baseline = workspace.document.baseline
             if baseline is not None:
                 current_frames = workspace.workspace_snapshot().frames
-                if any(not frame.equals(baseline.frames.get(name, pd.DataFrame()))
-                       for name, frame in current_frames.items()):
+                source_frames = getattr(workspace, "_workbook_source_frames", baseline.frames)
+                if source_policy is not None:
+                    source_frames = {name: frame for name, frame in source_frames.items() if source_policy.get(name)}
+                if any(not current_frames.get(name, pd.DataFrame()).equals(frame)
+                       for name, frame in source_frames.items()):
                     workspace._independent_data = True
+                    workspace._use_workbook_data = False
+                    if source_policy is not None:
+                        workspace.set_copy_from_wkb(False)
                     workspace.document.refresh_identity()
                     return  # Never overwrite the child's unsaved measurement draft.
-            if self._workspace_states.get(getattr(workspace, "_managed_scope", f"{kind}.{stage}"), {}).get("data_override"):
+            if (source_policy is None and self._workspace_states.get(getattr(workspace, "_managed_scope", f"{kind}.{stage}"), {}).get("data_override")
+                    and not getattr(workspace, "_use_workbook_data", False)
+                    and not (kind == "map" and getattr(workspace, "_copy_from_wkb", False))):
                 if hasattr(workspace, "ownership_label"):
                     workspace.ownership_label.setToolTip("Using independently edited data; not overwritten by Workbook source changes.")
                 return
@@ -3522,13 +3551,27 @@ class MatchingWindow(QMainWindow):
                     if model is not None and model.frame().empty:
                         recreated.append(source)
             reference, scoped_raw = self._child_correlation_frames(workspace, book=book)
-            workspace.set_sources(
-                reference,
-                scoped_raw,
-                self.selected_mappings(),
-                str(stage).title(),
-            )
-            if hasattr(workspace, "set_workbook_groups"):
+            if source_policy is not None:
+                old_raw = workspace.raw_model.document_frame()
+                if saved is not None and old_raw.shape == scoped_raw.shape:
+                    new_raw = scoped_raw.fillna("").astype(str)
+                    renamed = {old: new for old, new in zip(old_raw.columns, new_raw.columns)
+                               if old not in new_raw and new not in old_raw
+                               and old_raw[old].equals(new_raw[new])}
+                    if renamed:
+                        saved["raw"]["metrics"] = tuple(renamed.get(name, name) for name in saved["raw"]["metrics"])
+                        for field in ("correlation_draw", "trend_draw"):
+                            draw = saved.get(field, {})
+                            draw["cells"] = tuple((source, key, renamed.get(name, name) if source == "Raw Data" else name)
+                                                  for source, key, name in draw.get("cells", ()))
+                try:
+                    mappings = self.selected_mappings()
+                except ValueError:
+                    mappings = ()  # Raw copying does not depend on a fitted Card.
+                workspace.set_workbook_sources(scoped_raw, mappings, str(stage).title())
+            else:
+                workspace.set_sources(reference, scoped_raw, self.selected_mappings(), str(stage).title())
+            if book is not None and hasattr(workspace, "set_workbook_groups"):
                 workspace.set_workbook_groups(book)
             if recreated:
                 defaults = state()
@@ -3542,7 +3585,8 @@ class MatchingWindow(QMainWindow):
                 frame = book.participating_frame(source, paired_source=True, apply_selection=applies)
             else:
                 frame = (
-                    self.workbook.stage_frame(stage, apply_card=False, apply_selection=applies)
+                    self.workbook.stage_frame(stage, apply_card=False, apply_selection=applies,
+                                              use_snapshot=not (reset_data or getattr(workspace, "_copy_from_wkb", False)))
                     if kind == "map"
                     else self.workbook.dynamic_frame(stage, apply_card=False, apply_selection=applies)
                 )
@@ -3577,18 +3621,24 @@ class MatchingWindow(QMainWindow):
         if hasattr(workspace, "document") and workspace.document.baseline is not None and not reset_data:
             # Parent-driven table refreshes are not child edits. Keep draft
             # configuration intact while advancing the table-only baseline.
-            workspace.document.baseline.frames = deepcopy(workspace.workspace_snapshot().frames)
+            current_frames = workspace.workspace_snapshot().frames
+            accepted_link = workspace.document.baseline.states.get("ui", {}).get("copy_from_wkb", True)
+            for name, frame in current_frames.items():
+                if source_policy is None or (source_policy.get(name) and accepted_link):
+                    workspace.document.baseline.frames[name] = frame.copy(deep=True)
+            workspace._workbook_source_frames = deepcopy(current_frames)
 
     def _child_correlation_frames(self, workspace, *, book=None):
         """Reference/Raw pair for one child; honours its selection scope."""
         raw = self._active_raw_frame()
         if (getattr(workspace, "_workbook_selection_applies", True)
-                and len(raw) == len(self.reference_frame) and not raw.empty):
+                and len(self.reference_frame) <= len(raw) and not raw.empty):
             from .match_groups import applied_state, participation_rows
-            selection = applied_state((book or self.current_workbook()).grouping_state)["data_selection"]
+            selection = applied_state(book.grouping_state if book is not None else self.group_controls.state)["data_selection"]
             if selection is not None:
                 allowed = list(participation_rows(raw, selection))
-                return (self.reference_frame.iloc[allowed].reset_index(drop=True),
+                reference = self.reference_frame.reset_index(drop=True).reindex(range(len(raw)))
+                return (reference.iloc[allowed].reset_index(drop=True),
                         raw.iloc[allowed].reset_index(drop=True))
         return self.reference_frame, raw
 
@@ -3668,6 +3718,7 @@ class MatchingWindow(QMainWindow):
         workspace._independent_data = False
         if hasattr(workspace, "copy_from_wkb_action"):
             workspace.set_copy_from_wkb(True)
+        workspace._workbook_source_frames = deepcopy(workspace.workspace_snapshot().frames)
         workspace.document.forced_dirty = True
         workspace.document.refresh_identity()
         return True
@@ -3683,9 +3734,11 @@ class MatchingWindow(QMainWindow):
         if self.document.untrusted_recovery:
             QMessageBox.warning(self, "Cannot replace recovered analysis", "Save the entire recovered Workbook As first.")
             return False
+        message = ("Replace this analysis's Raw Data with current Workbook Raw Data? Ref Data will be kept.\n"
+                   if kind == "correlation" and hasattr(workspace, "workbook_copy_sources") else
+                   "Discard this analysis's independent measurements and use current Workbook data?\n")
         choice = QMessageBox.question(workspace, "Use Workbook Data",
-                                      "Discard this analysis's independent measurements and use current Workbook data?\n"
-                                      "Other analysis drafts and the saved file are unchanged until you save.",
+                                      message + "Other analysis drafts and the saved file are unchanged until you save.",
                                       QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
                                       QMessageBox.StandardButton.Cancel) if confirm else QMessageBox.StandardButton.Discard
         if choice != QMessageBox.StandardButton.Discard:
@@ -3711,6 +3764,7 @@ class MatchingWindow(QMainWindow):
         workspace._independent_data = protects_metadata
         if hasattr(workspace, "copy_from_wkb_action"):
             workspace.set_copy_from_wkb(True)
+        workspace._workbook_source_frames = deepcopy(workspace.workspace_snapshot().frames)
         workspace.document.forced_dirty = True
         workspace.document.refresh_identity()
         return True
@@ -3875,6 +3929,24 @@ class MatchingWindow(QMainWindow):
                 for name, frame in draft.frames.items())
             reset_data = bool(getattr(workspace, "_use_workbook_data", False))
             override = not reset_data and bool(prior.get("data_override") or edited)
+            source_policy = workspace.workbook_copy_sources() if kind == "correlation" and hasattr(workspace, "workbook_copy_sources") else None
+            if source_policy is not None:
+                if source_policy.get("raw_data") and baseline is not None:
+                    source_frames = getattr(workspace, "_workbook_source_frames", baseline.frames)
+                    previous_raw = source_frames.get("raw_data", baseline.frames.get("raw_data", pd.DataFrame()))
+                    if not draft.frames.get("raw_data", pd.DataFrame()).equals(previous_raw):
+                        # Saving can be the first operation after a local Raw
+                        # edit. Detach here too, before omitting linked tables
+                        # from the WKB, or that edit would be lost on reopen.
+                        workspace._use_workbook_data = False
+                        workspace._independent_data = True
+                        workspace.set_copy_from_wkb(False)
+                        draft.states["ui"]["copy_from_wkb"] = False
+                        source_policy = workspace.workbook_copy_sources()
+                # Save manual Reference independently of linked Raw, including
+                # an intentionally empty Reference in a newly created window.
+                reset_data = False
+                override = True
             if reset_data:
                 if kind in ("map", "dynamic") and scope == f"{kind}.{stage}":
                     setattr(self, f"{stage}_{kind}_frame", None)
@@ -3891,14 +3963,17 @@ class MatchingWindow(QMainWindow):
                 owns_data = override or kind == "dynamic" or (kind == "map" and not self._workspace_data_follows_workbook())
                 for name, frame in draft.frames.items():
                     key = f"{scope}.{name}"
-                    if owns_data:
+                    if owns_data and (source_policy is None or not source_policy.get(name)):
                         self._workspace_frames[key] = frame.copy()
                     else:
                         self._workspace_frames.pop(key, None)
                 return
             if kind == "correlation" and override:
                 for name, frame in draft.frames.items():
-                    self._workspace_frames[f"{scope}.{name}"] = frame.copy()
+                    if source_policy is None or not source_policy.get(name):
+                        self._workspace_frames[f"{scope}.{name}"] = frame.copy()
+                    else:
+                        self._workspace_frames.pop(f"{scope}.{name}", None)
             elif kind == "correlation" and f"{scope}.reference_data" in self._workspace_frames:
                 # A linked legacy table may have just migrated its Reference
                 # aliases. Do not retain the old headers beside the new UI state.
@@ -4163,6 +4238,7 @@ class MatchingWindow(QMainWindow):
             plan.labels,
             plan.group_keys,
             plan.state["trend_order"],
+            tuple(plan.state["show_wafer_groups"]),
             tuple(plan.identity_columns or ()),
             tuple(self._plot_label_options["trend"].items()),
         )
@@ -4649,7 +4725,7 @@ class MatchingWindow(QMainWindow):
                 plot = plots.get(name)
                 if plot is not None:
                     plot.setXRange(.5, len(data) + .5, padding=0)
-                    set_group_axes(plot, result, data, show_wafers=group.get("show_wafers", False))
+                    set_group_axes(plot, result, data, show_wafers=group.get("show_wafers"))
         if axes_only:
             self._draw_bias_limit(parameter, group)
         if "wafer_card" in group:

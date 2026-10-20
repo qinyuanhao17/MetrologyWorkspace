@@ -433,7 +433,7 @@ class MainWindow(QMainWindow):
         self.document.refresh_identity()
 
     def _update_workbook_data_action(self, *_):
-        # TEM Map/Radius permits an explicit Raw copy, never an automatic reload.
+        # TEM Map/Radius starts independent; explicit Copy opts into Raw updates.
         # Dynamic retains its existing independent-table contract.
         kind = self._managed_scope.split(".", 1)[0]
         available = kind in ("correlation", "map") or self._managed_owner._workspace_data_follows_workbook()

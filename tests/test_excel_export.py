@@ -25,6 +25,28 @@ APP = QApplication.instance() or QApplication([])
 
 
 class ExcelExportTests(unittest.TestCase):
+    def test_partial_reference_export_keeps_raw_rows_and_missing_pair_gaps(self):
+        reference = pd.DataFrame({"CD Reference": ["3.000", "", "7.000"]})
+        raw = pd.DataFrame({"Wafer ID": ["W1"] * 4, "Die Seq": ["001", "003", "005", "007"],
+                            "CD": ["1.000", "2.000", "3.000", "4.000"]})
+        self.window.match_type.setCurrentText("NOVA")
+        self.window.set_reference_frame(reference)
+        self.window.set_raw_frame(raw)
+        result = self.window.run_analysis()
+        self.assertEqual(result.card("CD").valid_pairs, 2)
+        with tempfile.TemporaryDirectory() as folder:
+            book = self.export(folder)
+            try:
+                original = book["Match Original (WO Card)"]
+                columns = {cell.value: cell.column for cell in original[1] if cell.value is not None}
+                self.assertEqual([original.cell(row, columns["CD"]).value for row in range(2, 6)],
+                                 ["1.000", "2.000", "3.000", "4.000"])
+                self.assertEqual([original.cell(row, columns["CD Reference (NOVA)"]).value for row in range(2, 6)],
+                                 [3., None, 7., None])
+                self.assertEqual(book["_Plot data"].cell(2, 1).value, "3.000")
+            finally:
+                book.close()
+
     def setUp(self):
         self.window = MatchingWindow()
 

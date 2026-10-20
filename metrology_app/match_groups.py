@@ -466,7 +466,8 @@ class GroupPlan:
         frame = {"raw": self.raw, "reference": self.reference, "order": self.order_frame}.get(spec.get("table"))
         if frame is None or spec.get("column") not in frame:
             return None
-        return frame[spec["column"]].reset_index(drop=True)
+        series = frame[spec["column"]].reset_index(drop=True)
+        return series.reindex(range(len(self.raw))) if len(series) != len(self.raw) else series
 
     def rows(self, key="all"):
         if key.startswith("combined:"):

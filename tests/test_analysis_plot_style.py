@@ -78,7 +78,8 @@ class AnalysisPlotStyleTests(unittest.TestCase):
         page = window.correlation_page
         page.selector.selectAll()
         page.draw_plot()
-        self.assertEqual(len(page.plot_widgets), 2)
+        # Two within-source pairs plus four row-aligned cross-source pairs.
+        self.assertEqual(len(page.plot_widgets), 6)
         for widget in page.plot_widgets:
             items = {item.name(): item for item in widget.getPlotItem().listDataItems()}
             points = next(item for name, item in items.items() if name.endswith(" points"))

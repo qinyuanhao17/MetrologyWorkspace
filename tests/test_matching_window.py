@@ -647,6 +647,97 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(window.group_controls.state["filters"], [])
         self.assertEqual(window.group_controls.state["sort"], expected)
 
+    def test_mark_group_show_wafer_applies_to_overview_trend_and_bias(self):
+        from PyQt6.QtWidgets import QTreeWidget
+
+        window = self.window
+        raw = pd.DataFrame({"Wafer ID": ["W1"] * 3 + ["W2"] * 3,
+                            "Die Seq": [1, 2, 3] * 2, "CD": [1., 2., 3.] * 2})
+        window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7.] * 2}))
+        window.set_raw_frame(raw)
+        window.group_controls.restore({"enabled": False, "mark_enabled": True,
+                                       "mark_names": {"Old": "POR"}}, pd.DataFrame())
+        window.run_analysis()
+        window.resize(1720, 980)
+        window.show()
+        APP.processEvents()
+        self.assertEqual(window.result.group_plan.group_keys, ("Old:",))
+        original_bias = window.plot_groups["CD"]["plots"]["bias"].listDataItems()[0].yData.copy()
+        errors = []
+
+        def enable_show_wafer():
+            dialog = APP.activeModalWidget()
+            try:
+                tree = dialog.findChild(QTreeWidget, "combinedGroupMembers")
+                item = tree.topLevelItem(0)
+                self.assertEqual(item.text(0), "POR")
+                point = QPoint(tree.columnWidth(0) + tree.columnWidth(1) // 2,
+                               tree.visualItemRect(item).center().y())
+                QTest.mouseClick(tree.viewport(), Qt.MouseButton.LeftButton, pos=point)
+                self.assertEqual(item.checkState(1), Qt.CheckState.Checked)
+                next(b for b in dialog.findChildren(QPushButton) if b.text() == "Apply").click()
+            except Exception as error:
+                errors.append(error)
+                dialog.reject()
+
+        QTimer.singleShot(0, enable_show_wafer)
+        window.manage_groups_action.trigger()
+        APP.processEvents()
+        self.assertEqual(errors, [])
+        self.assertEqual(window.result.group_plan.state["show_wafer_groups"], ["Old:"])
+        for name in ("trend", "bias"):
+            with self.subTest(plot=name):
+                plot = window.plot_groups["CD"]["plots"][name]
+                self.assertEqual([label for _, label in plot._group_axis._tickLevels[0]], ["POR"])
+                wafer_axis = getattr(plot, "_wafer_axis", None)
+                self.assertIsNotNone(wafer_axis, "Show Wafer must display wafer captions in grouped overview plots")
+                self.assertEqual([label.split("\n")[0] for _, label in wafer_axis._tickLevels[0]], ["W1", "W2"])
+        self.assertEqual(window.plot_groups["CD"]["plots"]["bias"].listDataItems()[0].yData.tolist(),
+                         original_bias.tolist())
+        pd.testing.assert_frame_equal(window.raw_frame, raw)
+
+    def test_head_and_mark_show_wafer_keeps_per_group_visibility_and_caption_options(self):
+        window = self.window
+        raw = pd.DataFrame({"Wafer ID": [f"W{i // 3 + 1}" for i in range(12)],
+                            "Lot ID": ["L1"] * 12, "PAD Name": ["ARRAY"] * 12,
+                            "Die Seq": [1, 2, 3] * 4, "CD": [1., 2., 3.] * 4}).astype(str)
+        window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7.] * 4}))
+        window.set_raw_frame(raw)
+        window.percent_bias.setChecked(True)
+        window.group_controls.restore({"enabled": True, "mark_enabled": True,
+            "mark_names": {"Old": "POR"}, "head_names": {"0": "Head A", "1": "Head B"},
+            "show_wafer_groups": ["Old:1"]}, pd.DataFrame({"TestFlag": [0] * 6 + [1] * 6}))
+        window.run_analysis()
+        window.resize(1720, 980)
+        window.show()
+        APP.processEvents()
+        plots = window.plot_groups["CD"]["plots"]
+        data = window.result.group_series("CD", trend=True).copy()
+
+        def check_captions(expected):
+            for name in ("trend", "bias", "bias-percent"):
+                with self.subTest(plot=name, captions=expected):
+                    plot = plots[name]
+                    self.assertEqual([text for _, _, text in plot._group_tick_data[1]],
+                                     ["POR\nHead A", "POR\nHead B"])
+                    self.assertEqual([text for _, _, text in plot._group_tick_data[2]], expected)
+
+        check_captions(["W3\nLOT: L1\nPAD: ARRAY", "W4\nLOT: L1\nPAD: ARRAY"])
+        curves = {name: plot.listDataItems() for name, plot in plots.items()}
+        window.plot_label_checks["trend"]["lot"].click()
+        check_captions(["W3\nPAD: ARRAY", "W4\nPAD: ARRAY"])
+        for name, items in curves.items():
+            self.assertEqual(plots[name].listDataItems(), items)
+        window.plot_label_checks["trend"]["pad"].click()
+        check_captions(["W3", "W4"])
+        plots["trend"].card_checkbox.click()
+        check_captions(["W3", "W4"])
+        window.restore_workspace(window.workspace_snapshot())
+        plots = window.plot_groups["CD"]["plots"]
+        check_captions(["W3", "W4"])
+        pd.testing.assert_frame_equal(window.result.group_series("CD", trend=True), data)
+        pd.testing.assert_frame_equal(window.raw_frame, raw)
+
     def test_manage_groups_show_wafer_is_independent_per_group_and_apply_cancel_controls_labels(self):
         from PyQt6.QtWidgets import QTreeWidget
         window = self.window
@@ -701,6 +792,7 @@ class MatchingWindowTests(unittest.TestCase):
             APP.processEvents()
         edit_visibility(False, set(), ["All:0", "combined:ab"])
         self.assertNotIn("W1", original_block["plots"]["trend"]._group_axis.toolTip())
+        self.assertEqual(window.plot_groups["CD"]["plots"]["trend"]._group_tick_data[2], [])
         edit_visibility(True, set(), ["All:0", "combined:ab"])
         self.assertIs(page.plot_groups[("All:0", "CD")], original_block)
         for key in ("All:0", "combined:ab"):
@@ -713,6 +805,7 @@ class MatchingWindowTests(unittest.TestCase):
         for plot in window.plot_groups["CD"]["plots"].values():
             if hasattr(plot, "_group_axis"):
                 self.assertNotIn("Wafer ID", plot._group_axis.toolTip())
+                self.assertEqual([text.split("\n")[0] for _, _, text in plot._group_tick_data[2]], ["W1", "W2"])
         pd.testing.assert_frame_equal(window.reference_frame, reference)
         pd.testing.assert_frame_equal(window.raw_frame, raw)
         original_block["plots"]["trend"].card_checkbox.setChecked(False)
@@ -722,6 +815,7 @@ class MatchingWindowTests(unittest.TestCase):
         edit_visibility(True, {"All:0", "combined:ab"}, ["All:0"])
         plot = page.plot_groups[("All:0", "CD")]["plots"]["trend"]
         self.assertEqual(plot._group_axis.toolTip(), "Groups: Head A")
+        self.assertEqual(window.plot_groups["CD"]["plots"]["trend"]._group_tick_data[2], [])
         self.assertIn("Wafer ID: W1", page.plot_groups[("combined:ab", "CD")]["plots"]["trend"]._wafer_axis.toolTip())
 
     def test_group_plots_default_axes_show_only_group_names_and_sparse_die_seq(self):
@@ -1423,6 +1517,7 @@ class MatchingWindowTests(unittest.TestCase):
         window.set_raw_frame(raw)
         window.run_analysis()
         child = window.open_correlation_workspace()
+        self.assertTrue(child.reference_model.document_frame().empty)
         errors = []
         def exclude_second():
             dialog = APP.activeModalWidget()
@@ -1437,8 +1532,8 @@ class MatchingWindowTests(unittest.TestCase):
         window.data_selection_action.trigger()
         self.assertEqual(errors, [])
         rows = sorted({row for values in child.correlation_page.selection["groups"].values() for row in values})
-        # The child data is the post-selection copy: only W1's rows remain.
-        self.assertEqual(rows, [0, 1, 2, 3, 4, 5])
+        # Only copied Raw supplies rows; Reference stays manually empty.
+        self.assertEqual(rows, [0, 1, 2])
         self.assertEqual(len(child.raw_model.frame()), 3)
         self.assertRegex(child.reference_footer.text(), r"^\d[\d,]* rows × \d+ columns$")
         def exclude_all():
@@ -2121,7 +2216,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertTrue(self.window.correlation_button.isEnabled())
         self.assertTrue(workspace.shown)
         restored_reference, restored_raw, mappings, mode = workspace.inputs
-        pd.testing.assert_frame_equal(restored_reference, self.reference())
+        self.assertTrue(restored_reference.empty, "Reference starts manual, not copied from WKB")
         pd.testing.assert_frame_equal(restored_raw, self.raw())
         self.assertEqual(
             [mapping.name for mapping in mappings], ["CD_Bot", "SPA"]
@@ -2145,8 +2240,7 @@ class MatchingWindowTests(unittest.TestCase):
             )
             self.assertEqual(list(workspace.raw_model.frame().columns),
                              list(self.raw().columns))
-            self.assertEqual(workspace.reference_model.frame()["Wafer ID"].tolist(),
-                             self.raw()["Wafer ID"].tolist())
+            self.assertTrue(workspace.reference_model.document_frame().empty)
         finally:
             workspace.close()
             workspace.deleteLater()
@@ -2161,6 +2255,7 @@ class MatchingWindowTests(unittest.TestCase):
             path = Path(folder) / "drawn-correlation-state.wkb"
             self.window.save_workbook(path)
             first = self.window.open_correlation_workspace()
+            first.set_reference_table(self.reference(), "Manual Reference")
             raw_spa = next(
                 first.parameter_list.topLevelItem(index)
                 for index in range(first.parameter_list.topLevelItemCount())
@@ -3886,6 +3981,7 @@ class MatchingWindowTests(unittest.TestCase):
 
         try:
             map_page = map_window.plot_page
+            correlation_window.set_reference_table(self.window.reference_model.frame(), "Manual Reference")
             map_window.tabs.setCurrentIndex(1)
             map_window.check_all(map_window.wafer_list, True)
             map_window.check_all(map_window.parameter_list, True)
@@ -4177,7 +4273,7 @@ class MatchingWindowTests(unittest.TestCase):
             APP.processEvents()
 
     def test_refreshing_analysis_windows_keeps_their_active_tab(self):
-        """Raw, Reference and mapping edits refresh data without moving views."""
+        """Workbook refresh preserves views and never replaces manual Ref."""
         self.window.set_reference_frame(pd.DataFrame({
             "Wafer ID": ["W1"] * 6,
             "Die Seq": [1, 2, 1, 2, 1, 2],
@@ -4194,6 +4290,8 @@ class MatchingWindowTests(unittest.TestCase):
         map_window = self.window.open_stage_workspace("preview")
         dynamic_window = self.window.open_dynamic_workspace("preview")
         correlation_window = self.window.open_correlation_workspace()
+        correlation_window.set_reference_table(self.window.reference_model.frame(), "Manual Reference")
+        manual_reference = correlation_window.reference_model.document_frame().copy()
 
         def assert_views_kept():
             self.assertEqual(map_window.tabs.currentIndex(), 2)
@@ -4246,7 +4344,7 @@ class MatchingWindowTests(unittest.TestCase):
                 replacement["CD_Bot"].tolist(),
             )
 
-            # A Reference edit refreshes the derived values the same way.
+            # Workbook Reference edits refresh dependent analyses, not manual Ref.
             reference = pd.DataFrame({
                 "Wafer ID": ["W1"] * 6,
                 "Die Seq": [1, 2, 1, 2, 1, 2],
@@ -4264,7 +4362,7 @@ class MatchingWindowTests(unittest.TestCase):
                     correlation_window.reference_model.frame()["CD_Bot Reference"],
                     errors="coerce",
                 ).tolist(),
-                reference["CD_Bot Reference"].tolist(),
+                pd.to_numeric(manual_reference["CD_Bot Reference"]).tolist(),
             )
 
             # Changing a parameter mapping must not rebuild the windows either.

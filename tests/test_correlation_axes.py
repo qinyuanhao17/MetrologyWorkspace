@@ -76,7 +76,7 @@ class CorrelationAxisTests(unittest.TestCase):
             APP.processEvents()
             self.assertEqual(restored.correlation_page.axis_state(), page.axis_state())
             for fit, widget in zip(restored.correlation_page.page_fits(), restored.correlation_page.plot_widgets):
-                expected = "Depth" if fit.sources[0].name == "Reference" else "CD"
+                expected = "Depth" if fit.sources[0].name == "Reference" else fit.x_name
                 self.assertEqual(widget.getPlotItem().getAxis("bottom").labelText, expected)
             for name, frame in before.frames.items():
                 pd.testing.assert_frame_equal(frame, restored.workspace_snapshot().frames[name])

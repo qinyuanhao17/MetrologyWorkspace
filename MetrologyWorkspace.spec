@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from pathlib import Path
 import sys
+from PyInstaller.utils.hooks import collect_data_files, copy_metadata
 
 
 root = Path(SPECPATH)
@@ -9,6 +10,12 @@ datas = [
     (str(root / "metrology_app" / "theme_light.qss"), "metrology_app"),
     (str(root / "metrology_app" / "assets"), "metrology_app/assets"),
 ]
+# Recognition only: bundle its pinned local model/config/attribution, not the
+# unused detection/direction models or any online font download.
+datas += collect_data_files("rapidocr", includes=["*.yaml", "models/PP-OCRv6_rec_small.onnx"])
+datas += copy_metadata("rapidocr", recursive=True)
+datas += copy_metadata("onnxruntime", recursive=True)
+datas += collect_data_files("onnxruntime", includes=["LICENSE", "ThirdPartyNotices.txt", "Privacy.md"])
 ffi = Path(sys.base_prefix) / "Library" / "bin" / "ffi.dll"
 binaries = [(str(ffi), ".")] if ffi.exists() else []
 
@@ -17,7 +24,8 @@ analysis = Analysis(
     pathex=[str(root)],
     binaries=binaries,
     datas=datas,
-    hiddenimports=["matplotlib.backends.backend_qtagg", "lmfit.models", "openpyxl", "lxml.etree", "pyqtgraph"],
+    hiddenimports=["matplotlib.backends.backend_qtagg", "lmfit.models", "openpyxl", "lxml.etree", "pyqtgraph",
+                   "rapidocr", "rapidocr.inference_engine.onnxruntime", "onnxruntime", "cv2"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

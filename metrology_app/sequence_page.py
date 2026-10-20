@@ -39,7 +39,6 @@ from .settings import get_settings, save_settings
 from .trend import MAGNITUDE_RATIO_LIMIT, overlay_spec, parse_unit
 
 
-MAX_SEQUENCE_PLOTS = 30
 HOME_PADDING = 0.06
 LINE_COLOR = "#5b9bd5"
 BOUNDARY_COLOR = "#d4d7dc"
@@ -377,7 +376,8 @@ class SequencePage(QWidget):
         self.input_refresh_timer.stop()
         self.parameter_filter.set_parameters(
             [name for name in self.parameter_filter.names if name in self.frame.columns]
-            if not self.frame.empty and self.selector.rowCount() and self.selector.columnCount() else ())
+            if not self.frame.empty and self.selector.rowCount() and self.selector.columnCount() else (),
+            sources=self.parameter_filter.source_groups)
         self._numeric_columns = {}
         self.ready = False
         self.groups = []
@@ -428,9 +428,22 @@ class SequencePage(QWidget):
             parts = [(key, np.flatnonzero(ids == key))
                      for key in self.selection.get('wafers', ()) if key in drawn_keys]
         parts = [(key, positions) for key, positions in parts if len(positions)]
-        # Convert the shared Die Seq column once. Each selected measurement
-        # retains its original indices, stable order and missing-value rules.
-        die = number(self.frame[self.die_column]).to_numpy()
+        # A missing column falls back to the visible sheet row, not the
+        # concatenated analysis row or a renumbered selection. Explicit blank
+        # Die Seq cells keep their existing missing-value semantics.
+        die = np.arange(len(self.frame), dtype=float) + 2
+        coordinate_labels = {}
+        if sources:
+            for source in sources:
+                rows = np.asarray(source["rows"], dtype=int)
+                column = source.get("die_column", self.die_column)
+                if column is None:
+                    die[rows] = np.arange(len(rows), dtype=float) + 2
+                else:
+                    die[rows] = number(self.frame[column].iloc[rows]).to_numpy()
+                coordinate_labels[source["name"]] = "Die Seq" if column is not None else "Row Number"
+        elif self.die_column is not None:
+            die = number(self.frame[self.die_column]).to_numpy()
         if sources and not self.selection.get("preserve_group_order"):
             # Keep table order even when the two tabs select different wafers.
             parts.sort(key=lambda pair: self.frame.index.take(pair[1]).min() - min(
@@ -473,6 +486,9 @@ class SequencePage(QWidget):
             if not wafer_id:
                 wafer_id = str(labels.get(key, key)).splitlines()[0]
             groups.append({"key": key, "wafer": wafer_id, "frame": ordered,
+                           "coordinate_label": coordinate_labels.get(
+                               (source or {}).get("name"),
+                               "Die Seq" if self.die_column is not None else "Row Number"),
                            "source_positions": source_positions,
                            "group_label": self.selection.get("group_labels", {}).get(
                                key, str(labels.get(key, wafer_id)).split(" · ", 1)[-1]),
@@ -898,12 +914,8 @@ class SequencePage(QWidget):
                 raise ValueError("Load or paste a table in Data first.")
             if not wafers or not metrics:
                 raise ValueError("Select at least one measurement set and one numeric parameter in Data.")
-            if len(metrics) > MAX_SEQUENCE_PLOTS:
-                raise ValueError(f"Select up to {MAX_SEQUENCE_PLOTS} numeric parameters for Die Seq plots.")
             if not self.wafer_column:
                 raise ValueError("A Wafer ID column is required for this plot.")
-            if not self.die_column:
-                raise ValueError("A Die Seq column is required for this plot.")
             cells = self.selector.selected_cells()
             if not cells:
                 raise ValueError("Select at least one curve box before drawing.")
@@ -958,7 +970,7 @@ class SequencePage(QWidget):
                           if comparison_count else "")
             self.status.setText(f"{len(self.metrics)} of {len(metrics)} parameters · "
                                 f"{len(drawn_wafers)} of {len(wafers)} measurement sets · "
-                                f"{total_points} Die Seq positions{comparison}.")
+                                f"{total_points} positions{comparison}.")
             if self._uses_second_axis():
                 self.status.setText(
                     self.status.text()
@@ -1041,6 +1053,15 @@ class SequencePage(QWidget):
             and (source is None
                  or group.get("source", {}).get("name") == source_name)
         ]
+
+    @staticmethod
+    def _coordinate_label(groups):
+        return " / ".join(dict.fromkeys(group["coordinate_label"] for group in groups))
+
+    @staticmethod
+    def _coordinate_ticks(groups):
+        return [(float(position), format_die(value)) for group in groups
+                for position, value in zip(group["positions"], group["frame"]["__die"])]
 
     def _source(self, source):
         """Resolve a source name to the metadata supplied by Ref/Raw tabs."""
@@ -1201,7 +1222,7 @@ class SequencePage(QWidget):
             ax.set_ylabel(title, **ylabel_options)
             if comparisons:
                 ax.tick_params(axis="y", colors=primary_color)
-            ax.set_xlabel("Die Seq", fontsize=max(7, base - 1), labelpad=8)
+            ax.set_xlabel(self._coordinate_label(chosen), fontsize=max(7, base - 1), labelpad=8)
             ax.set_xlim(*self.x_range)
             ax.tick_params(axis="y", labelsize=max(6, base - 2))
             ax.grid(axis="y", color="#d6d8dc", linewidth=.7)
@@ -1209,6 +1230,7 @@ class SequencePage(QWidget):
             ax._wafer_group_labels = wafer_texts
             ax._die_sequence_values = [group["frame"]["__die"].tolist() for group in groups]
             ax._wafer_ids = [group["wafer"] for group in groups]
+            ax._coordinate_ticks = self._coordinate_ticks(chosen)
             for spine in ax.spines.values():
                 spine.set_color("#c9ccd1")
             for twin in secondary_axes:
@@ -1229,9 +1251,7 @@ class SequencePage(QWidget):
             if not texts:
                 continue
             font = texts[0].get_fontproperties()
-            die_ticks = [(float(position), format_die(value))
-                         for group in self.axis_groups
-                         for position, value in zip(group["positions"], group["frame"]["__die"])]
+            die_ticks = ax._coordinate_ticks
             fitted_die = fit_tick_labels(
                 die_ticks, ax.get_xlim(), ax.bbox.width,
                 lambda text: renderer.get_text_width_height_descent(text, font, False)[0],
@@ -1268,8 +1288,9 @@ class SequencePage(QWidget):
 
     @staticmethod
     def panel_parameters(panel):
-        return (panel["metric"], *(comparison[1] if panel.get("source") is not None else comparison
-                                  for comparison in panel.get("comparisons", ())))
+        if panel.get("source") is not None:
+            return ((panel["source"]["name"], panel["metric"]), *panel.get("comparisons", ()))
+        return (panel["metric"], *panel.get("comparisons", ()))
 
     def display_panel_specs(self):
         return [panel for panel in self.panel_specs
@@ -1301,7 +1322,7 @@ class SequencePage(QWidget):
                     np.concatenate([group["positions"] for group in selected]),
                     self._metric_values(name, selected),
                     **{"Source row": np.concatenate([group["source_positions"] for group in selected]) - offset + 1,
-                       "Die Seq": np.concatenate([group["frame"]["__die"].to_numpy() for group in selected]),
+                       self._coordinate_label(selected): np.concatenate([group["frame"]["__die"].to_numpy() for group in selected]),
                        "Wafer": np.concatenate([np.repeat(group["wafer"], len(group["frame"])) for group in selected])})
                 if owner is not None:
                     item["source"] = owner["name"]
@@ -1394,6 +1415,7 @@ class SequencePage(QWidget):
         for panel in panels:
             metric, panel_source = panel["metric"], panel["source"]
             comparisons = panel.get("comparisons", ())
+            chosen = self._chosen_groups(panel, groups)
             widget = InteractivePlotWidget(background="w", auto_x_range=self.x_range)
             widget.setMinimumSize(360, 280)
             widget.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
@@ -1401,13 +1423,11 @@ class SequencePage(QWidget):
                               "Ordinary scrolling moves the page · "
                               "Double-click to fit this curve · Reset views restores all curves")
             plot = widget.getPlotItem()
-            die_ticks = [(float(position), format_die(value))
-                         for group in self.axis_groups
-                         for position, value in zip(group["positions"], group["frame"]["__die"])]
+            die_ticks = self._coordinate_ticks(chosen)
             plot.setAxisItems({"bottom": DieSequenceAxis(die_ticks, font=widget.font())})
             plot.setTitle(None)   # the QLabel above the plot owns the heading
             plot.showGrid(x=False, y=True, alpha=.18)
-            plot.setLabel("bottom", "Die Seq", color="#30343b",
+            plot.setLabel("bottom", self._coordinate_label(chosen), color="#30343b",
                           size=f"{max(7, base - 1)}pt")
             title = self._legend_label(panel_source, metric)
             plot.setLabel("left", title, color="#30343b", size=f"{max(7, base - 1)}pt")
@@ -1560,7 +1580,13 @@ class SequencePage(QWidget):
             self.interactive_scroll.setUpdatesEnabled(True)
         self.expand_layout()
         QTimer.singleShot(0, self.remember_home_views)
-        self.parameter_filter.set_parameters([name for panel in panels for name in self.panel_parameters(panel)])
+        choices = [key for panel in panels for key in self.panel_parameters(panel)]
+        if self.selection.get("sources"):
+            self.parameter_filter.set_parameters([key[1] for key in choices], sources=[
+                (source["name"], [name for owner, name in choices if owner == source["name"]])
+                for source in self.selection["sources"]])
+        else:
+            self.parameter_filter.set_parameters(choices)
         if self.parameter_filter.parameter is not None:
             self.set_parameter_filter(self.parameter_filter.parameter)
 

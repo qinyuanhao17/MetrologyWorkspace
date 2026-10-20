@@ -1172,6 +1172,7 @@ class MatchGroupTests(unittest.TestCase):
                                            "group_order": ["Old:1", "Old:0"]}, flags)
             window.run_analysis()
             child = window.open_correlation_workspace()
+            child.set_reference_table(ref, "Manual Reference")
             child.sequence_page.selector.selectAll()
             child.sequence_page.draw_plot()
             self.assertTrue(child.sequence_page.ready, child.sequence_page.status.text())

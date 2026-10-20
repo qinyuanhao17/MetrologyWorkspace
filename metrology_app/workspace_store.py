@@ -20,14 +20,15 @@ import pandas as pd
 
 
 FORMAT_VERSION = 1
-WORKSPACE_TYPES = {"match_workbook", "wafer_map", "dynamic", "correlation_trend"}
-EXTENSIONS = {"match_workbook": ".wkb", "wafer_map": ".wmap", "dynamic": ".wdyn", "correlation_trend": ".wct"}
+WORKSPACE_TYPES = {"match_workbook", "wafer_map", "dynamic", "correlation_trend", "auto_weighting"}
+EXTENSIONS = {"match_workbook": ".wkb", "wafer_map": ".wmap", "dynamic": ".wdyn", "correlation_trend": ".wct", "auto_weighting": ".waw"}
 WORKSPACE_LABELS = {"match_workbook": "Match Workbook", "wafer_map": "Wafer Map / Radius",
-                    "dynamic": "Dynamic", "correlation_trend": "Correlation and Trend"}
-WORKSPACE_FILTER = "Metrology workspaces (*.wkb *.wmap *.wdyn *.wct)"
+                    "dynamic": "Dynamic", "correlation_trend": "Correlation and Trend", "auto_weighting": "AutoWeighting Writer"}
+WORKSPACE_FILTER = "Metrology workspaces (*.wkb *.wmap *.wdyn *.wct *.waw)"
 _UNCHECKED = object()
 REQUIRED_FRAMES = {"match_workbook": {"reference", "raw"}, "wafer_map": {"input_data"},
-                   "dynamic": {"input_data"}, "correlation_trend": {"reference_data", "raw_data"}}
+                   "dynamic": {"input_data"}, "correlation_trend": {"reference_data", "raw_data"},
+                   "auto_weighting": {"parameters", "steps"}}
 
 
 @dataclass

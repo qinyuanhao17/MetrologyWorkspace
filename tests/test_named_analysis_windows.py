@@ -227,6 +227,81 @@ class NamedAnalysisWindowTests(unittest.TestCase):
                 if hasattr(reopened, "copy_from_wkb_action"):
                     self.assertFalse(reopened.copy_from_wkb_action.isChecked())
 
+    def test_named_tem_map_copy_follows_workbook_raw_values(self):
+        self.parent.match_type.setCurrentText("TEM")
+        child = self.new_window(self.parent.preview_open_button, "Linked TEM Map")
+        child.copy_from_wkb_action.trigger()
+        self.assertTrue(child.copy_from_wkb_action.isChecked())
+        column = self.parent.raw_model.document_frame().columns.get_loc("CD")
+        self.parent.raw_model.edit({(1, column): "0"})
+        self.parent.run_analysis()
+        APP.processEvents()
+        self.assertTrue(child.copy_from_wkb_action.isChecked())
+        self.assertEqual(child.model.document_frame()["CD"].iloc[0], "0")
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "linked-tem-map.wkb"
+            self.parent.save_workbook(path)
+            restored = MatchingWindow()
+            self.addCleanup(lambda: (setattr(restored.document, "force_close", True), restored.close()))
+            restored.load_workbook(path)
+            reopened = restored.open_stage_workspace("preview", scope=child._managed_scope)
+            self.assertTrue(reopened.copy_from_wkb_action.isChecked())
+            restored.raw_model.edit({(1, column): "9.12345000"})
+            restored.run_analysis()
+            APP.processEvents()
+            self.assertTrue(reopened.copy_from_wkb_action.isChecked())
+            self.assertEqual(reopened.model.document_frame()["CD"].iloc[0], "9.12345000")
+
+    def test_named_nova_and_kla_maps_follow_workbook_values_after_copy(self):
+        for match_type in ("NOVA", "KLA"):
+            with self.subTest(match_type=match_type):
+                self.parent.match_type.setCurrentText(match_type)
+                self.parent.run_analysis()
+                child = self.new_window(self.parent.preview_open_button, f"Linked {match_type} Map")
+                child.copy_from_wkb_action.trigger()
+                self.assertTrue(child.copy_from_wkb_action.isChecked())
+                column = self.parent.raw_model.document_frame().columns.get_loc("CD")
+                self.parent.raw_model.edit({(1, column): "0"})
+                self.parent.run_analysis()
+                APP.processEvents()
+                self.assertTrue(child.copy_from_wkb_action.isChecked())
+                self.assertEqual(pd.to_numeric(child.model.document_frame()["CD"]).iloc[0], 0.)
+                self.parent.raw_model.edit({(1, column): "7.12345000"})
+                self.parent.run_analysis()
+                self.assertEqual(pd.to_numeric(child.model.document_frame()["CD"]).iloc[0], 7.12345)
+
+    def test_named_correlation_copy_follows_workbook_raw_values(self):
+        child = self.new_window(self.parent.correlation_button, "Linked Correlation")
+        child.tabs.setCurrentIndex(1)
+        child.copy_from_wkb_action.trigger()
+        self.assertTrue(child.copy_from_wkb_action.isChecked())
+        self.assertTrue(child.reference_model.document_frame().empty)
+        self.assertTrue(child.document.baseline.frames["raw_data"].empty,
+                        "Explicit copying stays a draft until Save")
+        column = self.parent.raw_model.document_frame().columns.get_loc("CD")
+        self.parent.raw_model.edit({(1, column): "8.123456789000"})
+        self.parent.run_analysis()
+        APP.processEvents()
+        self.assertTrue(child.copy_from_wkb_action.isChecked())
+        self.assertEqual(child.raw_model.document_frame()["CD"].tolist(),
+                         self.parent.raw_model.document_frame()["CD"].tolist())
+        self.parent.raw_model.edit({(1, column): "9.123456789000"})
+        self.parent.run_analysis()
+        self.assertEqual(child.raw_model.document_frame()["CD"].tolist(),
+                         self.parent.raw_model.document_frame()["CD"].tolist())
+        self.parent.raw_model.edit({(0, column): "CD Renamed"})
+        self.parent.run_analysis()
+        self.assertIn("CD Renamed", child.raw_model.document_frame())
+        self.assertNotIn("CD", child.raw_model.document_frame())
+        self.assertTrue(child.document.baseline.frames["raw_data"].empty,
+                        "Parent updates cannot accept a Copy choice that has not been saved")
+        self.parent.mapping_table.item(0, 0).setCheckState(Qt.CheckState.Unchecked)
+        self.parent.raw_model.edit({(1, column): "7.123456789000"})
+        APP.processEvents()
+        self.assertTrue(child.copy_from_wkb_action.isChecked())
+        self.assertEqual(child.raw_model.document_frame()["CD Renamed"].tolist(),
+                         self.parent.raw_model.document_frame()["CD Renamed"].tolist())
+
     def test_default_map_is_listed_first_and_copies_raw_while_new_starts_empty(self):
         for match_type in ("NOVA", "KLA"):
             with self.subTest(match_type=match_type):

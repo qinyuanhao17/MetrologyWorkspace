@@ -135,7 +135,7 @@ class CorrelationTests(unittest.TestCase):
 
             window.correlation_page.selector.selectAll()
             window.correlation_page.draw_plot()
-            self.assertEqual(len(window.correlation_page.plot_widgets), 2)
+            self.assertEqual(len(window.correlation_page.plot_widgets), 6)
             reference_items = {
                 item.name(): item
                 for item in window.correlation_page.plot_widgets[0]
@@ -681,8 +681,8 @@ class CorrelationTests(unittest.TestCase):
 
     def test_standalone_ref_and_raw_tabs_build_row_aligned_source_plots(self):
         reference = pd.DataFrame({
-            "Wafer ID": ["wrong"] * 3,
-            "PAD Name": ["wrong"] * 3,
+            "Wafer ID": ["REF1"] * 3,
+            "PAD Name": ["REF PAD"] * 3,
             "Die Seq": [90, 91, 92],
             "DP": [1.0, 2.0, 3.0],
             "EW": [2.0, 4.0, 6.0],
@@ -702,16 +702,16 @@ class CorrelationTests(unittest.TestCase):
                              "3 rows × 5 columns")
             window.set_table(raw, "raw.csv")
             self.assertIn("Raw only", window.raw_model.frame().columns)
-            aligned = window.reference_model.frame()
-            self.assertEqual(aligned["Wafer ID"].tolist(), ["W1"] * 3)
-            self.assertEqual(aligned["PAD Name"].tolist(), ["P1", "P2", "P3"])
-            self.assertEqual(aligned["Die Seq"].astype(str).tolist(), ["1", "2", "3"])
+            # Row ordinals pair the sources; manually supplied identities do
+            # not need to match and must never be replaced by Raw's labels.
+            pd.testing.assert_frame_equal(window.reference_model.document_frame(),
+                                          reference.astype(str))
             self.assertEqual([source["name"] for source in window.selection["sources"]],
                              ["Reference", "Raw Data"])
             window.tabs.setCurrentIndex(2)
             window.correlation_page.selector.selectAll()
             window.correlation_page.draw_plot()
-            self.assertEqual(len(window.correlation_page.plot_widgets), 4)
+            self.assertEqual(len(window.correlation_page.plot_widgets), 10)
         finally:
             window.raw_model.undo.setClean()
             window.reference_model.undo.setClean()
@@ -1443,6 +1443,118 @@ class CorrelationTests(unittest.TestCase):
         fits, errors = pairwise_linear_fits(frame, ["A", "B", "C"])
         self.assertEqual(fits, [])
         self.assertEqual(len(errors), 3)
+
+    def test_more_than_forty_correlation_columns_keep_every_fit_and_paginate(self):
+        names = [f"P{index:02}" for index in range(41)]
+        x = np.arange(1., 4.)
+        frame = pd.DataFrame({"Wafer ID": ["W1"] * 3,
+                              **{name: (index + 1) * x + index for index, name in enumerate(names)}}).astype(str)
+        window = CorrelationWindow()
+        try:
+            window.set_table(frame, "Many parameters")
+            self.select_parameters(window, names)
+            page = window.correlation_page
+            page.selector.selectAll()
+            page.draw_plot()
+            self.assertTrue(page.ready, page.status.text())
+            self.assertEqual(len(page.all_fits), 41 * 40 // 2)
+            self.assertEqual(len(page.plot_widgets), int(page.page_size.currentText()))
+            page.set_page(page.page_count() - 1)
+            self.assertEqual(len(page.page_fits()), 4)
+            self.assertEqual(len(page.plot_widgets), 4)
+            self.assertEqual(set(page.parameter_filter.names), set(names))
+            pd.testing.assert_frame_equal(window.model.document_frame(), frame)
+        finally:
+            window.document.force_close = True
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_more_than_thirty_trend_parameters_keep_every_curve_and_source_value(self):
+        names = [f"P{index:02}" for index in range(31)]
+        x = np.arange(1., 4.)
+        frame = pd.DataFrame({"Wafer ID": ["W1"] * 3, "Die Seq": [1, 2, 3],
+                              **{name: (index + 1) * x + index for index, name in enumerate(names)}}).astype(str)
+        window = CorrelationWindow()
+        try:
+            window.set_table(frame, "Many parameters")
+            self.select_parameters(window, names)
+            page = window.sequence_page
+            page.selector.selectAll()
+            page.draw_plot()
+            self.assertTrue(page.ready, page.status.text())
+            self.assertEqual(len(page.panel_specs), 31)
+            self.assertEqual(len(page.plot_widgets), 31)
+            self.assertEqual(set(page.parameter_filter.names), set(names))
+            for panel, plot in zip(page.panel_specs, page.plot_widgets):
+                np.testing.assert_array_equal(plot.listDataItems()[0].yData, frame[panel["metric"]].astype(float))
+            pd.testing.assert_frame_equal(window.model.document_frame(), frame)
+        finally:
+            window.document.force_close = True
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_large_parameter_lists_draw_only_the_selected_boxes(self):
+        names = [f"P{index:02}" for index in range(41)]
+        x = np.arange(1., 4.)
+        frame = pd.DataFrame({"Wafer ID": ["W1"] * 3, "Die Seq": [1, 2, 3],
+                              **{name: (index + 1) * x for index, name in enumerate(names)}})
+        window = CorrelationWindow()
+        try:
+            window.set_table(frame, "Many available parameters")
+            self.select_parameters(window, names)
+            key = window.selection["wafers"][0]
+            for page in (window.correlation_page, window.sequence_page):
+                with self.subTest(page=type(page).__name__):
+                    page.selector.set_selected_cells({(key, names[0]), (key, names[-1])})
+                    page.draw_plot()
+                    self.assertTrue(page.ready, page.status.text())
+                    if page is window.correlation_page:
+                        self.assertEqual(len(page.all_fits), 1)
+                        self.assertEqual({page.all_fits[0].x_name, page.all_fits[0].y_name}, {names[0], names[-1]})
+                    else:
+                        self.assertEqual({panel["metric"] for panel in page.panel_specs}, {names[0], names[-1]})
+        finally:
+            window.document.force_close = True
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_large_ref_raw_parameter_lists_keep_cross_correlations_and_trend_sources(self):
+        reference_names = [f"Ref{index:02}" for index in range(20)]
+        raw_names = [f"Raw{index:02}" for index in range(21)]
+        x = np.arange(1., 4.)
+        reference = pd.DataFrame({name: (index + 1) * x for index, name in enumerate(reference_names)}).astype(str)
+        raw = pd.DataFrame({"Wafer ID": ["W1"] * 3, "Die Seq": [1, 2, 3],
+                            **{name: (index + 1) * x + 1 for index, name in enumerate(raw_names)}}).astype(str)
+        mappings = tuple(ParameterMapping(str(index), ref, source)
+                         for index, (ref, source) in enumerate(zip(reference_names, raw_names)))
+        window = CorrelationWindow()
+        try:
+            window.set_sources(reference, raw, mappings)
+            self.select_parameters(window, raw_names)
+            self.assertEqual(len(window.selection["metrics"]), 41)
+            for page in (window.correlation_page, window.sequence_page):
+                with self.subTest(page=type(page).__name__):
+                    page.selector.selectAll()
+                    page.draw_plot()
+                    self.assertTrue(page.ready, page.status.text())
+                    if page is window.correlation_page:
+                        self.assertEqual(len(page.all_fits), 41 * 40 // 2)
+                        self.assertTrue(any(fit.parameter_keys == (("Reference", reference_names[-1]),
+                                                                 ("Raw Data", raw_names[-1])) for fit in page.all_fits))
+                    else:
+                        self.assertEqual(len(page.panel_specs), 41)
+                        page.parameter_filter.buttons[("Raw Data", raw_names[-1])].click()
+                        self.assertEqual([(panel["source"]["name"], panel["metric"]) for panel in page.display_panel_specs()],
+                                         [("Raw Data", raw_names[-1])])
+            pd.testing.assert_frame_equal(window.raw_model.document_frame(), raw)
+        finally:
+            window.document.force_close = True
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
 
     def test_more_than_sixteen_selected_columns_can_be_drawn(self):
         x = np.linspace(-2, 2, 12)

@@ -90,7 +90,7 @@ class IncompleteWorkbookWorkspaceTests(unittest.TestCase):
         self.assertTrue(window.reference_model.document_frame().empty)
         pd.testing.assert_frame_equal(window.raw_model.document_frame(), raw)
 
-    def test_mismatched_rows_open_independent_sources_without_borrowing_row_identity(self):
+    def test_shorter_reference_runs_matching_and_keeps_child_reference_manual(self):
         window = MatchingWindow()
         self.addCleanup(self.close_window, window)
         window.match_type.setCurrentText("NOVA")
@@ -99,15 +99,15 @@ class IncompleteWorkbookWorkspaceTests(unittest.TestCase):
                             "CD": ["1.000", "2.000", "3.000"]})
         window.set_reference_frame(reference)
         window.set_raw_frame(raw)
-        self.assertFalse(window.run_action.isEnabled())
+        self.assertTrue(window.run_action.isEnabled())
+        result = window.run_analysis()
+        self.assertEqual(result.card("CD").valid_pairs, 2)
         child = window.open_correlation_workspace()
-        pd.testing.assert_frame_equal(child.reference_model.document_frame(), reference)
+        self.assertTrue(child.reference_model.document_frame().empty)
         pd.testing.assert_frame_equal(child.raw_model.document_frame(), raw)
-        self.assertIsNone(window.result)
+        pd.testing.assert_frame_equal(window.reference_model.document_frame(), reference)
         self.assertTrue(window.open_stage_workspace("preview").isVisible())
         self.assertTrue(window.open_dynamic_workspace("preview").isVisible())
-        with self.assertRaisesRegex(ValueError, "same number of rows"):
-            window.run_analysis()
 
     def test_empty_final_workbook_allows_manual_child_data_and_saves_it_as_a_draft(self):
         window = MatchingWindow()

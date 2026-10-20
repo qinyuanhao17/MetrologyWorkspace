@@ -12,7 +12,7 @@ import pandas as pd
 from PyQt6 import sip
 from PyQt6.QtCore import Qt
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication, QFileDialog, QLabel, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QApplication, QFileDialog, QFrame, QLabel, QPushButton, QVBoxLayout, QWidget
 from metrology_app.plotting.parameter_filter import ParameterFilterBar
 from metrology_app.correlation_page import CorrelationPage
 from metrology_app.correlation_window import CorrelationWindow
@@ -26,6 +26,173 @@ APP = QApplication.instance() or QApplication([])
 
 
 class ParameterFilterTests(unittest.TestCase):
+    def test_source_groups_have_distinct_containers_and_keep_wrapped_buttons_inside(self):
+        for theme in ("light", "dark"):
+            host = QWidget(objectName="appRoot")
+            settings_module.apply_theme(host, theme)
+            layout = QVBoxLayout(host)
+            bar = ParameterFilterBar(pair_selection=True)
+            layout.addWidget(bar)
+            layout.addStretch()
+            names = [f"Parameter_{index:02}" for index in range(12)]
+            bar.set_parameters(names, sources=(("Reference", names), ("Raw Data", names)))
+            try:
+                host.show()
+                for width in (600, 1800):
+                    with self.subTest(theme=theme, width=width):
+                        host.resize(width, 850)
+                        APP.processEvents()
+                        panels = {panel.accessibleName(): panel
+                                  for panel in bar.findChildren(QFrame, "parameterSourceGroup")}
+                        self.assertEqual(set(panels), {"Reference parameters", "Raw Data parameters"})
+                        ref, raw = panels["Reference parameters"], panels["Raw Data parameters"]
+                        self.assertGreaterEqual(raw.y() - (ref.y() + ref.height()), 10)
+                        for source, panel, caption in (("Reference", ref, "REF"), ("Raw Data", raw, "RAW")):
+                            self.assertIn(caption, [label.text() for label in panel.findChildren(QLabel)])
+                            self.assertFalse(panel.isAncestorOf(bar.buttons[None]))
+                            for name in names:
+                                button = bar.buttons[(source, name)]
+                                self.assertTrue(panel.isAncestorOf(button))
+                                position = button.mapTo(panel, button.rect().topLeft())
+                                self.assertGreaterEqual(position.y(), 8)
+                                self.assertLessEqual(position.x() + button.width(), panel.width() - 8)
+                                self.assertLessEqual(position.y() + button.height(), panel.height() - 8)
+                bar.buttons[("Reference", names[0])].click()
+                self.assertFalse(bar.buttons[("Raw Data", names[0])].isChecked())
+            finally:
+                host.close()
+                host.deleteLater()
+                APP.processEvents()
+
+    def test_source_rows_keep_same_named_parameters_independent_and_wrap_separately(self):
+        host = QWidget()
+        layout = QVBoxLayout(host)
+        bar = ParameterFilterBar(pair_selection=True)
+        layout.addWidget(bar)
+        layout.addStretch()
+        names = [f"Parameter_{index:02}" for index in range(8)]
+        bar.set_parameters(names, sources=(("Reference", names), ("Raw Data", names)))
+        try:
+            host.resize(600, 500)
+            host.show()
+            APP.processEvents()
+            ref = [bar.buttons[("Reference", name)] for name in names]
+            raw = [bar.buttons[("Raw Data", name)] for name in names]
+            self.assertLess(max(b.mapTo(bar, b.rect().bottomLeft()).y() for b in ref),
+                            min(b.mapTo(bar, b.rect().topLeft()).y() for b in raw))
+            ref[0].click()
+            self.assertTrue(bar.matches((("Reference", names[0]), ("Raw Data", names[1]))))
+            self.assertFalse(bar.matches((("Raw Data", names[0]), ("Raw Data", names[1]))))
+            self.assertFalse(raw[0].isChecked())
+            saved = bar.parameter
+            bar.set_selection(None)
+            bar.set_selection(saved)
+            self.assertTrue(ref[0].isChecked())
+            self.assertFalse(raw[0].isChecked())
+            host.resize(3000, 500)
+            APP.processEvents()
+            self.assertEqual(len({b.mapTo(bar, b.rect().topLeft()).y() for b in ref}), 1)
+            self.assertEqual(len({b.mapTo(bar, b.rect().topLeft()).y() for b in raw}), 1)
+            self.assertLess(ref[0].mapTo(bar, ref[0].rect().topLeft()).y(),
+                            raw[0].mapTo(bar, raw[0].rect().topLeft()).y())
+        finally:
+            host.close()
+            host.deleteLater()
+            APP.processEvents()
+
+    def test_cross_source_same_name_pairs_use_aligned_rows_and_export_distinct_axes(self):
+        window = CorrelationWindow()
+        raw = pd.DataFrame({"Wafer ID": ["W1"] * 6, "Die Seq": list(range(6)),
+                            "DP": ["1", "2", "3", "4", "5", "6"]})
+        reference = pd.DataFrame({"DP": ["12", "", "16", "18", "20", "22"]})
+        try:
+            window.set_sources(reference, raw, [ParameterMapping("DP", "DP", "DP")])
+            page = window.correlation_page
+            page.selector.selectAll()
+            page.draw_plot()
+            self.assertTrue(page.ready, page.status.text())
+            self.assertEqual(len(page.all_fits), 1)
+            fit = page.all_fits[0]
+            self.assertEqual(fit.parameter_keys, (("Reference", "DP"), ("Raw Data", "DP")))
+            np.testing.assert_array_equal(fit.sources[0].fit.x, [12, 16, 18, 20, 22])
+            np.testing.assert_array_equal(fit.sources[0].fit.y, [1, 3, 4, 5, 6])
+            self.assertAlmostEqual(fit.sources[0].fit.slope, .5)
+            modifiers = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier
+            for key in fit.parameter_keys:
+                QTest.mouseClick(page.parameter_filter.buttons[key], Qt.MouseButton.LeftButton, modifiers)
+            QTest.keyRelease(page, Qt.Key.Key_Alt)
+            QTest.keyRelease(page, Qt.Key.Key_Control)
+            self.assertEqual(page.display_fits(), [fit])
+            page.ensure_export_figure()
+            self.assertEqual((page.figure.axes[0].get_xlabel(), page.figure.axes[0].get_ylabel()),
+                             ("REF · DP", "RAW · DP"))
+            page.swap_axes(fit)
+            self.assertEqual(page.oriented_fit(fit).parameter_keys, tuple(reversed(fit.parameter_keys)))
+            page.ensure_export_figure()
+            self.assertEqual((page.figure.axes[0].get_xlabel(), page.figure.axes[0].get_ylabel()),
+                             ("RAW · DP", "REF · DP"))
+            from metrology_app.analysis_export import capture_window
+            exported = capture_window(window)["plots"]
+            self.assertEqual([(plot["x"], plot["y"]) for plot in exported], [("RAW · DP", "REF · DP")])
+            np.testing.assert_array_equal(exported[0]["series"][0]["data"]["X"], [1, 3, 4, 5, 6])
+            np.testing.assert_array_equal(exported[0]["series"][0]["data"]["Y"], [12, 16, 18, 20, 22])
+            with TemporaryDirectory() as folder:
+                path = Path(folder) / "cross-source.wct"
+                window.document.save(path)
+                restored = CorrelationWindow()
+                try:
+                    restored.load_workspace(path)
+                    other = restored.correlation_page
+                    self.assertEqual(other.parameter_filter.parameter, page.parameter_filter.parameter)
+                    self.assertEqual(other.axis_state(), page.axis_state())
+                    self.assertEqual(other.display_fits()[0].parameter_keys, fit.parameter_keys)
+                    self.assertEqual(other.oriented_fit(other.display_fits()[0]).parameter_keys,
+                                     tuple(reversed(fit.parameter_keys)))
+                finally:
+                    restored.document.force_close = True
+                    restored.close()
+                    restored.deleteLater()
+                    APP.processEvents()
+            trend = window.sequence_page
+            trend.selector.selectAll()
+            trend.draw_plot()
+            trend.parameter_filter.buttons[("Raw Data", "DP")].click()
+            self.assertEqual([(p["source"]["name"], p["metric"]) for p in trend.display_panel_specs()],
+                             [("Raw Data", "DP")])
+            self.assertTrue(trend.set_overlay("DP", "DP", "Reference", "Raw Data"))
+            trend.parameter_filter.buttons[("Raw Data", "DP")].click()
+            self.assertEqual([(p["source"]["name"], p["metric"]) for p in trend.display_panel_specs()],
+                             [("Reference", "DP"), ("Raw Data", "DP")])
+            self.assertEqual([key for key in trend.parameter_filter.buttons if isinstance(key, tuple)],
+                             [("Reference", "DP"), ("Raw Data", "DP")])
+        finally:
+            QTest.keyRelease(window, Qt.Key.Key_Alt)
+            QTest.keyRelease(window, Qt.Key.Key_Control)
+            window.document.force_close = True
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_cross_source_pairs_intersect_selected_original_rows_before_numeric_cleanup(self):
+        from metrology_app.correlation_page import source_pairwise_linear_fits
+
+        frame = pd.DataFrame({"DP": [10., 20., 30., 40., 50., 60., 1., 2., 3., 4., 5., 6.]})
+        sources = ({"name": "Reference", "color": "orange", "rows": tuple(range(6))},
+                   {"name": "Raw Data", "color": "blue", "rows": tuple(range(6, 12))})
+        groups = {"ref-selection": [0, 2, 3, 5], "raw-selection": [6, 7, 9, 10, 11]}
+        cells = {(key, "DP") for key in groups}
+        fits, errors = source_pairwise_linear_fits(frame, ["DP"], sources, groups, cells)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(fits), 1)
+        np.testing.assert_array_equal(fits[0].sources[0].fit.x, [10, 40, 60])
+        np.testing.assert_array_equal(fits[0].sources[0].fit.y, [1, 4, 6])
+        frame.loc[3, "DP"] = np.nan
+        fits, errors = source_pairwise_linear_fits(frame, ["DP"], sources, groups, cells)
+        self.assertEqual(fits, [])
+        self.assertIn("fewer than 3", errors[0][-1])
+        with self.assertRaisesRegex(ValueError, "row-aligned"):
+            source_pairwise_linear_fits(frame, ["DP"], (sources[0], {**sources[1], "rows": (6, 7, 8)}), groups, cells)
+
     def test_pair_count_is_unordered_but_reference_and_raw_fits_remain_separate(self):
         window = CorrelationWindow()
         raw = pd.DataFrame({"Wafer ID": ["W1"] * 5, "Die Seq": ["1", "2", "3", "4", "5"],
@@ -43,22 +210,23 @@ class ParameterFilterTests(unittest.TestCase):
             APP.processEvents()
             original = list(page.all_fits)
             modifiers = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier
-            for names in (("UC", "WTH"), ("WTH", "UC")):
-                QTest.mouseClick(page.parameter_filter.buttons[None], Qt.MouseButton.LeftButton)
-                for name in names:
-                    QTest.mouseClick(page.parameter_filter.buttons[name], Qt.MouseButton.LeftButton, modifiers)
-                QTest.keyRelease(page, Qt.Key.Key_Alt, Qt.KeyboardModifier.ControlModifier)
-                QTest.keyRelease(page, Qt.Key.Key_Control)
-                fits = page.display_fits()
-                self.assertEqual(len(fits), 2)
-                self.assertEqual({fit.sources[0].name for fit in fits}, {"Reference", "Raw Data"})
-                self.assertEqual({frozenset((fit.x_name, fit.y_name)) for fit in fits}, {frozenset(("UC", "WTH"))})
-                self.assertIn("1 parameter pair", page.status.text())
-                self.assertIn("2 source fits", page.status.text())
+            for source, slope in (("Reference", 3.), ("Raw Data", 2.)):
+                for names in (("UC", "WTH"), ("WTH", "UC")):
+                    QTest.mouseClick(page.parameter_filter.buttons[None], Qt.MouseButton.LeftButton)
+                    for name in names:
+                        QTest.mouseClick(page.parameter_filter.buttons[(source, name)], Qt.MouseButton.LeftButton, modifiers)
+                    QTest.keyRelease(page, Qt.Key.Key_Alt, Qt.KeyboardModifier.ControlModifier)
+                    QTest.keyRelease(page, Qt.Key.Key_Control)
+                    fits = page.display_fits()
+                    self.assertEqual(len(fits), 1)
+                    self.assertEqual(fits[0].sources[0].name, source)
+                    self.assertEqual(frozenset((fits[0].x_name, fits[0].y_name)), frozenset(("UC", "WTH")))
+                    self.assertIn("1 parameter pair", page.status.text())
+                    self.assertIn("1 source fits", page.status.text())
+                    self.assertAlmostEqual(fits[0].sources[0].fit.slope, slope)
             self.assertEqual(page.all_fits, original)
-            np.testing.assert_allclose([fit.sources[0].fit.slope for fit in fits], [3., 2.], rtol=1e-12)
             page.swap_axes(fits[0])
-            self.assertEqual(len(page.display_fits()), 2)
+            self.assertEqual(len(page.display_fits()), 1)
             self.assertIn("1 parameter pair", page.status.text())
         finally:
             QTest.keyRelease(window, Qt.Key.Key_Alt, Qt.KeyboardModifier.ControlModifier)
@@ -153,14 +321,15 @@ class ParameterFilterTests(unittest.TestCase):
         parent.run_analysis()
         child = parent.open_correlation_workspace()
         self.addCleanup(close, child)
+        child.set_reference_table(parent.reference_frame, "Manual Reference")
         before = child.workspace_snapshot()
         page = child.correlation_page
         page.selector.selectAll()
         page.draw_plot()
         modifiers = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier
         try:
-            QTest.mouseClick(page.parameter_filter.buttons["DP"], Qt.MouseButton.LeftButton, modifiers)
-            QTest.mouseClick(page.parameter_filter.buttons["EW"], Qt.MouseButton.LeftButton, modifiers)
+            QTest.mouseClick(page.parameter_filter.buttons[("Raw Data", "DP")], Qt.MouseButton.LeftButton, modifiers)
+            QTest.mouseClick(page.parameter_filter.buttons[("Raw Data", "EW")], Qt.MouseButton.LeftButton, modifiers)
         finally:
             QTest.keyRelease(page, Qt.Key.Key_Alt, Qt.KeyboardModifier.ControlModifier)
             QTest.keyRelease(page, Qt.Key.Key_Control)
@@ -173,7 +342,8 @@ class ParameterFilterTests(unittest.TestCase):
             reopened = restored.open_correlation_workspace()
             self.addCleanup(close, reopened)
             page = reopened.correlation_page
-            self.assertEqual(page.parameter_filter.parameter, {"mode": "pair", "parameters": ["DP", "EW"]})
+            self.assertEqual(page.parameter_filter.parameter,
+                             {"mode": "source-pair", "parameters": [["Raw Data", "DP"], ["Raw Data", "EW"]]})
             self.assertEqual([(fit.x_name, fit.y_name) for fit in page.display_fits()], [("DP", "EW")])
             self.assertIsNone(reopened.sequence_page.parameter_filter.parameter)
             report = capture_window(reopened)
@@ -181,11 +351,12 @@ class ParameterFilterTests(unittest.TestCase):
                               if plot["sheet"] == "Correlation"], [("DP", "EW")])
             for name, source in before.frames.items():
                 pd.testing.assert_frame_equal(reopened.workspace_snapshot().frames[name], source)
-            QTest.mouseClick(page.parameter_filter.buttons["TG"], Qt.MouseButton.LeftButton,
+            QTest.mouseClick(page.parameter_filter.buttons[("Raw Data", "TG")], Qt.MouseButton.LeftButton,
                              Qt.KeyboardModifier.ControlModifier)
             QTest.keyRelease(page, Qt.Key.Key_Control)
-            self.assertEqual(page.parameter_filter.parameter, ["DP", "TG", "EW"])
-            self.assertEqual(len(page.display_fits()), 3)
+            self.assertEqual(page.parameter_filter.parameter,
+                             {"mode": "source", "parameters": [["Raw Data", name] for name in ("DP", "TG", "EW")]})
+            self.assertEqual(len(page.display_fits()), 12)
 
     def test_pair_without_an_eligible_fit_has_a_clear_empty_view_and_does_not_bypass_rsq(self):
         page = CorrelationPage()
@@ -344,26 +515,28 @@ class ParameterFilterTests(unittest.TestCase):
         parent.run_analysis()
         child = parent.open_correlation_workspace()
         self.addCleanup(close, child)
+        child.set_reference_table(parent.reference_frame, "Manual Reference")
         source = child.model.document_frame().copy()
+        selected = {"mode": "source", "parameters": [["Raw Data", "DP"], ["Raw Data", "EW"]]}
         for page in (child.correlation_page, child.sequence_page):
             page.selector.selectAll()
             page.draw_plot()
-            QTest.mouseClick(page.parameter_filter.buttons["DP"], Qt.MouseButton.LeftButton)
-            QTest.mouseClick(page.parameter_filter.buttons["EW"], Qt.MouseButton.LeftButton,
+            QTest.mouseClick(page.parameter_filter.buttons[("Raw Data", "DP")], Qt.MouseButton.LeftButton)
+            QTest.mouseClick(page.parameter_filter.buttons[("Raw Data", "EW")], Qt.MouseButton.LeftButton,
                              Qt.KeyboardModifier.ControlModifier)
-            self.assertEqual(page.parameter_filter.parameter, ["DP", "EW"])
+            self.assertEqual(page.parameter_filter.parameter, selected)
         with TemporaryDirectory() as folder:
             path = Path(folder) / "multi-parameter.wkb"
             parent.save_workbook(path)
             saved = load_workspace(path)
             for page_name in ("correlation_page", "sequence_page"):
                 self.assertEqual(saved.states["correlation.preview"]["ui"]["pages"][page_name]["parameter_filter"],
-                                 ["DP", "EW"])
+                                 selected)
             legacy = Path(folder) / "single-parameter.wkb"
             for page_name in ("correlation_page", "sequence_page"):
                 saved.states["correlation.preview"]["ui"]["pages"][page_name]["parameter_filter"] = "DP"
             save_workspace(legacy, saved)
-            for file, expected in ((path, ["DP", "EW"]), (legacy, "DP")):
+            for file, expected in ((path, selected), (legacy, "DP")):
                 with self.subTest(file=file.name):
                     restored = MatchingWindow()
                     self.addCleanup(close, restored)
@@ -372,8 +545,8 @@ class ParameterFilterTests(unittest.TestCase):
                     self.addCleanup(close, reopened)
                     for page in (reopened.correlation_page, reopened.sequence_page):
                         self.assertEqual(page.parameter_filter.parameter, expected)
-                        self.assertTrue(page.parameter_filter.buttons["DP"].isChecked())
-                        self.assertEqual(page.parameter_filter.buttons["EW"].isChecked(), isinstance(expected, list))
+                        self.assertTrue(page.parameter_filter.buttons[("Raw Data", "DP")].isChecked())
+                        self.assertEqual(page.parameter_filter.buttons[("Raw Data", "EW")].isChecked(), isinstance(expected, dict))
                         self.assertFalse(page.parameter_filter.buttons[None].isChecked())
                     pd.testing.assert_frame_equal(reopened.model.document_frame(), source)
                     close(reopened)

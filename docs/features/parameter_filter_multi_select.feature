@@ -1,6 +1,28 @@
 Feature: View several drawn parameters together
   Engineers compare related plots without changing measurements or fitted results.
 
+  # Automation: ParameterFilterTests.test_source_groups_have_distinct_containers_and_keep_wrapped_buttons_inside
+  Scenario: Distinguish Reference and Raw controls at any window width
+    Given drawn plots contain both Reference and Raw parameters
+    Then REF and RAW appear in separate outlined groups with distinct source badges
+    And wrapped buttons stay inside their source group with a visible gap between groups
+    And ALL remains a global choice outside both groups
+
+  # Automation: ParameterFilterTests.test_source_rows_keep_same_named_parameters_independent_and_wrap_separately
+  Scenario: Navigate Reference and Raw parameters independently
+    Given drawn plots contain "DP" in both Reference and Raw Data
+    When the engineer chooses "DP" in the REF row
+    Then only plots containing Reference "DP" are displayed
+    And Raw "DP" remains independently selectable in the lower RAW row
+
+  # Automation: ParameterFilterTests.test_cross_source_same_name_pairs_use_aligned_rows_and_export_distinct_axes
+  Scenario: Correlate same-named columns from different sources
+    Given Reference "DP" and Raw "DP" are different row-aligned measurement columns
+    When the engineer chooses both source-qualified parameters with Ctrl and Alt
+    Then their paired correlation is displayed and exported with distinct REF and RAW axes
+    And missing or excluded observations do not shift the remaining pairs
+    And saved source choices and axis direction are restored when reopened
+
   # Automation: tests.test_parameter_filter.ParameterFilterTests
   Scenario: Isolate the correlation between two drawn parameters
     Given drawn correlations contain parameters "DP", "TG", and "EW"

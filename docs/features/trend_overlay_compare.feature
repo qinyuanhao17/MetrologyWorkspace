@@ -2,6 +2,20 @@ Feature: Compare selected Trend parameters
   The default Trend layout remains one panel per selected parameter. An
   engineer can add one or more comparison curves without removing those panels.
 
+  # Automation: CorrelationTests.test_more_than_thirty_trend_parameters_keep_every_curve_and_source_value
+  Scenario: Draw more than thirty Trend parameters
+    Given curve boxes are selected for 31 numeric parameters
+    When the engineer draws Trend
+    Then every selected parameter retains its full curve and its parameter button
+    And the original source values remain unchanged
+
+  # Automation: CorrelationTests.test_large_ref_raw_parameter_lists_keep_cross_correlations_and_trend_sources
+  Scenario: Draw many source-qualified parameters
+    Given selected REF and RAW parameters together exceed forty numeric columns
+    When the engineer draws Correlation and Trend
+    Then valid cross-source pairs remain available in Correlation
+    And every selected Trend parameter keeps its own source identity
+
   Scenario: Add multiple comparison parameters from a Trend panel
     Given multiple numeric parameters are selected for Trend
     And each Trend plot shows an Add Compare control at its right edge

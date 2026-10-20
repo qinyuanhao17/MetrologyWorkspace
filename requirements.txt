@@ -8,3 +8,7 @@ lxml>=5,<7
 lmfit>=1.2,<2
 PyYAML>=6,<7
 pyqtgraph>=0.13,<1
+# Offline screenshot recognition; pin the adapter/model contract used by Writer.
+rapidocr==3.10.0
+onnxruntime==1.23.2
+opencv-python-headless==5.0.0.93

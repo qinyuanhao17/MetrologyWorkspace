@@ -189,6 +189,7 @@ class TrendWaferLabelTests(unittest.TestCase):
         self.parent.set_raw_frame(raw)
         self.parent.run_analysis()
         child = self.parent.open_correlation_workspace()
+        child.set_reference_table(self.parent.reference_model.frame(), "Manual Reference")
         page = self.draw_child(child)
         page.axis_mode.setCurrentIndex(page.axis_mode.findData("dual"))
         self.assertTrue(page.set_overlay("CD Reference", "CD", "Reference", "Raw Data"))
@@ -266,6 +267,7 @@ class TrendWaferLabelTests(unittest.TestCase):
         parent.group_controls.mark_enabled.setChecked(True)
         parent.group_controls.apply_button.click()
         child = parent.open_correlation_workspace()
+        child.set_reference_table(parent.reference_model.frame(), "Manual Reference")
         page = self.draw_child(child)
         self.assertEqual({text for widget in page.plot_widgets
                           for _, _, text in widget._wafer_axis.spans}, {"Old"})
@@ -430,6 +432,7 @@ class TrendWaferLabelTests(unittest.TestCase):
     def test_reopened_linked_trend_keeps_boxes_when_classification_is_enabled(self):
         parent = self.parent
         child = parent.open_correlation_workspace()
+        child.set_reference_table(parent.reference_model.frame(), "Manual Reference")
         self.draw_child(child)
         with TemporaryDirectory() as folder:
             path = Path(folder) / "classification-enabled.wkb"
@@ -472,6 +475,8 @@ class TrendWaferLabelTests(unittest.TestCase):
         child = parent.open_correlation_workspace()
         page = self.draw_child(child)
         self.assertEqual(len(child.raw_model.frame()), 6)
+        self.assertTrue(child.reference_model.document_frame().empty)
+        self.assertIsNotNone(child._group_plan, "Raw-only Trend still uses Workbook classification")
         self.assertEqual({label for widget in page.plot_widgets for _, _, label in widget._wafer_axis.spans}, {"Head A"})
         child.full_data_action.trigger()
         # Full data restores the tables, while preserving local sidebar

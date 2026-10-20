@@ -36,7 +36,6 @@ from .plotting.parameter_filter import ParameterFilterBar
 from .settings import get_settings
 
 
-MAX_INPUT_COLUMNS = 40
 DEFAULT_PAGE_SIZE = 12
 HOME_PADDING = 0.08
 
@@ -65,6 +64,7 @@ class SourcePairFit:
     x_name: str
     y_name: str
     sources: tuple[SourceFit, ...]
+    parameter_keys: tuple[tuple[str, str], ...] = ()
 
     @property
     def rsquared(self):
@@ -107,7 +107,8 @@ def swap_fit_axes(fit):
     """
     if isinstance(fit, SourcePairFit):
         return SourcePairFit(fit.y_name, fit.x_name, tuple(
-            SourceFit(source.name, source.color, swap_fit_axes(source.fit)) for source in fit.sources))
+            SourceFit(source.name, source.color, swap_fit_axes(source.fit)) for source in fit.sources),
+            tuple(reversed(fit.parameter_keys)))
     return _fit_numeric_values(fit.y, fit.x, fit.y_name, fit.x_name)
 
 
@@ -147,11 +148,10 @@ def pairwise_linear_fits(frame, metrics, groups=None, cells=None):
 
 
 def source_pairwise_linear_fits(frame, metrics, sources, groups, cells):
-    """Fit parameter pairs as source-ordered panels.
+    """Fit within-source and row-aligned cross-source parameter pairs.
 
-    Keeping one source per panel makes the Reference-first/Raw-second contract
-    explicit and avoids visually implying that the two populations share one
-    regression model.
+    Within-source panels remain Reference-first/Raw-second. Cross-source
+    panels follow and fit aligned observations, never pooled populations.
     """
     numeric = {name: number(frame[name]).to_numpy(float) for name in metrics}
     model = LinearModel()
@@ -180,9 +180,45 @@ def source_pairwise_linear_fits(frame, metrics, sources, groups, cells):
             source_panels.append(SourcePairFit(
                 x_name, y_name,
                 (SourceFit(source["name"], source["color"], fit),),
+                ((source["name"], x_name), (source["name"], y_name)),
             ))
         source_panels.sort(key=lambda panel: panel.rsquared, reverse=True)
         panels.extend(source_panels)
+    # Different source tables share original row ordinals, not concatenated
+    # population positions. Intersect selections before paired NaN cleanup.
+    source_labels = {"Reference": "REF", "Raw Data": "RAW"}
+    for left, right in combinations(sources, 2):
+        if len(left["rows"]) != len(right["rows"]):
+            raise ValueError("Cross-source correlation requires row-aligned source tables.")
+        selected = {}
+        for source in (left, right):
+            for name in metrics:
+                allowed = {row for key, rows in groups.items() if (key, name) in cells for row in rows}
+                selected[(source["name"], name)] = {
+                    index: row for index, row in enumerate(source["rows"]) if row in allowed}
+        cross = []
+        for x_name in metrics:
+            x_rows = selected[(left["name"], x_name)]
+            if not x_rows:
+                continue
+            for y_name in metrics:
+                y_rows = selected[(right["name"], y_name)]
+                if not y_rows:
+                    continue
+                indices = sorted(x_rows.keys() & y_rows.keys())
+                labels = tuple(f"{source_labels.get(source['name'], source['name'])} · {name}"
+                               for source, name in ((left, x_name), (right, y_name)))
+                try:
+                    fit = _fit_numeric_values(numeric[x_name][[x_rows[i] for i in indices]],
+                                              numeric[y_name][[y_rows[i] for i in indices]], *labels, model)
+                except ValueError as error:
+                    errors.append((left["name"], x_name, right["name"], y_name, str(error)))
+                    continue
+                cross.append(SourcePairFit(*labels,
+                    (SourceFit(f"{left['name']} ↔ {right['name']}", left["color"], fit),),
+                    ((left["name"], x_name), (right["name"], y_name))))
+        cross.sort(key=lambda panel: panel.rsquared, reverse=True)
+        panels.extend(cross)
     return panels, errors
 
 
@@ -442,7 +478,8 @@ class CorrelationPage(QWidget):
         self.update_timer.stop()
         self.parameter_filter.set_parameters(
             [name for name in self.parameter_filter.names if name in self.frame.columns]
-            if not self.frame.empty and self.selector.rowCount() and self.selector.columnCount() else ())
+            if not self.frame.empty and self.selector.rowCount() and self.selector.columnCount() else (),
+            sources=self.parameter_filter.source_groups)
         self._pending_updates.clear()
         self.ready = False
         self.all_fits = []
@@ -497,26 +534,22 @@ class CorrelationPage(QWidget):
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             metrics = self.selection.get("metrics", [])
-            if len(metrics) < 2:
+            if len(metrics) < (1 if self.selection.get("sources") else 2):
                 raise ValueError("Select at least 2 numeric columns in Data.")
-            if len(metrics) > MAX_INPUT_COLUMNS:
-                raise ValueError(
-                    f"Select up to {MAX_INPUT_COLUMNS} numeric columns "
-                    f"({MAX_INPUT_COLUMNS * (MAX_INPUT_COLUMNS - 1) // 2} pairwise fits)."
-                )
             cells = self.selector.selected_cells()
             if not cells:
                 raise ValueError("Select at least one fit box before drawing.")
             wafers = self.selection.get("wafers", [])
             drawn_wafers, drawn_metrics = drawn_axes(wafers, metrics, cells)
-            if len(drawn_metrics) < 2:
+            if len(drawn_metrics) < (1 if self.selection.get("sources") else 2):
                 raise ValueError("Select boxes for at least 2 numeric columns.")
             groups = {key: rows for key, rows in self.row_groups().items() if key in set(drawn_wafers)}
             if not any(groups.values()):
                 raise ValueError("Select at least one measurement set in Data.")
             self.cells = set(cells)
             pair_count = len(drawn_metrics) * (len(drawn_metrics) - 1) // 2
-            self.status.setText(f"Fitting {pair_count} parameter pairs…")
+            self.status.setText("Fitting within- and cross-table parameter pairs…" if self.selection.get("sources")
+                                else f"Fitting {pair_count} parameter pairs…")
             QApplication.processEvents()
             try:
                 self.draw_button.isEnabled()
@@ -584,7 +617,9 @@ class CorrelationPage(QWidget):
     def display_fits(self):
         parameter = self.parameter_filter.parameter
         return self.fits if parameter is None else [fit for fit in self.fits
-                                                   if self.parameter_filter.matches((fit.x_name, fit.y_name))]
+                                                   if self.parameter_filter.matches(
+                                                       fit.parameter_keys if isinstance(fit, SourcePairFit)
+                                                       else (fit.x_name, fit.y_name))]
 
     @staticmethod
     def axis_key(fit):
@@ -707,7 +742,8 @@ class CorrelationPage(QWidget):
             f" · skipped {self.skipped_count} invalid pairs"
             if self.skipped_count else ""
         )
-        pairs = len({frozenset((fit.x_name, fit.y_name)) for fit in fits})
+        pairs = len({frozenset(fit.parameter_keys if isinstance(fit, SourcePairFit) else (fit.x_name, fit.y_name))
+                     for fit in fits})
         pair_summary = f"{pairs} parameter pair{'s' if pairs != 1 else ''}"
         if any(isinstance(fit, SourcePairFit) for fit in fits):
             pair_summary += f" · {len(fits)} source fits"
@@ -744,8 +780,15 @@ class CorrelationPage(QWidget):
             return
         threshold = self.min_rsq.value()
         self.fits = [fit for fit in self.all_fits if fit.rsquared > threshold]
-        self.parameter_filter.set_parameters([name for name in self.drawn_metrics
-                                              if any(name in (fit.x_name, fit.y_name) for fit in self.fits)])
+        if self.selection.get("sources"):
+            keys = {key for fit in self.fits for key in fit.parameter_keys}
+            names = {name for _, name in keys}
+            self.parameter_filter.set_parameters([name for name in self.drawn_metrics if name in names], sources=[
+                (source["name"], [name for name in self.drawn_metrics if (source["name"], name) in keys])
+                for source in self.selection["sources"]])
+        else:
+            self.parameter_filter.set_parameters([name for name in self.drawn_metrics
+                                                  if any(name in (fit.x_name, fit.y_name) for fit in self.fits)])
         self.page_index = 0
         if not self.fits:
             self.ready = False
