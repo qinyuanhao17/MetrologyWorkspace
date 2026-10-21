@@ -1125,9 +1125,7 @@ class PlotPage(QWidget):
         self.status.setText("Copying…")
         QApplication.processEvents()
         try:
-            buffer = BytesIO()
-            self.figure.savefig(buffer, format="png", dpi=dpi, facecolor="white")
-            image = QImage.fromData(buffer.getvalue(), "PNG")
+            image = QImage.fromData(self.png_bytes(), "PNG")
             if image.isNull():
                 raise ValueError("Unable to create the PNG image.")
             QApplication.clipboard().setImage(image)
@@ -1137,6 +1135,15 @@ class PlotPage(QWidget):
             self.status.setText(f"Copy failed: {error}")
         finally:
             QApplication.restoreOverrideCursor()
+
+    def png_bytes(self):
+        """Current Copy PNG grid, without touching the system clipboard."""
+        self.apply_overlay_visibility()
+        requested = resolution_settings(self.resolution)[1]
+        dpi = export_dpi(self.figure, requested, MAX_COPY_PIXELS)
+        buffer = BytesIO()
+        self.figure.savefig(buffer, format="png", dpi=dpi, facecolor="white")
+        return buffer.getvalue()
 
     def stop(self):
         self.pending_input_refresh = False

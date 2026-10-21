@@ -10,12 +10,12 @@ from types import MappingProxyType
 
 import pandas as pd
 from PyQt6.QtCore import (
-    QAbstractProxyModel, QAbstractTableModel, QItemSelection, QItemSelectionModel, QModelIndex, Qt, pyqtSignal,
+    QAbstractProxyModel, QAbstractTableModel, QEvent, QItemSelection, QItemSelectionModel, QModelIndex, Qt, pyqtSignal,
 )
-from PyQt6.QtGui import QColor, QCursor, QFont, QKeySequence, QUndoCommand, QUndoStack
+from PyQt6.QtGui import QColor, QCursor, QFont, QKeySequence, QPainter, QPen, QUndoCommand, QUndoStack
 from PyQt6.QtWidgets import (
     QAbstractItemDelegate, QApplication, QFrame, QHeaderView, QHBoxLayout, QLabel, QMessageBox, QPushButton,
-    QSizePolicy, QStyle, QStyleOptionHeader, QTableView, QToolButton,
+    QSizePolicy, QStyle, QStyleOptionHeader, QTableView, QToolButton, QToolTip,
 )
 
 from .settings import get_settings
@@ -32,6 +32,10 @@ def header_colours():
     return HEADER_COLOURS.get(get_settings()["theme"], HEADER_COLOURS["dark"])
 
 
+def _hidden_row_colour():
+    return QColor("#e6b54a" if get_settings()["theme"] == "dark" else "#b87200")
+
+
 def column_letter(index):
     result = ""
     while index >= 0:
@@ -40,11 +44,20 @@ def column_letter(index):
     return result
 
 
+def table_size_text(rows, columns, *, visible_rows=None):
+    """Describe source data, not the sheet's reserved editing cells or row labels."""
+    size = f"{rows:,} rows × {columns} columns"
+    if visible_rows is not None and visible_rows != rows:
+        return f"{visible_rows:,} visible / {size}"
+    return size
+
+
 def clipboard_rows(text):
     if not text:
         return []
     try:
-        delimiter = "\t" if "\t" in text else csv.Sniffer().sniff(text, delimiters=",;").delimiter
+        delimiter = ("\t" if "\t" in text or not any(separator in text for separator in ",;")
+                     else csv.Sniffer().sniff(text, delimiters=",;").delimiter)
     except csv.Error:
         delimiter = "\t"
     return list(csv.reader(StringIO(text), delimiter=delimiter))
@@ -126,13 +139,14 @@ class PasteReport:
 
 
 class CellEdit(QUndoCommand):
-    def __init__(self, model, changes):
+    def __init__(self, model, changes, *, document_rows=None):
         super().__init__("Edit cells")
         self.model = model
         self.before = {cell: model.cells.get(cell, "") for cell in changes}
         self.after = changes
         self.before_rows = model._document_rows
-        self.after_rows = max(self.before_rows, max((row for (row, _), value in changes.items() if value), default=0))
+        self.after_rows = max(self.before_rows if document_rows is None else document_rows,
+                              max((row for (row, _), value in changes.items() if value), default=0))
 
     def redo(self):
         self.model._document_rows = self.after_rows
@@ -295,12 +309,12 @@ class SheetModel(QAbstractTableModel):
         self.edit({(index.row(), index.column()): str(value)})
         return True
 
-    def edit(self, changes):
+    def edit(self, changes, *, document_rows=None):
         changes = {key: value for key, value in changes.items()
                    if self.cells.get((0, key[1]), "") not in self.clipboard_locks
                    and self.cells.get(key, "") != value}
         if changes:
-            self.undo.push(CellEdit(self, changes))
+            self.undo.push(CellEdit(self, changes, document_rows=document_rows))
 
     def paste_cells(self, changes, *, bounds=None):
         """Paste over a range and report actual edits, not the clipboard size."""
@@ -616,6 +630,13 @@ class SheetModel(QAbstractTableModel):
                                       else nonempty_cell_bounds(self.cells.items()))
         return self._selection_bounds
 
+    def document_shape(self):
+        """Document dimensions excluding row-1 headers and reserved blank cells."""
+        if not self.cells:
+            return 0, 0
+        height, width = self._cell_extent()
+        return max(self._document_rows, height - 1), width
+
     def document_frame(self):
         """Save a draft exactly, including duplicate headers and empty rows."""
         if "document" in self._frames:
@@ -737,6 +758,22 @@ class _SheetHeader(QHeaderView):
     contains that information. Custom/disabled-cell models keep Qt's path.
     """
 
+    def paintSection(self, painter, rect, section):
+        super().paintSection(painter, rect, section)
+        gap = getattr(self.model(), "hidden_rows_before", None)
+        if self.orientation() != Qt.Orientation.Vertical or gap is None or gap(section) is None:
+            return
+        painter.save()
+        colour = _hidden_row_colour()
+        painter.setPen(QPen(colour, 2, Qt.PenStyle.DashLine))
+        painter.drawLine(rect.left(), rect.top(), rect.right(), rect.top())
+        # A small fold mark also identifies the boundary without relying on colour.
+        painter.setPen(QPen(colour, 1.5))
+        x, y = rect.right() - 7, rect.top() + 3
+        painter.drawLine(x - 3, y, x, y + 3)
+        painter.drawLine(x, y + 3, x + 3, y)
+        painter.restore()
+
     def initStyleOptionForIndex(self, option, section):
         model = self.model()
         if not getattr(model, "uniform_selectable", False):
@@ -855,6 +892,38 @@ class SheetView(QTableView):
     def clear_paste_report(self):
         if self._paste_source is not None:
             self._paste_source.clear_paste_report()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        model = self.model()
+        gap = getattr(model, "hidden_rows_before", None)
+        first = self.rowAt(0)
+        if gap is None or first < 0:
+            return
+        last = self.rowAt(self.viewport().height() - 1)
+        if last < 0:
+            last = model.rowCount() - 1
+        positions = [self.rowViewportPosition(row) for row in range(max(1, first), last + 1)
+                     if gap(row) is not None]
+        if not positions:
+            return
+        painter = QPainter(self.viewport())
+        painter.setPen(QPen(_hidden_row_colour(), 2, Qt.PenStyle.DashLine))
+        for y in positions:
+            if 0 <= y < self.viewport().height():
+                painter.drawLine(0, y, self.viewport().width() - 1, y)
+        painter.end()
+
+    def viewportEvent(self, event):
+        if event.type() == QEvent.Type.ToolTip:
+            row = self.rowAt(event.pos().y())
+            gap = getattr(self.model(), "hidden_rows_before", None)
+            if (row >= 1 and gap is not None and gap(row) is not None
+                    and 0 <= event.pos().y() - self.rowViewportPosition(row) <= 4):
+                tip = self.model().headerData(row, Qt.Orientation.Vertical, Qt.ItemDataRole.ToolTipRole)
+                QToolTip.showText(event.globalPos(), tip, self.viewport())
+                return True
+        return super().viewportEvent(event)
 
     def toggle_column_lock(self, index=None):
         if not self.metadata_locks_enabled:
@@ -1012,7 +1081,14 @@ class SheetView(QTableView):
         # rectangle, but clear only its unlocked cells in the same Undo step.
         changes = {(row, column): "" for row, column in model.cells
                    if top <= row <= bottom and left <= column <= right}
-        model.edit(changes)
+        report = getattr(model, "paste_report", None)
+        if isinstance(model, SheetModel) and report is not None and report.bounds == bounds and report.rows_added:
+            # Cutting the entire just-pasted range also removes its newly added
+            # empty tail. Keep every pre-existing source row, including blanks;
+            # the edit command restores both extent and values on Undo.
+            model.edit(changes, document_rows=model._document_rows - report.rows_added)
+        else:
+            model.edit(changes)
         self.clipboard_outline.show_range(bounds, "copy")
         return True
 

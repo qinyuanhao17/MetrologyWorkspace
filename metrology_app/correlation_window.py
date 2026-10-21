@@ -47,6 +47,11 @@ def _first_column(frame, aliases):
     return next((columns[alias] for alias in aliases if alias in columns), None)
 
 
+def _available_source_frame(model):
+    """Exclude an invalid source from analysis without blocking its valid peer."""
+    return pd.DataFrame() if model.duplicate_header_count() else model.frame()
+
+
 def _aligned_reference_frame(reference, raw):
     """Keep Reference values while taking row identity from aligned Raw Data."""
     reference = reference.reset_index(drop=True).copy()
@@ -110,6 +115,7 @@ class CorrelationWindow(DataWorkspaceWindow):
         self.reference_page = self._build_reference_page()
         self.tabs.insertTab(0, self.reference_page, "1. Ref Data")
         self.reference_model.changed.connect(self.refresh_timer.start)
+        self.reference_model.changed.connect(self._refresh_table_sizes)
         self.correlation_page = CorrelationPage()
         self.correlation_page.axes_changed.connect(self.document.identity_timer.start)
         self.tabs.addTab(self.correlation_page, "3. Correlation")
@@ -133,8 +139,7 @@ class CorrelationWindow(DataWorkspaceWindow):
             # Keep the manual Reference literally intact. A changed Raw row
             # count cannot establish new cross-table pairs on its behalf.
             self.set_table(raw, f"{mode} Raw Data", keep_local_selection=True)
-            self.reference_footer.setText(
-                f"{len(reference):,} rows × {len(reference.columns)} columns; Raw Data has {len(raw):,} rows")
+            self._refresh_table_sizes()
             self._populate_reference_choices()
             return
         self.set_sources(reference, raw, mappings, mode, align_reference=False)
@@ -467,7 +472,12 @@ class CorrelationWindow(DataWorkspaceWindow):
         layout.addWidget(self.reference_warning_banner)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
-        splitter.addWidget(self._build_reference_sheet_card())
+        reference_panel = self._build_reference_sheet_card()
+        splitter.addWidget(reference_panel)
+        from .floating_editor import FloatingEditor
+        self.reference_floating_editor = FloatingEditor(
+            self, reference_panel, self.reference_sheet, splitter,
+            title="Reference table", owner_only=True)
         side = QWidget()
         side_layout = QVBoxLayout(side)
         side_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
@@ -681,10 +691,19 @@ class CorrelationWindow(DataWorkspaceWindow):
             self.reference_parameter_count.setText("Headers must be unique")
             return
         reset = self._reset_reference_selection
+        select_new_identity = reset or not self.reference_measurements
         previous_wafers = set(self.selected(self.reference_wafer_list))
         previous_metrics = set(self.selected(self.reference_parameter_list))
+        previous_numeric = {self.reference_parameter_list.topLevelItem(index).data(0, Qt.ItemDataRole.UserRole)
+                            for index in range(self.reference_parameter_list.topLevelItemCount())
+                            if self.reference_parameter_list.topLevelItem(index).data(0, Qt.ItemDataRole.UserRole + 1)}
         previous_groups = self._reference_group_columns()
         detected_wafer, counts, metrics = inspect_table(frame)
+        # A newly pasted Wafer field gets useful defaults. An existing field's
+        # explicit grouping choice (including none) remains authoritative even
+        # while the source has no recognizable measurements.
+        reset_groups = reset or (detected_wafer is not None
+                                 and detected_wafer not in self.reference_group_checks)
         normalize = lambda name: "".join(
             character.lower() for character in str(name) if character.isalnum()
         )
@@ -702,7 +721,7 @@ class CorrelationWindow(DataWorkspaceWindow):
             and normalize(column) not in excluded
             and "path" not in column.lower()
         ]
-        if reset:
+        if reset_groups:
             lot_column = next(
                 (column for column in candidates
                  if normalize(column) in {"lotid", "lot", "lotno"}),
@@ -720,7 +739,7 @@ class CorrelationWindow(DataWorkspaceWindow):
             chosen_groups = [
                 column for column in candidates if column in previous_groups
             ]
-        if reset or list(self.reference_group_checks) != candidates:
+        if reset_groups or list(self.reference_group_checks) != candidates:
             self._set_reference_group_columns([
                 (column, column in chosen_groups) for column in candidates
             ])
@@ -736,7 +755,7 @@ class CorrelationWindow(DataWorkspaceWindow):
         ) if primary else []
         chosen_metrics = (
             set(self.default_parameters(metrics))
-            if reset else previous_metrics
+            if reset else previous_metrics | (set(self.default_parameters(metrics)) - previous_numeric)
         )
         for tree in (self.reference_wafer_list, self.reference_parameter_list):
             tree.blockSignals(True)
@@ -754,7 +773,7 @@ class CorrelationWindow(DataWorkspaceWindow):
             item.setCheckState(
                 0,
                 Qt.CheckState.Checked
-                if reset or measurement.key in previous_wafers
+                if select_new_identity or measurement.key in previous_wafers
                 else Qt.CheckState.Unchecked,
             )
             self.reference_wafer_list.addTopLevelItem(item)
@@ -796,34 +815,14 @@ class CorrelationWindow(DataWorkspaceWindow):
         self.reference_model.load(frame.reset_index(drop=True), report_paste=report_paste)
         if report_paste and len(frame.columns):
             self.reference_sheet.mark_pasted_range((0, 0, len(frame), len(frame.columns) - 1))
-        self.reference_footer.setText(
-            f"{len(frame):,} rows × {len(frame.columns)} columns")
+        self._refresh_table_sizes()
         self.tabs.setCurrentWidget(self.reference_page)
-        if self.reference_model.duplicate_header_count():
-            self.reference_footer.setText(
-                f"{len(frame):,} rows × {len(frame.columns)} columns"
-                " · Fix duplicate row-1 headers")
-            self._populate_reference_choices()
-            return
-        if self.raw_model.duplicate_header_count():
-            self._populate_reference_choices()
-            return
         if self._restoring_source_tables:
             self._populate_reference_choices()
             return
-        raw = self.raw_model.frame()
-        if not frame.empty and len(frame) == len(raw):
-            self._rebuild_source_analysis()
-        elif frame.empty:
-            self._rebuild_source_analysis()
-        elif not raw.empty:
-            self.reference_footer.setText(
-                f"{len(frame):,} rows × {len(frame.columns)} columns; "
-                f"Raw Data has {len(raw):,} rows"
-            )
-            self._populate_reference_choices()
-        else:
-            self._populate_reference_choices()
+        # Each source has its own identities and row positions. Unequal lengths
+        # prevent implicit identity seeding, not independent Ref/Raw plots.
+        self._rebuild_source_analysis()
 
     def change_tab(self, index):
         if index in (2, 3) and self.refresh_timer.isActive():
@@ -886,8 +885,7 @@ class CorrelationWindow(DataWorkspaceWindow):
             if not reference_frame.fillna("").astype(str).equals(self.reference_model.document_frame()):
                 if not self.reference_model.update_headers(reference_frame):
                     self.reference_model.load(reference_frame)
-            self.reference_footer.setText(
-                f"{len(reference_frame):,} rows × {len(reference_frame.columns)} columns")
+            self._refresh_table_sizes()
         finally:
             self._loading_workbook_sources = False
         self._workbook_sources = True
@@ -1033,6 +1031,7 @@ class CorrelationWindow(DataWorkspaceWindow):
         super().closeEvent(event)
         if not event.isAccepted():
             return
+        self.reference_floating_editor.dock()
         if hasattr(self, "correlation_page"):
             self.correlation_page.input_refresh_timer.stop()
             self.correlation_page.update_timer.stop()
@@ -1041,18 +1040,17 @@ class CorrelationWindow(DataWorkspaceWindow):
             self.sequence_page.compare_timer.stop()
 
     def _rebuild_source_analysis(self):
-        if (self.reference_model.duplicate_header_count()
-                or self.raw_model.duplicate_header_count()):
-            self._populate_reference_choices()
-            return
-        reference = self.reference_model.frame()
+        reference = _available_source_frame(self.reference_model)
         # Recognition and selector changes are read-only. Reloading this model
         # here used to overwrite edited identities and clear the undo history.
         reference = reference.reset_index(drop=True).copy()
         # Parameter identity comes from its source tab, not the match alias.
-        raw_analysis = self.raw_model.frame().reset_index(drop=True).copy()
-        reference.insert(0, SOURCE_COLUMN, "Reference")
-        raw_analysis.insert(0, SOURCE_COLUMN, "Raw Data")
+        raw_analysis = _available_source_frame(self.raw_model).reset_index(drop=True).copy()
+        source_column = SOURCE_COLUMN
+        while source_column in reference or source_column in raw_analysis:
+            source_column = "_" + source_column
+        reference.insert(0, source_column, "Reference")
+        raw_analysis.insert(0, source_column, "Raw Data")
         self._analysis_frame = pd.concat(
             [reference, raw_analysis], ignore_index=True, sort=False
         )
@@ -1078,19 +1076,18 @@ class CorrelationWindow(DataWorkspaceWindow):
         self.update_plan()
 
     def recognize(self):
-        super().recognize()
-        if (self._loading_workbook_sources or self._restoring_source_tables
-                or not hasattr(self, "reference_model")):
-            return
-        if self.reference_model.duplicate_header_count() or self.raw_model.duplicate_header_count():
-            self._populate_reference_choices()
-            return
-        reference = self.reference_model.frame()
-        if self._workbook_sources or (not reference.empty and (
-                self._frame.empty or len(reference) == len(self._frame))):
-            self._rebuild_source_analysis()
-        else:
-            self._populate_reference_choices()
+        with self.input_update():
+            super().recognize()
+            if (self._loading_workbook_sources or self._restoring_source_tables
+                    or not hasattr(self, "reference_model")):
+                return
+            reference = _available_source_frame(self.reference_model)
+            explicit_identity = _first_column(reference, IDENTITY_COLUMNS[0][1]) is not None
+            if self._workbook_sources or (not reference.empty and (
+                    len(reference) == len(self._frame) or explicit_identity)):
+                self._rebuild_source_analysis()
+            else:
+                self._populate_reference_choices()
 
     def update_plan(self, *_args):
         if self._input_update_depth:
@@ -1111,7 +1108,8 @@ class CorrelationWindow(DataWorkspaceWindow):
         reference_metrics = tuple(self.selected(self.reference_parameter_list))
         raw_metrics = tuple(self.selected(self.parameter_list))
         metrics = tuple(dict.fromkeys((*reference_metrics, *raw_metrics)))
-        split = len(self.reference_model.frame())
+        reference = _available_source_frame(self.reference_model)
+        split = len(reference)
         reference_groups = {
             ("Reference", measurement.key): tuple(measurement.rows)
             for measurement in self.reference_measurements
@@ -1163,12 +1161,12 @@ class CorrelationWindow(DataWorkspaceWindow):
             self.selection["groups"] = {key: tuple(row for row in rows
                 if (row if key[0] == "Reference" else row - split) in allowed)
                 for key, rows in self.selection["groups"].items()}
-        raw = self.raw_model.frame()
+        raw = _available_source_frame(self.raw_model)
         allowed = self.participating_positions(raw)
         # Shared exclusions are row-aligned only when both tables have the
         # same extent. An empty Raw table must not exclude every Ref row.
         reference_allowed = (allowed if len(raw) == split else
-                             self.participating_positions(self.reference_model.frame()))
+                             self.participating_positions(reference))
         self.selection["groups"] = {key: tuple(row for row in rows
             if (row in reference_allowed if key[0] == "Reference" else row - split in allowed))
             for key, rows in self.selection["groups"].items()}

@@ -24,7 +24,7 @@ def _series(name, x, y, *, line=True, markers=True, **metadata):
     return {"name": str(name), "line": line, "markers": markers, "data": pd.DataFrame({"X": x, "Y": y, **metadata})}
 
 
-def capture_window(window, *, parameters=None):
+def capture_window(window):
     """Detach source tables and successful plot choices without changing the UI."""
     if window.refresh_timer.isActive():
         window.recognize()
@@ -66,12 +66,6 @@ def capture_window(window, *, parameters=None):
             report["plots"].append({"sheet": "Dynamic", "title": f"{parameter} 3 Sigma",
                 "kind": "bar", "x": "Die Seq", "y": "3 Sigma", "series": [
                     _series(parameter, list(pivot.columns), pivot.loc["3 Sigma"].to_numpy(float))]})
-        page = window.dynamic_trend
-        for parameter, table in page.panel_tables.items():
-            die = page.selected_dies[parameter]
-            report["plots"].append({"sheet": "Dynamic Trend", "title": f"{parameter} · Die {die}",
-                "x": "Cycle", "y": parameter, "series": [
-                    _series(f"Die {die}", np.asarray(table.index, dtype=float), table[die].to_numpy(float))]})
     else:
         for label, page in (("Wafer Map", window.plot_page), ("Radius", window.radius_page)):
             _check_draw(page)
@@ -81,34 +75,8 @@ def capture_window(window, *, parameters=None):
                      if label == "Wafer Map" else page.ready)
             if not ready:
                 continue
-            from .appearance import MAX_EXPORT_PIXELS, export_dpi, resolution_settings
-            requested = resolution_settings(page.resolution)[1]
-            if parameters is None:
-                buffer = BytesIO()
-                page.figure.savefig(buffer, format="png", facecolor="white",
-                                    dpi=export_dpi(page.figure, requested, MAX_EXPORT_PIXELS))
-                report["pictures"].append((label, buffer.getvalue(),
-                    f"Page {page.page_index + 1}; current software PNG"))
-            else:
-                # Crop existing successful software panels, never refit/interpolate
-                # or alter the live figure's visibility/options to filter exports.
-                from matplotlib.transforms import Bbox
-                page.figure.canvas.draw()
-                axes = ([(artist.axes, scene["metric"]) for artist, scene in page.artists]
-                        if label == "Wafer Map" else [(axis, axis.get_title()) for axis in page.figure.axes])
-                for axis, metric in axes:
-                    if metric not in parameters:
-                        continue
-                    renderer = page.figure.canvas.get_renderer()
-                    boxes = [axis.get_tightbbox(renderer)]
-                    colorbar = getattr(axis.images[0], "colorbar", None) if axis.images else None
-                    if colorbar is not None:
-                        boxes.append(colorbar.ax.get_tightbbox(renderer))
-                    bounds = Bbox.union(boxes).transformed(page.figure.dpi_scale_trans.inverted()).expanded(1.04, 1.04)
-                    buffer = BytesIO()
-                    page.figure.savefig(buffer, format="png", facecolor="white", bbox_inches=bounds,
-                                        dpi=export_dpi(page.figure, requested, MAX_EXPORT_PIXELS))
-                    report["pictures"].append((f"{label} {metric}", buffer.getvalue(), "Current software PNG"))
+            report["pictures"].append((label, page.png_bytes(),
+                f"Page {page.page_index + 1}; current Copy PNG grid"))
     return report
 
 
@@ -120,6 +88,67 @@ def _check_draw(page):
         raise ValueError("Click Draw selected to apply pending plot choices before exporting.")
     if getattr(page, "input_refresh_timer", None) is not None and page.input_refresh_timer.isActive():
         page.refresh_previous_selection()
+
+
+def capture_saved_window(kind, frame, *, scope, saved, selection, workbook, parameters):
+    """Reconstruct an export-only view, without attaching or accepting a draft.
+
+    A closed child has no figure cache. Use its ordinary restore/draw pipeline
+    on detached frames, rather than inventing a second map or Dynamic engine.
+    """
+    from copy import deepcopy
+    from time import monotonic
+    from PyQt6.QtCore import QEventLoop
+    from PyQt6.QtWidgets import QApplication
+    if kind == 'dynamic':
+        from .dynamic_window import DynamicWindow
+        window = DynamicWindow()
+    else:
+        from .window import MainWindow
+        window = MainWindow()
+    try:
+        window._managed_scope = scope
+        # Install the exact saved sheet. Import-time Cycle inference must not
+        # replace a saved column or change the source-row identities.
+        snapshot = window.workspace_snapshot()
+        snapshot.frames['input_data'] = frame.copy(deep=True)
+        if 'ui' in saved:
+            snapshot.states = deepcopy(saved.get('analysis_states', snapshot.states))
+            snapshot.states['ui'] = deepcopy(saved['ui'])
+        else:
+            # Initial empty-page boxes/grouping are not legacy saved choices.
+            ui = snapshot.states['ui'] = {}
+            ui['selection'] = deepcopy(selection) if selection is not None else {'metrics': [p for p in parameters if p in frame]}
+            # No stored wafer choice means use the normal recognised defaults.
+            if 'wafers' not in ui['selection']:
+                window.set_table(frame.copy(deep=True), 'Saved analysis export')
+                ui['selection']['wafers'] = list(window.selection_state()['wafers'])
+        window.set_workbook_participation(workbook)
+        snapshot.states['workbook_participation'] = sorted(window._participation_excluded)
+        snapshot.states.setdefault('data_selection', {})['hide_workbook_excluded'] = window._hide_workbook_excluded
+        window.restore_workspace(snapshot)
+        if kind == 'map':
+            _check_draw(window.plot_page)
+            _check_draw(window.radius_page)
+            if window.plot_page.has_drawn_once and window.plot_page.result is None and window.plot_page.worker is None:
+                window.plot_page.draw_maps()
+        deadline = monotonic() + 60
+        while getattr(window.plot_page, 'worker', None) is not None:
+            if monotonic() >= deadline:
+                raise ValueError(f'Wait for saved {scope} Wafer Map drawing to finish before exporting.')
+            # Deliver worker completion, not user edits to the live workbook.
+            QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents, 20)
+        for field, page, ready in (
+                ('map_draw', window.plot_page, getattr(window.plot_page, 'result', None) is not None),
+                ('radius_draw', window.radius_page, window.radius_page.ready)):
+            requested = snapshot.states['ui'].get('selection', {}).get(field, {}).get('enabled')
+            if kind == 'map' and requested and not ready:
+                raise ValueError(f'Cannot restore saved {scope} {field}: {page.empty.text()} {page.status.text()}')
+        return capture_window(window)
+    finally:
+        window.document.force_close = True
+        window.close()
+        window.deleteLater()
 
 
 def _series_color(series, index):
@@ -162,7 +191,7 @@ def plot_figure(plot):
             target.set_ylim(bottom=0)
         elif series.get("line", True):
             target.plot(x, data["Y"], marker=("o" if index % 2 == 0 else "s") if series.get("markers", True) else None,
-                markersize=4, linewidth=1.8, linestyle="-",
+                markersize=4, linewidth=1.8, linestyle="--" if series.get('dash') == 'dash' else "-",
                 color=color, label=series["name"],
                 zorder=3 if series.get("reference") or series.get("source") == "Reference" else 2)
         else:
@@ -390,7 +419,8 @@ def write_dynamic_report(sheet, report, *, native=True, images=None):
                 embed_plot(sheet, plot, f'{get_column_letter(plot_column)}{row}',
                            sheet.title + ' ' + plot['title'], images)
         row += max(len(pivot) + 4, 26)
-    summary_row = 26
+    summary_row = 1
+    summary_chart_column = summary_column + len(pivots) + 2
     for offset, name in enumerate(['Die Seq', *(parameter for parameter, _ in pivots)], summary_column):
         literal(summary_row, offset, name).font = Font(name=EXPORT_FONT, bold=True)
         sheet.column_dimensions[get_column_letter(offset)].width = 15
@@ -411,37 +441,24 @@ def write_dynamic_report(sheet, report, *, native=True, images=None):
                 min_row=summary_row + 1, max_row=summary_row + len(dies)))
             chart_limits(chart, [float(frame.iloc[-1, column]) for _, frame in pivots
                 for column in range(1, len(frame.columns))], bars=True)
-            sheet.add_chart(chart, f'{get_column_letter(summary_column)}1')
+            sheet.add_chart(chart, f'{get_column_letter(summary_chart_column)}1')
         else:
             curves = []
             for parameter, pivot in pivots:
                 values = dict(zip(pivot.columns[1:], pivot.iloc[-1, 1:].to_numpy(float)))
                 curves.append(_series(parameter, dies, [values.get(die, np.nan) for die in dies]))
             plot = {'title': 'Dynamic 3 Sigma', 'kind': 'bar', 'x': 'Die Seq', 'y': '3 Sigma', 'series': curves}
-            embed_plot(sheet, plot, f'{get_column_letter(summary_column)}1', sheet.title + ' Summary', images)
-    # Keep selected Cycle trends in the same view, below the summary data.
-    trend_row = max(52, summary_row + len(dies) + 4)
-    for plot in report['plots']:
-        if plot.get('sheet') != 'Dynamic Trend':
-            continue
-        chart = ScatterChart()
-        chart.title, chart.x_axis.title, chart.y_axis.title = plot['title'], plot['x'], plot['y']
-        chart.width, chart.height = TREND_WIDTH_CM, PANEL_HEIGHT_CM
-        first = trend_row + 2
-        for series in plot['series']:
-            for offset, values in enumerate(series['data'].itertuples(index=False, name=None), first):
-                for column, value in enumerate(values, summary_column):
-                    sheet.cell(offset, column, _value(value))
-            last = first + len(series['data']) - 1
-            if last >= first:
-                chart.series.append(Series(Reference(sheet, min_col=summary_column + 1, min_row=first, max_row=last),
-                    Reference(sheet, min_col=summary_column, min_row=first, max_row=last), title=series['name']))
-        anchor = f'{get_column_letter(_next_plot_column(sheet, summary_column, TREND_WIDTH_CM * 96 / 2.54))}{trend_row}'
-        if native:
-            sheet.add_chart(chart, anchor)
-        else:
-            embed_plot(sheet, plot, anchor, sheet.title + ' ' + plot['title'], images)
-        trend_row = max(trend_row + 26, first + max((len(s['data']) for s in plot['series']), default=0) + 3)
+            embed_plot(sheet, plot, f'{get_column_letter(summary_chart_column)}1', sheet.title + ' Summary', images)
+    if native:
+        for root in sheet._charts:
+            for chart in root._charts:
+                # Native Dynamic charts are an editable analysis, not a fixed
+                # screenshot: Excel must refit the range after source edits.
+                chart.y_axis.scaling.min = 0 if isinstance(chart, BarChart) else None
+                chart.y_axis.scaling.max = chart.y_axis.majorUnit = None
+                if isinstance(chart, ScatterChart):
+                    chart.x_axis.scaling.min = chart.x_axis.scaling.max = None
+                    chart.x_axis.majorUnit = None
     flush_pictures(sheet.parent)
 
 

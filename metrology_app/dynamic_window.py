@@ -43,5 +43,10 @@ class DynamicWindow(DataWorkspaceWindow):
         if hasattr(self, "dynamic_trend"):
             self.dynamic_trend.set_input(self._frame, self.selection)
 
+    def closeEvent(self, event):
+        super().closeEvent(event)
+        if event.isAccepted():
+            self.measurement_floating_editor.dock()
+
 
 __all__ = ["DynamicWindow"]

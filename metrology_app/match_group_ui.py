@@ -1,5 +1,6 @@
 """Workbook group controls and source-mapped editable sheet projections."""
 from copy import copy, deepcopy
+from bisect import bisect_left, bisect_right
 from collections.abc import Mapping
 from itertools import chain
 from math import ceil
@@ -68,6 +69,7 @@ class ProjectedSheetModel(QAbstractProxyModel):
     def __init__(self, source, parent=None):
         super().__init__(parent)
         self.rows = None
+        self._sorted_rows = ()
         self.setSourceModel(source)
         self.cells = _ViewCells(self)
         self.undo = source.undo
@@ -86,7 +88,23 @@ class ProjectedSheetModel(QAbstractProxyModel):
             self._bounds_revision = None
             self.beginResetModel()
             self.rows = rows
+            self._sorted_rows = tuple(sorted(set(rows))) if rows is not None else ()
             self.endResetModel()
+
+    def hidden_rows_before(self, section):
+        """Original displayed row-number range collapsed at this boundary.
+
+        Reordered records elsewhere in the view are not hidden. Mark only an
+        omitted contiguous source run between adjacent displayed records.
+        """
+        if self.rows is None or not 1 <= section <= len(self.rows):
+            return None
+        low, high = sorted((self.source_row(section - 1), self.source_row(section)))
+        if high - low <= 1:
+            return None
+        if bisect_right(self._sorted_rows, low) != bisect_left(self._sorted_rows, high):
+            return None
+        return low + 2, high  # Source row zero is the editable header, displayed as 1.
 
     def source_row(self, row):
         return row if self.rows is None or row == 0 else self.rows[row - 1]
@@ -133,6 +151,14 @@ class ProjectedSheetModel(QAbstractProxyModel):
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
         if orientation == Qt.Orientation.Vertical and role == Qt.ItemDataRole.DisplayRole:
             return str(self.source_row(section) + 1)
+        if orientation == Qt.Orientation.Vertical and role == Qt.ItemDataRole.ToolTipRole:
+            gap = self.hidden_rows_before(section)
+            if gap is not None:
+                start, end = gap
+                count = end - start + 1
+                return (f"{count:,} hidden {'row' if count == 1 else 'rows'} above "
+                        f"(original {'row' if count == 1 else 'rows'} "
+                        f"{start:,}" + (f"–{end:,}" if count > 1 else "") + ")")
         return self.sourceModel().headerData(section, orientation, role)
 
     def selection_extent(self):

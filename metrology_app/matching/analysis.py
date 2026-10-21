@@ -895,19 +895,28 @@ class MatchWorkbook:
             )
         frame = source.reset_index(drop=True).copy()
         result = self.analyze() if apply_card else None
+        targets = {mapping.name for mapping in self.mappings}
         for mapping in self.mappings:
-            if mapping.raw_column not in frame.columns:
+            if mapping.raw_column not in source.columns:
                 raise ValueError(
                     f"{stage.title()} data column not found for {mapping.name}: "
                     f"{mapping.raw_column}"
                 )
-            values = pd.to_numeric(frame[mapping.raw_column], errors="coerce").to_numpy(float)
-            if apply_card:
-                card = result.card(mapping.name)
-                values = card.slope * values + card.intercept
-            frame[mapping.name] = values
-            if mapping.name != mapping.raw_column:
+            if not apply_card:
+                # A linked editor owns the complete literal Raw source. Keep a
+                # noncolliding Match alias for older saved parameter choices,
+                # but never rename, round or overwrite a source column.
+                if mapping.name not in frame:
+                    frame[mapping.name] = source[mapping.raw_column].to_numpy(copy=True)
+                continue
+            values = pd.to_numeric(source[mapping.raw_column], errors="coerce").to_numpy(float)
+            card = result.card(mapping.name)
+            frame[mapping.name] = card.slope * values + card.intercept
+            if (mapping.name != mapping.raw_column and mapping.raw_column not in targets
+                    and mapping.raw_column in frame):
                 frame.drop(columns=[mapping.raw_column], inplace=True)
+        if not apply_card:
+            frame.attrs["raw_parameter_columns"] = tuple(source.columns)
         return self.participating_frame(
             frame,
             paired_source=source is self.raw or source is self.final_match_raw,

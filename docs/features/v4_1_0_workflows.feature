@@ -10,16 +10,48 @@ Feature: Reversible table views and unambiguous plot inspection
 
   # Automation: V41Workflows.test_hidden_participation_is_reversible_and_edits_only_visible_source_rows
   # Automation: V41Workflows.test_partial_paste_maps_noncontiguous_visible_rows_and_undo_restores_them
+  # Automation: V41Workflows.test_hidden_table_captions_report_visible_and_total_rows
   Scenario: Edit only visible records without deleting excluded measurements
     Given Groups Data selection excludes some Workbook records
     When Hide excluded rows in tables is checked and Apply is chosen
     Then Order, Reference and Raw Data show only participating source rows
+    And their size captions distinguish visible records from the complete source row count
     And original row numbers and measurement strings are retained
     When fewer replacement rows are pasted starting at a visible row
     Then only those visible rows are modified and Undo restores them
     And a paste beyond the remaining visible rows is rejected before any write
     When Hide excluded rows is unchecked and Apply is chosen
     Then the complete source table becomes visible again without reselecting excluded records
+
+  # Automation: V41Workflows.test_partial_visible_paste_keeps_counts_and_unhide_restores_untouched_rows
+  # Automation: V41Workflows.test_workbook_captions_follow_replacement_growth_and_undo
+  # Automation: V41Workflows.test_order_caption_keeps_actual_rows_when_a_draft_has_more_flags_than_raw
+  # Automation: V41Workflows.test_analysis_table_sizes_refresh_on_edits_without_waiting_for_recognition
+  # Automation: V41Workflows.test_correlation_reference_size_refreshes_on_edits_replacement_and_undo
+  # Automation: V41Workflows.test_analysis_counts_include_blank_source_rows_and_survive_invalid_headers
+  # Automation: V41Workflows.test_linked_analysis_captions_distinguish_visible_rows_from_total
+  Scenario: Table dimensions follow live source content and visibility
+    Given a Workbook or analysis table contains editable source records
+    When content is pasted, replaced, extended or undone
+    Then its row and column counts update without waiting for a plot refresh
+    And hidden tables distinguish visible rows from total source rows
+    And original source row labels are not mistaken for the visible row count
+    And loaded blank source rows are retained but reserved editing cells are not counted
+    And incomplete tables and invalid headers do not leave stale dimension captions
+
+  # Automation: HiddenRowMarkerTests
+  # Automation: V41Workflows.test_partial_paste_maps_noncontiguous_visible_rows_and_undo_restores_them
+  # Automation: V41Workflows.test_partial_exclusion_refreshes_map_and_radius_membership_without_reloading_sources
+  Scenario: Notice collapsed rows between visible measurements
+    Given Data selection hides a contiguous source-row interval
+    Then its boundary has an amber dashed separator and a fold mark beside the row number
+    And hovering the separator or row-number header explains the hidden count and original row range
+    And the marker is legible in light and dark themes
+    And the same markers apply in Workbook tables and linked analysis tables
+    And sorting visible records does not incorrectly label those records as hidden
+    And revealing all rows removes the markers
+    And no placeholder records are inserted or copied
+    And pasting and Undo still address the same original visible rows
 
   # Automation: V41Workflows.test_hidden_selection_survives_workspace_restore_and_unhide_in_child
   Scenario: Linked analysis editors follow the same visibility policy

@@ -84,12 +84,14 @@ class RequestedPlotControlsTests(unittest.TestCase):
                   "EW": pd.DataFrame({1: [1., 2.], 2: [3., 4.]}, index=[1, 2])}
         page.render_interactive(tables)
         page.add_compare("DP")
-        self.assertEqual(len(page.panel_widgets["DP"].listDataItems()), 2)
+        self.assertEqual(len(page.data_curves(page.panel_widgets["DP"])), 2)
         page.select_die("DP", 2)
-        np.testing.assert_equal(page.panel_widgets["DP"].listDataItems()[1].yData, [3., 4.])
+        np.testing.assert_equal(page.data_curves(page.panel_widgets["DP"])[1].yData, [3., 4.])
         self.assertEqual(page.selected_dies["EW"], 1)
         page.ensure_export_figure()
-        self.assertEqual(len(page.figure.axes[0].lines), 2)
+        self.assertEqual(len(page.figure.axes[0].lines), 1)
+        self.assertEqual(len(page.figure.axes[-1].lines), 1)
+        self.assertEqual(page.figure.axes[-1].get_ylabel(), 'EW')
         self.assertFalse(page.panel_widgets["DP"].getAxis("left").autoSIPrefix)
         item = page.panel_widgets["DP"].listDataItems()[0]
         self.assertEqual(list(item.scatter.data["data"]), [2, 2])
@@ -187,7 +189,7 @@ class RequestedPlotControlsTests(unittest.TestCase):
         self.assertEqual([item.dynamic_series for item in page.panel_widgets["DP"].listDataItems()],
                          [("DP", "1"), ("DP", "2")])
         page.view_mode.setCurrentIndex(0)
-        self.assertEqual(len(page.panel_widgets["DP"].listDataItems()), 2)
+        self.assertEqual(len(page.data_curves(page.panel_widgets["DP"])), 2)
 
     def test_row_number_fallback_does_not_invent_die_metadata(self):
         window = CorrelationWindow()

@@ -326,7 +326,11 @@ class WorkbookCopyDataTests(unittest.TestCase):
         self.assertTrue(child.copy_from_wkb_action.isChecked())
         copied = child.model.document_frame()
         pd.testing.assert_frame_equal(copied.iloc[:, 2:4], locked)
-        self.assertEqual(copied["CD"].tolist(), ["9.1", "9.2", "9.3", "9.4"])
+        # Copying the uncarded source must retain its measurement strings,
+        # including precision; only the plotting layer parses numeric values.
+        self.assertEqual(copied["CD"].tolist(), ["9.100", "9.200", "9.300", "9.400"])
+        source_columns = ["Wafer ID", "Die Seq", "CD", "Depth"]
+        pd.testing.assert_frame_equal(copied[source_columns], updated[source_columns])
         self.assertEqual(copied.columns.tolist(), ["Wafer ID", "Die Seq", "X", "Y", "CD", "Depth"])
         with TemporaryDirectory() as folder:
             path = Path(folder) / "protected-copy.mwkb"

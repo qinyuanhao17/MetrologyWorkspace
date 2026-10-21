@@ -86,6 +86,7 @@ class DynamicTrendPage(QWidget):
         self.selected_dies = {}
         self.comparisons = {}
         self.home_views = []
+        self.secondary_home_views = []
         self.plot_host = None
         self.ready = False
         self.x_range = (0.5, 1.5)
@@ -195,7 +196,7 @@ class DynamicTrendPage(QWidget):
             return False
         self.panel_tables.update(series)
         for widget in self.panel_widgets.values():
-            for curve in widget.listDataItems():
+            for curve in self.data_curves(widget):
                 parameter, die = curve.dynamic_series
                 if parameter in changed:
                     table = self.panel_tables[parameter]
@@ -327,7 +328,7 @@ class DynamicTrendPage(QWidget):
                 die = table.columns[0]
             self.selected_dies[parameter] = die
             self.draw_panel(widget, parameter)
-            picker = self.build_die_picker(parameter, table) if not self.all_dies else None
+            picker = self.build_die_picker(parameter, table)
             container = PlotPanel(heading, widget, side_widget=picker)
             view = plot.getViewBox()
             view.setMouseMode(pg.ViewBox.RectMode)
@@ -374,7 +375,8 @@ class DynamicTrendPage(QWidget):
     def panel_curves(self, parameter):
         table = self.panel_tables[parameter]
         if self.all_dies:
-            return [(parameter, die) for die in table.columns]
+            return [(name, die) for name in [parameter, *self.comparisons.get(parameter, ())]
+                    for die in self.panel_tables[name].columns]
         die = self.selected_dies[parameter]
         return [(name, die) for name in [parameter, *self.comparisons.get(parameter, ())]
                 if die in self.panel_tables[name].columns]
@@ -391,17 +393,29 @@ class DynamicTrendPage(QWidget):
 
     def draw_panel(self, widget, parameter):
         plot = widget.getPlotItem()
-        for item in list(plot.listDataItems()):
+        for item in list(widget.listDataItems()):
             plot.removeItem(item)
+        for view in widget.secondary_views:
+            for item in list(view.addedItems):
+                if isinstance(item, pg.PlotDataItem):
+                    view.removeItem(item)
         if plot.legend is not None:
             plot.legend.clear()
         curves = self.panel_curves(parameter)
         if len(curves) > 1 and plot.legend is None:
             plot.addLegend(offset=(8, 8), colCount=2)
+        targets = getattr(widget, 'dynamic_axes', {})
         for index, (name, die) in enumerate(curves):
             table = self.panel_tables[name]
-            item = self.plot_die(plot, table, die)
+            if name != parameter and name not in targets:
+                targets[name] = widget.add_secondary_axis(name, DIE_COLOURS[(len(targets) + 5) % len(DIE_COLOURS)])
+                targets[name].setDefaultPadding(HOME_PADDING)
+            item = self.plot_die(targets.get(name, plot), table, die)
             item.dynamic_series = (name, die)
+            if self.all_dies and name != parameter:
+                pen = item.opts['pen']
+                pen.setStyle(Qt.PenStyle.DashLine)
+                item.setPen(pen)
             if not self.all_dies and index:
                 colour = DIE_COLOURS[(index + 4) % len(DIE_COLOURS)]
                 item.setPen(pg.mkPen(colour, width=1.8))
@@ -410,8 +424,16 @@ class DynamicTrendPage(QWidget):
             if plot.legend is not None:
                 plot.legend.addItem(item, f"{name} · Die {die}")
             attach_point_hover(item, [die] * len(table))
+        widget.dynamic_axes = targets
+        for view in widget.secondary_views:
+            view.autoRange(padding=HOME_PADDING)
         plain_y_axes(widget)
         set_plot_statistics(widget, self.panel_statistics(parameter))
+
+    @staticmethod
+    def data_curves(widget):
+        return widget.listDataItems() + [item for view in widget.secondary_views
+            for item in view.addedItems if isinstance(item, pg.PlotDataItem)]
 
     def add_compare(self, parameter):
         selected = self.comparisons.setdefault(parameter, [])
@@ -451,7 +473,11 @@ class DynamicTrendPage(QWidget):
             lambda _index, name=parameter, box=picker:
             self.select_die(name, box.currentData())
         )
-        layout.addWidget(picker)
+        if not self.all_dies:
+            layout.addWidget(picker)
+        else:
+            picker.hide()
+            picker.setParent(control)
         add = QPushButton("Add Compare", objectName="dynamicAddCompare")
         selected = self.comparisons.get(parameter, [])
         add.setEnabled(len(selected) < len(self.panel_tables) - 1)
@@ -475,7 +501,8 @@ class DynamicTrendPage(QWidget):
             row.addWidget(remove)
             layout.addLayout(row)
         layout.addStretch(1)
-        self.die_pickers[parameter] = picker
+        if not self.all_dies:
+            self.die_pickers[parameter] = picker
         return control
 
     def select_die(self, parameter, die):
@@ -525,6 +552,8 @@ class DynamicTrendPage(QWidget):
             widget.getPlotItem().getViewBox().viewRange()
             for widget in self.plot_widgets
         ]
+        self.secondary_home_views = [[view.viewRange() for view in widget.secondary_views]
+                                     for widget in self.plot_widgets]
 
     def reset_views(self):
         """Restore every panel to the exact range it was drawn with."""
@@ -539,6 +568,9 @@ class DynamicTrendPage(QWidget):
                 widget.getPlotItem().getViewBox().setRange(
                     xRange=home[0], yRange=home[1], padding=0
                 )
+            for widget, homes in zip(self.plot_widgets, self.secondary_home_views):
+                for view, home in zip(widget.secondary_views, homes):
+                    view.setRange(xRange=home[0], yRange=home[1], padding=0)
         self.status.setText(f"Reset {len(self.plot_widgets)} cycle views.")
 
     def relayout(self, *_args):
@@ -586,17 +618,31 @@ class DynamicTrendPage(QWidget):
         for ax, (parameter, table) in zip(axes.flat, self.panel_specs):
             cycles = [float(cycle) for cycle in table.index]
             curves = self.panel_curves(parameter)
+            targets = {parameter: ax}
             for index, (name, die) in enumerate(curves):
                 source = self.panel_tables[name]
                 position = list(source.columns).index(die)
                 colour = DIE_COLOURS[(position if self.all_dies or not index else index + 4) % len(DIE_COLOURS)]
                 marker = DIE_SYMBOLS[position % len(DIE_SYMBOLS)][1]
                 values = pd.to_numeric(source[die], errors="coerce").to_numpy(float)
-                ax.plot([float(cycle) for cycle in source.index], values, color=colour,
-                        linestyle="-", marker=marker, markersize=3.8, linewidth=1.5,
+                if name not in targets:
+                    target = ax.twinx()
+                    target.spines['right'].set_position(('outward', 60 * (len(targets) - 1)))
+                    target.set_ylabel(name, fontsize=max(7, base - 1))
+                    target.tick_params(labelsize=max(6, base - 2))
+                    plain_matplotlib_y(target)
+                    targets[name] = target
+                targets[name].plot([float(cycle) for cycle in source.index], values, color=colour,
+                        linestyle="--" if self.all_dies and name != parameter else "-",
+                        marker=marker, markersize=3.8, linewidth=1.5,
                         label=f"{name} · Die {die}")
             if len(curves) > 1:
-                ax.legend(fontsize=max(6, base - 2), ncol=min(4, len(curves)))
+                handles, labels = [], []
+                for target in targets.values():
+                    lines, names = target.get_legend_handles_labels()
+                    handles.extend(lines)
+                    labels.extend(names)
+                ax.legend(handles, labels, fontsize=max(6, base - 2), ncol=min(4, len(curves)))
             title = str(parameter) if self.all_dies else f"{parameter} · Die {self.selected_dies[parameter]}"
             ax.set_title(
                 title, fontsize=base + 1,
@@ -617,8 +663,10 @@ class DynamicTrendPage(QWidget):
             self.figure.subplots_adjust(left=.08, right=.985, top=1 - stats_header / height,
                                         bottom=50 / height, hspace=(stats_header + 50) / plot_height, wspace=.2)
         else:
+            extra_axes = max((len(self.comparisons.get(parameter, ())) for parameter, _ in self.panel_specs), default=0)
             self.figure.subplots_adjust(
-                left=.08, right=.985, top=.93, bottom=.1, hspace=.55, wspace=.2
+                left=.08, right=max(.55, .985 - .085 * extra_axes), top=.93, bottom=.1,
+                hspace=.55, wspace=.2 + .15 * extra_axes
             )
 
     def export_png(self):

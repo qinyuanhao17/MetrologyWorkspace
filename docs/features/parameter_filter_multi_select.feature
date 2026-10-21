@@ -30,6 +30,22 @@ Feature: View several drawn parameters together
     Then only the correlation between "DP" and "EW" is displayed and exported
     And measurements, fitted results, axis direction, and zoom remain unchanged
 
+  # Automation: CorrelationMultiPairTests.test_keyboard_pair_selection_keeps_three_and_restore_and_removal_keep_pair_mode
+  # Automation: CorrelationMultiPairTests.test_three_of_four_parameters_draw_three_pairs_not_the_union_or_reverse_duplicates
+  # Automation: CorrelationMultiPairTests.test_source_qualified_multi_pair_selection_saves_and_reopens_without_reverse_duplicates
+  Scenario: Compare all unordered pairs inside a multi-parameter choice
+    Given drawn correlations contain parameters A, B, C and D
+    When the engineer chooses A, B and C with Ctrl and Alt
+    Then A-B, A-C and B-C are displayed and exported exactly once each
+    And reversed B-A, C-A and C-B do not create extra plots
+    And no pair containing unselected D is displayed
+    When D is also chosen with Ctrl and Alt
+    Then all six unordered pairs are available without dropping the previous choices
+    And Ctrl and Alt can remove individual choices again
+    And saved multi-pair choices reopen with the same source-qualified pairs
+    And Reference A and Raw A remain different columns
+    And ordinary Ctrl union filtering and Trend navigation remain unchanged
+
   Scenario: Keep a chosen pair when reopening an analysis
     Given a Workbook analysis isolates the correlation between "DP" and "EW"
     When the engineer saves and reopens the Workbook analysis

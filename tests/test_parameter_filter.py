@@ -273,7 +273,7 @@ class ParameterFilterTests(unittest.TestCase):
             page.deleteLater()
             APP.processEvents()
 
-    def test_keyboard_pair_selection_restarts_after_two_and_trend_keeps_ctrl_union(self):
+    def test_keyboard_pair_selection_adds_after_two_and_trend_keeps_ctrl_union(self):
         for pair_selection in (True, False):
             bar = ParameterFilterBar(pair_selection=pair_selection)
             try:
@@ -288,9 +288,9 @@ class ParameterFilterTests(unittest.TestCase):
                 self.assertTrue(bar.matches(("DP", "EW")))
                 if pair_selection:
                     QTest.mouseClick(bar.buttons["TG"], Qt.MouseButton.LeftButton, modifiers)
-                    self.assertEqual(bar.parameter, {"mode": "pair", "parameters": ["TG"]})
+                    self.assertEqual(bar.parameter, {"mode": "pair", "parameters": ["DP", "TG", "EW"]})
                     bar.set_parameters(["DP", "EW"])
-                    self.assertIsNone(bar.parameter)
+                    self.assertEqual(bar.parameter, {"mode": "pair", "parameters": ["DP", "EW"]})
                 QTest.mouseClick(bar.buttons[None], Qt.MouseButton.LeftButton)
                 self.assertIsNone(bar.parameter)
             finally:

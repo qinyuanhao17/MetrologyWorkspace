@@ -98,11 +98,11 @@ class ParameterFilterBar(QWidget):
         return selected[0] if len(selected) == 1 else selected or None
 
     def matches(self, names):
-        """Pair mode requires both names; ordinary multi-selection is a union."""
+        """Pair mode keeps pairs inside the chosen set; Ctrl alone is a union."""
         if not self._source_mode:
             names = tuple(key[1] if isinstance(key, tuple) else key for key in names)
-        if self._pair_mode and len(self._parameters) == 2:
-            return self._parameters.issubset(names)
+        if self._pair_mode and len(self._parameters) >= 2:
+            return self._parameters.issuperset(names)
         return not self._parameters or not self._parameters.isdisjoint(names)
 
     def set_selection(self, parameters):
@@ -121,7 +121,7 @@ class ParameterFilterBar(QWidget):
         else:
             selected = frozenset(name for name in self.names if name in parameters)
         source_mode = bool(source_mode and selected)
-        pair = bool(pair and 0 < len(selected) <= 2)
+        pair = bool(pair and selected)
         changed = selected != self._parameters or pair != self._pair_mode or source_mode != self._source_mode
         self._parameters = selected
         self._pair_mode = pair
@@ -208,7 +208,7 @@ class ParameterFilterBar(QWidget):
         button.setChecked(active)
         button.setToolTip("Show all drawn plots" if parameter is None else
                           f"Show plots containing {caption} · Ctrl+click to add or remove"
-                          + (" · Ctrl+Alt+click two parameters to show only their correlation"
+                          + (" · Ctrl+Alt+click to show pairwise correlations among selected parameters"
                              if self._pair_selection else ""))
         button.clicked.connect(lambda _checked, name=parameter: self._choose(name))
         self.group.addButton(button)
@@ -226,7 +226,7 @@ class ParameterFilterBar(QWidget):
                 key for key in self._choices if key[1] in self._parameters)
             pair = (self._pair_selection and modifiers & Qt.KeyboardModifier.ControlModifier
                     and modifiers & Qt.KeyboardModifier.AltModifier)
-            if pair and len(selected) >= 2 and (not self._pair_mode or parameter not in selected):
+            if pair and len(selected) >= 2 and not self._pair_mode:
                 selected = frozenset()
             selected = (selected.symmetric_difference((parameter,)) if modifiers & Qt.KeyboardModifier.ControlModifier
                         else frozenset((parameter,)))
@@ -236,8 +236,8 @@ class ParameterFilterBar(QWidget):
                 and modifiers & Qt.KeyboardModifier.ControlModifier
                 and modifiers & Qt.KeyboardModifier.AltModifier):
             selected = self._parameters
-            if len(selected) >= 2 and (not self._pair_mode or parameter not in selected):
-                selected = frozenset()  # Start another pair, never grow a pair to three names.
+            if len(selected) >= 2 and not self._pair_mode:
+                selected = frozenset()  # Start pairwise selection from an existing Ctrl union.
             selected = selected.symmetric_difference((parameter,))
             self.set_selection({"mode": "pair", "parameters": list(selected)})
         elif parameter is not None and modifiers & Qt.KeyboardModifier.ControlModifier:

@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import QApplication
 from .data import inspect_table, read_table
 from .diagnostics import get_logger
 from .sheet import (
-    DuplicateHeaderBanner, SheetModel, SheetView, clipboard_rows, column_letter,
+    DuplicateHeaderBanner, SheetModel, SheetView, clipboard_rows, column_letter, table_size_text,
 )
 from .plot_page import PlotPage
 from .radius_page import RadiusPage
@@ -159,6 +159,7 @@ class MainWindow(QMainWindow):
         outer.addWidget(self.tabs, 1)
         self.setCentralWidget(root)
         self.model.changed.connect(self.refresh_timer.start)
+        self.model.changed.connect(self._refresh_table_sizes)
         self.model.undo.cleanChanged.connect(self.update_dirty)
         self.sheet.selectionModel().currentChanged.connect(self.current_cell)
         self.model.load(pd.DataFrame())
@@ -511,7 +512,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.warning_banner)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
-        splitter.addWidget(self.build_sheet_card())
+        self.data_splitter = splitter
+        self.measurement_panel = self.build_sheet_card()
+        splitter.addWidget(self.measurement_panel)
         side = QWidget()
         right = QVBoxLayout(side)
         right.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
@@ -534,6 +537,10 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(0, 1)
         splitter.setHandleWidth(16)
         layout.addWidget(splitter, 1)
+        from .floating_editor import FloatingEditor
+        self.measurement_floating_editor = FloatingEditor(
+            self, self.measurement_panel, self.sheet, splitter,
+            title="Measurement table", owner_only=True)
         return page
 
     def default_parameters(self, metrics):
@@ -1029,13 +1036,31 @@ class MainWindow(QMainWindow):
             return
         frame = self._frame
         if frame is None or frame.empty:
-            self.data_badge.setText("0 rows × 0 columns")
             self.selection_count.setText("")
             return
         allowed = self.participating_positions(frame)
-        self.data_badge.setText(f"{len(frame):,} rows × {len(frame.columns)} columns")
         self.selection_count.setText(
             f"{len(allowed):,} of {len(frame):,} rows used" if len(allowed) != len(frame) else "")
+
+    def _refresh_table_sizes(self):
+        """Keep source and visible dimensions current, even before plot recognition."""
+        raw_rows, _ = self.model.document_shape()
+        for name, view, model, caption in (
+                ("raw", getattr(self, "sheet", None), self.model, getattr(self, "data_badge", None)),
+                ("reference", getattr(self, "reference_sheet", None), getattr(self, "reference_model", None),
+                 getattr(self, "reference_footer", None))):
+            if view is None or model is None or caption is None:
+                continue
+            rows, columns = model.document_shape()
+            projected = getattr(view.model(), "rows", None)
+            visible = sum(0 < row <= rows for row in projected) if projected is not None else None
+            text = table_size_text(rows, columns, visible_rows=visible)
+            if name == "reference":
+                if model.duplicate_header_count():
+                    text += " · Fix duplicate row-1 headers"
+                elif rows and raw_rows and rows != raw_rows:
+                    text += f"; Raw Data has {raw_rows:,} rows"
+            caption.setText(text)
 
     def _refresh_table_projection(self):
         """A reversible editor view; the complete document remains authoritative."""
@@ -1061,6 +1086,7 @@ class MainWindow(QMainWindow):
                 view.setModel(proxy) if view.model() is not proxy else None
             elif view.model() is not model:
                 view.setModel(model)
+        self._refresh_table_sizes()
 
     def _selection_scope_changed(self, *_args):
         applies = self.workbook_selection_action.isChecked()
@@ -1283,6 +1309,7 @@ class MainWindow(QMainWindow):
         if finish_export_before_close(self, event):
             return
         if self.document.confirm_close():
+            self.measurement_floating_editor.dock()
             self.document.closed()
             self.refresh_timer.stop()
             self.plot_page.stop()

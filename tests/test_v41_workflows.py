@@ -11,6 +11,8 @@ from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QCheckBox, QLineEdit, QPushButton
 
 from metrology_app.matching_window import MatchingWindow
+from metrology_app.correlation_window import CorrelationWindow
+from metrology_app.dynamic_window import DynamicWindow
 from metrology_app.match_group_ui import ProjectedSheetModel
 from metrology_app.plot import ValueLabels
 from metrology_app.settings import get_settings, save_settings
@@ -73,6 +75,97 @@ class V41Workflows(unittest.TestCase):
         self.assertEqual(window.result.source_rows, (0, 1, 2))
         self.assertEqual(len(window.raw_model.document_frame()), 6)
 
+    def test_hidden_table_captions_report_visible_and_total_rows(self):
+        window = self.match()
+        self.select(window, True)
+        for label, columns in ((window.order_source, 4), (window.reference_source, 1),
+                               (window.raw_source, 3)):
+            self.assertEqual(label.text(), f"3 visible / 6 rows × {columns} columns")
+        self.select(window, False, exclude=False)
+        for label, columns in ((window.order_source, 4), (window.reference_source, 1),
+                               (window.raw_source, 3)):
+            self.assertEqual(label.text(), f"6 rows × {columns} columns")
+
+    def test_partial_visible_paste_keeps_counts_and_unhide_restores_untouched_rows(self):
+        window = self.match()
+        self.select(window, True)
+        proxy = window.raw_view.model()
+        proxy.paste_cells({(1, 2): "91.000", (2, 2): "92.000"}, bounds=(1, 2, 2, 2))
+        self.assertEqual(window.raw_source.text(), "3 visible / 6 rows × 3 columns")
+        self.select(window, False, exclude=False)
+        self.assertEqual(window.raw_model.document_frame()["CD"].tolist(),
+                         ["91.000", "92.000", "3.0", "4.0", "5.0", "6.0"])
+        self.assertEqual(window.raw_source.text(), "6 rows × 3 columns")
+
+    def test_workbook_captions_follow_replacement_growth_and_undo(self):
+        window = self.match()
+        window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"] * 4, "CD": [1, 2, 3, 4]}))
+        self.assertEqual(window.raw_source.text(), "4 rows × 2 columns")
+        self.assertEqual(window.order_source.text(), "4 rows × 4 columns")
+        window.raw_model.edit({(0, 2): "New parameter", (5, 2): "5.000"})
+        self.assertEqual(window.raw_source.text(), "5 rows × 3 columns")
+        self.assertEqual(window.order_source.text(), "5 rows × 4 columns")
+        window.raw_model.undo.undo()
+        self.assertEqual(window.raw_source.text(), "4 rows × 2 columns")
+
+    def test_order_caption_keeps_actual_rows_when_a_draft_has_more_flags_than_raw(self):
+        window = self.match()
+        window.group_controls.order_model.edit({(8, 0): "0"})
+        self.assertEqual(window.order_source.text(), "8 rows × 4 columns")
+        self.assertEqual(window.raw_source.text(), "6 rows × 3 columns")
+
+    def test_analysis_counts_include_blank_source_rows_and_survive_invalid_headers(self):
+        window = MainWindow()
+        self.addCleanup(self.close, window)
+        window.set_table(pd.DataFrame({"Wafer ID": ["W1", "", "W1"], "CD": ["1", "", "3"]}), "Fixture")
+        self.assertEqual(window.data_badge.text(), "3 rows × 2 columns")
+        window.model.edit({(0, 1): "Wafer ID"})
+        window.recognize()
+        self.assertEqual(window.data_badge.text(), "3 rows × 2 columns")
+        self.assertEqual(window.model.document_shape(), window.model.document_frame().shape)
+        window.set_table(pd.DataFrame(), "Empty")
+        self.assertEqual(window.data_badge.text(), "0 rows × 0 columns")
+
+    def test_analysis_table_sizes_refresh_on_edits_without_waiting_for_recognition(self):
+        frame = pd.DataFrame({"Wafer ID": ["W1"] * 3, "Die Seq": [1, 2, 3], "CD": [1, 2, 3]})
+        for kind in (MainWindow, CorrelationWindow, DynamicWindow):
+            with self.subTest(kind=kind.__name__):
+                window = kind()
+                self.addCleanup(self.close, window)
+                window.set_table(frame, "Fixture")
+                columns = len(window.model.document_frame().columns)
+                self.assertEqual(window.data_badge.text(), f"3 rows × {columns} columns")
+                window.model.edit({(0, columns): "New parameter", (4, columns): "4.000"})
+                self.assertEqual(window.data_badge.text(), f"4 rows × {columns + 1} columns")
+                window.model.undo.undo()
+                self.assertEqual(window.data_badge.text(), f"3 rows × {columns} columns")
+
+    def test_correlation_reference_size_refreshes_on_edits_replacement_and_undo(self):
+        window = CorrelationWindow()
+        self.addCleanup(self.close, window)
+        window.set_reference_table(pd.DataFrame({"Wafer ID": ["W1"] * 3, "CD": [1, 2, 3]}))
+        window.reference_model.edit({(0, 2): "New parameter", (4, 2): "4.000"})
+        self.assertEqual(window.reference_footer.text(), "4 rows × 3 columns")
+        window.recognize()
+        self.assertEqual(window.reference_footer.text(), "4 rows × 3 columns")
+        window.reference_model.undo.undo()
+        self.assertEqual(window.reference_footer.text(), "3 rows × 2 columns")
+        window.set_reference_table(pd.DataFrame({"CD": [1, 2]}))
+        self.assertEqual(window.reference_footer.text(), "2 rows × 1 columns")
+
+    def test_linked_analysis_captions_distinguish_visible_rows_from_total(self):
+        window = self.match()
+        self.select(window, True)
+        child = window.open_stage_workspace("preview")
+        self.assertEqual(child.data_badge.text(), "3 visible / 6 rows × 3 columns")
+        child.full_data_action.trigger()
+        self.assertEqual(child.data_badge.text(), "6 rows × 3 columns")
+        correlation = window.open_correlation_workspace()
+        correlation.set_reference_table(window.reference_model.document_frame())
+        correlation.update_plan()
+        self.assertTrue(correlation.data_badge.text().startswith("3 visible / 6 rows"))
+        self.assertTrue(correlation.reference_footer.text().startswith("3 visible / 6 rows"))
+
     def test_projected_paste_overflow_and_replace_cannot_touch_hidden_rows(self):
         window = self.match()
         self.select(window, True)
@@ -102,6 +195,9 @@ class V41Workflows(unittest.TestCase):
         proxy = window.raw_view.model()
         self.assertEqual([proxy.headerData(row, Qt.Orientation.Vertical) for row in range(5)],
                          ["1", "2", "4", "5", "7"])
+        for view in (window.order_view, window.reference_view, window.raw_view):
+            self.assertEqual(view.model().hidden_rows_before(2), (3, 3))
+            self.assertEqual(view.model().hidden_rows_before(4), (6, 6))
         before = window.raw_model.document_frame()
         APP.clipboard().setText("91.000\n92.000\n93.000")
         window.raw_view.setCurrentIndex(proxy.index(1, 2))
@@ -110,6 +206,14 @@ class V41Workflows(unittest.TestCase):
         self.assertEqual(values, ["91.000", "2.0", "92.000", "93.000", "5.0", "6.0"])
         window.raw_model.undo.undo()
         pd.testing.assert_frame_equal(window.raw_model.document_frame(), before)
+        APP.clipboard().setText("CD\n91.000\n92.000\n93.000\n94.000")
+        window.raw_view.setCurrentIndex(proxy.index(0, 2))
+        window.raw_view.paste()
+        self.assertEqual(window.raw_source.text(), "4 visible / 6 rows × 3 columns")
+        self.select(window, False, exclude=False)
+        self.assertEqual(window.raw_model.document_frame()["CD"].tolist(),
+                         ["91.000", "2.0", "92.000", "93.000", "5.0", "94.000"])
+        self.assertEqual(window.raw_source.text(), "6 rows × 3 columns")
 
     def test_hidden_selection_survives_workspace_restore_and_unhide_in_child(self):
         window = self.match()
@@ -152,6 +256,7 @@ class V41Workflows(unittest.TestCase):
         retained.set_workbook_participation(window.current_workbook())
         self.assertIs(retained._frame, retained_source)
         self.assertEqual(child.participating_positions(child.model.frame()), {0, 2, 3, 4, 5})
+        self.assertEqual(child.sheet.model().hidden_rows_before(2), (3, 3))
         for page in (child.plot_page, child.radius_page, retained.plot_page, retained.radius_page):
             rows = set().union(*(page.selection["groups"][key] for key in page.selection["wafers"]))
             self.assertEqual(rows, {0, 2, 3, 4, 5})

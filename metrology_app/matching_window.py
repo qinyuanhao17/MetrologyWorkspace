@@ -636,13 +636,15 @@ class _MatchPlotWidget(InteractivePlotWidget):
         plot.layout.setRowFixedHeight(0, self.HEADER_HEIGHT)
 
         self.heading = QWidget(self)
-        self.heading.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         heading_layout = QHBoxLayout(self.heading)
         heading_layout.setContentsMargins(42, 0, 8, 0)
         heading_layout.setSpacing(8)
         self.title_label = QLabel(objectName="matchPlotTitle")
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.formula_label = QLabel(objectName="matchPlotFormula")
+        self.formula_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard)
+        self.formula_label.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.formula_label.setAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
         )
@@ -2036,6 +2038,15 @@ class MatchingWindow(QMainWindow):
         # Raw value edits do not alter Reference numeric qualification or the
         # name-based Raw suggestions. Keep the user's existing mapping controls.
         if not same_raw_schema:
+            if name != "reference" and changed and any(row == 0 for row, _ in changed):
+                for mapping in mapping_state:
+                    if mapping["raw_column"] in frame.columns:
+                        continue
+                    reference = mapping["reference_column"]
+                    base = reference[:-len(" Reference")].strip() if reference.lower().endswith(" reference") else reference
+                    candidates = {column for column in (reference, base) if column in frame.columns}
+                    if len(candidates) == 1:
+                        mapping["raw_column"] = candidates.pop()
             self._populate_mappings(mapping_state)
         controls = self.group_controls
         # With unchanged dimensions and no row projection/pending settings,
@@ -2163,11 +2174,7 @@ class MatchingWindow(QMainWindow):
             model = proxy if projected else source
             if view.model() is not model:
                 view.setModel(model)
-        # The Order grid always has TestFlag / Head / Mark / Group, so its size
-        # stays readable even before any paired rows exist.
-        order_frame = (plan.order_frame if plan is not None
-                       else pd.DataFrame(columns=["TestFlag", "Head", "Mark", "Group"]))
-        self.order_source.setText(self._source_text("Order", order_frame))
+        self._refresh_table_sizes()
         self.group_settings_action.setEnabled(True)
         self.manage_groups_action.setEnabled(True)
         self.order_card.setVisible(True)
@@ -2197,6 +2204,23 @@ class MatchingWindow(QMainWindow):
         self._group_only_pending = self.result is not None
         if hasattr(self, "document"):
             self.document.refresh_identity()
+
+    def _refresh_table_sizes(self):
+        from .sheet import table_size_text
+        plan = self.group_controls.plan
+        raw = self.final_raw_model if self.result_mode.currentText().lower() == "final" else self.raw_model
+        for label, view, source in (
+                (self.order_source, self.order_view, self.group_controls.order_model),
+                (self.reference_source, self.reference_view, self.reference_model),
+                (self.raw_source, self.raw_view, raw)):
+            if view is self.order_view:
+                rows = len(plan.raw) if plan is not None else max(source.document_shape()[0], raw.document_shape()[0])
+                columns = 4
+            else:
+                rows, columns = source.document_shape()
+            projected = getattr(view.model(), "rows", None)
+            visible = sum(0 < row <= rows for row in projected) if projected is not None else None
+            label.setText(table_size_text(rows, columns, visible_rows=visible))
 
     def _apply_group_clicked(self):
         try:
@@ -2233,6 +2257,8 @@ class MatchingWindow(QMainWindow):
         self._group_only_pending = False
         if prepare_groups:
             self._refresh_group_projection()
+        else:
+            self._refresh_table_sizes()
         if self._auto_run_enabled:
             if self._pending_auto_view_state is None:
                 self._pending_auto_view_state = (
@@ -2390,7 +2416,8 @@ class MatchingWindow(QMainWindow):
     def _source_text(_source, frame):
         # The paired tables only report their size; the file name and origin are
         # already visible in the window title and File menu.
-        return f"{len(frame):,} rows × {len(frame.columns)} columns"
+        from .sheet import table_size_text
+        return table_size_text(len(frame), len(frame.columns))
 
     def _populate_mappings(self, selected=None):
         selected_rows = _mapping_choice_rows(selected)
@@ -3213,7 +3240,7 @@ class MatchingWindow(QMainWindow):
         workspace = self._wafer_window_factory()
         workspace._managed_scope = scope
         title = f"{str(stage).title()} · Match Workbook"
-        self._offer_parameter_cards(workspace)
+        self._offer_parameter_cards(workspace, raw_columns=frame.attrs.get("raw_parameter_columns", ()))
         workspace.set_table(frame, title)
         self._bind_workspace_selection(workspace, "map", stage)
         if not self._workspace_data_follows_workbook() and scope == f"map.{stage}":
@@ -3488,6 +3515,7 @@ class MatchingWindow(QMainWindow):
         self._syncing_stage_windows = True
         try:
             book = self._analysis_workspace_workbook()
+            complete = True
             for workspace in tuple(self._stage_windows):
                 context = self._stage_window_context.get(workspace)
                 if context is None:
@@ -3508,11 +3536,15 @@ class MatchingWindow(QMainWindow):
                 try:
                     self._refresh_stage_workspace(workspace, kind, stage, book=book)
                 except Exception as error:
+                    complete = False
                     LOGGER.warning(
                         "Could not refresh the %s %s window: %s",
                         stage, kind, error,
                     )
-            self._stage_sync_inputs = inputs
+                    if hasattr(workspace, "statusBar"):
+                        workspace.statusBar().showMessage(f"Workbook update failed: {error}")
+            if complete:
+                self._stage_sync_inputs = inputs
         finally:
             self._syncing_stage_windows = False
 
@@ -3614,7 +3646,7 @@ class MatchingWindow(QMainWindow):
             protects_metadata = kind == "map" and bool(getattr(getattr(workspace, "model", None), "clipboard_locks", ()))
             if protects_metadata:
                 frame = workspace.model.merge_clipboard_frame(frame)
-            self._offer_parameter_cards(workspace)
+            self._offer_parameter_cards(workspace, raw_columns=frame.attrs.get("raw_parameter_columns", ()))
             if not reset_data and hasattr(workspace, 'model') and frame.equals(workspace.model.frame()):
                 return  # Its stage's source did not change; Card/participation still did.
             workspace.set_table(
@@ -3807,7 +3839,7 @@ class MatchingWindow(QMainWindow):
                 # The page was destroyed before the refresh finished.
                 return
 
-    def _offer_parameter_cards(self, workspace):
+    def _offer_parameter_cards(self, workspace, *, raw_columns=()):
         """Hand this workbook's Cards to a workspace that offers the option."""
         setter = getattr(workspace, "set_parameter_cards", None)
         if not callable(setter):
@@ -3826,6 +3858,16 @@ class MatchingWindow(QMainWindow):
         except Exception as error:
             LOGGER.warning("Could not compute the parameter Cards: %s", error)
             return
+        if raw_columns:
+            alias_cards = dict(cards)
+            for column in raw_columns:
+                mappings = [mapping for mapping in self.workbook.mappings if mapping.raw_column == column]
+                if len(mappings) == 1:
+                    cards[column] = alias_cards[mappings[0].name]
+                elif mappings and not any(mapping.name == column for mapping in mappings):
+                    # Multiple reference calibrations have no unique Card for
+                    # the original Raw column; their separate aliases retain it.
+                    cards.pop(column, None)
         setter(cards)
 
     def set_second_axis_ratio(self, ratio):
@@ -5255,19 +5297,51 @@ class MatchingWindow(QMainWindow):
                     or getattr(book, f"{mode}_raw") is not None):
                 extra.append(("FullMap", book.stage_frame(mode)))
             stages.append((book, result, raw.copy(deep=True), extra))
-        from .analysis_export import capture_window
+        from .analysis_export import capture_window, capture_saved_window
         reports = []
         for child in tuple(self._stage_windows):
             scope = str(getattr(child, "_managed_scope", "Analysis"))
             name = window_metadata(scope, self._workspace_states.get(scope, {}))["name"]
             map_child = child.workspace_type == "wafer_map"
             parameters = [mapping.name for mapping in self.workbook.mappings]
-            report = capture_window(child, parameters=parameters if map_child else None)
+            report = capture_window(child)
             if map_child:
                 report.update(scope=scope, fullmap_parameters=parameters,
                               include_fullmap_trends=self.workbook.match_type == 'TEM',
                               plot_labels=dict(self._plot_label_options["trend"]))
             reports.append((f"{name} ", report))
+        open_scopes = {str(getattr(child, '_managed_scope', '')) for child in self._stage_windows}
+        saved_scopes = {scope for scope, state in self._workspace_states.items()
+                        if scope.split('.')[0] in {'map', 'dynamic'} and not state.get('deleted')}
+        for kind in ('map', 'dynamic'):
+            for stage in ('preview', 'final'):
+                if getattr(self, f'{stage}_{kind}_frame') is not None:
+                    saved_scopes.add(f'{kind}.{stage}')
+        parameters = [mapping.name for mapping in self.workbook.mappings]
+        for scope in sorted(saved_scopes - open_scopes):
+            kind, stage = scope_parts(scope)
+            saved = self._workspace_states.get(scope, {})
+            if saved.get('deleted'):
+                continue
+            frame = self._workspace_frames.get(f'{scope}.input_data')
+            if frame is None and scope == f'{kind}.{stage}':
+                frame = getattr(self, f'{stage}_{kind}_frame')
+            if frame is None and kind == 'map':
+                frame = self.workbook.stage_frame(stage, apply_card=False, apply_selection=False)
+            if frame is None or frame.empty:
+                continue
+            selections = self._map_selection_states if kind == 'map' else self._dynamic_selection_states
+            source_book = copy(self.workbook)
+            source_book.result_mode = stage
+            report = capture_saved_window(kind, frame, scope=scope, saved=saved,
+                                          selection=selections.get(stage), workbook=source_book,
+                                          parameters=parameters)
+            if kind == 'map':
+                report.update(scope=scope, fullmap_parameters=parameters,
+                              include_fullmap_trends=self.workbook.match_type == 'TEM',
+                              plot_labels=dict(self._plot_label_options['trend']))
+            name = window_metadata(scope, saved)['name']
+            reports.append((f'{name} ', report))
         return {"reference": self.reference_model.document_frame().copy(deep=True), "stages": stages,
                 "reports": reports, "extra_frames": extra_frames, "plot_labels": dict(self._plot_label_options["trend"]),
                 "fullmap_parameters": [mapping.name for mapping in self.workbook.mappings]}

@@ -45,6 +45,8 @@ PLOT_COLORS = ("5B9BD5", "ED7D31", "70AD47", "A879C2", "DD5965", "4FADB5")
 PANEL_HEIGHT_CM = 11
 MATCH_WIDTH_CM = 15
 TREND_WIDTH_CM = 25
+FM_PICTURE_HEIGHT_CM = 7.5
+FM_PICTURE_WIDTH_CM = 18
 
 
 def _checkpoint(book, message=None):
@@ -184,21 +186,22 @@ def sheet_title(base, used, suffix=""):
     return candidate
 
 
-def _write_frame(worksheet, frame):
+def _write_frame(worksheet, frame, *, start_column=1):
     _checkpoint(worksheet.parent, f'Writing {worksheet.title}')
     if frame is None or not len(frame.columns):
         return
     # Explicit coordinates: styling cells first must not shift the table down.
-    for column, name in enumerate(frame.columns, start=1):
+    for index, name in enumerate(frame.columns):
+        column = start_column + index
         cell = worksheet.cell(row=1, column=column, value=str(name))
         cell.data_type = "s"
         cell.font = Font(name=EXPORT_FONT, bold=True)
-        samples = [len(str(name)), *(len(str(value)) for value in frame.iloc[:100, column - 1] if value is not None)]
+        samples = [len(str(name)), *(len(str(value)) for value in frame.iloc[:100, index] if value is not None)]
         worksheet.column_dimensions[get_column_letter(column)].width = max(12, min(36, max(samples) + 2))
     for offset, row in enumerate(frame.itertuples(index=False, name=None), start=2):
         if offset % 256 == 0:
             _checkpoint(worksheet.parent)
-        for column, item in enumerate(row, start=1):
+        for column, item in enumerate(row, start=start_column):
             cell = worksheet.cell(row=offset, column=column, value=_value(item))
             if isinstance(item, str):
                 cell.data_type = "s"  # Source measurement text is never an Excel formula.
@@ -365,7 +368,8 @@ def _original_value(original, column, source_row):
 
 
 def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
-                           card_source, scope, stage, *, native=True, images=None, show_percent=False, reference_label="REF", original=None, wafer_only=False, axis_mode=None, panel_widths=None):
+                           card_source, scope, stage, *, native=True, images=None, show_percent=False, reference_label="REF", original=None, wafer_only=False, axis_mode=None, panel_widths=None,
+                           start_column=1, chart_row=None, chart_column=None):
     """Compact visible measurements; chart labels/fit provenance stay internal."""
     _checkpoint(worksheet.parent, f'{stage}: {scope} — {parameter}')
     reference = data["Reference"].to_numpy(float)
@@ -409,23 +413,23 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
     fit = slope is not None and intercept is not None
     identities = (["Group"] if "Group label" in data else []) + ["Wafer", "Die Seq"]
     headers = identities + ["PMISH"] + ([] if final else ["PMISH+Card"]) + [reference_label, "Bias", "Bias %"]
-    columns = {name: index for index, name in enumerate(headers, 1)}
-    if (count and worksheet.title.startswith('Match Original (')
+    columns = {name: index for index, name in enumerate(headers, start_column)}
+    if (chart_row is None and count and worksheet.title.startswith('Match Original (')
             and worksheet.sheet_view.pane.topLeftCell.startswith('A')):
         first_plot = f'A{row}'
         worksheet.sheet_view.topLeftCell = 'A1'
         worksheet.sheet_view.pane.topLeftCell = first_plot
         worksheet.sheet_view.selection[-1].activeCell = first_plot
         worksheet.sheet_view.selection[-1].sqref = first_plot
-    worksheet.merge_cells(start_row=row, start_column=1,
-                          end_row=row, end_column=len(headers))
-    title = worksheet.cell(row=row, column=1, value=parameter)
+    worksheet.merge_cells(start_row=row, start_column=start_column,
+                          end_row=row, end_column=start_column + len(headers) - 1)
+    title = worksheet.cell(row=row, column=start_column, value=parameter)
     title.font = Font(name=EXPORT_FONT, size=14, bold=True)
     title.alignment = Alignment(horizontal="center", vertical="center")
     worksheet.row_dimensions[row].height = 22
     worksheet.row_dimensions[row + 1].height = 20
     header_row = row + 1
-    for column, text in enumerate(headers, start=1):
+    for column, text in enumerate(headers, start=start_column):
         cell = worksheet.cell(row=header_row, column=column, value=text)
         cell.font = Font(bold=True)
         cell.fill = PatternFill("solid", fgColor="EEF2F7")
@@ -436,7 +440,8 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
     first_row = header_row + 1
     primary_labels = data["Wafer"] if wafer_only else data.get("Group label", data.get("Wafer", data.get("Label", pd.Series([""] * count))))
     axis_labels = {(start + end) // 2: label for start, end, label in _label_spans(primary_labels, limit=None)}
-    source_column = (next(cell.column_letter for cell in original[1] if cell.value == mapping.raw_column)
+    source_column = (next(cell.column_letter for cell in original[1]
+                         if cell.column >= getattr(original, '_source_start_column', 1) and cell.value == mapping.raw_column)
                      if original is not None and mapping is not None else None)
     reference_column = (next(cell.column_letter for cell in reversed(original[1])
                              if cell.value == f"{parameter} Reference ({reference_label})")
@@ -497,7 +502,7 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
         worksheet.cell(row=target, column=columns["Bias %"],
                        value=(f'=IF(AND(ISNUMBER({evaluated_cell}),ISNUMBER({ref_cell})),'
                               f'IF({ref_cell}=0,NA(),({evaluated_cell}-{ref_cell})/{ref_cell}*100),NA())'))
-        for column in range(len(identities) + 1, len(headers) + 1):
+        for column in range(start_column + len(identities), start_column + len(headers)):
             worksheet.cell(row=target, column=column)._style = copy(value_style)
         source_row = source_rows[index]
         helper.cell(row=helper_row + index, column=1, value=int(source_row) + 1)
@@ -535,8 +540,8 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
         # scatter chart show no editable outlines.
         fit_row = last_row + 2
         endpoints = (float(np.min(finite)), float(np.max(finite)))
-        worksheet.cell(row=fit_row, column=1, value="Fit line")
-        worksheet.cell(row=fit_row, column=1).font = Font(
+        worksheet.cell(row=fit_row, column=start_column, value="Fit line")
+        worksheet.cell(row=fit_row, column=start_column).font = Font(
             name=EXPORT_FONT, size=9, italic=True, color="595959")
         for offset, value in enumerate(endpoints):
             target = fit_row + offset
@@ -599,18 +604,18 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
                                                   limit=6 if identity == 'Group' else 4)
             layout['native_width'] = layout['width']
     if count and native:
-        _add_charts(worksheet, row, first_row, last_row, parameter, fit, show_percent=show_percent,
+        _add_charts(worksheet, row if chart_row is None else chart_row, first_row, last_row, parameter, fit, show_percent=show_percent,
                     raw=raw, reference=reference, evaluated=evaluated_values, equation=equation,
                     reference_label=reference_label, unit="" if mapping is None else _unit(mapping.reference_column),
                     columns=columns, helper=helper, helper_row=helper_row, final=final,
-                    layouts=layouts, fit_rows=fit_rows)
+                    layouts=layouts, fit_rows=fit_rows, anchor_column=chart_column)
     elif count:
         from .export_rendering import embed_parameter
-        anchor = len(headers) + 2
+        anchor = chart_column if chart_column is not None else len(headers) + 2
         panels = [("Match", None)] + [(panel, layout) for layout in layouts
             for panel in ("Trend", "Bias", *(("Bias %",) if show_percent else ()))]
         for panel, layout in panels:
-            embed_parameter(worksheet, f"{get_column_letter(anchor)}{row}",
+            embed_parameter(worksheet, f"{get_column_letter(anchor)}{row if chart_row is None else chart_row}",
                 f"{parameter} {panel} {layout['name'] if layout else ''} {scope} {stage}{stage_suffix(stage)}",
                 images, parameter, data, card, stage, scope, panel=panel, reference_label=reference_label,
                 unit="" if mapping is None else _unit(mapping.reference_column), sequence=layout)
@@ -621,8 +626,8 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
 
 def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_percent=False,
                 raw, reference, evaluated, equation, reference_label, unit, columns, helper, helper_row,
-                final, layouts, fit_rows=None):
-    anchor = len(columns) + 2
+                final, layouts, fit_rows=None, anchor_column=None):
+    anchor = len(columns) + 2 if anchor_column is None else anchor_column
     def add(chart):
         nonlocal anchor
         chart.visible_cells_only = False  # Keep every charted range visible for Excel's source outlines.
@@ -761,45 +766,64 @@ def write_parameter_sheets(book, used_titles, result, workbook, *, native=True, 
         paired[f"{parameter} Reference ({workbook.match_type})"] = values
     # Keep the literal Raw Data columns intact; matched Reference values occupy
     # a separate area to their right so every measurement series can trace here.
-    _write_frame(original, pd.concat([original_raw, pd.DataFrame({"": [None] * len(original_raw)}), paired], axis=1))
-    sheet = original
-    row = len(original_raw) + 4
     grouped_data = {parameter: _parameter_data(result, parameter, labels=plot_labels)
                     for parameter in result.parameter_names} if result.group_plan.enabled else {}
     shared_widths = {}
     for parameter, data in grouped_data.items():
         layout = sequence_layout(data['Group label'], name='Group')
         shared_widths[parameter] = (layout['width'], layout['width'])
-    # Open at the parameter blocks below the unchanged original measurements.
-    sheet.sheet_view.pane.topLeftCell = f"A{row}"
-    for parameter in result.parameter_names:
+    block_width = (7 if result.result_mode == 'preview' else 6) + int(result.group_plan.enabled)
+    # Horizontal parameter tables, then source measurements to their right.
+    # Reserve the entire chart strip as well: pictures never cover the sources.
+    trend_width = max((widths[0] for widths in shared_widths.values()), default=TREND_WIDTH_CM)
+    chart_pixels = (MATCH_WIDTH_CM + (3 if 'percent' in workbook.bias_views else 2) * trend_width) * 96 / 2.54
+    source_column = max(len(result.parameter_names) * (block_width + 1) + 1,
+                        _next_plot_column(original, 1, chart_pixels + 120))
+    original._source_start_column = source_column
+    _write_frame(original, pd.concat([original_raw, pd.DataFrame({"": [None] * len(original_raw)}), paired], axis=1),
+                 start_column=source_column)
+    sheet = original
+    row = 1
+    # Keep every chart below all table rows (including visible fit endpoints).
+    chart_start = max((len(_parameter_data(result, p, labels=plot_labels, order='original'))
+                       for p in result.parameter_names), default=0) + 8
+    for index, parameter in enumerate(result.parameter_names):
         mapping = next((item for item in workbook.mappings if item.name == parameter), None)
-        row = _write_parameter_block(
+        _write_parameter_block(
             sheet, row, parameter, mapping, _parameter_data(result, parameter, labels=plot_labels, order='original'),
             result.card(parameter), "Overall", "All", stage, native=native, images=images,
             show_percent="percent" in workbook.bias_views, reference_label=workbook.match_type, original=original,
-            axis_mode='die', panel_widths=shared_widths.get(parameter))
+            axis_mode='die', panel_widths=shared_widths.get(parameter),
+            start_column=1 + index * (block_width + 1), chart_row=chart_start + index * BLOCK_MIN_ROWS,
+            chart_column=1)
     if result.group_plan.enabled:
         grouped = book.create_sheet(sheet_title('Match Group', used_titles, suffix))
         _fill_title(grouped)
         group_row = 1
-        for parameter in result.parameter_names:
+        chart_start = max((len(data) for data in grouped_data.values()), default=0) + 8
+        for index, parameter in enumerate(result.parameter_names):
             mapping = next((item for item in workbook.mappings if item.name == parameter), None)
-            group_row = _write_parameter_block(grouped, group_row, parameter, mapping,
+            _write_parameter_block(grouped, group_row, parameter, mapping,
                 grouped_data[parameter], result.card(parameter),
                 'Overall', 'Group', stage, native=native, images=images,
                 show_percent='percent' in workbook.bias_views, reference_label=workbook.match_type,
-                original=original, axis_mode='group', panel_widths=shared_widths[parameter])
+                original=original, axis_mode='group', panel_widths=shared_widths[parameter],
+                start_column=1 + index * (block_width + 1), chart_row=chart_start + index * BLOCK_MIN_ROWS,
+                chart_column=1)
     wafer = book.create_sheet(sheet_title("Match Wafer", used_titles, suffix))
     _fill_title(wafer)
     row = 1
-    for parameter in result.parameter_names:
+    wafer_data = {p: _parameter_data(result, p, labels=plot_labels, order='wafer') for p in result.parameter_names}
+    chart_start = max((len(data) for data in wafer_data.values()), default=0) + 8
+    for index, parameter in enumerate(result.parameter_names):
         mapping = next((item for item in workbook.mappings if item.name == parameter), None)
-        row = _write_parameter_block(
-            wafer, row, parameter, mapping, _parameter_data(result, parameter, labels=plot_labels, order="wafer"),
+        _write_parameter_block(
+            wafer, row, parameter, mapping, wafer_data[parameter],
             result.card(parameter), "Overall", "Wafer", stage, native=native, images=images,
             show_percent="percent" in workbook.bias_views, reference_label=workbook.match_type,
-            original=original, wafer_only=True, axis_mode='wafer')
+            original=original, wafer_only=True, axis_mode='wafer',
+            start_column=1 + index * (block_width + 1), chart_row=chart_start + index * BLOCK_MIN_ROWS,
+            chart_column=1)
     plan = result.group_plan
     if not plan.enabled:
         return sheet
@@ -808,16 +832,20 @@ def write_parameter_sheets(book, used_titles, result, workbook, *, native=True, 
         sheet = book.create_sheet(sheet_title(f"Match {label}", used_titles, suffix))
         _fill_title(sheet)
         row = 1
-        for parameter in result.parameter_names:
+        group_data = {p: _parameter_data(result, p, key, plot_labels) for p in result.parameter_names}
+        chart_start = max((len(data) for data in group_data.values()), default=0) + 8
+        for index, parameter in enumerate(result.parameter_names):
             mapping = next((item for item in workbook.mappings if item.name == parameter), None)
             card = result.group_card(parameter, key)
-            row = _write_parameter_block(
+            _write_parameter_block(
                 sheet, row, parameter, mapping,
-                _parameter_data(result, parameter, key, plot_labels),
+                group_data[parameter],
                 card if card is not None else result.card(parameter),
                 "Group" if card is not None else "Overall", label, stage,
                 native=native, images=images, show_percent="percent" in workbook.bias_views,
-                reference_label=workbook.match_type, original=original, axis_mode='group')
+                reference_label=workbook.match_type, original=original, axis_mode='group',
+                start_column=1 + index * (block_width + 1), chart_row=chart_start + index * BLOCK_MIN_ROWS,
+                chart_column=1)
     return sheet
 
 
@@ -1205,14 +1233,31 @@ def write_fullmap(sheet, frame, parameters, *, native=True, images=None, plot_la
     from .measurements import wafer_identity_labels
     from .export_rendering import embed_plot, flush_pictures
     flush_pictures(sheet.parent)
-    _write_frame(sheet, frame)
     labels = plot_labels or {"pad": True, "lot": True}
     captions = wafer_identity_labels(frame, [[row] for row in range(len(frame))],
                                     show_pad=labels.get("pad", True), show_lot=labels.get("lot", True)) if len(frame) else []
     layout = sequence_layout(captions)
     mapped = list(dict.fromkeys(parameter for parameter in parameters if parameter in frame)) if include_trends else []
-    plot_column = len(frame.columns) + 2
-    anchor_column = plot_column + len(mapped) + 3 if len(frame) and include_trends else plot_column
+    def picture_width(kind):
+        widths = []
+        for title, contents, _note in pictures:
+            if title.startswith(kind):
+                image = Image(BytesIO(contents))
+                ratio = min(FM_PICTURE_HEIGHT_CM * 96 / 2.54 / image.height,
+                            FM_PICTURE_WIDTH_CM * 96 / 2.54 / image.width)
+                widths.append(image.width * ratio)
+        return max(widths, default=0)
+    map_width, radius_width = picture_width('Wafer Map'), picture_width('Radius')
+    trend_column = 1
+    radius_column = _next_plot_column(sheet, 1, map_width) if map_width else 1
+    source_column = (_next_plot_column(sheet, radius_column, radius_width) if radius_width else
+                     radius_column if mapped or map_width else
+                     _next_plot_column(sheet, 1, TREND_WIDTH_CM * 96 / 2.54))
+    if mapped:
+        source_column = max(source_column, _next_plot_column(sheet, 1, layout['width'] * 96 / 2.54))
+    sheet._source_start_column = source_column
+    _write_frame(sheet, frame, start_column=source_column)
+    plot_column = source_column + len(frame.columns) + 1
     from .match_groups import normalized, wafer_identity_keys
     from openpyxl.styles import Alignment
     die = next((column for column in frame if normalized(column) in ("dieseq", "dieid", "diesequence")), None)
@@ -1234,22 +1279,22 @@ def write_fullmap(sheet, frame, parameters, *, native=True, images=None, plot_la
             if not title.startswith(kind):
                 continue
             picture = Image(BytesIO(contents))
-            ratio = (PANEL_HEIGHT_CM * 96 / 2.54) / picture.height
+            ratio = min(FM_PICTURE_HEIGHT_CM * 96 / 2.54 / picture.height,
+                        FM_PICTURE_WIDTH_CM * 96 / 2.54 / picture.width)
             picture.width, picture.height = picture.width * ratio, picture.height * ratio
             sheet.add_image(picture, f"{get_column_letter(column)}{cursor}")
             cursor += int(np.ceil(picture.height / 20)) + 3
             width = max(width, picture.width)
             if images is not None:
                 images.append((sheet.title + " " + title, contents))
-        return _next_plot_column(sheet, column, width) if width else column
-    anchor_column = software_pictures("Wafer Map", anchor_column)
-    anchor = get_column_letter(anchor_column)
-    # Wafer Map, Trend and Radius each start beside the same data at row 1.
-    software_pictures("Radius", _next_plot_column(sheet, anchor_column,
-        layout["native_width" if native else "width"] * 96 / 2.54) if include_trends else anchor_column)
+        return cursor
+    map_bottom = software_pictures("Wafer Map", 1)
+    anchor = get_column_letter(trend_column)
+    # The FM visual strip opens on the left; literal source data stays right.
+    radius_bottom = software_pictures("Radius", radius_column)
     if not include_trends:
         return
-    cursor = 1
+    cursor = max(map_bottom, radius_bottom)
     if frame.empty:
         return
     categories = AxDataSource(strRef=StrRef(
@@ -1258,7 +1303,7 @@ def write_fullmap(sheet, frame, parameters, *, native=True, images=None, plot_la
     for slot, parameter in enumerate(mapped, plot_column + 2):
         values = pd.to_numeric(frame[parameter], errors="coerce").to_numpy(float)
         for index, value in enumerate(values):
-            source = f"{get_column_letter(frame.columns.get_loc(parameter) + 1)}{index + 2}"
+            source = f"{get_column_letter(source_column + frame.columns.get_loc(parameter))}{index + 2}"
             sheet.cell(row=index + 2, column=slot,
                         value=f'=IFERROR(IF({source}="",NA(),{source}*1),NA())')
         if native:

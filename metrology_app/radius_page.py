@@ -556,9 +556,14 @@ class RadiusPage(QWidget):
     def copy_png(self):
         if not self.ready:
             return
-        buffer = BytesIO()
         _render_scale, dpi = resolution_settings(self.resolution)
-        self.figure.savefig(buffer, format="png", dpi=dpi, facecolor="white")
-        image = QImage.fromData(buffer.getvalue(), "PNG")
+        image = QImage.fromData(self.png_bytes(), "PNG")
         QApplication.clipboard().setImage(image)
         self.status.setText(f"Copied radius plot ({dpi} dpi) · {image.width()} × {image.height()} px")
+
+    def png_bytes(self):
+        """Use the exact current Copy PNG figure and resolution for reports."""
+        buffer = BytesIO()
+        dpi = resolution_settings(self.resolution)[1]
+        self.figure.savefig(buffer, format="png", dpi=dpi, facecolor="white")
+        return buffer.getvalue()

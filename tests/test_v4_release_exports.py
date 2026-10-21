@@ -41,7 +41,7 @@ class ReleaseExportTests(unittest.TestCase):
                     for name in ('Original', 'Match', 'All Trend', 'Group Fits', 'Order'):
                         self.assertNotIn(name + ' (WO Card)', book.sheetnames)
                     original = book['Match Original (WO Card)']
-                    self.assertEqual([original.cell(row, 3).value for row in range(2, 8)], self.raw['CD'].tolist())
+                    self.assertEqual([fixtures.source_cell(original, 'CD', row).value for row in range(2, 8)], self.raw['CD'].tolist())
                     self.assertFalse(book['FullMap (WO Card)']._charts)
                     self.assertFalse(book['FullMap (WO Card)']._images)
 
@@ -90,7 +90,8 @@ class ReleaseExportTests(unittest.TestCase):
         self.assertEqual(len(book.active._images), 2)
         heights = [picture.height for picture in book.active._images]
         for height in heights:
-            self.assertAlmostEqual(height, 11 * 96 / 2.54)
+            self.assertAlmostEqual(height, 7.5 * 96 / 2.54)
+        self.assertTrue(all(picture.width <= 18 * 96 / 2.54 for picture in book.active._images))
         self.assertNotEqual(book.active._images[0].anchor, book.active._images[1].anchor)
 
     def test_dynamic_raw_pivots_parameter_charts_and_summary_share_one_sheet(self):

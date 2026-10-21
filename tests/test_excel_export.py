@@ -24,6 +24,16 @@ from PIL import Image as PillowImage
 APP = QApplication.instance() or QApplication([])
 
 
+def source_column(sheet, name):
+    """The template places literal inputs to the right of parameter tables."""
+    cells = sheet[1] if sheet.title.startswith('FullMap') else reversed(sheet[1])
+    return next(cell.column for cell in cells if cell.value == name)
+
+
+def source_cell(sheet, name, row):
+    return sheet.cell(row, source_column(sheet, name))
+
+
 class ExcelExportTests(unittest.TestCase):
     def test_partial_reference_export_keeps_raw_rows_and_missing_pair_gaps(self):
         reference = pd.DataFrame({"CD Reference": ["3.000", "", "7.000"]})
@@ -78,33 +88,33 @@ class ExcelExportTests(unittest.TestCase):
                              ["_Plot data", "Match Original (WO Card)", "Match Wafer (WO Card)", "RSQ (WO Card)"])
             self.assertEqual(book["_Plot data"].sheet_state, "hidden")
             # Source strings stay text in the data sheets.
-            self.assertEqual(book["Match Original (WO Card)"]["C2"].value, "1.000")
+            self.assertEqual(source_cell(book["Match Original (WO Card)"], "CD", 2).value, "1.000")
             match = book["Match Original (WO Card)"]
             charts = match._charts
             self.assertEqual([type(chart) for chart in charts],
                              [ScatterChart, LineChart, LineChart])
-            self.assertEqual(charts[0].anchor._from.col, 8)
+            self.assertEqual(charts[0].anchor._from.col, 0)
             self.assertTrue(all(left.anchor._from.col < right.anchor._from.col
                                 for left, right in zip(charts, charts[1:])))
-            self.assertEqual([chart.anchor._from.row for chart in charts], [6, 6, 6])
+            self.assertEqual([chart.anchor._from.row for chart in charts], [10, 10, 10])
             self.assertNotEqual(charts[0].x_axis.numFmt.formatCode, "General")
             points = charts[0].series[0]
-            self.assertEqual(points.xVal.numRef.f, "'Match Original (WO Card)'!$C$9:$C$11")
-            self.assertEqual(points.yVal.numRef.f, "'Match Original (WO Card)'!$E$9:$E$11")
-            self.assertEqual(charts[0].series[1].xVal.numRef.f, "'Match Original (WO Card)'!$C$13:$C$14")
-            self.assertEqual(charts[0].series[1].yVal.numRef.f, "'Match Original (WO Card)'!$E$13:$E$14")
-            self.assertFalse(match.row_dimensions[13].hidden)
-            self.assertFalse(match.row_dimensions[14].hidden)
-            self.assertEqual(charts[1].series[0].val.numRef.f, "'Match Original (WO Card)'!$D$9:$D$11")
-            self.assertEqual(charts[1].series[1].val.numRef.f, "'Match Original (WO Card)'!$E$9:$E$11")
-            self.assertEqual(charts[2].series[0].val.numRef.f, "'Match Original (WO Card)'!$F$9:$F$11")
+            self.assertEqual(points.xVal.numRef.f, "'Match Original (WO Card)'!$C$3:$C$5")
+            self.assertEqual(points.yVal.numRef.f, "'Match Original (WO Card)'!$E$3:$E$5")
+            self.assertEqual(charts[0].series[1].xVal.numRef.f, "'Match Original (WO Card)'!$C$7:$C$8")
+            self.assertEqual(charts[0].series[1].yVal.numRef.f, "'Match Original (WO Card)'!$E$7:$E$8")
+            self.assertFalse(match.row_dimensions[7].hidden)
+            self.assertFalse(match.row_dimensions[8].hidden)
+            self.assertEqual(charts[1].series[0].val.numRef.f, "'Match Original (WO Card)'!$D$3:$D$5")
+            self.assertEqual(charts[1].series[1].val.numRef.f, "'Match Original (WO Card)'!$E$3:$E$5")
+            self.assertEqual(charts[2].series[0].val.numRef.f, "'Match Original (WO Card)'!$F$3:$F$5")
             # The plot area applies the software Card instead of refitting.
             helper = book["_Plot data"]
             self.assertEqual(helper["K10"].value, 2.0)
             self.assertEqual(helper["K11"].value, 1.0)
             self.assertEqual(helper["K12"].value, 1.0)
-            self.assertEqual(match["D9"].value, "=IF(ISNUMBER(C9),'_Plot data'!$K$10*C9+'_Plot data'!$K$11,NA())")
-            self.assertEqual(match["F9"].value, '=IF(AND(ISNUMBER(D9),ISNUMBER(E9)),D9-E9,NA())')
+            self.assertEqual(match["D3"].value, "=IF(ISNUMBER(C3),'_Plot data'!$K$10*C3+'_Plot data'!$K$11,NA())")
+            self.assertEqual(match["F3"].value, '=IF(AND(ISNUMBER(D3),ISNUMBER(E3)),D3-E3,NA())')
             self.assertIn("y = 2x + 1", helper["K20"].value)
             for chart in charts:
                 self.assertFalse(chart.title.overlay)
@@ -118,7 +128,7 @@ class ExcelExportTests(unittest.TestCase):
                     if axis.title is not None:
                         self.assertIs(axis.title.overlay, False)
             category_range = charts[1].series[0].cat.strRef.f
-            self.assertEqual(category_range, "'Match Original (WO Card)'!$B$9:$B$11")
+            self.assertEqual(category_range, "'Match Original (WO Card)'!$B$3:$B$5")
             self.assertEqual(charts[2].series[0].cat.strRef.f, category_range)
             self.assertTrue(all(chart.visible_cells_only is False for chart in charts))
             from zipfile import ZipFile
@@ -180,13 +190,13 @@ class ExcelExportTests(unittest.TestCase):
             book = self.export(folder)
             self.assertIn("Match Original (WO Card)", book.sheetnames)
             self.assertIn("Match Original (W Card)", book.sheetnames)
-            self.assertEqual(book["Match Original (W Card)"]["C2"].value, "3.000")
+            self.assertEqual(source_cell(book["Match Original (W Card)"], "CD", 2).value, "3.000")
             for sheet in book:
                 for row in sheet:
                     for cell in row:
                         if cell.value is not None:
                             self.assertEqual(cell.font.name, "Times New Roman")
-            self.assertEqual(book["Match Original (WO Card)"]["A8"].value, "Wafer")
+            self.assertEqual(book["Match Original (WO Card)"]["A2"].value, "Wafer")
         after = self.window.workspace_snapshot()
         self.assertEqual(before.states, after.states)
         for name in before.frames:
@@ -205,7 +215,7 @@ class ExcelExportTests(unittest.TestCase):
             pictures = load_workbook(path)
             self.assertFalse(any(sheet._charts for sheet in pictures))
             self.assertTrue(pictures["Match Original (WO Card)"]._images)
-            self.assertEqual(pictures["Match Original (WO Card)"]._images[0].anchor._from.col, 8)
+            self.assertEqual(pictures["Match Original (WO Card)"]._images[0].anchor._from.col, 0)
             for title in native.sheetnames:
                 self.assertEqual(list(native[title].values), list(pictures[title].values))
             self.assertEqual(list(Path(folder).rglob("*.png")), [])
@@ -240,9 +250,12 @@ class ExcelExportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             book = load_workbook(self.window.export_excel(Path(folder) / 'large.xlsx', native=False))
             self.assertEqual(sum(len(sheet._images) for sheet in book), 7)
-            self.assertEqual(book['Match Original (WO Card)']['C3001'].value, '3000.000')
+            original = book['Match Original (WO Card)']
+            cell = source_cell(original, 'CD', 3001)
+            self.assertEqual(cell.value, '3000.000')
+            source = f"'Match Original (WO Card)'!${cell.column_letter}$3001"
             self.assertEqual(book['Match Wafer (WO Card)']['C3002'].value,
-                             '=IF(\'Match Original (WO Card)\'!$C$3001="",NA(),IFERROR(\'Match Original (WO Card)\'!$C$3001*1,NA()))')
+                             f'=IF({source}="",NA(),IFERROR({source}*1,NA()))')
             for panel, image, contents in zip(('Match', 'Trend', 'Bias'),
                                              book['Match Original (WO Card)']._images, expected, strict=True):
                 with self.subTest(panel=panel), \
@@ -285,7 +298,7 @@ class ExcelExportTests(unittest.TestCase):
             match, trend, bias = book["Match Original (WO Card)"]._charts
             self.assertEqual(trend.series[0].graphicalProperties.line.solidFill.srgbClr, "5B9BD5")
             self.assertEqual(trend.series[1].graphicalProperties.line.solidFill.srgbClr, "ED7D31")
-            self.assertEqual(trend.series[1].tx.strRef.f, "'Match Original (WO Card)'!E8")
+            self.assertEqual(trend.series[1].tx.strRef.f, "'Match Original (WO Card)'!E2")
             self.assertAlmostEqual(trend.y_axis.scaling.min, 2.)
             self.assertAlmostEqual(trend.y_axis.scaling.max, 8.)
             self.assertEqual(trend.y_axis.majorUnit, 1.)
@@ -407,13 +420,14 @@ class ExcelExportTests(unittest.TestCase):
         self.window.run_analysis()
         with tempfile.TemporaryDirectory() as folder:
             book = self.export(folder)
-            self.assertEqual(book["Match Original (WO Card)"]["D2"].data_type, "s")
-            self.assertEqual(book["Match Original (WO Card)"]["D2"].value, "=not a formula")
+            self.assertEqual(source_cell(book["Match Original (WO Card)"], 'Note', 2).data_type, "s")
+            self.assertEqual(source_cell(book["Match Original (WO Card)"], 'Note', 2).value, "=not a formula")
             match = book["Match Original (WO Card)"]
-            self.assertIsNone(book["Match Original (WO Card)"]["C2"].value)
-            self.assertEqual(match["C9"].value,
-                             '=IF(\'Match Original (WO Card)\'!$C$2="",NA(),IFERROR(\'Match Original (WO Card)\'!$C$2*1,NA()))')
-            self.assertEqual(match["D9"].value, "=IF(ISNUMBER(C9),'_Plot data'!$K$10*C9+'_Plot data'!$K$11,NA())")
+            cell = source_cell(match, 'CD', 2)
+            self.assertIsNone(cell.value)
+            source = f"'Match Original (WO Card)'!${cell.column_letter}$2"
+            self.assertEqual(match["C3"].value, f'=IF({source}="",NA(),IFERROR({source}*1,NA()))')
+            self.assertEqual(match["D3"].value, "=IF(ISNUMBER(C3),'_Plot data'!$K$10*C3+'_Plot data'!$K$11,NA())")
             self.assertEqual(match._charts[1].display_blanks, "gap")
 
     def test_native_fit_line_uses_the_same_paired_range_as_the_matplotlib_match(self):
@@ -680,9 +694,9 @@ class ExcelExportTests(unittest.TestCase):
             book = load_workbook(target)
             sheet = book['Match Original (WO Card)']
             for index, text in enumerate(notes, 2):
-                self.assertEqual(sheet.cell(index, 4).value, text)
-                self.assertEqual(sheet.cell(index, 4).data_type, 's')
-            self.assertEqual(sheet['C2501'].value, '2499.000')
+                self.assertEqual(source_cell(sheet, 'Note', index).value, text)
+                self.assertEqual(source_cell(sheet, 'Note', index).data_type, 's')
+            self.assertEqual(source_cell(sheet, 'CD', 2501).value, '2499.000')
             self.assertEqual(book['Typed']['A2'].value, datetime(2026, 10, 16, 3, 4, 5))
             self.assertEqual(book['Typed']['B2'].value, 1.234567890123456)
             self.assertIs(book['Typed']['C2'].value, True)

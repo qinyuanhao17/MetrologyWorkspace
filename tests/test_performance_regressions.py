@@ -1211,11 +1211,15 @@ class WorkbookPerformanceTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as folder:
                 path = window.export_excel(Path(folder) / "immediate.xlsx")
                 from openpyxl import load_workbook
-                helper = load_workbook(path)["_Plot data"]
-                saved_raw = pd.read_excel(path, sheet_name="Match Original (WO Card)", dtype=str, nrows=3)
+                exported = load_workbook(path)
+                helper = exported["_Plot data"]
+                original = exported['Match Original (WO Card)']
+                source_column = next(cell.column for cell in reversed(original[1]) if cell.value == 'CD')
+                saved_raw = [original.cell(row, source_column).value for row in range(2, 5)]
                 self.assertAlmostEqual(helper["K10"].value, 2)
                 self.assertAlmostEqual(helper["K11"].value, 0)
-                self.assertEqual(saved_raw["CD"].tolist(), ["2.000", "3.000", "4.000"])
+                self.assertEqual(saved_raw, ["2.000", "3.000", "4.000"])
+                exported.close()
             app.processEvents()
             self.assertAlmostEqual(window.result.card("CD").intercept, 0)
         finally:
