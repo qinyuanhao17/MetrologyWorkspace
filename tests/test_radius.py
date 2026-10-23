@@ -70,11 +70,8 @@ class RadiusTests(unittest.TestCase):
             self.assertTrue((offsets[:, 0] < 0).any() and (offsets[:, 0] > 0).any())
             self.assertEqual(page.figure.axes[0].get_xlim(), (-150, 150))
             APP.processEvents()
-            with patch.object(page.canvas, "draw") as redraw:
-                page.zoom_by_wheel(120)
-                self.assertEqual(page.zoom.currentText(), "75%")
-                APP.processEvents()
-                redraw.assert_not_called()
+            self.assertFalse(page.zoom.isHidden())
+            self.assertFalse(page.scroll.mouseEnabled)
         finally:
             window.model.undo.setClean()
             window.close()

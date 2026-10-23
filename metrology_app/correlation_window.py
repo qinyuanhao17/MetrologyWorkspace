@@ -477,7 +477,7 @@ class CorrelationWindow(DataWorkspaceWindow):
         from .floating_editor import FloatingEditor
         self.reference_floating_editor = FloatingEditor(
             self, reference_panel, self.reference_sheet, splitter,
-            title="Reference table", owner_only=True)
+            title="Reference table")
         side = QWidget()
         side_layout = QVBoxLayout(side)
         side_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)

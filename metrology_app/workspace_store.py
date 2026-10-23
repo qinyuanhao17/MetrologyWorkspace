@@ -117,6 +117,18 @@ def _temporary(target):
     return Path(handle.name)
 
 
+class _PayloadConnection(sqlite3.Connection):
+    """Keep pandas' per-table commits inside the enclosing document transaction.
+
+    Used only for a new, unpublished temporary DB. The writer explicitly invokes
+    sqlite3.Connection.commit after every table and the integrity check succeed.
+    Rollback is unchanged. The complete file must still pass the integrity
+    check and mandatory fsync before it can replace the published document.
+    """
+    def commit(self):
+        pass
+
+
 def save_workspace(path, snapshot, *, expected_revision=_UNCHECKED, backup=True):
     """Replace a complete document only after writing and validating a temp DB.
 
@@ -145,7 +157,14 @@ def save_workspace(path, snapshot, *, expected_revision=_UNCHECKED, backup=True)
         if original_revision is not None:
             load_workspace(target, expected_type=snapshot.workspace_type)
         temporary = _temporary(target)
-        with closing(sqlite3.connect(temporary)) as connection, connection:
+        with closing(sqlite3.connect(temporary, factory=_PayloadConnection)) as connection, connection:
+            # This uniquely named DB is not a document yet. Intermediate pages
+            # need not survive a crash: the original target remains untouched.
+            # After commit/quick_check, the complete file is fsynced below before
+            # atomic publication. Never apply these settings to a formal file.
+            connection.execute("PRAGMA journal_mode = MEMORY")
+            connection.execute("PRAGMA synchronous = OFF")
+            connection.execute("BEGIN IMMEDIATE")
             connection.execute("PRAGMA application_id = 1297566530")
             connection.execute("PRAGMA user_version = 1")
             connection.execute("CREATE TABLE workspace_manifest "
@@ -184,6 +203,7 @@ def save_workspace(path, snapshot, *, expected_revision=_UNCHECKED, backup=True)
                                         for i, m in enumerate(mappings)])
             if connection.execute("PRAGMA quick_check").fetchone()[0] != "ok":
                 raise ValueError("The saved workspace failed its integrity check.")
+            sqlite3.Connection.commit(connection)
         with temporary.open("r+b") as stream:
             os.fsync(stream.fileno())
         saved_revision = file_revision(temporary)

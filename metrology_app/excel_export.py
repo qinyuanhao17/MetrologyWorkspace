@@ -3,8 +3,8 @@
 Charts are written straight into the workbook (no desktop Excel, no COM): every
 series points at the numeric plot area next to its parameter block, so the file
 opens with ordinary, movable Excel charts that follow cell edits. Fitted Cards
-stay the software result: ``PMISH`` applies the exported slope/intercept with a
-formula, and no Excel fitting function or trendline is written.
+stay the software result. Native Match trendlines independently refit the
+visible measurements when their cells are edited in Excel.
 """
 from pathlib import Path
 from io import BytesIO
@@ -28,6 +28,7 @@ from openpyxl.utils.cell import quote_sheetname
 from openpyxl.drawing.image import Image
 from openpyxl.chart.text import RichText
 from openpyxl.chart.series import SeriesLabel
+from openpyxl.chart.trendline import Trendline, TrendlineLabel
 from openpyxl.drawing.text import CharacterProperties, Font as DrawingFont, Paragraph, ParagraphProperties
 
 MAX_TITLE = 31
@@ -45,8 +46,10 @@ PLOT_COLORS = ("5B9BD5", "ED7D31", "70AD47", "A879C2", "DD5965", "4FADB5")
 PANEL_HEIGHT_CM = 11
 MATCH_WIDTH_CM = 15
 TREND_WIDTH_CM = 25
-FM_PICTURE_HEIGHT_CM = 7.5
-FM_PICTURE_WIDTH_CM = 18
+DYNAMIC_WIDTH_CM = 18
+FM_PICTURE_HEIGHT_CM = 30
+FM_PICTURE_WIDTH_CM = 72
+WAFER_MAP_CELL_HEIGHT_CM = 8
 
 
 def _checkpoint(book, message=None):
@@ -104,6 +107,34 @@ def style_native_series(series, index, *, markers=True, color=None, marker_size=
         ln=LineProperties(noFill=True))
     if not series.graphicalProperties.line.noFill:
         series.graphicalProperties.line = LineProperties(solidFill=color, w=22860, prstDash="solid")
+
+
+def _chart_point_count(chart):
+    """Count bound observations without loading or reducing their measurements."""
+    from openpyxl.utils.cell import range_boundaries
+    count = getattr(chart, '_identity_count', 0)
+    for series in chart.series:
+        values = series.yVal if isinstance(chart, ScatterChart) else series.val
+        if values is not None and values.numRef is not None:
+            bounds = range_boundaries(values.numRef.f.rsplit('!', 1)[-1])
+            count = max(count, bounds[3] - bounds[1] + 1, bounds[2] - bounds[0] + 1)
+    return count
+
+
+def _equation_width(equation, chart_width):
+    """Initial native equation extent; Excel auto-sizes trendline label boxes."""
+    from matplotlib.backends.backend_agg import RendererAgg
+    from matplotlib.font_manager import FontProperties
+    # Excel General displays roughly four significant digits in its native
+    # trendline equation. Measure that label, not the software Card's precision.
+    import re
+    text = re.sub(r'\d+(?:\.\d+)?(?:e[+-]?\d+)?',
+                  lambda match: format(float(match.group()), '.4g'), equation, flags=re.I)
+    renderer = RendererAgg(1, 1, 96)
+    font = FontProperties(family=EXPORT_FONT, size=11)
+    pixels = max((renderer.get_text_width_height_descent(line, font, False)[0]
+                  for line in text.split(' · ')), default=0) + 6
+    return min(.90, pixels / (chart_width * 96 / 2.54))
 
 
 def chart_limits(chart, y, x=None, *, bars=False, symmetric=False):
@@ -297,17 +328,70 @@ def native_categories(sheet, first, last, identities):
         multiLvlStrCache=MultiLevelStrData(lvl=levels)))
 
 
-def identity_captions(sheet, first, labels, keys, column, *, limit=6):
+def identity_captions(sheet, first, labels, keys, column, *, limit=6, role='wafer', level=0):
     """Sparse, cell-linked captions; all observations and identities stay in the table."""
     count = len(labels)
     spans = _label_spans(keys, limit=None)
-    if len(spans) > limit:
-        spans = [spans[index] for index in np.linspace(0, len(spans) - 1, limit).round().astype(int)]
+    shown = (set(np.linspace(0, len(spans) - 1, limit).round().astype(int))
+             if limit is not None and len(spans) > limit else set(range(len(spans))))
     return [{'text': str(labels[start]),
              'source': f'{quote_sheetname(sheet.title)}!${get_column_letter(column)}${first + start}',
              'start': start / count, 'end': (end + 1) / count,
-             'center': (start + end + 1) / (2 * count)}
-            for start, end, _ in spans] if count else []
+             'center': (start + end + 1) / (2 * count),
+             'role': role, 'level': level, 'show': index in shown}
+            for index, (start, end, _) in enumerate(spans)] if count else []
+
+
+def report_sequence_layout(dies, captions=(), *, name='Wafer'):
+    """Tight observation ordinals; physical width follows visible label demand."""
+    from matplotlib.backends.backend_agg import RendererAgg
+    from matplotlib.font_manager import FontProperties
+    layout = sequence_layout([''] * len(dies), name=name)
+    renderer, font = RendererAgg(1, 1, 96), FontProperties(family=EXPORT_FONT, size=11)
+    def measure(text):
+        return max((renderer.get_text_width_height_descent(line, font, False)[0]
+                    for line in str(text).splitlines()), default=0)
+    ticks = [dies[i] for i in range(0, len(dies), max(1, int(np.ceil(len(dies) / 18))))]
+    needed = sum(measure(value) + 12 for value in ticks)
+    for level in sorted({item.get('level', 0) for item in captions}):
+        entries = [item for item in captions if item.get('level', 0) == level and item.get('show', True)]
+        for left, right in zip(entries, entries[1:]):
+            # Very short adjacent segments may fan their captions out with a
+            # leader. Do not create metre-wide charts for one-point wafers.
+            distance = max(.04, right['center'] - left['center'])
+            needed = max(needed, ((measure(left['text']) + measure(right['text'])) / 2 + 16) / distance)
+    layout['width'] = layout['native_width'] = max(TREND_WIDTH_CM, (needed / .85 + 110) * 2.54 / 96)
+    if captions:
+        layout['captions'] = captions
+    return layout
+
+
+def parameter_footer(sheet, first, data, columns, mode):
+    """One wafer strip and, when grouped, a separate outer Group strip."""
+    grouped = mode == 'group' and 'Group' in columns
+    groups = data['Group'].tolist() if grouped else [''] * len(data)
+    keys = list(zip(groups, data['Wafer key']))
+    wafers = identity_captions(sheet, first, data['Wafer'].tolist(), keys, columns['Wafer'], limit=4)
+    if grouped:
+        show = data.get('Show wafer', pd.Series([False] * len(data))).tolist()
+        wafers = [item for item in wafers if show[round(item['start'] * len(data))]]
+        labels = data.get('Group caption', data['Group label']).tolist()
+        return wafers + identity_captions(sheet, first, labels, groups, columns['Group'],
+                                         limit=6, role='group', level=int(bool(wafers)))
+    return wafers
+
+
+def footer_boundaries(captions):
+    """True segment edges, independent of which caption text can be displayed."""
+    return {role: sorted({item['start'] for item in captions if item['role'] == role and item['start'] > 0})
+            for role in ('wafer', 'group')}
+
+
+def footer_margin(captions):
+    levels = sorted({item['level'] for item in captions})
+    lines = sum(max(len(item['text'].splitlines()) or 1 for item in captions if item['level'] == level)
+                for level in levels)
+    return 1.6 + .5 * (lines + max(0, len(levels) - 1))
 
 
 def draw_sequence_axis(axis, sequence, dies=(), *, boundary_gap=0.0):
@@ -327,8 +411,49 @@ def draw_sequence_axis(axis, sequence, dies=(), *, boundary_gap=0.0):
     ticks = fit_tick_labels(list(zip(sequence['x'], map(str, dies))), sequence['limits'],
                             axis.bbox.width, measure)
     axis.set_xticks([x for x, _ in ticks], [label for _, label in ticks], fontsize=10)
-    axis.set_xlabel('Die' if sequence.get('mode') == 'die' else 'Die Seq', fontsize=12, labelpad=6)
+    axis.set_xlabel('Die Seq', fontsize=12, labelpad=6)
     if sequence.get('mode') == 'die':
+        return
+    if 'captions' in sequence:
+        captions = sequence['captions']
+        count = len(dies)
+        project = lambda fraction: float(np.interp(.5 + fraction * count, sequence['source'], sequence['display']))
+        height_points = axis.bbox.height * 72 / axis.figure.dpi
+        offset = 42
+        first_top = 34
+        for level in sorted({item['level'] for item in captions}):
+            from .native_chart_labels import caption_boxes
+            entries = [item for item in captions if item['level'] == level]
+            lines = max((len(item['text'].splitlines()) for item in entries), default=1)
+            end = offset + lines * 12 + 4
+            visible = [item for item in entries if item['show']]
+            for item, (center, _width) in zip(visible, caption_boxes(visible)):
+                fraction = (center - .10) / .85
+                axis.annotate(item['text'], (project(fraction), 0), xycoords=('data', 'axes fraction'),
+                              xytext=(0, -offset), textcoords='offset points', ha='center', va='top',
+                              fontsize=11, annotation_clip=False,
+                              bbox=dict(facecolor='white', edgecolor='none', pad=1), zorder=5)
+                if abs(fraction - item['center']) > .005:
+                    axis.annotate('', (project(item['center']), 0), xycoords=('data', 'axes fraction'),
+                                  xytext=(project(fraction), -offset + 3), textcoords=('data', 'offset points'),
+                                  arrowprops=dict(arrowstyle='-', color='#929292', linewidth=.5),
+                                  annotation_clip=False)
+            top = first_top if entries[0]['role'] == 'group' else offset - 8
+            dense_wafers = entries[0]['role'] == 'wafer' and len(entries) > 12
+            for boundary in sorted({v for item in entries if not dense_wafers or item['show']
+                                    for v in (item['start'], item['end'])}):
+                x = project(boundary)
+                axis.plot([x, x], [-top / height_points, -end / height_points],
+                          transform=axis.get_xaxis_transform(), color='#929292' if dense_wafers else 'black',
+                          linewidth=.75 if dense_wafers else 1.5, clip_on=False)
+            offset = end + 6
+        for role, positions in footer_boundaries(captions).items():
+            group_edges = set(footer_boundaries(captions)['group'])
+            for position in positions:
+                if role == 'wafer' and position in group_edges:
+                    continue
+                axis.axvline(project(position), ymin=boundary_gap, color='#000000' if role == 'group' else '#929292',
+                             linewidth=1.5 if role == 'group' else .75, linestyle='--', zorder=0)
         return
     for x, label in selected:
         axis.annotate(label, (x, 0), xycoords=('data', 'axes fraction'), xytext=(0, -40),
@@ -443,9 +568,6 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
     source_column = (next(cell.column_letter for cell in original[1]
                          if cell.column >= getattr(original, '_source_start_column', 1) and cell.value == mapping.raw_column)
                      if original is not None and mapping is not None else None)
-    reference_column = (next(cell.column_letter for cell in reversed(original[1])
-                             if cell.value == f"{parameter} Reference ({reference_label})")
-                        if original is not None else None)
     # Register common styles once. Rebuilding and hashing an Alignment for
     # every measurement cell dominated large reports; NamedStyle copies keep
     # later merged-caption edits isolated from the numeric cells.
@@ -458,7 +580,8 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
                 font=font, alignment=alignment))
     value_style = worksheet.parent._named_styles['Export value'].as_tuple()
     label_style = worksheet.parent._named_styles['Export label'].as_tuple()
-    identity_values = {name: data['Group label' if name == 'Group' else name].tolist()
+    identity_values = {name: data['Group caption' if name == 'Group' and 'Group caption' in data
+                               else 'Group label' if name == 'Group' else name].tolist()
                        if ('Group label' if name == 'Group' else name) in data else [''] * count
                        for name in identities}
     source_rows = data['Source row'].tolist() if 'Source row' in data else data.index.tolist()
@@ -494,9 +617,17 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
                            value=f'=IF(ISNUMBER({raw_cell}),{slope_cell}*{raw_cell}+{intercept_cell},NA())' if fit else None)
         evaluated_cell = f"{get_column_letter(columns['PMISH' if final else 'PMISH+Card'])}{target}"
         ref_cell = f"{get_column_letter(columns[reference_label])}{target}"
-        worksheet.cell(row=target, column=columns[reference_label],
-                       value=_original_value(original, reference_column, source_rows[index])
-                       if reference_column is not None else _value(reference[index]))
+        reference_value = _value(reference[index])
+        if original is worksheet:
+            if not hasattr(original, '_reference_cells'):
+                original._reference_cells = {}
+            original._reference_cells[parameter, int(source_rows[index])] = f'${get_column_letter(columns[reference_label])}${target}'
+        elif original is not None:
+            source = getattr(original, '_reference_cells', {}).get((parameter, int(source_rows[index])))
+            if source is not None:
+                source = f'{quote_sheetname(original.title)}!{source}'
+                reference_value = f'=IF(ISNUMBER({source}),{source},NA())'
+        worksheet.cell(row=target, column=columns[reference_label], value=reference_value)
         worksheet.cell(row=target, column=columns["Bias"],
                        value=f'=IF(AND(ISNUMBER({evaluated_cell}),ISNUMBER({ref_cell})),{evaluated_cell}-{ref_cell},NA())')
         worksheet.cell(row=target, column=columns["Bias %"],
@@ -528,28 +659,6 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
         worksheet.cell(first_row + start, columns['Group']).alignment = Alignment(
             horizontal='center', vertical='center', wrap_text=True)
     last_row = first_row + count - 1
-    finite = raw[np.isfinite(raw) & np.isfinite(reference)] if fit else np.array([])
-    fit_rows = None
-    if fit and len(finite):
-        for offset, value in enumerate((float(np.min(finite)), float(np.max(finite)))):
-            helper.cell(row=helper_row + offset, column=3, value=value)
-            helper.cell(row=helper_row + offset, column=4,
-                        value=f"={slope_cell}*C{helper_row + offset}+{intercept_cell}")
-        # Visible two-point support keeps the fit line straight while Excel's
-        # data-source outlines stay selectable. Hidden rows made the Match
-        # scatter chart show no editable outlines.
-        fit_row = last_row + 2
-        endpoints = (float(np.min(finite)), float(np.max(finite)))
-        worksheet.cell(row=fit_row, column=start_column, value="Fit line")
-        worksheet.cell(row=fit_row, column=start_column).font = Font(
-            name=EXPORT_FONT, size=9, italic=True, color="595959")
-        for offset, value in enumerate(endpoints):
-            target = fit_row + offset
-            worksheet.cell(row=target, column=columns["PMISH"], value=value)
-            worksheet.cell(row=target, column=columns[reference_label],
-                           value=slope * value + intercept)
-            worksheet.row_dimensions[target].height = 15
-        fit_rows = (fit_row, fit_row + 1)
     evaluated_values = raw if stage.lower() == "final" else (slope * raw + intercept if fit else np.full(count, np.nan))
     percentages = np.full(count, np.nan)
     np.divide((evaluated_values - reference) * 100, reference, out=percentages,
@@ -570,7 +679,7 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
                                  for start, _end, _label in _label_spans(primary_labels if layout['name'] == 'Group'
                                      else list(zip(data.get('Group label', [''] * count), data['Wafer key'])), limit=None)[1:]]
     if axis_mode == 'die':
-        layouts = [sequence_layout([''] * count, name='Die', cache=layout_cache)]
+        layouts = [report_sequence_layout(data['Die Seq'].tolist(), name='Die')]
         layouts[0]['ticks'] = []
         layouts[0]['mode'] = 'die'
     elif axis_mode == 'group':
@@ -581,7 +690,17 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
         layouts[0]['mode'] = 'wafer'
     if panel_widths is not None:
         for layout in layouts:
-            layout['native_width'], layout['width'] = panel_widths
+            layout['native_width'] = max(layout['native_width'], panel_widths[0])
+            layout['width'] = max(layout['width'], panel_widths[1])
+    if axis_mode in ('group', 'wafer'):
+        # Sparse footer captions no longer need one physical caption-width per
+        # measurement. Keep all source-order ordinals in a normal-sized panel.
+        captions = parameter_footer(worksheet, first_row, data, columns, axis_mode)
+        layout = report_sequence_layout(data['Die Seq'].tolist(), captions, name=layouts[0]['name'])
+        layout['mode'] = axis_mode
+        if panel_widths:
+            layout['native_width'] = layout['width'] = max(layout['width'], panel_widths[0])
+        layouts = [layout]
     category_columns = [(columns["Group"], data["Group label"].tolist())] if "Group" in columns and not wafer_only else None
     detailed_columns = ([(columns["Group"], data["Group label"].tolist())] if "Group" in columns and not wafer_only else []) + [
         (columns["Wafer"], data["Wafer"].tolist()), (columns["Die Seq"], data["Die Seq"].tolist())]
@@ -596,19 +715,12 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
                     for i, value in enumerate(data['Die Seq'])]))) if count else None
         else:
             layout["categories"] = native_categories(worksheet, first_row, last_row, categories) if count else None
-        if axis_mode in ('group', 'wafer'):
-            identity = 'Group' if axis_mode == 'group' and 'Group' in columns else 'Wafer'
-            values = data['Group label' if identity == 'Group' else 'Wafer'].tolist()
-            keys = values if identity == 'Group' else data['Wafer key'].tolist()
-            layout['captions'] = identity_captions(worksheet, first_row, values, keys, columns[identity],
-                                                  limit=6 if identity == 'Group' else 4)
-            layout['native_width'] = layout['width']
     if count and native:
         _add_charts(worksheet, row if chart_row is None else chart_row, first_row, last_row, parameter, fit, show_percent=show_percent,
                     raw=raw, reference=reference, evaluated=evaluated_values, equation=equation,
                     reference_label=reference_label, unit="" if mapping is None else _unit(mapping.reference_column),
                     columns=columns, helper=helper, helper_row=helper_row, final=final,
-                    layouts=layouts, fit_rows=fit_rows, anchor_column=chart_column)
+                    layouts=layouts, anchor_column=chart_column)
     elif count:
         from .export_rendering import embed_parameter
         anchor = chart_column if chart_column is not None else len(headers) + 2
@@ -626,7 +738,7 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
 
 def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_percent=False,
                 raw, reference, evaluated, equation, reference_label, unit, columns, helper, helper_row,
-                final, layouts, fit_rows=None, anchor_column=None):
+                final, layouts, anchor_column=None):
     anchor = len(columns) + 2 if anchor_column is None else anchor_column
     def add(chart):
         nonlocal anchor
@@ -634,7 +746,8 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
         worksheet.add_chart(chart, f"{get_column_letter(anchor)}{row}")
         anchor = _next_plot_column(worksheet, anchor, chart.width * 96 / 2.54)
     match = ScatterChart()
-    match.title = parameter + ("\n" + equation.replace(" · ", "\n") if equation else "")
+    match.scatterStyle = 'marker'
+    match.title = parameter
     match.x_axis.title = "PMISH"
     match.y_axis.title = reference_label
     match.height, match.width = PANEL_HEIGHT_CM, MATCH_WIDTH_CM
@@ -649,15 +762,15 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
     points.graphicalProperties.line.noFill = True
     style_native_series(points, 0, color="4F8BD6", marker_size=5)
     match.series.append(points)
-    if fit and fit_rows:
-        fit_start, fit_end = fit_rows
-        fit_series = Series(
-            Reference(worksheet, min_col=columns[reference_label], min_row=fit_start, max_row=fit_end),
-            Reference(worksheet, min_col=columns['PMISH'], min_row=fit_start, max_row=fit_end),
-            title="Fit")
-        fit_series.marker = Marker(symbol=None)
-        style_native_series(fit_series, 1, markers=False, color="E09F3E")
-        match.series.append(fit_series)
+    if fit and np.count_nonzero(np.isfinite(raw) & np.isfinite(reference)) >= 2:
+        from openpyxl.chart.layout import Layout, ManualLayout
+        label_width = _equation_width(equation, match.width)
+        points.trendline = Trendline(trendlineType='linear', dispEq=True, dispRSqr=True,
+            spPr=GraphicalProperties(ln=LineProperties(solidFill='E09F3E', w=22860, prstDash='solid')),
+            trendlineLbl=TrendlineLabel(layout=Layout(manualLayout=ManualLayout(
+                xMode='edge', yMode='edge', x=.5 - label_width / 2, y=.08, w=label_width, h=.12))))
+        match.layout = Layout(manualLayout=ManualLayout(
+            layoutTarget='inner', xMode='edge', yMode='edge', x=.13, y=.24, w=.81, h=.60))
     add(match)
     valid = np.isfinite(raw) & np.isfinite(reference)
     chart_limits(match, reference[valid], raw[valid])
@@ -679,14 +792,16 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
             chart._identity_captions = layout.get('captions')
             chart.x_axis.title = None
             chart.x_axis.tickLblSkip = max(1, int(np.ceil(len(raw) / 18)))
-            if layout.get('mode') == 'die':
-                chart.x_axis.title = 'Die'
+            if layout.get('mode') == 'die' or layout.get('captions'):
+                chart.x_axis.title = 'Die Seq'
                 chart.x_axis.tickLblSkip = max(1, int(np.ceil(len(raw) / 18)))
             if panel != "Trend":
                 chart.legend = None
             for name in names:
                 chart.add_data(Reference(worksheet, min_col=columns[name], min_row=first_row - 1, max_row=last_row), titles_from_data=True)
                 chart.series[-1].cat = layout["categories"]
+                if name == 'PMISH+Card':
+                    chart.series[-1].tx = SeriesLabel(v='PMISH')
                 if name == reference_label:
                     style_native_series(chart.series[-1], 1, color="ED7D31")
             chart_limits(chart, values, symmetric=panel != "Trend")
@@ -726,6 +841,9 @@ def _parameter_data(result, parameter, key="all", labels=None, *, order="group")
                          for row in data["Source row"]]
     if result.group_plan.enabled:
         data["Group label"] = data["Group"].map(result.group_plan.label)
+        data['Group caption'] = data['Group'].map(lambda group: result.group_plan.label(group, multiline=True))
+        visible = result.group_plan.state.get('show_wafer_groups', ())
+        data['Show wafer'] = [group in visible or key in visible for group in data['Group']]
     if order == "wafer":
         # First appearance in the Original source, independent of Group order
         # or the UI's selected trend order. Keep original rows within a Wafer.
@@ -758,14 +876,8 @@ def write_parameter_sheets(book, used_titles, result, workbook, *, native=True, 
     original = book.create_sheet(sheet_title("Match Original", used_titles, suffix))
     _fill_title(original)
     original_raw = (raw if raw is not None else result.group_plan.raw).reset_index(drop=True)
-    paired = pd.DataFrame(index=range(len(original_raw)))
-    for parameter in result.parameter_names:
-        values = np.full(len(original_raw), np.nan)
-        data = result.group_series(parameter, "all", card_mode="raw")
-        values[data["Source row"].to_numpy(int)] = data["Reference"].to_numpy(float)
-        paired[f"{parameter} Reference ({workbook.match_type})"] = values
-    # Keep the literal Raw Data columns intact; matched Reference values occupy
-    # a separate area to their right so every measurement series can trace here.
+    # Keep literal Raw Data intact. Reference inputs live in the visible
+    # parameter tables themselves, not a second duplicate source area.
     grouped_data = {parameter: _parameter_data(result, parameter, labels=plot_labels)
                     for parameter in result.parameter_names} if result.group_plan.enabled else {}
     shared_widths = {}
@@ -774,19 +886,18 @@ def write_parameter_sheets(book, used_titles, result, workbook, *, native=True, 
         shared_widths[parameter] = (layout['width'], layout['width'])
     block_width = (7 if result.result_mode == 'preview' else 6) + int(result.group_plan.enabled)
     # Horizontal parameter tables, then source measurements to their right.
-    # Reserve the entire chart strip as well: pictures never cover the sources.
+    # Keep one literal source table to the right of the prepared parameter tables.
     trend_width = max((widths[0] for widths in shared_widths.values()), default=TREND_WIDTH_CM)
     chart_pixels = (MATCH_WIDTH_CM + (3 if 'percent' in workbook.bias_views else 2) * trend_width) * 96 / 2.54
     source_column = max(len(result.parameter_names) * (block_width + 1) + 1,
                         _next_plot_column(original, 1, chart_pixels + 120))
     original._source_start_column = source_column
-    _write_frame(original, pd.concat([original_raw, pd.DataFrame({"": [None] * len(original_raw)}), paired], axis=1),
-                 start_column=source_column)
+    _write_frame(original, original_raw, start_column=source_column)
     sheet = original
     row = 1
-    # Keep every chart below all table rows (including visible fit endpoints).
-    chart_start = max((len(_parameter_data(result, p, labels=plot_labels, order='original'))
-                       for p in result.parameter_names), default=0) + 8
+    # Charts intentionally overlay the editable tables, opening at row five.
+    chart_start = 5
+    original.freeze_panes = 'A3'
     for index, parameter in enumerate(result.parameter_names):
         mapping = next((item for item in workbook.mappings if item.name == parameter), None)
         _write_parameter_block(
@@ -800,7 +911,8 @@ def write_parameter_sheets(book, used_titles, result, workbook, *, native=True, 
         grouped = book.create_sheet(sheet_title('Match Group', used_titles, suffix))
         _fill_title(grouped)
         group_row = 1
-        chart_start = max((len(data) for data in grouped_data.values()), default=0) + 8
+        chart_start = 5
+        grouped.freeze_panes = 'A3'
         for index, parameter in enumerate(result.parameter_names):
             mapping = next((item for item in workbook.mappings if item.name == parameter), None)
             _write_parameter_block(grouped, group_row, parameter, mapping,
@@ -814,7 +926,8 @@ def write_parameter_sheets(book, used_titles, result, workbook, *, native=True, 
     _fill_title(wafer)
     row = 1
     wafer_data = {p: _parameter_data(result, p, labels=plot_labels, order='wafer') for p in result.parameter_names}
-    chart_start = max((len(data) for data in wafer_data.values()), default=0) + 8
+    chart_start = 5
+    wafer.freeze_panes = 'A3'
     for index, parameter in enumerate(result.parameter_names):
         mapping = next((item for item in workbook.mappings if item.name == parameter), None)
         _write_parameter_block(
@@ -833,7 +946,8 @@ def write_parameter_sheets(book, used_titles, result, workbook, *, native=True, 
         _fill_title(sheet)
         row = 1
         group_data = {p: _parameter_data(result, p, key, plot_labels) for p in result.parameter_names}
-        chart_start = max((len(data) for data in group_data.values()), default=0) + 8
+        chart_start = 5
+        sheet.freeze_panes = 'A3'
         for index, parameter in enumerate(result.parameter_names):
             mapping = next((item for item in workbook.mappings if item.name == parameter), None)
             card = result.group_card(parameter, key)
@@ -891,8 +1005,8 @@ def write_rsq_sheet(book, used_titles, result, *, native=True, images=None):
             row = row_of[_wafer_label(wafer)]
             sheet.cell(row=row, column=index, value=_value(r_squared))
     last = max(row_of.values()) if row_of else 1
-    anchor_row = 1
-    anchor_column = get_column_letter(len(summaries) + 5)
+    anchor_row = 5
+    anchor_column = 'A'
     for index, parameter in enumerate(summaries, start=4) if native else ():
         chart = LineChart()
         chart.title = f"{parameter} R² by Wafer"
@@ -930,8 +1044,6 @@ def write_all_trend_sheet(book, used_titles, result, workbook, *, native=True, i
         series = []
         mapping = next(item for item in workbook.mappings if item.name == parameter)
         source_column = next(cell.column_letter for cell in original[1] if cell.value == mapping.raw_column)
-        reference_column = next(cell.column_letter for cell in reversed(original[1])
-                                if cell.value == f"{parameter} Reference ({workbook.match_type})")
         for key in plan.group_keys:
             card = result.group_card(parameter, key)
             series.append((plan.label(key), key,
@@ -979,7 +1091,10 @@ def write_all_trend_sheet(book, used_titles, result, workbook, *, native=True, i
                 evaluated = (raw_cell if result.result_mode == "final" else
                              f"{slope_cell}*{raw_cell}+{intercept_cell}")
                 sheet.cell(row=target, column=base + 1, value=f'=IF(ISNUMBER({raw_cell}),{evaluated},NA())')
-                sheet.cell(row=target, column=base + 2, value=_original_value(original, reference_column, source_row))
+                reference_cell = original._reference_cells[parameter, int(source_row)]
+                reference_source = f'{quote_sheetname(original.title)}!{reference_cell}'
+                sheet.cell(row=target, column=base + 2,
+                           value=f'=IF(ISNUMBER({reference_source}),{reference_source},NA())')
                 pmish_cell, ref_cell = f"{get_column_letter(base + 1)}{target}", f"{get_column_letter(base + 2)}{target}"
                 sheet.cell(row=target, column=base + 3,
                            value=f'=IF(AND(ISNUMBER({pmish_cell}),ISNUMBER({ref_cell})),{pmish_cell}-{ref_cell},NA())')
@@ -1025,17 +1140,17 @@ def write_all_trend_sheet(book, used_titles, result, workbook, *, native=True, i
     return sheet
 
 
-def write_workbook(path, *, reference, stages, native=True, images=None, reports=(), extra_frames=(), plot_labels=None, fullmap_parameters=(), cancelled=lambda: False, progress=None):
+def write_workbook(path, *, reference, stages, native=True, images=None, reports=(), extra_frames=(), plot_labels=None, fullmap_parameters=(), cancelled=lambda: False, progress=None, selected_sheets=None):
     """Write the workbook export: data sheets plus native-chart Match sheets."""
     book = Workbook()
     from .export_rendering import rendering_session
     with rendering_session(book, native=native):
         return _write_workbook(book, path, reference=reference, stages=stages, native=native,
             images=images, reports=reports, extra_frames=extra_frames, plot_labels=plot_labels,
-            fullmap_parameters=fullmap_parameters, cancelled=cancelled, progress=progress)
+            fullmap_parameters=fullmap_parameters, cancelled=cancelled, progress=progress, selected_sheets=selected_sheets)
 
 
-def _write_workbook(book, path, *, reference, stages, native, images, reports, extra_frames, plot_labels, fullmap_parameters, cancelled, progress):
+def _write_workbook(book, path, *, reference, stages, native, images, reports, extra_frames, plot_labels, fullmap_parameters, cancelled, progress, selected_sheets):
     book._export_cancelled = cancelled
     book._export_progress = progress
     book.remove(book.active)
@@ -1069,7 +1184,8 @@ def _write_workbook(book, path, *, reference, stages, native, images, reports, e
                 write_fullmap(sheet, fullmap_report["frames"]["Data"] if fullmap_report else frame,
                               [mapping.name for mapping in workbook.mappings], native=native, images=images,
                               plot_labels=plot_labels, pictures=fullmap_report["pictures"] if fullmap_report else (),
-                              include_trends=str(workbook.match_type).upper() == 'TEM')
+                              include_trends=str(workbook.match_type).upper() == 'TEM',
+                              picture_shapes=fullmap_report.get('picture_shapes', {}) if fullmap_report else {})
             else:
                 data_sheet(sheet_title(name, set(), suffix), frame)
     for name, frame in extra_frames:
@@ -1084,9 +1200,14 @@ def _write_workbook(book, path, *, reference, stages, native, images, reports, e
             if report.get("scope") in {f"map.{workbook.result_mode}" for workbook, _result, _raw, _frames in stages}:
                 continue
             append_report(book, used, report, prefix=prefix, native=native, images=images)
+    from .export_sheets import select_export_sheets
+    from .export_rendering import flush_pictures
+    flush_pictures(book)
+    select_export_sheets(book, selected_sheets)
     style_workbook(book)
-    book.active = next((index for index, sheet in enumerate(book) if sheet.title.startswith("Match Original (")),
-                       next(index for index, sheet in enumerate(book) if sheet.sheet_state == "visible"))
+    if selected_sheets is None:
+        book.active = next((index for index, sheet in enumerate(book) if sheet.title.startswith("Match Original (")),
+                           next(index for index, sheet in enumerate(book) if sheet.sheet_state == "visible"))
     return save_atomic(book, path, cancelled=cancelled)
 
 
@@ -1107,6 +1228,9 @@ def style_workbook(book):
         book._fonts[index] = font
     for sheet in book:
         for chart in [child for root in sheet._charts for child in root._charts]:
+            count = _chart_point_count(chart)
+            if isinstance(chart, LineChart):
+                chart.marker = True
             chart.style = 2
             chart.varyColors = False
             if hasattr(chart, "smooth"):
@@ -1146,8 +1270,12 @@ def style_workbook(book):
                                             point.v = ''
                 if separate_captions:
                     from openpyxl.chart.layout import Layout, ManualLayout
+                    from .native_chart_labels import footer_geometry
+                    bottom, _rows = footer_geometry(chart._identity_captions)
                     chart.layout = Layout(manualLayout=ManualLayout(
-                        layoutTarget='inner', xMode='edge', yMode='edge', x=.10, y=.15, w=.85, h=.52))
+                        layoutTarget='inner', xMode='edge', yMode='edge', x=.10, y=.15, w=.85, h=bottom - .15))
+                chart.x_axis.tickLblSkip = chart.x_axis.tickLblSkip or max(1, int(np.ceil(count / 18)))
+                chart.x_axis.tickMarkSkip = chart.x_axis.tickLblSkip
             # Use Excel's own chart theme rather than copying Matplotlib's frame.
             chart.y_axis.majorGridlines = ChartLines(spPr=GraphicalProperties(
                 ln=LineProperties(solidFill="D9D9D9", w=9525)))
@@ -1155,11 +1283,18 @@ def style_workbook(book):
             chart.display_blanks = "gap"
             chart.txPr = chart_text()
             if chart.legend is not None:
-                chart.legend.position = "b"
+                chart.legend.position = "t"
                 chart.legend.overlay = False
                 chart.legend.txPr = chart_text()
             if chart.title is not None:
                 chart.title.overlay = False
+            for series in chart.series:
+                if series.trendline is not None and series.trendline.trendlineLbl is not None:
+                    from openpyxl.chart.data_source import NumFmt
+                    label = series.trendline.trendlineLbl
+                    label.txPr = chart_text()
+                    label.txPr.p[0].pPr.algn = 'ctr'
+                    label.numFmt = NumFmt(formatCode='General', sourceLinked=False)
             for axis in (chart.x_axis, chart.y_axis):
                 axis.majorTickMark = "out"
                 axis.minorTickMark = "none"
@@ -1202,7 +1337,7 @@ def style_workbook(book):
                 for index, paragraph in enumerate(rich.p):
                     title_properties = CharacterProperties(latin=DrawingFont(typeface=EXPORT_FONT),
                         sz=1400 if index == 0 else 1100, b=index == 0)
-                    paragraph.pPr = ParagraphProperties(defRPr=title_properties)
+                    paragraph.pPr = ParagraphProperties(defRPr=title_properties, algn='ctr')
                     for run in paragraph.r:
                         run.rPr = title_properties
 
@@ -1227,7 +1362,16 @@ def _embed_figure(sheet, figure, anchor, title, images):
     _checkpoint(sheet.parent)
 
 
-def write_fullmap(sheet, frame, parameters, *, native=True, images=None, plot_labels=None, pictures=(), include_trends=True):
+def picture_ratio(title, picture, shapes):
+    """Whole-page PNG scaling, with an eight-centimetre Wafer Map row pitch."""
+    if title.startswith('Wafer Map'):
+        rows, _columns = shapes.get(title, (1, 1))
+        return max(1, rows) * WAFER_MAP_CELL_HEIGHT_CM * 96 / 2.54 / picture.height
+    return min(FM_PICTURE_HEIGHT_CM * 96 / 2.54 / picture.height,
+               FM_PICTURE_WIDTH_CM * 96 / 2.54 / picture.width)
+
+
+def write_fullmap(sheet, frame, parameters, *, native=True, images=None, plot_labels=None, pictures=(), include_trends=True, picture_shapes=None):
     """FullMap's own measurements and mapped Trends; software Map/Radius PNGs."""
     from .analysis_export import _series, plot_figure
     from .measurements import wafer_identity_labels
@@ -1236,51 +1380,44 @@ def write_fullmap(sheet, frame, parameters, *, native=True, images=None, plot_la
     labels = plot_labels or {"pad": True, "lot": True}
     captions = wafer_identity_labels(frame, [[row] for row in range(len(frame))],
                                     show_pad=labels.get("pad", True), show_lot=labels.get("lot", True)) if len(frame) else []
-    layout = sequence_layout(captions)
-    mapped = list(dict.fromkeys(parameter for parameter in parameters if parameter in frame)) if include_trends else []
+    picture_shapes = picture_shapes or {}
+    mapped = list(dict.fromkeys(parameter for parameter in parameters if parameter in frame))
     def picture_width(kind):
         widths = []
         for title, contents, _note in pictures:
             if title.startswith(kind):
                 image = Image(BytesIO(contents))
-                ratio = min(FM_PICTURE_HEIGHT_CM * 96 / 2.54 / image.height,
-                            FM_PICTURE_WIDTH_CM * 96 / 2.54 / image.width)
+                ratio = picture_ratio(title, image, picture_shapes)
                 widths.append(image.width * ratio)
         return max(widths, default=0)
     map_width, radius_width = picture_width('Wafer Map'), picture_width('Radius')
-    trend_column = 1
-    radius_column = _next_plot_column(sheet, 1, map_width) if map_width else 1
-    source_column = (_next_plot_column(sheet, radius_column, radius_width) if radius_width else
-                     radius_column if mapped or map_width else
-                     _next_plot_column(sheet, 1, TREND_WIDTH_CM * 96 / 2.54))
-    if mapped:
-        source_column = max(source_column, _next_plot_column(sheet, 1, layout['width'] * 96 / 2.54))
+    trend_column = plot_column = 1
+    # Prepared report first, then one gutter, then the untouched source table.
+    source_column = plot_column + len(mapped) + 3
     sheet._source_start_column = source_column
     _write_frame(sheet, frame, start_column=source_column)
-    plot_column = source_column + len(frame.columns) + 1
     from .match_groups import normalized, wafer_identity_keys
     from openpyxl.styles import Alignment
     die = next((column for column in frame if normalized(column) in ("dieseq", "dieid", "diesequence")), None)
     dies = frame[die].astype(str).tolist() if die is not None else [""] * len(frame)
-    for offset, header in enumerate(["Wafer", "Die Seq", *mapped] if include_trends else []):
+    for offset, header in enumerate(["Wafer", "Die Seq", *mapped]):
         sheet.cell(1, plot_column + offset, header).font = Font(name=EXPORT_FONT, bold=True)
         sheet.column_dimensions[get_column_letter(plot_column + offset)].width = 30 if offset == 0 else 16
-    for index, (caption, die_label) in enumerate(zip(captions, dies) if include_trends else (), 2):
+    for index, (caption, die_label) in enumerate(zip(captions, dies), 2):
         sheet.cell(index, plot_column, caption).data_type = "s"
         sheet.cell(index, plot_column + 1, die_label).data_type = "s"
     keys = wafer_identity_keys(frame)
-    for start, end, _key in _label_spans(keys if keys is not None else captions, limit=None) if include_trends else ():
+    for start, end, _key in _label_spans(keys if keys is not None else captions, limit=None):
         if start != end:
             sheet.merge_cells(start_row=start + 2, end_row=end + 2, start_column=plot_column, end_column=plot_column)
         sheet.cell(start + 2, plot_column).alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     def software_pictures(kind, column):
-        cursor, width = 1, 0
+        cursor, width = 5, 0
         for title, contents, _note in pictures:
             if not title.startswith(kind):
                 continue
             picture = Image(BytesIO(contents))
-            ratio = min(FM_PICTURE_HEIGHT_CM * 96 / 2.54 / picture.height,
-                        FM_PICTURE_WIDTH_CM * 96 / 2.54 / picture.width)
+            ratio = picture_ratio(title, picture, picture_shapes)
             picture.width, picture.height = picture.width * ratio, picture.height * ratio
             sheet.add_image(picture, f"{get_column_letter(column)}{cursor}")
             cursor += int(np.ceil(picture.height / 20)) + 3
@@ -1288,13 +1425,18 @@ def write_fullmap(sheet, frame, parameters, *, native=True, images=None, plot_la
             if images is not None:
                 images.append((sheet.title + " " + title, contents))
         return cursor
-    map_bottom = software_pictures("Wafer Map", 1)
+    # Place the visual strip after setting table column widths so its three
+    # panels do not overlap each other; covering data beneath them is intended.
+    captions_for_plot = identity_captions(sheet, 2, captions,
+        keys if keys is not None else captions, plot_column, limit=4)
+    layout = report_sequence_layout(dies, captions_for_plot)
+    map_column = _next_plot_column(sheet, 1, layout['width'] * 96 / 2.54) if mapped and include_trends else 1
+    radius_column = _next_plot_column(sheet, map_column, map_width) if map_width else map_column
+    software_pictures("Wafer Map", map_column)
     anchor = get_column_letter(trend_column)
-    # The FM visual strip opens on the left; literal source data stays right.
-    radius_bottom = software_pictures("Radius", radius_column)
-    if not include_trends:
-        return
-    cursor = max(map_bottom, radius_bottom)
+    # Trend, Wafer Map and Radius share the same row-five opening baseline.
+    software_pictures("Radius", radius_column)
+    cursor = 5
     if frame.empty:
         return
     categories = AxDataSource(strRef=StrRef(
@@ -1306,22 +1448,25 @@ def write_fullmap(sheet, frame, parameters, *, native=True, images=None, plot_la
             source = f"{get_column_letter(source_column + frame.columns.get_loc(parameter))}{index + 2}"
             sheet.cell(row=index + 2, column=slot,
                         value=f'=IFERROR(IF({source}="",NA(),{source}*1),NA())')
+        if not include_trends:
+            continue
         if native:
             chart = LineChart()
             chart._identity_count = len(frame)
             chart.title = chart.y_axis.title = parameter
+            chart.x_axis.title = 'Die Seq'
             chart.width, chart.height = layout['width'], PANEL_HEIGHT_CM
             chart.x_axis.tickLblSkip = max(1, int(np.ceil(len(frame) / 18)))
             chart.visible_cells_only = False
             chart.add_data(Reference(sheet, min_col=slot, min_row=1, max_row=len(frame) + 1), titles_from_data=True)
             chart.series[0].cat = categories
-            chart._identity_captions = identity_captions(sheet, 2, captions,
-                keys if keys is not None else captions, plot_column, limit=4)
+            chart._identity_captions = captions_for_plot
             chart_limits(chart, values)
             sheet.add_chart(chart, f"{anchor}{cursor}")
         else:
             plot = {"title": parameter, "x": "", "y": parameter,
-                    "labels": captions, "series": [_series(parameter, np.arange(1, len(frame) + 1), values)]}
+                    "labels": captions, "dies": dies, "captions": captions_for_plot,
+                    "series": [_series(parameter, np.arange(1, len(frame) + 1), values)]}
             embed_plot(sheet, plot, f"{anchor}{cursor}", sheet.title + " " + parameter, images)
         cursor += 30
 
@@ -1370,24 +1515,26 @@ def parameter_figure(parameter, data, card, stage, scope, *, panel="Match", refe
     valid = np.isfinite(raw) & np.isfinite(reference)
     if panel == "Match":
         style_plot_axis(axis, title=parameter, xlabel="PMISH", ylabel=reference_label)
-        axis.scatter(raw[valid], reference[valid], s=25, color="#3776B6", alpha=.8, edgecolors="none")
+        axis.scatter(raw[valid], reference[valid], s=25, color="#4F8BD6", edgecolors="none")
         if valid.any() and card is not None and np.isfinite(card.slope) and np.isfinite(card.intercept):
             ends = np.array([raw[valid].min(), raw[valid].max()])
-            axis.plot(ends, card.slope * ends + card.intercept, color="#D97732", linewidth=1.8)
-            axis.text(.04, .97, f"y = {card.slope:.6g}x {card.intercept:+.6g}\nR² = {card.r_squared:.6g}",
-                transform=axis.transAxes, va="top", ha="left", fontsize=10, color="#334155",
-                bbox={"facecolor": "white", "edgecolor": "none", "alpha": .85, "pad": 4})
+            axis.plot(ends, card.slope * ends + card.intercept, color="#E09F3E", linewidth=1.8)
+            axis.set_title(parameter, fontsize=16, fontweight='bold', pad=44)
+            sign = '+' if card.intercept >= 0 else '-'
+            axis.text(.5, 1.02, f"y = {card.slope:.6g}x {sign} {abs(card.intercept):.6g}\nR² = {card.r_squared:.6g}",
+                transform=axis.transAxes, va="bottom", ha="center", fontsize=10, color="#334155")
         if valid.any():
             plot_axis_limits(axis, reference[valid], raw[valid])
         bottom = 1.5
     else:
         rows = np.arange(1, len(data) + 1) if sequence is None else sequence["x"]
+        marker_size, line_width = 4, 1.8
         ylabel = parameter if panel == "Trend" else f"Bias ({unit})" if panel == "Bias" and unit and unit != "1" else panel
         style_plot_axis(axis, title=parameter if panel == "Trend" else panel, xlabel="", ylabel=ylabel)
         if panel == "Trend":
-            axis.plot(rows, values, marker="o", markersize=4, color="#3776B6", linewidth=1.8, zorder=2,
-                      label="PMISH" if stage.lower() == "final" else "PMISH+Card")
-            axis.plot(rows, reference, marker="s", markersize=4, color="#D97732", linewidth=1.8,
+            axis.plot(rows, values, marker="o", markersize=marker_size, color="#5B9BD5", linewidth=line_width, zorder=2,
+                      label="PMISH")
+            axis.plot(rows, reference, marker="o", markersize=marker_size, color="#ED7D31", linewidth=line_width,
                       linestyle="-", zorder=3, label=reference_label)
             plot_legend(axis)
             plot_axis_limits(axis, np.concatenate((values, reference)))
@@ -1397,7 +1544,7 @@ def parameter_figure(parameter, data, card, stage, scope, *, panel="Match", refe
                 percent = np.full(len(reference), np.nan)
                 np.divide(bias * 100, reference, out=percent, where=np.isfinite(reference) & (reference != 0))
                 bias = percent
-            axis.plot(rows, bias, marker="o", markersize=4, color="#3776B6", linewidth=1.8)
+            axis.plot(rows, bias, marker="o", markersize=marker_size, color="#4F8BD6", linewidth=line_width)
             axis.axhline(0, color="#8A8F98", linewidth=.7, linestyle="--")
             plot_axis_limits(axis, bias, symmetric=True)
         selected = ([(float((start + end) / 2 + 1), label) for start, end, label in _label_spans(data["Label"])]
@@ -1405,6 +1552,8 @@ def parameter_figure(parameter, data, card, stage, scope, *, panel="Match", refe
         bottom = .8 + .45 * max((len(label.splitlines()) for _position, label in selected), default=1)
         if sequence is not None and 'Die Seq' in data:
             bottom += .9 + .45 * max((len(label.splitlines()) for _, label in sequence.get('group_ticks', ())), default=0)
+            if 'captions' in sequence:
+                bottom = footer_margin(sequence['captions'])
         else:
             axis.set_xticks([position for position, _label in selected], [label for _position, label in selected], fontsize=10)
             axis.set_xlim(.5, max(1, len(data)) + .5)

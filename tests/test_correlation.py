@@ -89,7 +89,7 @@ class CorrelationTests(unittest.TestCase):
         collect(page.layout())
         return rows
 
-    def test_workbook_sources_use_the_standard_tool_and_match_colours(self):
+    def test_workbook_sources_use_distinct_correlation_pair_colours(self):
         reference = pd.DataFrame({
             "Wafer ID": ["Reference"] * 5,
             "PAD Name": ["Reference PAD"] * 5,
@@ -148,11 +148,11 @@ class CorrelationTests(unittest.TestCase):
             }
             self.assertEqual(
                 reference_items["Reference fit"].opts["pen"].color().name(),
-                "#e09f3e",
+                "#b95616",
             )
             self.assertEqual(
                 raw_items["Raw Data fit"].opts["pen"].color().name(),
-                "#e09f3e",
+                "#285f9f",
             )
 
             window.sequence_page.selector.selectAll()

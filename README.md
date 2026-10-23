@@ -1,6 +1,6 @@
 # Metrology Workspace
 
-Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、径向图、相关性图和趋势图。主窗口提供 **Match Workbook**、**Wafer Map**、**Correlation and Trend**、**Dynamic** 和 **AutoWeighting Writer** 五个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例；窗口可命名、勾选随 WKB 保存。当前发布版本为 **v4.1.1**；功能、验证及已知限制见 [v4.1.1 发布说明](docs/releases/v4.1.1.md)。历史版本与开发版标签保持不变。
+Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、径向图、相关性图和趋势图。主窗口提供 **Match Workbook**、**Wafer Map**、**Correlation and Trend**、**Dynamic** 和 **AutoWeighting Writer** 五个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例；窗口可命名、勾选随 WKB 保存。当前发布版本为 **v4.2.0**；功能、验证及已知限制见 [v4.2.0 发布说明](docs/releases/v4.2.0.md)。历史版本与开发版标签保持不变。
 
 v4.0.0 在 v4-dev3 基础上整理 Excel/Matplotlib 导出：Match Original 合并原始数据与参数图，增加 Match Group，Match Wafer 提供独立 Wafer 视图；Bias 纵轴正负对称。Dynamic 的原始数据、逐参数 Cycle×Die 表和 3 Sigma 图集中到同一工作表；FullMap 同时放置已绘制的 Wafer Map、Radius 图片，TEM 额外保留 Trend。提醒事项继续使用独立用户目录存储。
 
@@ -66,7 +66,7 @@ Interaction references: [Planify](https://github.com/alainm23/planify) and
 
 ## Windows 便携版
 
-从 [v4.1.1 Release](https://github.com/qinyuanhao17/MetrologyWorkspace/releases/tag/v4.1.1) 下载 `MetrologyWorkspace-Windows-x64-v4.1.1.zip`，完整解压后双击 `MetrologyWorkspace.exe` 即可运行，无需另装 Python；也可下载 `MetrologyWorkspace-Windows-x64-v4.1.1-Setup.exe` 安装到当前用户目录。`_internal` 文件夹必须和 EXE 放在同一目录；不要只复制 EXE。设置保存在 EXE 旁边的 `settings.yaml` 中，提醒事项使用上面说明的独立用户目录。更新前关闭旧版并备份自己的设置和数据；包内不附带用户数据。
+从 [v4.2.0 Release](https://github.com/qinyuanhao17/MetrologyWorkspace/releases/tag/v4.2.0) 下载 `MetrologyWorkspace-Windows-x64-v4.2.0.zip`，完整解压后双击 `MetrologyWorkspace.exe` 即可运行，无需另装 Python；也可下载 `MetrologyWorkspace-Windows-x64-v4.2.0-Setup.exe` 安装到当前用户目录。`_internal` 文件夹必须和 EXE 放在同一目录；不要只复制 EXE。设置保存在 EXE 旁边的 `settings.yaml` 中，提醒事项使用上面说明的独立用户目录。更新前关闭旧版并备份自己的设置和数据；包内不附带用户数据。
 
 重新构建便携版：
 
@@ -85,7 +85,7 @@ python -m PyInstaller --noconfirm --clean MetrologyWorkspace.spec
 
 - **Groups → Data selection → Hide excluded rows in tables** 勾选并 Apply 后，Order / Reference / Raw Data 隐藏不参与分析的记录；取消勾选并 Apply 可恢复显示。此操作不删除源数据、不重新编号，也不改变原来的参与选择。子窗口选择 **Match Workbook selection** 时遵从相同显示规则；**Full data** 不沿用父级隐藏规则。
 - 隐藏/排序的表格中 **Ctrl+V** 按可见行映射到原始记录：允许只覆盖剩余可见行的一部分，超过范围会提示并阻止。隐藏行不被改动；若要整表替换或增加记录，请先恢复全部行。**Ctrl+Shift+V** 不允许绕过隐藏行保护。
-- 双击 Raw Data 卡片的标题或表格外空白处，可将同一编辑器变成非模态置顶工具窗口；再次双击或关闭该工具窗口即还原。原表格、复制粘贴、Undo/Redo 和分析联动保持不变，不产生数据副本。
+- 双击 Raw Data 卡片的标题或表格外空白处，可将同一编辑器悬浮；再次双击或关闭浮窗即还原。左上角图钉（Alt+P）切换仅在母窗口之上或本软件内部最上层，不置顶到其他软件之上。Raw 归属 Match Workbook，其他面板归属各自分析窗口。原表格、复制粘贴、Undo/Redo 和分析联动保持不变，不产生数据副本。
 - Wafer Map 的 **Opacity** 后有 **Decimals**，默认 2 位、范围 0–10，使用十进制四舍五入（负数临界值也远离零舍入）。该项只影响点值文字，不改测量值、插值或统计；与主窗口 **Settings → Point value decimals** 共用设置，不随 WKB 保存，旧 WKB 也不能覆盖主设置。
 - Trend/Bias 的 Mean、样本 σ、Min、Max 在鼠标位于非数据点区域时自动显示；数据点处优先显示 Die、X、Y。此规则同样适用于 Correlation and Trend 子窗口及动态 Trend，不再占用图标题或单独的统计复选框。Group plots 的 **All-parameter Card** 与 **Group Card** 互斥选择，分别使用总图或当前组拟合的系数，不叠加校准。
 
@@ -152,11 +152,11 @@ Card 的定义为：
 
 父窗口 **Save Workbook As…**（`Ctrl+Shift+S`）另存整本工作簿，新路径成为后续保存目标。子窗口保存、独立副本与关闭提示的范围见下方“统一文档保存与恢复”。**Open Recent WKB** 保留最近成功打开或保存的工作簿，**Reveal Workbook in Folder** 定位当前文件。旧 WKB 缺少独立 Final、Map、Dynamic 或选择状态时仍可读取。文件内含数据，不依赖原 Excel/CSV，也不执行 pickle。
 
-**Export Excel** exports editable native charts; **Export Matplotlib** embeds the plots in a single Excel file without separate PNG files. Both use the same layout: each Match sheet starts with Raw Data at A1, followed by compact parameter tables and top-aligned charts on their right. Preview sheets end with `(WO Card)` and Final sheets with `(W Card)`; Final has no duplicate `PMISH+Card` column. FullMap contains its own mapped-parameter Trends and, when already drawn, the software's Wafer Map/Radius PNGs. Original Reference strings and chart provenance remain in a hidden plot-data sheet. Generated text is English and the default font is Times New Roman.
+**Export Excel** exports editable native charts; **Export Matplotlib** redraws the plots with Matplotlib and embeds them in one workbook. An export dialog selects the output sheets (all by default); unselected formula/chart dependencies remain hidden and editable. Match parameter tables start horizontally at A1, with plots over the data from A5 and literal Raw Data to the right. Reference inputs live in those parameter tables without a duplicate visible Ref block. Preview sheets end with `(WO Card)` and Final sheets with `(W Card)`. FM starts its prepared Wafer/Die Seq/parameter report at A1 and its visual columns at A5: FM Trend (TEM only), Wafer Map, Radius. The complete Copy PNG grid is retained; each Map grid row is 8 cm high. Dynamic retains editable sources, linked pivots and 3 Sigma charts, with 18 cm-wide charts and a top-aligned summary; per-Die Cycle Trend remains in the application but is not duplicated in Excel.
 
-Each stage also has a chart-free **Original** sheet: literal Raw Data remains in its original order, with matched Reference values in a separate area to the right. Group reports collect rows by Group, while **Wafer** follows each Wafer/Lot/PAD identity's first appearance in Original. Both reports reference Original by source row. Matplotlib panels have fixed physical heights (11 cm), a 15 cm Match width and at least 25 cm Trend/Bias width with compact expanded Wafer captions. Native output uses square-cornered Excel-theme charts and editable local data ranges. Analysis-window menu entries can be deleted through their right-click menu after confirmation; deletion persists when the WKB is saved.
+Each stage includes Original, Group and Wafer views. Group/Wafer formulas refer back to Original by source row without altering literal measurements. Trend/Bias retain every observation and tight X limits; their width grows with visible Die Seq and identity-caption demand, and tick marks match visible tick-label spacing. Wafer and Group footer layers follow the WKB hierarchy. Generated text uses English and Times New Roman.
 
-In a native Match chart, select the scatter points to expose the draggable X/Y source-range outlines. Selecting the whole chart does not highlight both the measurement series and the separate fixed-fit series together. Paired Reference Trends use solid orange strokes above Raw Data; All Trend retains its Group colours with Reference curves on top. Exported plots retain all data with compact numeric X margins and stronger points, strokes and four-sided frames.
+Native Match charts use a real Excel linear trendline with editable equation/R² labels, not a synthetic Fit series. Select the measurement series to expose its draggable X/Y source-range outlines. Editing worksheet inputs refits the Excel trendline; software Card calculations are not replaced by that independent fit. Titles/equations are centered. Match markers are 5 pt; Trend/Bias use 4 pt markers and 1.8 pt strokes. Matplotlib uses the corresponding thicker styles.
 
 Large menu exports prepare an owned report in a separate process, with up to six bounded Agg rendering workers on machines with at least 12 logical CPUs (up to four on smaller machines). Repeated Wafer layouts are reused within that export, redundant merged-caption work is avoided, and `lxml` accelerates XML writing. Data, panel count, resolution and physical sizes are unchanged. The owner publishes only the complete report; cancellation or a failed publication retains the previous file. Cancellation during final XLSX serialization waits for that write to finish safely. See [NOVA export measurements](docs/plans/nova-export-performance-2026-10-16.md) for machine-specific timings and remaining performance work.
 
@@ -221,7 +221,7 @@ Wafer Maps 成功绘制一次后会记住实际绘制的方框。此后**只有�
 
 **Fill edge** 用外侧测点的径向镜像样本估计凸包之外的区域。该区域不是实测数据。关闭后，凸包外保持空白；开启后，结果仍限制在实测 Min/Max 范围内。
 
-**View** 支持适宽和 50% 到 300% 缩放。普通滚轮纵向滚动，Shift+滚轮横向滚动，Ctrl+滚轮按指针位置缩放。**Resolution** 提供 Standard、High 和 Ultra，分别对应 200、300 和 400 dpi 的 PNG 输出。图像过大时，复制和导出会自动降低 DPI，避免耗尽剪贴板或内存。
+Wafer Map 和 Radius 的屏幕图使用 PyQtGraph，图内不缩放、平移或点选；窗口仍可调整大小。**View** 支持适宽和 1% 到 300% 整页缩放。普通滚轮纵向滚动，Shift+滚轮横向滚动，Ctrl+滚轮按指针位置缩放整个拼图。**Resolution** 提供 Standard、High 和 Ultra，分别对应 200、300 和 400 dpi 的 Matplotlib PNG 输出。图像过大时，复制和导出会自动降低 DPI，避免耗尽剪贴板或内存。
 
 **Export…** 支持 PNG、SVG 和 PDF。SVG/PDF 中的坐标轴、标题、等值线、测点和 colorbar 刻度保持矢量；插值色面作为图像层嵌入。**Copy PNG** 会复制整个阵列，包括当前滚动区域之外的内容。
 

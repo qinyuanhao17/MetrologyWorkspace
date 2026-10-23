@@ -59,7 +59,7 @@ class ReleaseExportTests(unittest.TestCase):
             self.assertIsNotNone(original_cat.strRef)
             self.assertIsNotNone(group._charts[1].series[0].cat.strRef)
             self.assertIsNone(group._charts[1].series[0].cat.multiLvlStrRef)
-            self.assertIsNone(wafer._charts[1].x_axis.title)
+            self.assertIsNotNone(wafer._charts[1].x_axis.title)
             for sheet in book:
                 for chart in sheet._charts:
                     self.assertEqual(chart.x_axis.majorTickMark, 'out')
@@ -68,8 +68,9 @@ class ReleaseExportTests(unittest.TestCase):
                     for chart in sheet._charts[2:]:
                         self.assertAlmostEqual(chart.y_axis.scaling.min, -chart.y_axis.scaling.max)
             self.assertEqual(original._charts[1].anchor.ext.cx, group._charts[1].anchor.ext.cx)
-            points, fit = original._charts[0].series
-            self.assertTrue(fit.xVal.numRef.f.startswith("'Match Original (WO Card)'!"))
+            points, = original._charts[0].series
+            self.assertIsNotNone(points.trendline)
+            self.assertTrue(points.xVal.numRef.f.startswith("'Match Original (WO Card)'!"))
             self.assertFalse(any(d.hidden for d in original.row_dimensions.values()))
 
     def test_single_wafer_metrics_exposes_the_plotted_row_number(self):
@@ -89,9 +90,9 @@ class ReleaseExportTests(unittest.TestCase):
             ('Wafer Map CD', contents, ''), ('Radius CD', contents, '')])
         self.assertEqual(len(book.active._images), 2)
         heights = [picture.height for picture in book.active._images]
-        for height in heights:
-            self.assertAlmostEqual(height, 7.5 * 96 / 2.54)
-        self.assertTrue(all(picture.width <= 18 * 96 / 2.54 for picture in book.active._images))
+        for height, expected in zip(heights, (8, 30)):
+            self.assertAlmostEqual(height, expected * 96 / 2.54)
+        self.assertTrue(all(picture.width <= 72 * 96 / 2.54 for picture in book.active._images))
         self.assertNotEqual(book.active._images[0].anchor, book.active._images[1].anchor)
 
     def test_dynamic_raw_pivots_parameter_charts_and_summary_share_one_sheet(self):
@@ -123,7 +124,7 @@ class ReleaseExportTests(unittest.TestCase):
                 self.assertEqual(len(panels), 3)
                 for panel in panels:
                     width = panel.width if native else panel.width * 2.54 / 96
-                    self.assertAlmostEqual(width, 25, places=2)
+                    self.assertAlmostEqual(width, 18, places=2)
                 formulas = [cell.value for cells in sheet for cell in cells if cell.data_type == 'f']
                 self.assertIn('=IF(C2="","",IFERROR(C2*1,""))', formulas)
                 self.assertTrue(any('3*STDEV(' in formula for formula in formulas))
@@ -210,7 +211,15 @@ class ReleaseExportTests(unittest.TestCase):
                 self.assertTrue(all(shape.find('.//a:fld[@type="TxLink"]', drawing_ns) is not None
                                     for shape in captions))
                 for anchor in root.findall('cdr:relSizeAnchor', ns):
-                    self.assertGreater(float(anchor.find('cdr:from/cdr:y', ns).text), .70)
+                    name = anchor.find('cdr:sp/cdr:nvSpPr/cdr:cNvPr', ns).get('name')
+                    top = float(anchor.find('cdr:from/cdr:y', ns).text)
+                    bottom = float(anchor.find('cdr:to/cdr:y', ns).text)
+                    if 'plot divider' in name:
+                        self.assertEqual(top, .15)
+                        self.assertLess(bottom, .80)
+                        self.assertIsNotNone(anchor.find('.//a:prstDash[@val="dash"]', drawing_ns))
+                    else:
+                        self.assertGreater(top, .70)
                     self.assertGreaterEqual(float(anchor.find('cdr:from/cdr:x', ns).text), 0)
                     self.assertLessEqual(float(anchor.find('cdr:to/cdr:x', ns).text), 1)
 
@@ -250,5 +259,9 @@ class ReleaseExportTests(unittest.TestCase):
                 for left, right in zip(captions, captions[1:]):
                     self.assertLess(float(left.find('d:to/d:x', ns).text), float(right.find('d:from/d:x', ns).text))
                 for anchor in root:
-                    if anchor.find('d:sp/d:nvSpPr/d:cNvPr', ns).get('name').startswith('Boundary'):
-                        self.assertLess(float(anchor.find('d:to/d:y', ns).text), .82)
+                    if 'boundary' in anchor.find('d:sp/d:nvSpPr/d:cNvPr', ns).get('name').lower():
+                        top = float(anchor.find('d:from/d:y', ns).text)
+                        bottom = float(anchor.find('d:to/d:y', ns).text)
+                        self.assertGreater(top, .70)
+                        self.assertGreaterEqual(bottom - top, .06)
+                        self.assertLessEqual(bottom, 1.)

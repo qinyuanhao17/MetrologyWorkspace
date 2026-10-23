@@ -13,14 +13,19 @@ APP = QApplication.instance() or QApplication([])
 
 
 class FloatScopeTests(unittest.TestCase):
-    def test_raw_raise_is_limited_to_its_workbook_family_and_never_covers_modal_prompts(self):
+    def test_unpinned_raw_raise_is_parent_only_and_never_covers_modal_prompts(self):
         window, child, unrelated = MatchingWindow(), MainWindow(), MainWindow()
         try:
             child._managed_owner = window
             control = window.raw_floating_editor
             control.detach()
-            with patch.object(control.dialog, 'raise_') as raise_float:
+            with patch.object(control.dialog, 'raise_') as raise_float, \
+                    patch.object(QApplication, 'applicationState', return_value=Qt.ApplicationState.ApplicationActive):
                 APP.sendEvent(child, QEvent(QEvent.Type.WindowActivate))
+                raise_float.assert_not_called()
+                with patch.object(QApplication, 'activeWindow', return_value=window):
+                    APP.sendEvent(window, QEvent(QEvent.Type.WindowActivate))
+                    APP.processEvents()
                 raise_float.assert_called_once()
                 raise_float.reset_mock()
                 APP.sendEvent(unrelated, QEvent(QEvent.Type.WindowActivate))

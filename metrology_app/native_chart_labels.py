@@ -24,7 +24,7 @@ def _child(parent, namespace, tag, text=None, **attributes):
     return element
 
 
-def _shape(root, index, name, start, end, *, text=None, source=None):
+def _shape(root, index, name, start, end, *, text=None, source=None, color='000000', width=19050, dashed=False):
     anchor = _child(root, D, 'relSizeAnchor')
     corners = ((min(start[0], end[0]), start[1]), (max(start[0], end[0]), end[1]))
     for corner_name, point in zip(('from', 'to'), corners):
@@ -40,8 +40,11 @@ def _shape(root, index, name, start, end, *, text=None, source=None):
         _child(properties, A, 'xfrm', flipH='1')
     geometry = _child(properties, A, 'prstGeom', prst='rect' if text is not None else 'line')
     _child(geometry, A, 'avLst')
-    _child(properties, A, 'noFill')
-    line = _child(properties, A, 'ln', w='9525')
+    if text is None:
+        _child(properties, A, 'noFill')
+    else:
+        _child(_child(properties, A, 'solidFill'), A, 'srgbClr', val='FFFFFF')
+    line = _child(properties, A, 'ln', w=str(width))
     if text is not None:
         _child(line, A, 'noFill')
         body = _child(shape, D, 'txBody')
@@ -59,40 +62,89 @@ def _shape(root, index, name, start, end, *, text=None, source=None):
             _child(run, A, 't', value)
     else:
         fill = _child(line, A, 'solidFill')
-        _child(fill, A, 'srgbClr', val='595959')
+        _child(fill, A, 'srgbClr', val=color)
+        if dashed:
+            _child(line, A, 'prstDash', val='dash')
     return shape
+
+
+def footer_geometry(labels):
+    """Reserve full-height Wafer/Group strips below the Die Seq title."""
+    levels = sorted({item.get('level', 0) for item in labels})
+    heights = {level: .04 * max(len(item['text'].splitlines()) or 1 for item in labels
+                               if item.get('level', 0) == level) for level in levels}
+    top = .95 - sum(heights.values()) - .02 * max(0, len(levels) - 1)
+    cursor, rows = top, {}
+    for level in levels:
+        rows[level] = (cursor, cursor + heights[level])
+        cursor += heights[level] + .02
+    return top - .14, rows
 
 
 def _drawing(labels):
     root = ET.Element(f'{{{C}}}userShapes')
+    plot_bottom, rows = footer_geometry(labels)
+    index = 1
+    group_edges = {item['start'] for item in labels if item.get('role') == 'group'}
+    for role in ('wafer', 'group'):
+        edges = {item['start'] for item in labels if item.get('role', 'wafer') == role and item['start'] > 0}
+        for edge in sorted(edges - group_edges if role == 'wafer' else edges):
+            x = .10 + .85 * edge
+            _shape(root, index, f'{role.title()} plot divider', (x, .15), (x, plot_bottom),
+                   color='C8C8C8' if role == 'wafer' else '000000', width=9525 if role == 'wafer' else 19050,
+                   dashed=True)
+            index += 1
+    for level, (top, bottom) in rows.items():
+        entries = [item for item in labels if item.get('level', 0) == level]
+        dense_wafers = entries[0].get('role', 'wafer') == 'wafer' and len(entries) > 12
+        boundaries = sorted({v for item in entries if not dense_wafers or item.get('show', True)
+                             for v in (item['start'], item['end'])})
+        boundary_top = min(v[0] for v in rows.values()) if entries[0].get('role') == 'group' else top
+        for value in boundaries:
+            x = .10 + .85 * value
+            _shape(root, index, f"{entries[0].get('role', 'wafer').title()} boundary",
+                   (x, boundary_top - .015), (x, bottom + .015),
+                   color='929292' if dense_wafers else '000000', width=9525 if dense_wafers else 19050)
+            index += 1
+        visible = [item for item in entries if item.get('show', True)]
+        index = _captions(root, visible, top, bottom, index)
+    # Group boundaries span both footer levels. Paint every caption last so
+    # those later structural lines cannot cross the Wafer text above it.
+    captions = [anchor for anchor in root if anchor.find(f'{{{D}}}sp/{{{D}}}txBody') is not None]
+    for anchor in captions:
+        root.remove(anchor)
+        root.append(anchor)
+    return ET.tostring(root, encoding='utf-8', xml_declaration=True)
+
+
+def caption_boxes(labels):
+    """Non-overlapping normalized caption boxes shared by both report renderers."""
     available = .90 / max(1, len(labels)) - .012
     widths = [min(.22, available, max(.07, .009 * max(map(len, item['text'].splitlines()), default=1))) for item in labels]
     centers = [.10 + .85 * item['center'] for item in labels]
     if centers:
         centers[0] = max(centers[0], .04 + widths[0] / 2)
-    for index in range(1, len(centers)):
-        centers[index] = max(centers[index], centers[index - 1] + (widths[index - 1] + widths[index]) / 2 + .012)
+    for position in range(1, len(centers)):
+        centers[position] = max(centers[position], centers[position - 1] + (widths[position - 1] + widths[position]) / 2 + .012)
     if centers:
         centers[-1] = min(centers[-1], .97 - widths[-1] / 2)
-        for index in range(len(centers) - 2, -1, -1):
-            centers[index] = min(centers[index], centers[index + 1] - (widths[index + 1] + widths[index]) / 2 - .012)
-    index = 1
-    for item, center, width in zip(labels, centers, widths):
+        for position in range(len(centers) - 2, -1, -1):
+            centers[position] = min(centers[position], centers[position + 1] - (widths[position + 1] + widths[position]) / 2 - .012)
+    return list(zip(centers, widths))
+
+
+def _captions(root, labels, top, bottom, index):
+    for item, (center, width) in zip(labels, caption_boxes(labels)):
         actual = .10 + .85 * item['center']
         if abs(actual - center) > .005:
             # Both coordinates are true chart fractions. The connector explains
             # a displaced caption without moving or resampling observations.
-            _shape(root, index, 'Leader', (actual, .78), (center, .81))
+            _shape(root, index, 'Leader', (actual, top - .035), (center, top - .005), width=9525)
             index += 1
-        _shape(root, index, 'Caption', (center - width / 2, .82), (center + width / 2, .95),
+        _shape(root, index, 'Caption', (center - width / 2, top), (center + width / 2, bottom),
                text=item['text'], source=item['source'])
         index += 1
-    boundaries = sorted({item['start'] for item in labels} | {item['end'] for item in labels})
-    for value in boundaries:
-        x = .10 + .85 * value
-        _shape(root, index, 'Boundary', (x, .76), (x, .81))
-        index += 1
-    return ET.tostring(root, encoding='utf-8', xml_declaration=True)
+    return index
 
 
 def write_identity_drawings(book, path, checkpoint):

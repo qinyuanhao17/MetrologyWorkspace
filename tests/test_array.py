@@ -319,7 +319,7 @@ class PlotWorkspaceTests(unittest.TestCase):
                                        f"font {size}: bottom row overlaps the footer note")
 
     def test_checkbox_toggles_repaint_without_a_full_draw(self):
-        """Overlay, outline, contour and colour toggles stay on the blit path."""
+        """Qt overlays and colour changes reuse surfaces, without a Matplotlib draw."""
         w, page = self.window, self.window.plot_page
         w.check_all(w.wafer_list, True)
         self.select_metrics("OCD_H2", "OCD_H1")
@@ -329,10 +329,9 @@ class PlotWorkspaceTests(unittest.TestCase):
         page.draw_maps()
         self.wait_render()
         APP.processEvents()
-        self.assertIsNotNone(page._background)
-        self.assertIsNotNone(page._empty)
+        images = [panel.image for panel in page.map_grid.panels]
 
-        with patch.object(page.canvas, "draw") as redraw:
+        with patch("metrology_app.plot_page.draw_array") as redraw:
             page.labels.setChecked(not page.labels.isChecked())
             page.points.setChecked(not page.points.isChecked())
             page.contour.setChecked(not page.contour.isChecked())
@@ -342,6 +341,7 @@ class PlotWorkspaceTests(unittest.TestCase):
             QTest.qWait(400)
             APP.processEvents()
             redraw.assert_not_called()
+        self.assertEqual([panel.image for panel in page.map_grid.panels], images)
         self.assertTrue(page.artists[0][0].contours.get_visible())
         self.assertEqual(page.artists[0][0].image.get_alpha(), .8)
 
@@ -522,16 +522,10 @@ class PlotWorkspaceTests(unittest.TestCase):
         page.labels.setChecked(True)
         page.points.setChecked(True)
         QTest.qWait(200)
-        # View zoom touches only the Qt view transform, never the render.
+        # Whole-page zoom remains separate from the static scientific axes.
         page.zoom.setCurrentText("100%")
         APP.processEvents()
-        with patch.object(page.canvas, "draw") as redraw:
-            page.zoom_by_wheel(120)
-            self.assertEqual(page.zoom.currentText(), "125%")
-            page.zoom_by_wheel(-120)
-            self.assertEqual(page.zoom.currentText(), "100%")
-            APP.processEvents()
-            redraw.assert_not_called()
+        self.assertFalse(page.zoom.isHidden())
         page.zoom.setCurrentText("Fit width")
         w.resize(1180, 760)
         QTest.qWait(100)

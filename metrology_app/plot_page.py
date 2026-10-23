@@ -1,6 +1,8 @@
-"""Plot-tab controls, background interpolation and a scrollable Matplotlib canvas."""
+"""Wafer controls, background interpolation and a static pyqtgraph scene.
+
+Matplotlib figures are materialised only when an export is requested.
+"""
 from io import BytesIO
-from html import escape
 from pathlib import Path
 from weakref import WeakSet
 
@@ -8,14 +10,14 @@ import numpy as np
 from matplotlib import rcParams
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
-from PyQt6.QtCore import QEvent, QPointF, Qt, QThread, QTimer, pyqtSignal
-from PyQt6.QtGui import QCursor, QImage, QKeySequence, QPainter, QShortcut
+from PyQt6.QtCore import QEvent, Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtGui import QImage, QKeySequence, QPainter, QShortcut
 from matplotlib import colormaps
 
 from PyQt6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QGraphicsScene,
+    QApplication, QCheckBox, QComboBox, QFileDialog, QFrame,
     QGraphicsView, QHBoxLayout, QLabel, QPushButton, QSpinBox, QStackedWidget, QVBoxLayout,
-    QToolTip, QWidget,
+    QWidget,
 )
 
 from .array_plot import ArrayOptions, draw_array, drawn_axes, prepare_array
@@ -24,11 +26,27 @@ from .appearance import (COLOR_MAP_OPTIONS, MAX_COPY_PIXELS, MAX_EXPORT_PIXELS,
                          screen_render_scale)
 from .color_range_bar import ColorRangeBar
 from .map_selector import MapSelector
-from .plot import auto_cmap_range, display_colormap, restyle_panel_title
+from .plot import auto_cmap_range
 from .settings import get_settings, save_settings
 from .plotting.identity_labels import measurement_caption
+from .wafer_graphics import PAGE_ZOOM_PERCENTAGES, StaticMapView, WaferMapGrid
 
 _PLOT_PAGES = WeakSet()
+_CANCELLED_JOBS = set()
+
+
+def _finish_cancelled_jobs():
+    # A single numerical-library call cannot be forcibly interrupted safely.
+    # Only application shutdown joins these data-only jobs, never child close.
+    for job in tuple(_CANCELLED_JOBS):
+        job.wait()
+
+
+def _release_cancelled_job(job):
+    if job not in _CANCELLED_JOBS:
+        return
+    _CANCELLED_JOBS.discard(job)
+    job.deleteLater()
 
 rcParams["font.family"] = ["Segoe UI", "Microsoft YaHei", "DejaVu Sans"]
 rcParams["axes.unicode_minus"] = False
@@ -77,8 +95,6 @@ class PlotPage(QWidget):
         self.pending_cells = set()
         self.result = None
         self.artists = []
-        self._background = None
-        self._empty = None
         self.font_timer = QTimer(self, interval=120, singleShot=True)
         self.font_timer.timeout.connect(self.apply_font_style)
         self.style_timer = QTimer(self, interval=120, singleShot=True)
@@ -120,11 +136,12 @@ class PlotPage(QWidget):
         toolbar.addWidget(self.summary)
         header.addLayout(toolbar)
         appearance = QHBoxLayout()
-        appearance.addWidget(QLabel("View", objectName="muted"))
         self.zoom = QComboBox()
-        self.zoom.addItems(["Fit width", "50%", "75%", "100%", "125%", "150%", "175%", "200%", "250%", "300%"])
+        self.zoom.addItems(["Fit width", *(f"{value}%" for value in PAGE_ZOOM_PERCENTAGES)])
         self.zoom.currentTextChanged.connect(self.resize_canvas)
-        appearance.addWidget(self.zoom)
+        self.zoom.setToolTip("Ctrl+wheel scales the entire grid, not the coordinates inside an individual map.")
+        toolbar.insertWidget(toolbar.indexOf(self.copy_button) + 1, QLabel("View", objectName="muted"))
+        toolbar.insertWidget(toolbar.indexOf(self.copy_button) + 2, self.zoom)
         appearance.addWidget(QLabel("Font", objectName="muted"))
         self.font_size = QComboBox()
         self.font_size.addItems(["8", "9", "10", "11", "12", "14", "16"])
@@ -264,16 +281,19 @@ class PlotPage(QWidget):
         self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty.setWordWrap(True)
         self.stack.addWidget(self.empty)
-        self.figure = Figure(figsize=(8, 6), dpi=100, facecolor="white")
-        self.canvas = FigureCanvasQTAgg(self.figure)
-        self.canvas.mpl_connect("motion_notify_event", self.hover_point)
-        self.scene = QGraphicsScene(self)
-        self.canvas_proxy = self.scene.addWidget(self.canvas)
-        self.scroll = QGraphicsView(self.scene)
+        self._figure = Figure(figsize=(8, 6), dpi=100, facecolor="white")
+        self._canvas = None
+        self._export_dirty = True
+        self.scroll = StaticMapView()
+        self.scene = self.scroll.scene()
+        self.map_grid = WaferMapGrid()
+        self.scene.addItem(self.map_grid)
+        self.canvas_proxy = self.map_grid
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
         self.scroll.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
-        self.canvas.installEventFilter(self)
+        self.scroll.setBackgroundBrush(Qt.GlobalColor.white)
+        self.scroll.setDragMode(QGraphicsView.DragMode.NoDrag)
         self.scroll.viewport().installEventFilter(self)
         self.copy_shortcut = QShortcut(QKeySequence.StandardKey.Copy, self)
         self.copy_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
@@ -302,6 +322,56 @@ class PlotPage(QWidget):
         self.selector.changed.connect(self.selector_changed)
         self.diameter.currentTextChanged.connect(self.invalidate)
         self.invalidate()
+
+    @property
+    def figure(self):
+        """The export figure, built lazily, never used by screen presentation."""
+        self._ensure_export()
+        return self._figure
+
+    @property
+    def canvas(self):
+        self._ensure_export()
+        if self._canvas is None:
+            self._canvas = FigureCanvasQTAgg(self._figure)
+            self._canvas.setParent(self)
+            self._canvas.hide()
+        return self._canvas
+
+    @property
+    def artists(self):
+        """Matplotlib export artists (not pyqtgraph scene items)."""
+        self._ensure_export()
+        return self._artists
+
+    @artists.setter
+    def artists(self, value):
+        self._artists = value
+        self._export_dirty = True
+
+    def _ensure_export(self):
+        if self.result is None or not self._export_dirty:
+            return
+        rows, columns = self.result["shape"]
+        width, height = columns*460, rows*420+30
+        scale = screen_render_scale(width, height, resolution_settings(self.resolution)[0])
+        self._figure.set_dpi(100*scale)
+        self._figure.set_size_inches(width/100, height/100, forward=False)
+        if self._canvas is None:
+            self._canvas = FigureCanvasQTAgg(self._figure)
+            self._canvas.setParent(self)
+            self._canvas.hide()
+        self._canvas.setFixedSize(round(width*scale), round(height*scale))
+        self._artists = draw_array(self._figure, self.result, int(self.font_size.currentText()))
+        for ax, scene in zip(self._figure.axes[:len(self.result["scenes"])], self.result["scenes"]):
+            if scene.get("skip"):
+                continue
+            caption = measurement_caption(scene["label"], self.identity_labels)
+            if scene["error"]:
+                ax.set_title(f'{scene["metric"]}\n{caption}')
+            else:
+                ax._wafer_title_details[0].set_text(caption.replace("\n", " · "))
+        self._export_dirty = False
 
     def draw_state(self):
         """Return the successful map selection that can be restored later."""
@@ -418,8 +488,6 @@ class PlotPage(QWidget):
         self.dirty = True
         self.result = None
         self.artists = []
-        self._background = None
-        self._empty = None
         if self.worker:
             self.worker.requestInterruption()
         self.export_button.setEnabled(False)
@@ -597,14 +665,12 @@ class PlotPage(QWidget):
         """Report an option-refresh failure without discarding the last plot."""
         self.dirty = False
         self.stack.setCurrentWidget(self.scroll)
-        self.export_button.setEnabled(bool(self.artists))
-        self.copy_button.setEnabled(bool(self.artists))
+        self.export_button.setEnabled(bool(self.map_grid.valid_count))
+        self.copy_button.setEnabled(bool(self.map_grid.valid_count))
         self.status.setText(f"Could not update the estimated edge: {message}")
 
     def show_error(self, message):
         self.result = None
-        self._background = None
-        self._empty = None
         self.export_button.setEnabled(False)
         self.copy_button.setEnabled(False)
         self.stack.setCurrentIndex(0)
@@ -612,6 +678,8 @@ class PlotPage(QWidget):
         self.status.setText("Check the data and settings, then try again.")
 
     def finished(self):
+        if self.worker is None or self.sender() is not self.worker:
+            return  # A completion event queued before close must not refresh the page.
         self.worker.deleteLater()
         self.worker = None
         self.draw_button.setText("Draw selected")
@@ -639,8 +707,8 @@ class PlotPage(QWidget):
             for scene in result["scenes"]:
                 if "options" in scene:
                     scene["options"].point_decimals = self.point_decimals.value()
-            self.artists = draw_array(self.figure, result, int(self.font_size.currentText()))
-            self._apply_identity_labels()
+            self._export_dirty = True
+            self.map_grid.set_result(result, int(self.font_size.currentText()), self.identity_labels)
             self.dirty = False
             self.has_drawn_once = True
             self.drawn_cells = set(self.pending_cells)
@@ -654,27 +722,21 @@ class PlotPage(QWidget):
             self.refresh_canvas()
             if saved_view is not None:
                 self.restore_view(saved_view)
-            self.export_button.setEnabled(bool(self.artists))
-            self.copy_button.setEnabled(bool(self.artists))
+            count = self.map_grid.valid_count
+            self.export_button.setEnabled(bool(count))
+            self.copy_button.setEnabled(bool(count))
             rows, columns = result["shape"]
-            self.status.setText(f"{len(self.artists)} / {result['selected_count']} maps · "
+            self.status.setText(f"{count} / {result['selected_count']} maps · "
                                 f"Page {self.page_index + 1} / {getattr(self, '_page_total', 1)} · "
-                                f"{rows} × {columns} grid · {result['size_summary']} · "
-                                f"Hover a point for its value.")
+                                f"{rows} × {columns} grid · {result['size_summary']}.")
         except Exception as error:
             self.show_error(str(error))
 
     def _apply_identity_labels(self):
         if self.result is None:
             return
-        for ax, scene in zip(self.figure.axes[:len(self.result["scenes"])], self.result["scenes"]):
-            if scene.get("skip"):
-                continue
-            caption = measurement_caption(scene["label"], self.identity_labels)
-            if scene["error"]:
-                ax.set_title(f'{scene["metric"]}\n{caption}')
-            else:
-                ax._wafer_title_details[0].set_text(caption.replace("\n", " · "))
+        self._export_dirty = True
+        self.map_grid.relayout(self.result, int(self.font_size.currentText()), self.identity_labels)
 
     def set_identity_labels(self, options):
         """Only repaint caption text, even if interpolation is still running."""
@@ -682,118 +744,27 @@ class PlotPage(QWidget):
             return
         self.identity_labels = dict(options)
         self._apply_identity_labels()
-        if self.result is not None:
-            self.capture_overlay_background()
 
     def refresh_canvas(self):
-        """Render once at the current screen scale; zoom reuses the Qt view only."""
+        """Present the prepared ImageItems, without constructing export artists."""
         if self.result is None:
             return
-        rows, columns = self.result["shape"]
-        base_width, base_height = columns * 460, rows * 420 + 30
-        requested_scale, _dpi = resolution_settings(self.resolution)
-        render_scale = screen_render_scale(base_width, base_height, requested_scale)
-        self.figure.set_dpi(100 * render_scale)
-        self.figure.set_size_inches(base_width / 100, base_height / 100, forward=False)
-        size = (round(base_width * render_scale), round(base_height * render_scale))
-        self._canvas_resized = size != (self.canvas.width(), self.canvas.height())
-        self.canvas.setFixedSize(*size)
-        if self.artists:
-            # One draw doubles as the clean background cache, so point-value and
-            # measurement-point toggles only redraw two artists per panel.
-            self.capture_overlay_background()
-        else:
-            self.canvas.draw()
         self.scene.setSceneRect(self.canvas_proxy.boundingRect())
+        self.scroll.setSceneRect(self.scene.sceneRect())
         self.resize_canvas()
-        # The canvas resize event is delivered after this pass; settle the
-        # scene rect and transform once Qt has processed it so the view never
-        # shows a squeezed preview frame in the meantime.
         QTimer.singleShot(0, self.settle_canvas)
 
     def settle_canvas(self):
         if self.result is None:
             return
         self.scene.setSceneRect(self.canvas_proxy.boundingRect())
+        self.scroll.setSceneRect(self.scene.sceneRect())
         if getattr(self, "_canvas_resized", False):
             # A new grid (for example after the records filter) changed the
             # canvas size; re-fit the view instead of reusing a stale transform.
             self._canvas_resized = False
             self.resize_canvas()
         self.scroll.viewport().update()
-
-    def overlay_artists(self):
-        """Value labels, markers and iso-lines: the artists toggled by checkboxes."""
-        return [artist for plot, _scene in self.artists
-                for artist in (plot.contours, plot.value_labels, plot.point_markers)
-                if artist is not None]
-
-    def capture_overlay_background(self):
-        """Rebuild the cached backdrops the fast repaint paths compose from.
-
-        ``_empty`` holds the axes, ticks and titles only; ``_background`` adds
-        the colour fields, wafer outlines and colour bars. Overlay toggles then
-        only redraw a few artists, and colour changes redraw the fields onto the
-        empty backdrop so semi-transparent fills blend correctly.
-        """
-        fields = [(plot.image, plot.image.get_visible()) for plot, _scene in self.artists
-                  if plot.image is not None]
-        state = [(artist, artist.get_visible()) for artist in self.overlay_artists()]
-        state += fields
-        for artist, _visible in state:
-            artist.set_visible(False)
-        self.canvas.draw()
-        self._empty = self.canvas.copy_from_bbox(self.figure.bbox)
-        for artist, visible in state:
-            artist.set_visible(visible)
-        self.draw_fields()
-        self._background = self.canvas.copy_from_bbox(self.figure.bbox)
-        self.blit_overlays()
-
-    def draw_fields(self):
-        """Draw colour fields, wafer outlines and colour bars onto the buffer."""
-        canvas = self.canvas
-        canvas.restore_region(self._empty)
-        renderer = canvas.get_renderer()
-        for plot, _scene in self.artists:
-            if plot.image is not None:
-                plot.image.draw(renderer)
-            if plot.circle is not None:
-                plot.circle.draw(renderer)
-            canvas.blit(plot.axes.bbox)
-            if plot.colorbar is not None:
-                for image in plot.colorbar.ax.images:
-                    image.draw(renderer)
-                canvas.blit(plot.colorbar.ax.bbox)
-
-    def blit_overlays(self):
-        """Repaint just the value/point overlays over the cached background."""
-        if self._background is None:
-            self.canvas.draw_idle()
-            return
-        canvas = self.canvas
-        renderer = canvas.get_renderer()
-        canvas.restore_region(self._background)
-        for plot, _scene in self.artists:
-            artists = [artist for artist in (plot.contours, plot.value_labels, plot.point_markers)
-                       if artist is not None]
-            for artist in artists:
-                if artist.get_visible():
-                    artist.draw(renderer)
-            if artists:
-                canvas.blit(plot.axes.bbox)
-        canvas.update()
-
-    def repaint_fields(self):
-        """Repaint the colour fields, wafer outlines and colour bars in place."""
-        if self._empty is None:
-            self.capture_overlay_background()
-            return
-        self.draw_fields()
-        # The new colours belong to the background now, so refresh the cache and
-        # lay the overlays back on top of it.
-        self._background = self.canvas.copy_from_bbox(self.figure.bbox)
-        self.blit_overlays()
 
     def resize_canvas(self, *_):
         if self.result is None:
@@ -802,10 +773,9 @@ class PlotPage(QWidget):
         base_width = columns * 460
         text = self.zoom.currentText()
         display_scale = min(1, max(280, self.scroll.viewport().width() - 20) / base_width) if text == "Fit width" else int(text[:-1]) / 100
-        display_scale = max(.65, display_scale)
-        render_scale = self.figure.dpi / 100
+        display_scale = max(.01, display_scale)
         self.scroll.resetTransform()
-        self.scroll.scale(display_scale / render_scale, display_scale / render_scale)
+        self.scroll.scale(display_scale, display_scale)
         # The transformed scene's scrollbar range is finalized on the next
         # event-loop pass. Centering before then can use the previous range.
         self._center_timer.start(0)
@@ -852,13 +822,12 @@ class PlotPage(QWidget):
     def change_resolution(self, *_):
         if self.result is None:
             return
-        render_scale, dpi = resolution_settings(self.resolution)
-        self.status.setText(f"Rendering at {render_scale:.0%} · PNG output {dpi} dpi…")
-        self.refresh_canvas()
+        _render_scale, dpi = resolution_settings(self.resolution)
+        self._export_dirty = True
         self.status.setText(f"Resolution: {self.resolution.currentText()} · PNG output {dpi} dpi.")
 
     def redraw_style(self, *_):
-        """Merge rapid combo changes before touching the large Matplotlib tree."""
+        """Merge rapid font changes before updating the static scene."""
         if self.result is None:
             return
         self.status.setText("Updating plot labels…")
@@ -898,30 +867,15 @@ class PlotPage(QWidget):
                 scene["options"].point_outline = point_outline
                 scene["options"].opacity = opacity
                 scene["options"].cmap_range = cmap_range
+        self._export_dirty = True
+        if palette_change:
+            for panel in self.map_grid.panels:
+                if panel.image is not None:
+                    panel.update_palette()
         if structural_change:
-            self.artists = draw_array(self.figure, self.result, int(self.font_size.currentText()))
-            self._apply_identity_labels()
-            self.refresh_canvas()
-        else:
-            palette = display_colormap(cmap, *cmap_range)
-            for plot, _scene in self.artists:
-                if plot.image is not None:
-                    plot.image.set_cmap(palette)
-                    plot.image.set_alpha(opacity)
-                if plot.colorbar is not None and plot.image is not None:
-                    plot.colorbar.update_normal(plot.image)
-                if plot.point_markers is not None:
-                    plot.point_markers.set_sizes(np.full(len(plot.positions), 13 if point_outline else 5))
-                    plot.point_markers.set_linewidths(.9 if point_outline else 0)
-                    plot.point_markers.set_edgecolors("#f5f5f5" if point_outline else "none")
-                if plot.contours is not None:
-                    plot.contours.set_visible(contour)
-            if palette_change:
-                # Only the colour fields change; repaint those instead of the
-                # whole array and refresh the cached background afterwards.
-                self.repaint_fields()
-            else:
-                self.blit_overlays()
+            self.map_grid.relayout(self.result, int(self.font_size.currentText()), self.identity_labels)
+        for panel in self.map_grid.panels:
+            panel.update()
         name = self.color_map.currentText()
         self.status.setText(f"Color: {name} · Palette {cmap_range[0]:.0%}–{cmap_range[1]:.0%} · "
                             f"Opacity {opacity:.0%} · Contours: {'on' if contour else 'off'} · "
@@ -930,7 +884,7 @@ class PlotPage(QWidget):
 
     def queue_overlay_visibility(self, *_):
         """Merge rapid value/point toggles into a single repaint."""
-        if self.result is None or not self.artists:
+        if self.result is None or not self.map_grid.valid_count:
             return
         self.status.setText("Updating points and contours…")
         self.overlay_timer.start()
@@ -963,52 +917,49 @@ class PlotPage(QWidget):
         self.result["settings"].points = show_points
         decimals = self.point_decimals.value()
         self.result["settings"].point_decimals = decimals
-        for plot, scene in self.artists:
-            if plot.value_labels is not None:
+        changed = False
+        for panel in self.map_grid.panels:
+            if panel.image is None:
+                continue
+            options = panel.source["options"]
+            changed |= (options.labels != show_labels or options.points != show_points
+                        or options.point_decimals != decimals)
+            options.labels, options.points = show_labels, show_points
+            if options.point_decimals != decimals:
+                options.point_decimals = decimals
+                panel._prepare_labels()
+            panel.update()
+        if changed and not self._export_dirty:
+            # A previously requested export may be reused too: these are
+            # presentation-only overlays, not a new surface or axes layout.
+            for plot, _scene in self._artists:
                 plot.value_labels.set_decimals(decimals)
                 plot.value_labels.set_visible(show_labels)
-            if plot.point_markers is not None:
                 plot.point_markers.set_visible(show_points)
-            scene["options"].labels = show_labels
-            scene["options"].points = show_points
-            scene["options"].point_decimals = decimals
-        if self.stack.currentWidget() is self.scroll:
-            self.blit_overlays()
         values = "shown" if show_labels else "hidden"
         points = "shown" if show_points else "hidden"
         self.status.setText(f"Point values: {values} · Measurement points: {points}.")
 
     def apply_font_style(self):
-        """Update existing text artists instead of rebuilding every map/colorbar."""
+        """Resize Qt annotations; the colour fields and interpolations are reused."""
         if self.result is None:
             return
         base = int(self.font_size.currentText())
         label_size, tick_size = max(6, base - 1), max(5, base - 2)
-        for plot, _scene in self.artists:
-            restyle_panel_title(plot.axes, base)
-            plot.axes.xaxis.label.set_fontsize(label_size)
-            plot.axes.yaxis.label.set_fontsize(label_size)
-            plot.axes.tick_params(labelsize=tick_size)
-            if plot.colorbar is not None:
-                plot.colorbar.ax.tick_params(labelsize=tick_size)
-                if plot.colorbar.ax.title:
-                    plot.colorbar.ax.title.set_fontsize(tick_size)
-            if plot.value_labels is not None:
-                size = max(4.5, base * .55)
-                if len(plot.positions) > 100:
-                    size = max(4.5, size - 1)
-                plot.value_labels.set_fontsize(size)
-        if self.figure._supxlabel is not None:
-            self.figure._supxlabel.set_fontsize(tick_size)
-        self.capture_overlay_background()
+        self._export_dirty = True
+        self.map_grid.relayout(self.result, base, self.identity_labels)
         self.status.setText(f"Plot font {base} pt · axis labels {label_size} pt · ticks {tick_size} pt.")
 
     def eventFilter(self, watched, event):
         if event.type() == QEvent.Type.Wheel and self.result is not None:
             delta = event.angleDelta()
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                amount = delta.y() or event.pixelDelta().y()
-                self.zoom_by_wheel(amount, watched, event.position().toPoint())
+                self.scroll.zoom_page(event, self.zoom)
+                self._center_timer.stop()
+                self._fit_width_timer.stop()
+                self._canvas_resized = False
+                event.accept()
+                return True
             else:
                 horizontal = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier) or abs(delta.x()) > abs(delta.y())
                 bar = self.scroll.horizontalScrollBar() if horizontal else self.scroll.verticalScrollBar()
@@ -1021,32 +972,6 @@ class PlotPage(QWidget):
             event.accept()
             return True
         return super().eventFilter(watched, event)
-
-    def zoom_by_wheel(self, delta, watched=None, position=None):
-        if not delta or self.result is None:
-            return
-        render_scale = self.figure.dpi / 100
-        current = round(100 * self.scroll.transform().m11() * render_scale)
-        steps = [50, 75, 100, 125, 150, 175, 200, 250, 300]
-        target = next((value for value in steps if value > current), steps[-1]) if delta > 0 else \
-                 next((value for value in reversed(steps) if value < current), steps[0])
-        viewport = self.scroll.viewport()
-        if position is None:
-            viewport_pos = viewport.rect().center()
-            scene_pos = self.scroll.mapToScene(viewport_pos)
-        elif watched is self.canvas:
-            scene_pos = QPointF(position)
-            viewport_pos = self.scroll.mapFromScene(scene_pos)
-        else:
-            viewport_pos = position
-            scene_pos = self.scroll.mapToScene(viewport_pos)
-        hbar, vbar = self.scroll.horizontalScrollBar(), self.scroll.verticalScrollBar()
-        self.zoom.setCurrentText(f"{target}%")
-        def restore_anchor():
-            moved = self.scroll.mapFromScene(scene_pos)
-            hbar.setValue(hbar.value() + moved.x() - viewport_pos.x())
-            vbar.setValue(vbar.value() + moved.y() - viewport_pos.y())
-        QTimer.singleShot(0, restore_anchor)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -1061,28 +986,6 @@ class PlotPage(QWidget):
         # layout cascades and is cancelled when this page is destroyed.
         if self.zoom.currentText() == "Fit width":
             self.resize_canvas()
-
-    def hover_point(self, event):
-        if event.x is None or event.inaxes is None:
-            QToolTip.hideText()
-            return
-        for plot, scene in self.artists:
-            if (event.inaxes is plot.axes and len(plot.positions)
-                    and plot.point_markers.get_visible()):
-                distance = np.linalg.norm(plot.axes.transData.transform(plot.positions) - [event.x, event.y], axis=1)
-                index = int(distance.argmin())
-                if distance[index] < 12:
-                    point = scene["layer"].iloc[index]
-                    name = scene.get('label', scene['wafer']).replace('\n', ' · ')
-                    die = str(point.get("die", "")).strip()
-                    identity = f" · Die {die}" if die else ""
-                    text = (f"{name}{identity} · {scene['metric']} = {point.value:.8g} · "
-                            f"X = {point.x:.6g}, Y = {point.y:.6g}")
-                    self.status.setText(text)
-                    QToolTip.showText(QCursor.pos(), f"<span>{escape(text)}</span>", self.canvas)
-                    return
-                break
-        QToolTip.hideText()
 
     def export_image(self):
         """Write the complete array as PNG (chosen quality) or as SVG / PDF vector."""
@@ -1146,11 +1049,32 @@ class PlotPage(QWidget):
         return buffer.getvalue()
 
     def stop(self):
+        self.revision += 1  # Invalidate results already queued on the GUI thread.
         self.pending_input_refresh = False
+        self.pending_fill_refresh = False
+        self._pending_page_refresh = False
         self.input_refresh_timer.stop()
+        for timer in (self.font_timer, self.style_timer, self.overlay_timer,
+                      self._center_timer, self._fit_width_timer):
+            timer.stop()
         if self.settings_timer.isActive():
             self.settings_timer.stop()
             self.persist_color_preferences()
         if self.worker is not None:
-            self.worker.requestInterruption()
-            self.worker.wait()
+            job, self.worker = self.worker, None
+            job.requestInterruption()
+            for signal in (job.ready, job.failed, job.progress, job.finished):
+                signal.disconnect()
+            job.setParent(None)
+            if not _CANCELLED_JOBS:
+                app = QApplication.instance()
+                try:
+                    app.aboutToQuit.disconnect(_finish_cancelled_jobs)
+                except TypeError:
+                    pass
+                app.aboutToQuit.connect(_finish_cancelled_jobs)
+            _CANCELLED_JOBS.add(job)
+            job.finished.connect(lambda: _release_cancelled_job(job))
+            if not job.isRunning():
+                _release_cancelled_job(job)
+            self.draw_button.setText("Draw selected")

@@ -155,7 +155,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
                 self.assertIn("PAD: ARRAY", sheet.cell(header_row + 1, 1).value)
                 objects = sheet._charts if native else sheet._images
                 self.assertTrue(objects)
-                self.assertTrue(all(obj.anchor._from.row > header_row + 3 for obj in objects))
+                self.assertTrue(all(obj.anchor._from.row == 4 for obj in objects))
                 self.assertEqual(objects[0].anchor._from.col, 0)
                 values = [c.value for row in sheet for c in row]
                 self.assertNotIn("Card source", values)
@@ -193,7 +193,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
             for native in (True, False):
                 book = load_workbook(self.window.export_excel(Path(folder) / f'opening-{native}.xlsx', native=native))
                 self.assertEqual(book.active.title, 'Match Original (WO Card)')
-                self.assertEqual(book.active.sheet_view.pane.topLeftCell, 'A2')
+                self.assertEqual(book.active.sheet_view.pane.topLeftCell, 'A3')
                 self.assertIn(book.active.sheet_view.topLeftCell, (None, 'A1'))
                 self.assertEqual(book.active.sheet_view.selection[-1].activeCell, 'A1')
                 sheet = book['Match Original (WO Card)']
@@ -222,7 +222,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
                     self.assertAlmostEqual(actual[1], expected[1], places=3)
                 self.assertIn("A1:G1", {str(area) for area in sheet.merged_cells.ranges})
                 self.assertEqual(sheet["A1"].value, "CD")
-                self.assertTrue(all(obj.anchor._from.row == 10 for obj in objects))
+                self.assertTrue(all(obj.anchor._from.row == 4 for obj in objects))
 
     def test_group_overview_and_complete_wafer_detail_export_side_by_side_in_both_modes(self):
         raw = pd.DataFrame({"Wafer ID": [f"WAFER-{index:03}" for index in range(20) for _ in range(3)],
@@ -434,18 +434,19 @@ class ExcelReportLayoutTests(unittest.TestCase):
                 original_panels = original._charts if native else original._images
                 self.assertGreaterEqual(len(original_panels), 1)
                 self.assertEqual([fixtures.source_cell(original, 'CD', row).value for row in range(2, 6)], ["1.000", "8.000", "2.000", "9.000"])
-                self.assertEqual([fixtures.source_cell(original, 'CD Reference (NOVA)', row).value for row in range(2, 6)], [3, 17, 5, 19])
+                self.assertFalse(any(c.value == 'CD Reference (NOVA)' for c in original[1]))
+                self.assertEqual([original.cell(row, 6).value for row in range(3, 7)], [3, 17, 5, 19])
                 raw_letter = fixtures.source_cell(original, 'CD', 2).column_letter
-                ref_letter = fixtures.source_cell(original, 'CD Reference (NOVA)', 2).column_letter
+                ref_letter = original.cell(2, 6).column_letter
                 wafer = book["Match Wafer (WO Card)"]
                 self.assertEqual([wafer.cell(row, 3).value for row in range(3, 7)], ["01", "02", "01", "02"])
                 self.assertEqual([wafer.cell(row, 2).value for row in range(3, 7)], ["W2", None, "W1", None])
                 for row, source_row in zip(range(3, 7), (2, 4, 3, 5)):
                     self.assertIn(f"'Match Original (WO Card)'!${raw_letter}${source_row}", wafer.cell(row, 4).value)
-                    self.assertIn(f"'Match Original (WO Card)'!${ref_letter}${source_row}", wafer.cell(row, 6).value)
+                    self.assertIn(f"'Match Original (WO Card)'!${ref_letter}${source_row + 1}", wafer.cell(row, 6).value)
                 panels = wafer._charts if native else wafer._images
                 self.assertEqual(len(panels), 3, "Match, Wafer Trend and Wafer Bias, without a Group overview")
-                self.assertTrue(all(panel.anchor._from.row == 11 for panel in panels))
+                self.assertTrue(all(panel.anchor._from.row == 4 for panel in panels))
                 self.assertGreaterEqual(panels[1].anchor.ext.cx / 360000, 25)
                 if native:
                     categories = panels[1].series[0].cat.strRef
@@ -472,7 +473,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
                 self.assertEqual([fixtures.source_cell(sheet, 'CD', row).value for row in range(2, 5)], expected)
                 objects = sheet._charts if native else sheet._images
                 self.assertEqual(len(objects), 1)
-                self.assertEqual(objects[0].anchor._from.row, 0)
+                self.assertEqual(objects[0].anchor._from.row, 4)
                 self.assertEqual(objects[0].anchor._from.col, 0)
                 if native:
                     source = objects[0].series[0].val.numRef.f
@@ -521,8 +522,8 @@ class ExcelReportLayoutTests(unittest.TestCase):
                 sheet = book["FullMap (WO Card)"]
                 # NOVA retains software Map/Radius; Trends belong to the Match views.
                 self.assertEqual((len(sheet._charts), len(sheet._images)), (0, 2))
-                self.assertTrue(all(image.anchor._from.col < fixtures.source_column(sheet, 'Wafer ID') - 1 for image in sheet._images))
-                self.assertTrue(all(obj.anchor._from.row == 0 for obj in [*sheet._charts, *sheet._images]))
+                self.assertEqual(sheet['A1'].value, 'Wafer')
+                self.assertTrue(all(obj.anchor._from.row == 4 for obj in [*sheet._charts, *sheet._images]))
             for index in (0, 1):
                 self.assertEqual(books[0]["FullMap (WO Card)"]._images[index]._data(), expected_pngs[index])
                 self.assertEqual(books[1]["FullMap (WO Card)"]._images[index]._data(), expected_pngs[index])

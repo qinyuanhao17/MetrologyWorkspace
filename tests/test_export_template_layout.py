@@ -39,7 +39,7 @@ class TemplateLayoutTests(unittest.TestCase):
                         self.assertEqual(len(objects), 6)
                         self.assertEqual(objects[0].anchor._from.col, 0)
                         self.assertGreater(objects[3].anchor._from.row, objects[0].anchor._from.row)
-                        self.assertTrue(all(p.anchor._from.row >= 8 for p in objects))
+                        self.assertEqual(objects[0].anchor._from.row, 4)
                     book.close()
         finally:
             window.document.force_close = True
@@ -132,17 +132,17 @@ class TemplateLayoutTests(unittest.TestCase):
                     self.assertIn(f'${sheet.cell(1, source + 2).column_letter}$2', sheet['C3'].value)
                     objects = sheet._charts if native else sheet._images
                     self.assertEqual(len(objects), 6)
-                    self.assertTrue(all(o.anchor._from.row > 7 for o in objects))
+                    self.assertEqual(objects[0].anchor._from.row, 4)
                     self.assertEqual(objects[0].anchor._from.col, 0)
                     self.assertGreater(objects[3].anchor._from.row, objects[0].anchor._from.row)
-                    self.assertEqual(sheet.freeze_panes, 'A2')
+                    self.assertEqual(sheet.freeze_panes, 'A3')
                     for view in (s for s in book if s.title.startswith('Match ')):
                         self.assertEqual(view['A1'].value, 'DP')
                         self.assertEqual(view['I1'].value, 'EW')
                         self.assertEqual(view['A2'].value, 'Wafer')
                         self.assertEqual(view['I2'].value, 'Wafer')
                         panels = view._charts if native else view._images
-                        self.assertTrue(all(p.anchor._from.row > 7 for p in panels))
+                        self.assertEqual(panels[0].anchor._from.row, 4)
                     if native:
                         self.assertIn('$K$3:$K$5', objects[3].series[0].xVal.numRef.f)
                         self.assertIn('$M$3:$M$5', objects[3].series[0].yVal.numRef.f)
@@ -157,7 +157,7 @@ class TemplateLayoutTests(unittest.TestCase):
             window.deleteLater()
             APP.processEvents()
 
-    def test_fullmap_puts_software_pngs_and_trends_left_of_literal_data_in_both_modes(self):
+    def test_fullmap_overlays_software_pngs_and_trends_on_editable_data_in_both_modes(self):
         frame = pd.DataFrame({'Wafer ID': ['W1', 'W1'], 'Die Seq': ['001', '002'], 'DP': ['1.000', '2.000']})
         buffer = BytesIO()
         PillowImage.new('RGB', (400, 250), 'white').save(buffer, format='PNG')
@@ -173,12 +173,13 @@ class TemplateLayoutTests(unittest.TestCase):
                 exported = load_workbook(path)
                 view = exported.active
                 source = next(c.column for c in view[1] if c.value == 'Wafer ID')
-                self.assertTrue(all(i.anchor._from.col < source - 1 for i in [*view._charts, *view._images]))
+                self.assertEqual(view['A1'].value, 'Wafer')
+                self.assertTrue(all(i.anchor._from.row == 4 for i in [*view._charts, *view._images]))
                 self.assertEqual(view.cell(2, source + 2).value, '1.000')
                 self.assertEqual(len(view._images), 2 if native else 3)
                 for image in view._images[:2]:
-                    self.assertLessEqual(image.anchor.ext.cy / 360000, 7.5)
-                    self.assertLessEqual(image.anchor.ext.cx / 360000, 18)
+                    self.assertLessEqual(image.anchor.ext.cy / 360000, 30)
+                    self.assertLessEqual(image.anchor.ext.cx / 360000, 72)
                 if native:
                     formula = next(c.value for row in view for c in row if c.data_type == 'f')
                     self.assertIn(f'{view.cell(1, source + 2).column_letter}2', formula)

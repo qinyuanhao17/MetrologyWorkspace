@@ -41,7 +41,9 @@ class DynamicCompareExportTests(unittest.TestCase):
         panel, model, undo = controller.panel, self.window.sheet.model(), self.window.model.undo
         controller.detach()
         self.assertTrue(controller.floating)
-        self.assertIs(controller.dialog.parentWidget(), self.window)
+        self.assertIs(controller.owner, self.window)
+        self.assertIsNone(controller.dialog.parentWidget())
+        self.assertFalse(controller.pinned)
         self.assertFalse(controller.dialog.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
         self.window.model.setData(self.window.model.index(1, 3), '65.250')
         controller.dock()

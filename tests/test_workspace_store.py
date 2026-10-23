@@ -14,6 +14,43 @@ from metrology_app.workspace_store import WorkspaceSnapshot, load_workspace, sav
 
 
 class WorkspaceStoreTests(unittest.TestCase):
+    def test_final_fsync_failure_never_publishes_the_private_candidate(self):
+        snapshot = WorkspaceSnapshot("wafer_map", {"input_data": pd.DataFrame({"CD": ["1.00"]})})
+        with tempfile.TemporaryDirectory() as directory:
+            path = save_workspace(Path(directory) / "durable.wmap", snapshot)
+            original = path.read_bytes()
+            snapshot.frames["input_data"].iloc[0, 0] = "2.00"
+            with patch.object(os, "fsync", side_effect=OSError("flush failed")):
+                with self.assertRaisesRegex(OSError, "flush failed"):
+                    save_workspace(path, snapshot)
+            self.assertEqual(path.read_bytes(), original)
+            self.assertEqual(list(Path(directory).iterdir()), [path])
+
+    def test_private_database_pragmas_do_not_disable_future_connection_durability(self):
+        snapshot = WorkspaceSnapshot("wafer_map", {"input_data": pd.DataFrame({"CD": ["1.00"]})})
+        with tempfile.TemporaryDirectory() as directory:
+            path = save_workspace(Path(directory) / "durable.wmap", snapshot)
+            with closing(sqlite3.connect(path)) as connection:
+                self.assertEqual(connection.execute("PRAGMA journal_mode").fetchone()[0], "delete")
+                self.assertEqual(connection.execute("PRAGMA synchronous").fetchone()[0], 2)
+
+    def test_complete_payload_is_written_in_one_durable_transaction(self):
+        statements = []
+        connect = sqlite3.connect
+        def observed(*args, **kwargs):
+            connection = connect(*args, **kwargs)
+            connection.set_trace_callback(statements.append)
+            return connection
+        frames = {"input_data": pd.DataFrame({"CD": ["001.000", " 2.500 "]}),
+                  "extra": pd.DataFrame({"Other": ["-0.000", "9.900"]})}
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("metrology_app.workspace_store.sqlite3.connect", side_effect=observed):
+                path = save_workspace(Path(directory) / "batched.wmap", WorkspaceSnapshot("wafer_map", frames))
+            restored = load_workspace(path)
+        for name, frame in frames.items():
+            pd.testing.assert_frame_equal(restored.frames[name], frame)
+        self.assertEqual(sum(sql.strip().upper() == "COMMIT" for sql in statements), 1)
+
     def test_backup_failure_preserves_the_formal_document(self):
         snapshot = WorkspaceSnapshot("dynamic", {"input_data": pd.DataFrame({"CD": ["1.00"]})})
         with tempfile.TemporaryDirectory() as directory:

@@ -1210,7 +1210,7 @@ class SequencePage(QWidget):
                         ("axes", 1.02 + .08 * len(secondary_axes))
                     )
                     twin.set_ylabel(
-                        self._axis_label(secondary, spec["secondary_unit"]),
+                        self._legend_label(compare_source, self._axis_label(secondary, spec["secondary_unit"])),
                         color=secondary_color, fontsize=max(7, base - 1),
                     )
                     twin.tick_params(axis="y", colors=secondary_color,
@@ -1349,6 +1349,9 @@ class SequencePage(QWidget):
                 if specification is not None and specification["kind"] == "second-axis":
                     item["secondary"] = True
                     item["unit"] = str(specification["secondary_unit"] or name)
+                    if owner is not None:
+                        item["axis_label"] = self._legend_label(
+                            owner, self._axis_label(name, specification["secondary_unit"]))
                 series.append(item)
             title = self._legend_label(source, metric)
             plots.append({"sheet": "Trend", "title": title, "x": "Plot ordinal", "y": title, "series": series})
@@ -1521,7 +1524,7 @@ class SequencePage(QWidget):
                     target = plot
                     if spec["kind"] == "second-axis":
                         target = widget.add_secondary_axis(
-                            self._axis_label(secondary, spec["secondary_unit"]),
+                            self._legend_label(compare_source, self._axis_label(secondary, spec["secondary_unit"])),
                             secondary_color,
                         )
                     secondary_label = self._legend_label(compare_source, secondary)

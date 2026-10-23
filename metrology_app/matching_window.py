@@ -79,7 +79,7 @@ from .plotting.sequence_axis import SpanLabelAxis, space_wafer_plot
 from .plotting.annotations import attach_point_hover, plain_y_axes, set_plot_statistics
 from .plotting.identity_labels import plot_label_options
 from .settings import (
-    apply_theme, forget_recent_wkb, recent_wkb_paths, remember_recent_wkb,
+    MAX_RECENT_WKBS, apply_theme, forget_recent_wkb, recent_wkb_paths, remember_recent_wkb,
 )
 from .sheet import DuplicateHeaderBanner, SheetModel, SheetView, column_letter
 from .table_clipboard import attach_copy_feedback
@@ -5359,7 +5359,7 @@ class MatchingWindow(QMainWindow):
             path, _ = QFileDialog.getSaveFileName(self, "Export Excel", default, "Excel Workbook (*.xlsx)")
             if path:
                 from .export_job import start_export
-                start_export(self, path, self.excel_export_snapshot(), matching=True)
+                start_export(self, path, self.excel_export_snapshot, matching=True)
         except Exception as error:
             QMessageBox.warning(self, "Cannot export Excel", str(error))
 
@@ -5372,7 +5372,7 @@ class MatchingWindow(QMainWindow):
             path, _ = QFileDialog.getSaveFileName(self, "Export Matplotlib", "matching-matplotlib.xlsx", "Excel Workbook (*.xlsx)")
             if path:
                 from .export_job import start_export
-                start_export(self, path, self.excel_export_snapshot(), matching=True, native=False)
+                start_export(self, path, self.excel_export_snapshot, matching=True, native=False)
         except Exception as error:
             QMessageBox.warning(self, "Cannot export Matplotlib", str(error))
 
@@ -5500,7 +5500,7 @@ class MatchingWindow(QMainWindow):
         try:
             self._recent_wkb_paths = list(remember_recent_wkb(path))
         except Exception as error:
-            self._recent_wkb_paths = fallback[:10]
+            self._recent_wkb_paths = fallback[:MAX_RECENT_WKBS]
             LOGGER.warning("Recent WKB list could not be saved: %s", error)
         self._refresh_recent_wkb_menu()
 

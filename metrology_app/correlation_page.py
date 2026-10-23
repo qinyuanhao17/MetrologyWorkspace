@@ -32,6 +32,7 @@ from .data import number
 from .map_selector import MapSelector
 from .plot import set_panel_title
 from .plotting import InteractivePlotWidget, PanelGrid, PlotPanel
+from .plotting.annotations import plain_matplotlib_y, plain_y_axes
 from .plotting.parameter_filter import ParameterFilterBar
 from .settings import get_settings
 
@@ -69,6 +70,22 @@ class SourcePairFit:
     @property
     def rsquared(self):
         return max(source.fit.rsquared for source in self.sources)
+
+
+def correlation_colors(fit):
+    """Stable source-pair colours, independent of parameter names or X/Y order."""
+    if isinstance(fit, SourcePairFit):
+        sources = frozenset(name for name, _metric in fit.parameter_keys)
+        if not sources:
+            sources = frozenset(source.name for source in fit.sources)
+        if sources == {"Reference"}:
+            return "#ed7d31", "#b95616"
+        if sources == {"Raw Data"}:
+            return CORRELATION_POINT_COLOR, "#285f9f"
+        if sources == {"Reference", "Raw Data"}:
+            return "#009e73", "#006b4f"
+    # Unqualified standalone data retains its established observation/fit style.
+    return CORRELATION_POINT_COLOR, CORRELATION_FIT_COLOR
 
 
 def fit_numeric_pair(frame, x_name, y_name):
@@ -857,19 +874,20 @@ class CorrelationPage(QWidget):
             zip(axes.flat, visible_fits), start=start_rank
         ):
             fit = self.oriented_fit(fit)
+            point_color, fit_color = correlation_colors(fit)
             if isinstance(fit, SourcePairFit):
                 details = []
                 for source in fit.sources:
                     values = source.fit
                     ax.scatter(
                         values.x, values.y, s=15, alpha=1,
-                        color=CORRELATION_POINT_COLOR, edgecolors="none",
+                        color=point_color, edgecolors="none",
                         rasterized=True,
                     )
                     order = np.argsort(values.x)
                     ax.plot(
                         values.x[order], values.predicted[order],
-                        color=CORRELATION_FIT_COLOR, linewidth=1.5, label=source.name,
+                        color=fit_color, linewidth=1.5, label=source.name,
                     )
                     details.append(
                         f"{source.name}: y={values.slope:.4g}x "
@@ -881,15 +899,16 @@ class CorrelationPage(QWidget):
                 )
                 ax.legend(fontsize=max(6, base - 2), frameon=False)
             else:
-                ax.scatter(fit.x, fit.y, s=15, alpha=1, color=CORRELATION_POINT_COLOR,
+                ax.scatter(fit.x, fit.y, s=15, alpha=1, color=point_color,
                            edgecolors="none", rasterized=True)
                 order = np.argsort(fit.x)
-                ax.plot(fit.x[order], fit.predicted[order], color=CORRELATION_FIT_COLOR, linewidth=1.5)
+                ax.plot(fit.x[order], fit.predicted[order], color=fit_color, linewidth=1.5)
                 equation = f"y = {fit.slope:.5g}x {fit.intercept:+.5g}"
                 stats = f"R² {fit.rsquared:.5f}   n {len(fit.x)}   rank {rank}"
                 set_panel_title(ax, f"{fit.y_name} vs {fit.x_name}", equation, stats, base)
             ax.set_xlabel(fit.x_name, fontsize=label_size)
             ax.set_ylabel(fit.y_name, fontsize=label_size)
+            plain_matplotlib_y(ax)
             ax.tick_params(direction="out", top=True, right=True, labelsize=tick_size, length=3)
             ax.grid(True, color="#d8dde3", linewidth=.45, alpha=.65)
             for spine in ax.spines.values():
@@ -978,6 +997,8 @@ class CorrelationPage(QWidget):
             plot.showGrid(x=True, y=True, alpha=.18)
             plot.setLabel("bottom", fit.x_name, color="#30343b", size=f"{max(7, base - 1)}pt")
             plot.setLabel("left", fit.y_name, color="#30343b", size=f"{max(7, base - 1)}pt")
+            plain_y_axes(widget)
+            point_color, fit_color = correlation_colors(fit)
             heading = panel_title_label(self.panel_heading(fit, rank, base), base + 1)
             title_row = QWidget()
             title_layout = QHBoxLayout(title_row)
@@ -1009,23 +1030,23 @@ class CorrelationPage(QWidget):
                     points = plot.plot(
                         values.x, values.y, pen=None, symbol="o", symbolSize=5,
                         symbolPen=None,
-                        symbolBrush=pg.mkBrush(CORRELATION_POINT_COLOR),
+                        symbolBrush=pg.mkBrush(point_color),
                         name=f"{source.name} points",
                     )
                     order = np.argsort(values.x)
                     line = plot.plot(
                         values.x[order], values.predicted[order],
-                        pen=pg.mkPen(CORRELATION_FIT_COLOR, width=2),
+                        pen=pg.mkPen(fit_color, width=2),
                         name=f"{source.name} fit",
                     )
                     items.append((points, line))
             else:
                 points = pg.ScatterPlotItem(fit.x, fit.y, size=5, symbol="o", pen=None,
-                                           brush=pg.mkBrush(CORRELATION_POINT_COLOR))
+                                           brush=pg.mkBrush(point_color))
                 plot.addItem(points)
                 order = np.argsort(fit.x)
                 line = pg.PlotDataItem(fit.x[order], fit.predicted[order],
-                                       pen=pg.mkPen(CORRELATION_FIT_COLOR, width=2))
+                                       pen=pg.mkPen(fit_color, width=2))
                 plot.addItem(line)
                 items.append((points, line))
             view = plot.getViewBox()

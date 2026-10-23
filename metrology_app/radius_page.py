@@ -6,10 +6,10 @@ import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
-from PyQt6.QtCore import QEvent, QPointF, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QImage, QKeySequence, QPainter, QShortcut
 from PyQt6.QtWidgets import (
-    QApplication, QComboBox, QFileDialog, QFrame, QGraphicsScene, QGraphicsView,
+    QApplication, QComboBox, QFileDialog, QFrame,
     QHBoxLayout, QLabel, QPushButton, QSpinBox, QStackedWidget, QVBoxLayout, QWidget,
 )
 
@@ -17,7 +17,9 @@ from .appearance import configure_resolution_combo, resolution_settings, screen_
 from .array_plot import drawn_axes
 from .data import number
 from .map_selector import MapSelector
-from .plot import infer_wafer_geometry, restyle_panel_title, set_panel_title
+from .plot import infer_wafer_geometry, set_panel_title
+from .radius_graphics import RadiusGrid
+from .wafer_graphics import PAGE_ZOOM_PERCENTAGES, StaticMapView
 from .settings import get_settings
 from .plotting.identity_labels import measurement_caption
 
@@ -43,8 +45,13 @@ class RadiusPage(QWidget):
         self.pending_input_refresh = False
         self.drawn_cells = set()
         self.base_size = (800, 600)
+        self.plot_sources = []
+        self._shape = (1, 1)
+        self._export_dirty = True
         self.input_refresh_timer = QTimer(self, interval=120, singleShot=True)
         self.input_refresh_timer.timeout.connect(self.refresh_previous_selection)
+        self._center_timer = QTimer(self, interval=0, singleShot=True)
+        self._center_timer.timeout.connect(self.center_canvas)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 12, 10, 10)
         layout.setSpacing(10)
@@ -72,11 +79,12 @@ class RadiusPage(QWidget):
         header.addLayout(toolbar)
         appearance = QHBoxLayout()
         appearance.setSpacing(8)
-        appearance.addWidget(QLabel("View", objectName="muted"))
-        self.zoom = QComboBox()
-        self.zoom.addItems(["Fit width", "50%", "75%", "100%", "125%", "150%", "200%", "250%", "300%"])
+        self.zoom = QComboBox(self)
+        self.zoom.addItems(["Fit width", *(f"{value}%" for value in PAGE_ZOOM_PERCENTAGES)])
         self.zoom.currentTextChanged.connect(self.resize_canvas)
-        appearance.addWidget(self.zoom)
+        self.zoom.setToolTip("Ctrl+wheel scales the entire grid, not the coordinates inside an individual plot.")
+        toolbar.insertWidget(toolbar.indexOf(self.copy_button) + 1, QLabel("View", objectName="muted"))
+        toolbar.insertWidget(toolbar.indexOf(self.copy_button) + 2, self.zoom)
         self.x_column, self.y_column = QComboBox(), QComboBox()
         for title, combo in (("X", self.x_column), ("Y", self.y_column)):
             appearance.addWidget(QLabel(title, objectName="muted"))
@@ -125,15 +133,16 @@ class RadiusPage(QWidget):
         self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty.setWordWrap(True)
         self.stack.addWidget(self.empty)
-        self.figure = Figure(figsize=(8, 6), dpi=100, facecolor="white")
-        self.canvas = FigureCanvasQTAgg(self.figure)
-        self.scene = QGraphicsScene(self)
-        self.canvas_proxy = self.scene.addWidget(self.canvas)
-        self.scroll = QGraphicsView(self.scene)
+        self._figure = Figure(figsize=(8, 6), dpi=100, facecolor="white")
+        self._canvas = None
+        self.scroll = StaticMapView()
+        self.scene = self.scroll.scene()
+        self.radius_grid = RadiusGrid()
+        self.scene.addItem(self.radius_grid)
+        self.canvas_proxy = self.radius_grid
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
         self.scroll.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
-        self.canvas.installEventFilter(self)
         self.scroll.viewport().installEventFilter(self)
         self.copy_shortcut = QShortcut(QKeySequence.StandardKey.Copy, self)
         self.copy_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
@@ -159,6 +168,63 @@ class RadiusPage(QWidget):
         self.x_column.currentIndexChanged.connect(self.invalidate)
         self.y_column.currentIndexChanged.connect(self.invalidate)
         self.selector.changed.connect(self.selector_changed)
+
+    @property
+    def figure(self):
+        self._ensure_export()
+        return self._figure
+
+    @property
+    def canvas(self):
+        self._ensure_export()
+        if self._canvas is None:
+            self._canvas = FigureCanvasQTAgg(self._figure)
+            self._canvas.setParent(self)
+            self._canvas.hide()
+        return self._canvas
+
+    def _ensure_export(self):
+        if not self.ready or not self._export_dirty:
+            return
+        width, height = self.base_size
+        scale = screen_render_scale(width, height, resolution_settings(self.resolution)[0])
+        self._figure.set_dpi(100*scale)
+        self._figure.set_size_inches(width/100, height/100, forward=False)
+        if self._canvas is None:
+            self._canvas = FigureCanvasQTAgg(self._figure)
+            self._canvas.setParent(self)
+            self._canvas.hide()
+        self._canvas.setFixedSize(round(width*scale), round(height*scale))
+        self._figure.clear()
+        rows, columns = self._shape
+        axes = self._figure.subplots(rows, columns, squeeze=False)
+        base = int(self.font_size.currentText())
+        for ax, source in zip(axes.flat, self.plot_sources):
+            if source.get("skip"):
+                ax.set_axis_off()
+                continue
+            if not len(source["value"]):
+                ax.text(.5, .5, "No valid samples", ha="center", va="center", transform=ax.transAxes)
+                ax.set(xticks=[], yticks=[])
+                continue
+            ax.scatter(source["radius"], source["value"], s=16, alpha=.78,
+                       color=source["color"], edgecolors="white", linewidths=.25)
+            ax.axvline(0, color="#707070", linewidth=.7, zorder=0)
+            ax.set_xlim(-source["limit"], source["limit"])
+            set_panel_title(ax, source["metric"], source["label"].replace("\n", " · "), source["stats"], base)
+            ax._identity_classification = source["label"]
+            ax._wafer_title_details[0].set_text(
+                measurement_caption(source["label"], self.identity_labels).replace("\n", " · "))
+            ax.set_xlabel(f'Signed radius ({source["unit"]})', fontsize=max(6, base-1))
+            ax.set_ylabel(source["metric"], fontsize=max(6, base-1))
+            ax.tick_params(direction="out", top=True, right=True, labelsize=max(5, base-2))
+            for spine in ax.spines.values():
+                spine.set_color("#303030")
+        grow = max(0, base-10)
+        self._figure.subplots_adjust(left=(60+7*grow)/width, right=1-(30+4*grow)/width,
+            top=1-(75+8*grow)/height, bottom=(55+6*grow)/height,
+            wspace=.32+.02*grow, hspace=.48+.055*grow)
+        self._export_dirty = False
 
     def draw_state(self):
         """Return the successful radius selection that can be restored later."""
@@ -234,8 +300,7 @@ class RadiusPage(QWidget):
         self.ready = False
         self.export_button.setEnabled(False)
         self.copy_button.setEnabled(False)
-        self.figure.clear()
-        self.canvas.draw_idle()
+        self._export_dirty = True
         available = bool(self.selector.rowCount() and self.selector.columnCount())
         self.stack.setCurrentWidget(self.selector_panel if available else self.empty)
         rows, columns = len(self.selection.get("wafers", [])), len(self.selection.get("metrics", []))
@@ -322,51 +387,35 @@ class RadiusPage(QWidget):
             if len(wafers) * len(metrics) > 120:
                 raise ValueError("Select up to 120 radius plots per page.")
             columns, rows = len(metrics), len(wafers)
-            self.figure.clear()
-            axes = self.figure.subplots(rows, columns, squeeze=False)
             base = int(self.font_size.currentText())
             colors = [f"C{index % 10}" for index in range(len(wafers))]
             unit = "mm" if all("mm" in name.lower() for name in (x_name, y_name)) else "coordinate units"
             drawn = 0
-            for row, (color, wafer) in enumerate(zip(colors, wafers)):
-                name = labels.get(wafer, wafer).replace("\n", " · ")
-                for column, metric in enumerate(metrics):
-                    ax = axes[row, column]
+            sources = []
+            for color, wafer in zip(colors, wafers):
+                for metric in metrics:
                     if (wafer, metric) not in cells:
-                        ax.set_axis_off()
+                        sources.append({"skip": True})
                         continue
                     drawn += 1
                     part = parts[wafer]
                     data = pd.DataFrame({"x": number(part[x_name]), "y": number(part[y_name]),
                                          "value": number(part[metric])}).dropna()
-                    if data.empty:
-                        ax.text(.5, .5, "No valid samples", ha="center", va="center", transform=ax.transAxes)
-                        ax.set(xticks=[], yticks=[])
-                        continue
                     radius = signed_radius(data.x.to_numpy(), data.y.to_numpy())
-                    ax.scatter(radius, data.value, s=16, alpha=.78, color=color,
-                               edgecolors="white", linewidths=.25)
-                    _, standard = infer_wafer_geometry(data[["x", "y"]].to_numpy(), (x_name, y_name))
-                    limit = standard / 2 if standard else max(float(np.abs(radius).max()) * 1.05, 1)
+                    if not data.empty:
+                        _, standard = infer_wafer_geometry(data[["x", "y"]].to_numpy(), (x_name, y_name))
+                        limit = standard / 2 if standard else max(float(np.abs(radius).max()) * 1.05, 1)
+                    else:
+                        limit = 1
                     stats = f"Min {data.value.min():.5g}   Max {data.value.max():.5g}   Mean {data.value.mean():.5g}"
-                    ax.axvline(0, color="#707070", linewidth=.7, zorder=0)
-                    ax.set_xlim(-limit, limit)
-                    set_panel_title(ax, metric, name, stats, base)
-                    ax._identity_classification = labels.get(wafer, wafer)
-                    ax._wafer_title_details[0].set_text(
-                        measurement_caption(ax._identity_classification, self.identity_labels).replace("\n", " · "))
-                    ax.set_xlabel(f"Signed radius ({unit})", fontsize=max(6, base - 1))
-                    ax.set_ylabel(metric, fontsize=max(6, base - 1))
-                    ax.tick_params(direction="out", top=True, right=True, labelsize=max(5, base - 2))
-                    for spine in ax.spines.values():
-                        spine.set_color("#303030")
+                    sources.append({"metric": metric, "label": labels.get(wafer, wafer),
+                                    "radius": radius, "value": data.value.to_numpy(float),
+                                    "limit": limit, "unit": unit, "color": color, "stats": stats})
             width, height = columns * 460, rows * 370 + 30
-            grow = max(0, base - 10)
-            self.figure.subplots_adjust(left=(60 + 7 * grow) / width, right=1 - (30 + 4 * grow) / width,
-                                        top=1 - (75 + 8 * grow) / height, bottom=(55 + 6 * grow) / height,
-                                        # Row titles need more room as the font grows.
-                                        wspace=.32 + .02 * grow, hspace=.48 + .055 * grow)
             self.base_size = width, height
+            self.plot_sources, self._shape = sources, (rows, columns)
+            self._export_dirty = True
+            self.radius_grid.set_result(sources, self._shape, base, self.identity_labels)
             self.ready = True
             self.has_drawn_once = True
             self.drawn_cells = set(cells)
@@ -390,12 +439,9 @@ class RadiusPage(QWidget):
         if self.identity_labels == options:
             return
         self.identity_labels = dict(options)
-        for ax in self.figure.axes:
-            if hasattr(ax, "_wafer_title_details"):
-                ax._wafer_title_details[0].set_text(
-                    measurement_caption(ax._identity_classification, options).replace("\n", " · "))
+        self._export_dirty = True
         if self.ready:
-            self.canvas.draw_idle()
+            self.radius_grid.relayout(self._shape, int(self.font_size.currentText()), self.identity_labels)
 
     def refresh_previous_selection(self):
         if not self.pending_input_refresh:
@@ -428,31 +474,20 @@ class RadiusPage(QWidget):
     def stop(self):
         self.pending_input_refresh = False
         self.input_refresh_timer.stop()
+        self._center_timer.stop()
 
     def redraw(self, *_):
         if self.ready:
             base = int(self.font_size.currentText())
-            for ax in self.figure.axes:
-                restyle_panel_title(ax, base)
-                ax.xaxis.label.set_fontsize(max(6, base - 1))
-                ax.yaxis.label.set_fontsize(max(6, base - 1))
-                ax.tick_params(labelsize=max(5, base - 2))
-            self.canvas.draw_idle()
-            QTimer.singleShot(0, self.center_canvas)
+            self._export_dirty = True
+            self.radius_grid.relayout(self._shape, base, self.identity_labels)
+            self._center_timer.start()
 
     def refresh_canvas(self):
         if not self.ready:
             return
-        width, height = self.base_size
-        requested_scale, _dpi = resolution_settings(self.resolution)
-        render_scale = screen_render_scale(width, height, requested_scale)
-        self.figure.set_dpi(100 * render_scale)
-        self.figure.set_size_inches(width / 100, height / 100, forward=False)
-        size = (round(width * render_scale), round(height * render_scale))
-        self._canvas_resized = size != (self.canvas.width(), self.canvas.height())
-        self.canvas.setFixedSize(*size)
-        self.canvas.draw()
         self.scene.setSceneRect(self.canvas_proxy.boundingRect())
+        self.scroll.setSceneRect(self.scene.sceneRect())
         self.resize_canvas()
         # Settle once Qt has processed the canvas resize, so the first frame
         # never shows the squeezed stale transform until a zoom fixes it.
@@ -462,6 +497,7 @@ class RadiusPage(QWidget):
         if not self.ready:
             return
         self.scene.setSceneRect(self.canvas_proxy.boundingRect())
+        self.scroll.setSceneRect(self.scene.sceneRect())
         if getattr(self, "_canvas_resized", False):
             self._canvas_resized = False
             self.resize_canvas()
@@ -473,11 +509,10 @@ class RadiusPage(QWidget):
         width, _height = self.base_size
         text = self.zoom.currentText()
         display_scale = min(1, max(280, self.scroll.viewport().width() - 20) / width) if text == "Fit width" else int(text[:-1]) / 100
-        display_scale = max(.65, display_scale)
-        render_scale = self.figure.dpi / 100
+        display_scale = max(.01, display_scale)
         self.scroll.resetTransform()
-        self.scroll.scale(display_scale / render_scale, display_scale / render_scale)
-        QTimer.singleShot(0, self.center_canvas)
+        self.scroll.scale(display_scale, display_scale)
+        self._center_timer.start()
 
     def center_canvas(self):
         """Center the plot array horizontally without changing the visible row."""
@@ -490,17 +525,18 @@ class RadiusPage(QWidget):
     def change_resolution(self, *_):
         if not self.ready:
             return
-        render_scale, dpi = resolution_settings(self.resolution)
-        self.status.setText(f"Rendering at {render_scale:.0%} · PNG output {dpi} dpi…")
-        self.refresh_canvas()
+        _render_scale, dpi = resolution_settings(self.resolution)
+        self._export_dirty = True
         self.status.setText(f"Resolution: {self.resolution.currentText()} · PNG output {dpi} dpi.")
 
     def eventFilter(self, watched, event):
         if event.type() == QEvent.Type.Wheel and self.ready:
             delta = event.angleDelta()
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                amount = delta.y() or event.pixelDelta().y()
-                self.zoom_by_wheel(amount, watched, event.position().toPoint())
+                self.scroll.zoom_page(event, self.zoom)
+                self._center_timer.stop()
+                event.accept()
+                return True
             else:
                 horizontal = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier) or abs(delta.x()) > abs(delta.y())
                 bar = self.scroll.horizontalScrollBar() if horizontal else self.scroll.verticalScrollBar()
@@ -513,35 +549,14 @@ class RadiusPage(QWidget):
             return True
         return super().eventFilter(watched, event)
 
-    def zoom_by_wheel(self, delta, watched=None, position=None):
-        if not delta or not self.ready:
-            return
-        render_scale = self.figure.dpi / 100
-        current = round(100 * self.scroll.transform().m11() * render_scale)
-        steps = [50, 75, 100, 125, 150, 200, 250, 300]
-        target = next((value for value in steps if value > current), steps[-1]) if delta > 0 else \
-                 next((value for value in reversed(steps) if value < current), steps[0])
-        viewport = self.scroll.viewport()
-        if position is None:
-            viewport_pos = viewport.rect().center()
-            scene_pos = self.scroll.mapToScene(viewport_pos)
-        elif watched is self.canvas:
-            scene_pos = QPointF(position)
-            viewport_pos = self.scroll.mapFromScene(scene_pos)
-        else:
-            viewport_pos = position
-            scene_pos = self.scroll.mapToScene(viewport_pos)
-        hbar, vbar = self.scroll.horizontalScrollBar(), self.scroll.verticalScrollBar()
-        self.zoom.setCurrentText(f"{target}%")
-        def restore_anchor():
-            moved = self.scroll.mapFromScene(scene_pos)
-            hbar.setValue(hbar.value() + moved.x() - viewport_pos.x())
-            vbar.setValue(vbar.value() + moved.y() - viewport_pos.y())
-        QTimer.singleShot(0, restore_anchor)
-
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        QTimer.singleShot(0, self.resize_canvas)
+        if self.zoom.currentText() == "Fit width":
+            QTimer.singleShot(0, self._resize_fit_width)
+
+    def _resize_fit_width(self):
+        if self.zoom.currentText() == "Fit width":
+            self.resize_canvas()
 
     def export_png(self):
         if not self.ready:

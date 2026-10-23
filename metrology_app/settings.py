@@ -15,7 +15,7 @@ APP_DIRECTORY = (Path(sys.executable).resolve().parent if getattr(sys, "frozen",
 SETTINGS_PATH = (Path(os.environ["METROLOGY_SETTINGS_PATH"]).expanduser()
                  if os.environ.get("METROLOGY_SETTINGS_PATH")
                  else APP_DIRECTORY / "settings.yaml")
-MAX_RECENT_WKBS = 10
+MAX_RECENT_WKBS = 20
 
 DEFAULTS = {
     "theme": "dark",

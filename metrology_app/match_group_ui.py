@@ -508,6 +508,11 @@ class GroupControls(QWidget):
 
     def _refresh_order_choices(self):
         classified = self.state["enabled"] or self.state["mark_enabled"]
+        if classified and self.state["trend_order"] == "wafers":
+            self.state["trend_order"] = "groups"
+        applied = self.state.get("applied", {})
+        if (applied.get("enabled") or applied.get("mark_enabled")) and applied.get("trend_order") == "wafers":
+            applied["trend_order"] = "groups"
         if not classified and self.state["trend_order"] == "groups":
             self.state["trend_order"] = "original"
             applied = self.state.get("applied", {})
@@ -516,10 +521,11 @@ class GroupControls(QWidget):
                 applied["trend_order"] = "original"
         choices = [
             ("Original row order", "original", "Keep the original input row order, ignoring table sorting."),
-            ("Original Wafer order", "wafers", "Collect Wafer / Lot / PAD identities in first source order; keep original rows within each identity."),
         ]
         if classified:
             choices.insert(0, ("Group → Wafer → Die Seq", "groups", "Arrange by Group, Wafer and Die Seq."))
+        else:
+            choices.append(("Original Wafer order", "wafers", "Collect Wafer / Lot / PAD identities in first source order; keep original rows within each identity."))
         value = self.state["trend_order"]
         if value not in [choice[1] for choice in choices]:
             value = "original"

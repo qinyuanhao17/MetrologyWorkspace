@@ -71,7 +71,7 @@ class TrendOrderWindowTests(unittest.TestCase):
         self.window.deleteLater()
         APP.processEvents()
 
-    def test_source_orders_remain_available_when_classification_changes(self):
+    def test_grouped_controls_offer_only_group_and_original_order(self):
         controls = self.window.group_controls
         order = controls.order
         self.assertEqual([order.itemText(i) for i in range(order.count())],
@@ -79,11 +79,15 @@ class TrendOrderWindowTests(unittest.TestCase):
         order.setCurrentIndex(order.findData("wafers"))
         controls.enabled.setChecked(True)
         self.assertEqual([order.itemText(i) for i in range(order.count())],
-                         ["Group → Wafer → Die Seq", "Original row order", "Original Wafer order"])
-        self.assertEqual(order.currentData(), "wafers")
+                         ["Group → Wafer → Die Seq", "Original row order"])
+        self.assertEqual(order.currentData(), "groups")
+        controls.mark_enabled.setChecked(True)
         controls.enabled.setChecked(False)
+        self.assertEqual([order.itemData(i) for i in range(order.count())], ["groups", "original"])
+        controls.mark_enabled.setChecked(False)
         self.assertEqual([order.itemData(i) for i in range(order.count())], ["original", "wafers"])
-        self.assertEqual(order.currentData(), "wafers")
+        self.assertEqual(order.currentData(), "original")
+        order.setCurrentIndex(order.findData("wafers"))
         controls.apply_button.click()
         self.assertEqual(self.window.current_workbook().grouping_state["applied"]["trend_order"], "wafers")
 
@@ -151,7 +155,7 @@ class TrendOrderWindowTests(unittest.TestCase):
             curve = window.plot_groups["P"]["plots"][plot_name].listDataItems()[0]
             self.assertEqual(curve.yData.tolist(), before[column].tolist())
 
-    def test_group_scopes_keep_classification_in_original_wafer_order(self):
+    def test_group_scopes_migrate_legacy_wafer_order_to_group_order(self):
         controls = self.window.group_controls
         controls.restore({"enabled": True, "mark_enabled": False, "trend_order": "wafers",
                           "head_names": {"0": "Head A", "1": "Head B"},
@@ -159,7 +163,8 @@ class TrendOrderWindowTests(unittest.TestCase):
                          pd.DataFrame({"TestFlag": [0, 1, 0, 1, 1, 0, 0, 1]}))
         self.window.run_analysis()
         self.assertEqual(self.window.result.group_plan.group_keys, ("All:0", "All:1"))
-        for key, values in (("All:0", [3., 15., 7., 13.]), ("All:1", [5., 11., 9., 17.])):
+        self.assertEqual(controls.state['trend_order'], 'groups')
+        for key, values in (("All:0", [15., 3., 13., 7.]), ("All:1", [11., 5., 9., 17.])):
             block = self.window.group_plot_page.plot_groups[(key, "P")]
             trend = block["plots"]["trend"]
             curve = next(curve for curve in trend.listDataItems() if curve.name() != "PMISH")

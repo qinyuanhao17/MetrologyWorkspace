@@ -2,8 +2,10 @@
 from pathlib import Path
 from threading import Event
 
-from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal
+from PyQt6.QtCore import QCoreApplication, QEventLoop, QThread, QTimer, Qt, pyqtSignal
 from PyQt6.QtWidgets import QLabel, QMessageBox, QProgressDialog
+
+from .export_sheet_dialog import choose_export_sheets
 
 
 def _write_export(path, snapshot, matching, native, cancelled, progress):
@@ -19,6 +21,8 @@ def _write_export(path, snapshot, matching, native, cancelled, progress):
         with rendering_session(book, native=native):
             book.remove(book.active)
             append_report(book, set(), snapshot, native=native)
+            from .export_sheets import select_export_sheets
+            select_export_sheets(book, snapshot.get('selected_sheets'))
             style_workbook(book)
             save_atomic(book, path, cancelled=cancelled)
 
@@ -145,15 +149,16 @@ class ExportJob(QThread):
 
 
 def start_export(window, path, snapshot, *, matching=False, native=True):
+    """Paint progress before preparing a detached snapshot on the GUI thread."""
     if getattr(window, "_excel_export_job", None) is not None:
         return
-    progress = QProgressDialog("Exporting Excel charts…" if native else "Exporting Matplotlib…",
+    progress = QProgressDialog("Preparing export data…",
                                "Cancel", 0, 0, window)
     progress.setFixedWidth(480)
     label = progress.findChild(QLabel)
     progress.setWindowModality(Qt.WindowModality.ApplicationModal)
     progress.setMinimumDuration(0)
-    job = ExportJob(path, snapshot, matching=matching, native=native, parent=window)
+    job = ExportJob(path, None, matching=matching, native=native, parent=window)
     window._excel_export_job = job
     actions = (window.export_action, window.images_action) if matching else (window.export_excel_action, window.export_matplotlib_action)
     for action in actions:
@@ -185,15 +190,48 @@ def start_export(window, path, snapshot, *, matching=False, native=True):
         window._excel_export_job = None
         progress.deleteLater()
         job.deleteLater()
+    def prepare():
+        try:
+            if job.cancelled.is_set() or progress.wasCanceled():
+                raise InterruptedError("Export cancelled")
+            # Qt widgets and child plot captures belong to the GUI thread.
+            # Only the resulting detached data may enter the writer thread.
+            QCoreApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+            progress.repaint()
+            if job.cancelled.is_set() or progress.wasCanceled():
+                raise InterruptedError("Export cancelled")
+            job.snapshot = snapshot() if callable(snapshot) else snapshot
+            if job.cancelled.is_set() or progress.wasCanceled():
+                raise InterruptedError("Export cancelled")
+            from .export_sheets import export_sheet_names
+            progress.hide()
+            selected = choose_export_sheets(window, export_sheet_names(job.snapshot, matching=matching))
+            if selected is None or job.cancelled.is_set():
+                raise InterruptedError("Export cancelled")
+            job.snapshot = dict(job.snapshot, selected_sheets=selected)
+            progress.show()
+            update("Exporting Excel charts…" if native else "Exporting Matplotlib…")
+        except InterruptedError:
+            failure("Export cancelled")
+            finished()
+            return
+        except Exception as error:
+            failure(str(error))
+            finished()
+            return
+        job.start()
     job.exported.connect(success)
     job.failed.connect(failure)
     job.finished.connect(finished)
     progress.show()
-    job.start()
+    # Return to Qt before the potentially expensive capture. Explicit repaint
+    # also covers an immediately queued preparation before the first paint.
+    QTimer.singleShot(0, prepare)
 
 
 def finish_export_before_close(window, event):
     """Allow a cancelling writer to close its own temporary file safely."""
+    from .export_sheet_dialog import ExportSheetDialog
     jobs = [getattr(owner, "_excel_export_job", None)
             for owner in (window, *getattr(window, "_stage_windows", ()))]
     jobs = [job for job in jobs if job is not None]
@@ -201,6 +239,8 @@ def finish_export_before_close(window, event):
         return False
     for job in jobs:
         job.cancelled.set()
+        for chooser in job.parent().findChildren(ExportSheetDialog):
+            chooser.reject()
         requested = getattr(job, "close_requested", set())
         if id(window) not in requested:
             requested.add(id(window))

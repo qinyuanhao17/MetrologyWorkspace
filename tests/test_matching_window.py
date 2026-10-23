@@ -546,7 +546,7 @@ class MatchingWindowTests(unittest.TestCase):
             pd.DataFrame({"TestFlag": [0] * 4}))
         self.assertEqual(window.group_controls.state["trend_order"], "original")
         self.assertEqual([order.itemData(index) for index in range(order.count())],
-                         ["groups", "original", "wafers"])
+                         ["groups", "original"])
         self.assertEqual(order.currentData(), "original")
         window.run_analysis()
         trend = window.plot_groups["CD"]["plots"]["trend"]
@@ -5135,13 +5135,26 @@ class MatchingWindowTests(unittest.TestCase):
                     "RSQ (WO Card)", "FullMap (WO Card)", "FullMap (W Card)",
                 ])
             from openpyxl import load_workbook
-            preview = load_workbook(excel_path)["Match Original (WO Card)"]
-            preview_fullmap = pd.read_excel(
-                excel_path, sheet_name="FullMap (WO Card)", engine="openpyxl"
-            )
-            final_fullmap = pd.read_excel(
-                excel_path, sheet_name="FullMap (W Card)", engine="openpyxl"
-            )
+            exported = load_workbook(excel_path)
+            preview = exported["Match Original (WO Card)"]
+            # FM starts with the editable formula report, not literal Raw Data.
+            # openpyxl/pandas cannot calculate its formula caches. Verify both
+            # the untouched source table and every prepared parameter link.
+            fullmaps = []
+            for title in ("FullMap (WO Card)", "FullMap (W Card)"):
+                sheet = exported[title]
+                self.assertEqual(sheet["A1"].value, "Wafer")
+                source_column = next(cell.column for cell in sheet[1] if cell.value == "Wafer ID")
+                values = [[sheet.cell(row, source_column + offset).value
+                           for offset in range(len(final.columns))] for row in range(2, 5)]
+                fullmaps.append(pd.DataFrame(values, columns=final.columns))
+                for offset, parameter in enumerate(("CD_Bot", "SPA"), 2):
+                    source_offset = list(final.columns).index(parameter)
+                    for row in range(2, 5):
+                        source = sheet.cell(row, source_column + source_offset).coordinate
+                        self.assertEqual(sheet.cell(row, offset + 1).value,
+                                         f'=IFERROR(IF({source}="",NA(),{source}*1),NA())')
+            preview_fullmap, final_fullmap = fullmaps
             exported_values = [cell.value for row in preview for cell in row]
             self.assertIn("CD_Bot", exported_values)
             self.assertIn("SPA", exported_values)
@@ -5149,6 +5162,7 @@ class MatchingWindowTests(unittest.TestCase):
             self.assertIn("Bias", exported_values)
             self.assertEqual(preview_fullmap["CD_Bot"].tolist(), [12, 22, 32])
             pd.testing.assert_frame_equal(final_fullmap[list(final.columns)], final, check_dtype=False)
+            exported.close()
             self.assertTrue(image_workbook.is_file())
             self.assertEqual(list(image_folder.glob("*.png")), [])
             from openpyxl import load_workbook

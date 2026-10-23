@@ -147,6 +147,8 @@ def group_state(state=None):
         state["trend_order"] = "original"
     elif state["trend_order"] not in ("groups", "original", "wafers"):
         state["trend_order"] = "groups"
+    if (state["enabled"] or state["mark_enabled"]) and state["trend_order"] == "wafers":
+        state["trend_order"] = "groups"
     wafer_order = state.get("wafer_source_order", ())
     if (not isinstance(wafer_order, (list, tuple))
             or any(not isinstance(key, (list, tuple)) or len(key) != 3

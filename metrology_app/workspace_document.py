@@ -83,11 +83,15 @@ def pack_snapshot(container, name, snapshot):
     """Recovery references ordinary frame tables, never embeds DataFrames in JSON."""
     references = {}
     for key, frame in snapshot.frames.items():
-        stored = f"__recovery__.{name}.{key}"
-        container.frames[stored] = frame.copy(deep=True)
+        stored = next((existing for existing, saved in container.frames.items()
+                       if saved.equals(frame)), None)
+        if stored is None:
+            stored = f"__recovery__.{name}.{key}"
+            container.frames[stored] = frame.copy(deep=True)
         references[key] = stored
+    from .recovery import copy_state
     return {"workspace_type": snapshot.workspace_type, "frames": references,
-            "states": deepcopy(snapshot.states)}
+            "states": copy_state(snapshot.states)}
 
 
 def unpack_snapshot(container, description, *, copy=True):
@@ -752,13 +756,14 @@ class WkbDocument:
         try:
             compare_only = (self._last_recovery is not None
                             and self.window.workspace_type == "match_workbook")
-            current = (self.window.workspace_snapshot(readonly=True, validate=False)
-                       if compare_only else self.window.workspace_snapshot())
+            current = (self.window.workspace_snapshot(readonly=True, validate=not compare_only)
+                       if self.window.workspace_type == "match_workbook"
+                       else self.window.workspace_snapshot(readonly=True))
             children = dict(getattr(self.window, "_recovered_children", {}))
             for child in getattr(self.window, "_stage_windows", ()):
                 if child is exclude or not hasattr(child, "document"):
                     continue
-                draft = child.workspace_snapshot()
+                draft = child.workspace_snapshot(readonly=True)
                 if child.document.is_dirty(draft):
                     children[child._managed_scope] = {"baseline": child.document.baseline, "draft": draft,
                         "follow_source": bool(getattr(child, "_use_workbook_data", False))}
@@ -768,7 +773,7 @@ class WkbDocument:
                 # changed/missing/replaced drafts still take the full capture.
                 if self._recovery_matches(current, self.baseline or current, children):
                     return
-                current = self.window.workspace_snapshot()
+                current = self.window.workspace_snapshot(readonly=True)
             remaining = self.is_dirty(current) or bool(children)
             if not remaining:
                 self.remove_recovery()
@@ -776,7 +781,8 @@ class WkbDocument:
             baseline = self.baseline or current
             if self._recovery_matches(current, baseline, children):
                 return
-            snapshot = deepcopy(current)
+            from .recovery import freeze_snapshot
+            snapshot = freeze_snapshot(current)
             info = {"payload_version": 2, "original_path": str(self.path or ""), "revision": self.revision,
                     "baseline": pack_snapshot(snapshot, "baseline", baseline),
                     "children": {}}

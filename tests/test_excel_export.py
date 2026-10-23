@@ -26,7 +26,7 @@ APP = QApplication.instance() or QApplication([])
 
 def source_column(sheet, name):
     """The template places literal inputs to the right of parameter tables."""
-    cells = sheet[1] if sheet.title.startswith('FullMap') else reversed(sheet[1])
+    cells = reversed(sheet[1])
     return next(cell.column for cell in cells if cell.value == name)
 
 
@@ -51,13 +51,17 @@ class ExcelExportTests(unittest.TestCase):
                 columns = {cell.value: cell.column for cell in original[1] if cell.value is not None}
                 self.assertEqual([original.cell(row, columns["CD"]).value for row in range(2, 6)],
                                  ["1.000", "2.000", "3.000", "4.000"])
-                self.assertEqual([original.cell(row, columns["CD Reference (NOVA)"]).value for row in range(2, 6)],
+                self.assertNotIn('CD Reference (NOVA)', columns)
+                self.assertEqual([original.cell(row, 5).value for row in range(3, 7)],
                                  [3., None, 7., None])
                 self.assertEqual(book["_Plot data"].cell(2, 1).value, "3.000")
             finally:
                 book.close()
 
     def setUp(self):
+        chooser = patch('metrology_app.export_job.choose_export_sheets', side_effect=lambda owner, names: names)
+        chooser.start()
+        self.addCleanup(chooser.stop)
         self.window = MatchingWindow()
 
     def tearDown(self):
@@ -96,19 +100,21 @@ class ExcelExportTests(unittest.TestCase):
             self.assertEqual(charts[0].anchor._from.col, 0)
             self.assertTrue(all(left.anchor._from.col < right.anchor._from.col
                                 for left, right in zip(charts, charts[1:])))
-            self.assertEqual([chart.anchor._from.row for chart in charts], [10, 10, 10])
+            self.assertEqual([chart.anchor._from.row for chart in charts], [4, 4, 4])
             self.assertNotEqual(charts[0].x_axis.numFmt.formatCode, "General")
             points = charts[0].series[0]
             self.assertEqual(points.xVal.numRef.f, "'Match Original (WO Card)'!$C$3:$C$5")
             self.assertEqual(points.yVal.numRef.f, "'Match Original (WO Card)'!$E$3:$E$5")
-            self.assertEqual(charts[0].series[1].xVal.numRef.f, "'Match Original (WO Card)'!$C$7:$C$8")
-            self.assertEqual(charts[0].series[1].yVal.numRef.f, "'Match Original (WO Card)'!$E$7:$E$8")
-            self.assertFalse(match.row_dimensions[7].hidden)
-            self.assertFalse(match.row_dimensions[8].hidden)
+            self.assertEqual(len(charts[0].series), 1)
+            self.assertEqual(points.trendline.trendlineType, 'linear')
+            self.assertTrue(points.trendline.dispEq)
+            self.assertTrue(points.trendline.dispRSqr)
+            self.assertFalse(any(c.value == 'Fit line' for row in match for c in row))
             self.assertEqual(charts[1].series[0].val.numRef.f, "'Match Original (WO Card)'!$D$3:$D$5")
             self.assertEqual(charts[1].series[1].val.numRef.f, "'Match Original (WO Card)'!$E$3:$E$5")
             self.assertEqual(charts[2].series[0].val.numRef.f, "'Match Original (WO Card)'!$F$3:$F$5")
-            # The plot area applies the software Card instead of refitting.
+            # Card values retain the software coefficients, independently of
+            # the native Match trendline which Excel refits from its cells.
             helper = book["_Plot data"]
             self.assertEqual(helper["K10"].value, 2.0)
             self.assertEqual(helper["K11"].value, 1.0)
@@ -225,7 +231,7 @@ class ExcelExportTests(unittest.TestCase):
 
     def test_large_matplotlib_report_keeps_all_panels_and_matches_serial_pixels(self):
         from io import BytesIO
-        from metrology_app.excel_export import parameter_figure, sequence_layout
+        from metrology_app.excel_export import parameter_figure, report_sequence_layout
         self.window.match_type.setCurrentText('NOVA')
         count = 3000
         raw = pd.DataFrame({'Wafer ID': ['W1'] * count, 'Die Seq': range(1, count + 1),
@@ -241,7 +247,7 @@ class ExcelExportTests(unittest.TestCase):
         for panel in ('Match', 'Trend', 'Bias'):
             figure = parameter_figure('CD', data, self.window.result.card('CD'), 'Preview', 'All',
                 panel=panel, reference_label='NOVA', unit='nm',
-                sequence=None if panel == 'Match' else {**sequence_layout([''] * count, name='Die'),
+                sequence=None if panel == 'Match' else {**report_sequence_layout(data['Die Seq'].tolist(), name='Die'),
                     'ticks': [], 'mode': 'die'})
             buffer = BytesIO()
             figure.savefig(buffer, format='png', dpi=150, facecolor='white')
@@ -430,7 +436,7 @@ class ExcelExportTests(unittest.TestCase):
             self.assertEqual(match["D3"].value, "=IF(ISNUMBER(C3),'_Plot data'!$K$10*C3+'_Plot data'!$K$11,NA())")
             self.assertEqual(match._charts[1].display_blanks, "gap")
 
-    def test_native_fit_line_uses_the_same_paired_range_as_the_matplotlib_match(self):
+    def test_native_trendline_uses_the_measurement_series_with_missing_reference_gaps(self):
         reference, raw = self.frames()
         reference.loc[2, "CD Reference"] = float("nan")
         raw.loc[2, "CD"] = "999.000"
@@ -439,8 +445,12 @@ class ExcelExportTests(unittest.TestCase):
         self.window.run_analysis()
         with tempfile.TemporaryDirectory() as folder:
             match = self.export(folder)["Match Original (WO Card)"]
-            self.assertEqual((book := match.parent)["_Plot data"]["C7"].value, 1)
-            self.assertEqual(book["_Plot data"]["C8"].value, 2)
+            points = match._charts[0].series[0]
+            self.assertIsNotNone(points.trendline)
+            self.assertEqual(points.xVal.numRef.f, "'Match Original (WO Card)'!$C$3:$C$5")
+            self.assertEqual(points.yVal.numRef.f, "'Match Original (WO Card)'!$E$3:$E$5")
+            self.assertIsNone(match['E5'].value)
+            self.assertIsNone(match.parent['_Plot data']['C7'].value)
 
     def test_native_trend_keeps_different_secondary_units_in_separate_charts(self):
         window = CorrelationWindow()

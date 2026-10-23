@@ -1,6 +1,7 @@
 """PyQtGraph navigation and frame rules shared by interactive plots."""
 
-from math import ceil
+from decimal import Decimal
+from math import ceil, isfinite
 
 import pyqtgraph as pg
 from PyQt6.QtCore import QLineF, QPointF, QRectF, Qt
@@ -112,12 +113,29 @@ class _PlotViewBox(pg.ViewBox):
             self.updateAutoRange()
 
 
+class _ValueAxis(pg.AxisItem):
+    """Unscaled Y axes show complete values, even on a large narrow range."""
+
+    def tickStrings(self, values, scale, spacing):
+        step = abs(spacing * scale)
+        if self.autoSIPrefix or not isfinite(step) or step == 0:
+            return super().tickStrings(values, scale, spacing)
+        # A 0.25 or 2.5 tick step needs its fractional digit too. Ignore only
+        # floating-point noise in the step, never round the source observations.
+        places = min(324, max(0, -Decimal(f"{step:.12g}").as_tuple().exponent))
+        labels = [f"{value * scale:.{places}f}" for value in values]
+        return [label.removeprefix("-") if float(label) == 0 else label for label in labels]
+
+
 class InteractivePlotWidget(pg.PlotWidget):
     """A four-sided PyQtGraph plot with predictable Auto Range behavior."""
 
     def __init__(self, *, auto_x_range=None, frame_tick_length=0, **kwargs):
         view_box = _PlotViewBox(auto_x_range=auto_x_range)
-        super().__init__(viewBox=view_box, **kwargs)
+        axes = dict(kwargs.pop("axisItems", {}))
+        for name in ("left", "right"):
+            axes.setdefault(name, _ValueAxis(orientation=name))
+        super().__init__(viewBox=view_box, axisItems=axes, **kwargs)
         self.plot = self._plot_data
         self.secondary_views = []
         self.secondary_axes = []
@@ -139,10 +157,11 @@ class InteractivePlotWidget(pg.PlotWidget):
             axis = plot.getAxis("right")
             plot.showAxis("right")
         else:
-            axis = pg.AxisItem(orientation="right")
+            axis = _ValueAxis(orientation="right")
             plot.layout.addItem(axis, 2, 2 + index)
         axis.setStyle(showValues=True, tickLength=-5, autoExpandTextSpace=True)
-        axis.setWidth(70)
+        axis.setWidth(None)
+        axis.setMinimumWidth(70)
         axis.setPen(pg.mkPen(color))
         axis.setTextPen(pg.mkPen(color))
         axis.setLabel(label, color=color)

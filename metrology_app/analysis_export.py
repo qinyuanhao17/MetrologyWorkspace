@@ -17,7 +17,7 @@ from openpyxl.drawing.image import Image
 from .excel_export import (PLOT_COLORS, _value, _write_frame, chart_limits, plot_legend,
     plot_axis_limits, save_atomic, set_export_font, sheet_title, stage_suffix,
     style_native_series, style_plot_axis, style_workbook, sequence_layout,
-    PANEL_HEIGHT_CM, MATCH_WIDTH_CM, TREND_WIDTH_CM)
+    PANEL_HEIGHT_CM, MATCH_WIDTH_CM, TREND_WIDTH_CM, DYNAMIC_WIDTH_CM)
 
 
 def _series(name, x, y, *, line=True, markers=True, **metadata):
@@ -39,16 +39,18 @@ def capture_window(window):
         page = window.correlation_page
         _check_draw(page)
         if page.ready:
+            from .correlation_page import correlation_colors
             for fit in page.display_fits():
                 fit = page.oriented_fit(fit)
+                point_color, fit_color = correlation_colors(fit)
                 sources = fit.sources if hasattr(fit, "sources") else (None,)
                 series, notes = [], []
                 for source in sources:
                     values = source.fit if source else fit
                     label = source.name if source else "Measurements"
-                    series.append(_series(label, values.x.copy(), values.y.copy(), line=False))
+                    series.append(dict(_series(label, values.x.copy(), values.y.copy(), line=False), color=point_color))
                     order = np.argsort(values.x, kind="stable")
-                    series.append(_series(f"{label} fit", values.x[order], values.predicted[order], markers=False))
+                    series.append(dict(_series(f"{label} fit", values.x[order], values.predicted[order], markers=False), color=fit_color))
                     notes.append(f"{label}: slope={values.slope:.8g}, intercept={values.intercept:.8g}, R²={values.rsquared:.8g}")
                 report["plots"].append({"sheet": "Correlation", "title": f"{fit.y_name} vs {fit.x_name}",
                     "x": fit.x_name, "y": fit.y_name, "series": series, "notes": "; ".join(notes)})
@@ -75,6 +77,8 @@ def capture_window(window):
                      if label == "Wafer Map" else page.ready)
             if not ready:
                 continue
+            if label == 'Wafer Map':
+                report.setdefault('picture_shapes', {})[label] = tuple(page.result['shape'])
             report["pictures"].append((label, page.png_bytes(),
                 f"Page {page.page_index + 1}; current Copy PNG grid"))
     return report
@@ -152,6 +156,8 @@ def capture_saved_window(kind, frame, *, scope, saved, selection, workbook, para
 
 
 def _series_color(series, index):
+    if series.get("color"):
+        return series["color"].removeprefix("#")
     source_index = {"Raw Data": 0, "Reference": 1}.get(series.get("source"), index)
     return PLOT_COLORS[source_index % len(PLOT_COLORS)]
 
@@ -161,8 +167,12 @@ def plot_figure(plot):
     from matplotlib.figure import Figure
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     sequence = sequence_layout(plot["labels"]) if plot.get("labels") else None
+    if sequence is not None and 'captions' in plot:
+        from .excel_export import report_sequence_layout
+        sequence = report_sequence_layout(plot.get('dies', plot['labels']), plot['captions'])
     width = (sequence["width"] if sequence else MATCH_WIDTH_CM
              if plot.get("sheet") == "Correlation" else TREND_WIDTH_CM)
+    width = plot.get('width_cm', width)
     figure = Figure(figsize=(width / 2.54, PANEL_HEIGHT_CM / 2.54), facecolor="white")
     FigureCanvasAgg(figure)
     axis = figure.subplots()
@@ -172,7 +182,7 @@ def plot_figure(plot):
         color = "#" + _series_color(series, index)
         target = axis
         if series.get("secondary"):
-            key = series.get("unit", series["name"])
+            key = series.get("axis_label", series.get("unit", series["name"]))
             if key not in second_axes:
                 secondary = axis.twinx()
                 secondary.spines["right"].set_position(("axes", 1 + .15 * len(second_axes)))
@@ -200,6 +210,7 @@ def plot_figure(plot):
     for target, values in values_by_axis.items():
         plot_axis_limits(target, values, bars=plot.get("kind") == "bar")
         if target is not axis:
+            target.ticklabel_format(axis="y", style="plain", useOffset=False)
             target.tick_params(labelsize=10, colors="#334155")
     if plot.get("kind") != "bar" and plot["series"]:
         plot_axis_limits(axis, values_by_axis.get(axis, []), _plotted_positions(plot))
@@ -223,9 +234,16 @@ def plot_figure(plot):
     if plot.get("notes"):
         figure.suptitle(plot["notes"].replace("; ", "\n"), fontsize=9, color="#475569")
     lines = max((len(label.splitlines()) for _, label in sequence["ticks"]), default=1) if sequence else 1
+    bottom = .9 + .45 * lines + (.9 if plot.get('dies') else 0)
+    if sequence is not None and 'captions' in sequence:
+        from .excel_export import footer_margin
+        bottom = footer_margin(sequence['captions'])
     figure.subplots_adjust(left=2.0 / width, right=1 - (.7 + .9 * len(second_axes)) / width,
-                           bottom=(.9 + .45 * lines) / PANEL_HEIGHT_CM,
+                           bottom=bottom / PANEL_HEIGHT_CM,
                            top=min(.79, 1 - (1.1 + .5 * legend_rows) / PANEL_HEIGHT_CM) if not plot.get("notes") else .70)
+    if sequence is not None and plot.get('dies'):
+        from .excel_export import draw_sequence_axis
+        draw_sequence_axis(axis, sequence, plot['dies'])
     set_export_font(figure)
     return figure
 
@@ -251,7 +269,8 @@ def append_report(book, used, report, *, native=True, images=None, prefix=""):
         from .excel_export import write_fullmap
         write_fullmap(create("FullMap"), report["frames"]["Data"], report["fullmap_parameters"],
                       native=native, images=images, plot_labels=report.get("plot_labels"), pictures=report["pictures"],
-                      include_trends=report.get('include_fullmap_trends', True))
+                      include_trends=report.get('include_fullmap_trends', True),
+                      picture_shapes=report.get('picture_shapes', {}))
         return
     for title, frame in report["frames"].items():
         _write_frame(create(title), frame)
@@ -294,7 +313,7 @@ def append_report(book, used, report, *, native=True, images=None, prefix=""):
                         item.graphicalProperties.line.noFill = True
                     target = chart
                     if series.get("secondary"):
-                        unit = series.get("unit", "Secondary axis")
+                        unit = series.get("axis_label", series.get("unit", "Secondary axis"))
                         if unit not in secondary_axes:
                             second = ScatterChart()
                             second.y_axis.axId = 200
@@ -338,9 +357,10 @@ def append_report(book, used, report, *, native=True, images=None, prefix=""):
         sheet = create(title)
         sheet["A1"], sheet["A2"] = title, note
         image = Image(BytesIO(contents))
-        ratio = min(1, 1200 / image.width)
+        from .excel_export import picture_ratio
+        ratio = picture_ratio(title, image, report.get('picture_shapes', {}))
         image.width, image.height = image.width * ratio, image.height * ratio
-        sheet.add_image(image, "A4")
+        sheet.add_image(image, "A5")
         if images is not None:
             images.append((prefix + title + suffix, contents))
 
@@ -366,7 +386,7 @@ def write_dynamic_report(sheet, report, *, native=True, images=None):
     for column in range(table_column, table_column + table_width):
         sheet.column_dimensions[get_column_letter(column)].width = 15
     plot_column = table_column + table_width + 1
-    summary_column = _next_plot_column(sheet, plot_column, TREND_WIDTH_CM * 96 / 2.54)
+    summary_column = _next_plot_column(sheet, plot_column, DYNAMIC_WIDTH_CM * 96 / 2.54)
     row, sigma_cells, dies = 1, {}, []
     for parameter, pivot in pivots:
         source_cells = report.get('pivot_sources', {}).get(parameter, {})
@@ -403,7 +423,7 @@ def write_dynamic_report(sheet, report, *, native=True, images=None):
                 chart = BarChart()
                 chart.title = f'{parameter} 3 Sigma'
                 chart.x_axis.title, chart.y_axis.title = 'Die Seq', '3 Sigma'
-                chart.height, chart.width = PANEL_HEIGHT_CM, TREND_WIDTH_CM
+                chart.height, chart.width = PANEL_HEIGHT_CM, DYNAMIC_WIDTH_CM
                 chart.add_data(Reference(sheet, min_col=table_column + 1,
                     max_col=table_column + len(pivot.columns) - 1, min_row=sigma_row, max_row=sigma_row),
                     from_rows=True)
@@ -414,7 +434,7 @@ def write_dynamic_report(sheet, report, *, native=True, images=None):
                 chart.legend = None
                 sheet.add_chart(chart, f'{get_column_letter(plot_column)}{row}')
             else:
-                plot = {'title': f'{parameter} 3 Sigma', 'kind': 'bar', 'x': 'Die Seq', 'y': '3 Sigma',
+                plot = {'title': f'{parameter} 3 Sigma', 'kind': 'bar', 'x': 'Die Seq', 'y': '3 Sigma', 'width_cm': DYNAMIC_WIDTH_CM,
                     'series': [_series(parameter, list(pivot.columns[1:]), pivot.iloc[sigma_index, 1:].to_numpy(float))]}
                 embed_plot(sheet, plot, f'{get_column_letter(plot_column)}{row}',
                            sheet.title + ' ' + plot['title'], images)
@@ -433,7 +453,7 @@ def write_dynamic_report(sheet, report, *, native=True, images=None):
         if native:
             chart = BarChart()
             chart.title, chart.x_axis.title, chart.y_axis.title = 'Dynamic 3 Sigma', 'Die Seq', '3 Sigma'
-            chart.height, chart.width = PANEL_HEIGHT_CM, TREND_WIDTH_CM
+            chart.height, chart.width = PANEL_HEIGHT_CM, DYNAMIC_WIDTH_CM
             chart.add_data(Reference(sheet, min_col=summary_column + 1,
                 max_col=summary_column + len(pivots), min_row=summary_row, max_row=summary_row + len(dies)),
                 titles_from_data=True)
@@ -447,7 +467,7 @@ def write_dynamic_report(sheet, report, *, native=True, images=None):
             for parameter, pivot in pivots:
                 values = dict(zip(pivot.columns[1:], pivot.iloc[-1, 1:].to_numpy(float)))
                 curves.append(_series(parameter, dies, [values.get(die, np.nan) for die in dies]))
-            plot = {'title': 'Dynamic 3 Sigma', 'kind': 'bar', 'x': 'Die Seq', 'y': '3 Sigma', 'series': curves}
+            plot = {'title': 'Dynamic 3 Sigma', 'kind': 'bar', 'x': 'Die Seq', 'y': '3 Sigma', 'series': curves, 'width_cm': DYNAMIC_WIDTH_CM}
             embed_plot(sheet, plot, f'{get_column_letter(summary_chart_column)}1', sheet.title + ' Summary', images)
     if native:
         for root in sheet._charts:

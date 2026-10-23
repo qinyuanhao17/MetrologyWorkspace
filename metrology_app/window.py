@@ -236,7 +236,7 @@ class MainWindow(QMainWindow):
             try:
                 from .analysis_export import capture_window
                 from .export_job import start_export
-                start_export(self, path, capture_window(self))
+                start_export(self, path, lambda: capture_window(self))
             except Exception as error:
                 QMessageBox.warning(self, "Cannot export Excel", str(error))
 
@@ -246,7 +246,7 @@ class MainWindow(QMainWindow):
             try:
                 from .analysis_export import capture_window
                 from .export_job import start_export
-                start_export(self, path, capture_window(self), native=False)
+                start_export(self, path, lambda: capture_window(self), native=False)
             except Exception as error:
                 QMessageBox.warning(self, "Cannot export Matplotlib", str(error))
 
@@ -540,7 +540,7 @@ class MainWindow(QMainWindow):
         from .floating_editor import FloatingEditor
         self.measurement_floating_editor = FloatingEditor(
             self, self.measurement_panel, self.sheet, splitter,
-            title="Measurement table", owner_only=True)
+            title="Measurement table")
         return page
 
     def default_parameters(self, metrics):

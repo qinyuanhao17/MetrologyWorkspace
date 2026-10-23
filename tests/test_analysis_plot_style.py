@@ -72,7 +72,7 @@ class AnalysisPlotStyleTests(unittest.TestCase):
         np.testing.assert_allclose(axis.lines[0].get_ydata(), [.7, 1.9, 3.1, 4.3])
         pd.testing.assert_frame_equal(page.frame, frame)
 
-    def test_ref_and_raw_correlation_share_style_and_keep_it_when_swapping_axes(self):
+    def test_ref_and_raw_correlation_pair_colors_survive_swapping_axes(self):
         window = self.source_window()
         before = window.raw_model.frame().copy(deep=True)
         page = window.correlation_page
@@ -80,21 +80,26 @@ class AnalysisPlotStyleTests(unittest.TestCase):
         page.draw_plot()
         # Two within-source pairs plus four row-aligned cross-source pairs.
         self.assertEqual(len(page.plot_widgets), 6)
-        for widget in page.plot_widgets:
+        palette = {frozenset(("Reference",)): ("#ed7d31", "#b95616"),
+                   frozenset(("Raw Data",)): ("#4f8bd6", "#285f9f"),
+                   frozenset(("Reference", "Raw Data")): ("#009e73", "#006b4f")}
+        for fit, widget in zip(page.page_fits(), page.plot_widgets):
+            point_color, fit_color = palette[frozenset(source for source, _metric in fit.parameter_keys)]
             items = {item.name(): item for item in widget.getPlotItem().listDataItems()}
             points = next(item for name, item in items.items() if name.endswith(" points"))
             line = next(item for name, item in items.items() if name.endswith(" fit"))
-            self.assertEqual(points.opts["symbolBrush"].color().name(), "#4f8bd6")
+            self.assertEqual(points.opts["symbolBrush"].color().name(), point_color)
             self.assertEqual(points.opts["symbolSize"], 5)
-            self.assertEqual(line.opts["pen"].color().name(), "#e09f3e")
+            self.assertEqual(line.opts["pen"].color().name(), fit_color)
         widgets = list(page.plot_widgets)
         page.swap_axes(page.page_fits()[0])
         self.assertEqual(page.plot_widgets, widgets)
         self.assertEqual(widgets[0].getPlotItem().getAxis("bottom").labelText, "Depth")
         page.ensure_export_figure()
-        for axis in page.figure.axes:
-            self.assertEqual(to_hex(axis.collections[0].get_facecolors()[0]), "#4f8bd6")
-            self.assertEqual(to_hex(axis.lines[0].get_color()), "#e09f3e")
+        for fit, axis in zip(page.page_fits(), page.figure.axes):
+            point_color, fit_color = palette[frozenset(source for source, _metric in fit.parameter_keys)]
+            self.assertEqual(to_hex(axis.collections[0].get_facecolors()[0]), point_color)
+            self.assertEqual(to_hex(axis.lines[0].get_color()), fit_color)
         pd.testing.assert_frame_equal(window.raw_model.frame(), before)
 
     def test_trend_sources_and_comparisons_use_only_colors_not_shapes_or_dashes(self):
