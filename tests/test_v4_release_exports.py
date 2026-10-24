@@ -96,7 +96,7 @@ class ReleaseExportTests(unittest.TestCase):
             ('Wafer Map CD', contents, ''), ('Radius CD', contents, '')])
         self.assertEqual(len(book.active._images), 2)
         heights = [picture.height for picture in book.active._images]
-        for height, expected in zip(heights, (8, 30)):
+        for height, expected in zip(heights, (8, 8)):
             self.assertAlmostEqual(height, expected * 96 / 2.54)
         self.assertTrue(all(picture.width <= 72 * 96 / 2.54 for picture in book.active._images))
         self.assertNotEqual(book.active._images[0].anchor, book.active._images[1].anchor)

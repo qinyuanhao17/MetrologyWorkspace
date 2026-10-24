@@ -73,7 +73,7 @@ class ExportWkbAxesTests(unittest.TestCase):
                 self.assertTrue(all(float(a.find('d:to/d:y', NS).text) -
                                     float(a.find('d:from/d:y', NS).text) >= .06 for a in boundaries))
 
-    def test_fm_three_visual_columns_with_eight_cm_map_and_existing_radius_height(self):
+    def test_fm_three_visual_columns_share_eight_cm_row_height(self):
         contents = BytesIO()
         Image.new('RGB', (640, 320), 'white').save(contents, format='PNG')
         frame = pd.DataFrame({'Wafer ID': ['W1', 'W2'], 'Die Seq': ['01', '03'], 'CD': ['1.000', '2.000']})
@@ -93,7 +93,7 @@ class ExportWkbAxesTests(unittest.TestCase):
                     self.assertLess(trend.anchor._from.col, wafer.anchor._from.col)
                     self.assertLess(wafer.anchor._from.col, radius.anchor._from.col)
                     self.assertEqual([x.anchor._from.row for x in (trend, wafer, radius)], [4, 4, 4])
-                    for image, height in ((wafer, 8.), (radius, 30.)):
+                    for image, height in ((wafer, 8.), (radius, 8.)):
                         self.assertAlmostEqual(image.anchor.ext.cy / 360000, height, places=4)
                         self.assertLessEqual(abs(image.anchor.ext.cx - 2 * image.anchor.ext.cy), 2)
                 finally:

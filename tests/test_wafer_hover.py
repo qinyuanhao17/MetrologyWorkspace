@@ -37,7 +37,7 @@ class WaferHoverTests(unittest.TestCase):
             page.render_result(result)
             panel = page.map_grid.panels[0]
             scene = panel.source
-            self.assertFalse(panel.acceptHoverEvents())
+            self.assertTrue(panel.acceptHoverEvents())
             self.assertFalse(panel.image.acceptHoverEvents())
             self.assertEqual(scene["layer"].die.tolist(), ["00002", "00036", "00050", "00066", "00085"])
             np.testing.assert_allclose(panel.positions, [[-1, -1], [1, -1], [-1, 1], [1, 1], [0, 0]])

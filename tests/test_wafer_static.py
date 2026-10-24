@@ -61,7 +61,7 @@ class StaticWaferTests(unittest.TestCase):
             self.assertFalse(page.zoom.isHidden())
             for panel in page.map_grid.panels:
                 self.assertEqual(panel.acceptedMouseButtons(), Qt.MouseButton.NoButton)
-                self.assertFalse(panel.acceptHoverEvents())
+                self.assertTrue(panel.acceptHoverEvents())
                 self.assertEqual(panel.image.acceptedMouseButtons(), Qt.MouseButton.NoButton)
 
     def test_screen_geometry_pixels_and_contours_match_export(self):
