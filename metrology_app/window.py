@@ -251,12 +251,13 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Cannot export Matplotlib", str(error))
 
     def workspace_snapshot(self, *, include_drafts=False, readonly=False):
-        """Read-only state views are only for immediate GUI-thread comparison."""
-        frames = {"input_data": self.model.document_frame()}
+        """Consume or detach read-only state views immediately on the GUI thread."""
         if self.workspace_type == "correlation_trend":
             frames = {"raw_data": self.model.document_frame(),
                       "reference_data": self.reference_model.document_frame()
                       if hasattr(self, "reference_model") else pd.DataFrame()}
+        else:
+            frames = {"input_data": self.model.document_frame()}
         states = {"ui": analysis_state(self)}
         if getattr(self, "_participation_excluded", None):
             states["workbook_participation"] = sorted(self._participation_excluded)

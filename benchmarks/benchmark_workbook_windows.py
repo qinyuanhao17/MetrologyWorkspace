@@ -21,6 +21,8 @@ def main():
     parser.add_argument("--profile-actions", nargs="*", help="Profile only these measured actions")
     parser.add_argument("--controls", action="store_true", help="Draw a bounded map sample and probe plot controls")
     parser.add_argument("--input-controls", action="store_true", help="Probe mapping Use and actual Raw Data keyboard workflows")
+    parser.add_argument("--mapping-repeats", type=int, default=1,
+                        help="Repeat the linked-window mapping off/on pair after warm-up")
     parser.add_argument("--map-first", action="store_true", help="Open Wafer Map before Correlation to measure first-use imports")
     parser.add_argument("--budget-ms", type=float)
     parser.add_argument("--code-root", type=Path, default=Path.cwd(), help="Current or frozen package for isolated before/after probes")
@@ -174,6 +176,11 @@ def main():
                         window.mapping_table.item(row, 0).setCheckState(value)
                     measure("mapping_uncheck_with_children", lambda: set_mapping_use(Qt.CheckState.Unchecked), until=finished)
                     measure("mapping_check_with_children", lambda: set_mapping_use(Qt.CheckState.Checked), until=finished)
+                    for repeat in range(1, args.mapping_repeats):
+                        measure(f"mapping_uncheck_with_children_{repeat}",
+                                lambda: set_mapping_use(Qt.CheckState.Unchecked), until=finished)
+                        measure(f"mapping_check_with_children_{repeat}",
+                                lambda: set_mapping_use(Qt.CheckState.Checked), until=finished)
             if args.controls:
                 # Sidebar toggles intentionally invalidate Draw. Exercise the
                 # following controls on drawn plots, not on empty selector pages.

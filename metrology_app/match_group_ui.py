@@ -19,7 +19,8 @@ from PyQt6.QtWidgets import (
     QStyle, QStyledItemDelegate, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
-from .appearance import fit_window_to_screen, widget_to_qimage
+from .appearance import (TREND_LINE_WIDTH, TREND_MARKER_SIZE,
+                         fit_window_to_screen, widget_to_qimage)
 from .match_groups import (GroupPlan, applied_state, copy_group_state, flag_order,
                            flag_value, group_state, normalized, participation_ids,
                            row_ids)
@@ -307,7 +308,7 @@ class OrderModel(SheetModel):
         return flags & ~Qt.ItemFlag.ItemIsEditable if index.column() else flags
 
     def edit(self, changes):
-        super().edit({key: value for key, value in changes.items() if key[1] == 0})
+        return super().edit({key: value for key, value in changes.items() if key[1] == 0})
 
     def flags_frame(self, count=0):
         # Order has only paired rows (or explicitly entered flags), not the
@@ -1250,16 +1251,16 @@ def draw_group_trend(plot, result, parameter, key="all", card_mode="raw", *, gro
         data = result.group_series(parameter, key, trend=True, card_mode=card_mode)
     plan = result.group_plan
     x = np.arange(1, len(data) + 1, dtype=float)
-    reference = plot.plot(x, data["Reference"].to_numpy(float), pen=pg.mkPen("#ed7d31", width=2.2),
-              symbol="o", symbolSize=5, symbolBrush="#ed7d31", symbolPen=None,
+    reference = plot.plot(x, data["Reference"].to_numpy(float), pen=pg.mkPen("#ed7d31", width=TREND_LINE_WIDTH),
+              symbol="o", symbolSize=TREND_MARKER_SIZE, symbolBrush="#ed7d31", symbolPen=None,
               name=str(result.match_type), connect="finite")
     reference.setZValue(5)  # Reference stays visible above overlapping Raw/Card curves.
     # Boundaries annotate the ordinal sequence; only missing observations break it.
     groups = data["Group"].tolist()
     starts = [0] + [i for i in range(1, len(groups)) if groups[i] != groups[i - 1]] + [len(groups)]
     plot.plot(x, data["Trend value"].to_numpy(float),
-              pen=pg.mkPen("#5b9bd5", width=2.2),
-              symbol="o", symbolSize=5, symbolBrush="#5b9bd5", symbolPen=None,
+              pen=pg.mkPen("#5b9bd5", width=TREND_LINE_WIDTH),
+              symbol="o", symbolSize=TREND_MARKER_SIZE, symbolBrush="#5b9bd5", symbolPen=None,
               name="PMISH", connect="finite")
     place_legend_above_frame(plot)
     offset, labels, boundaries, previous_group = 0, [], [], None

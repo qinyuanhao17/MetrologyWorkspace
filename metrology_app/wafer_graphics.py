@@ -16,7 +16,7 @@ from matplotlib.textpath import TextPath
 from matplotlib.ticker import MaxNLocator, ScalarFormatter
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QTransform
-from PyQt6.QtWidgets import QGraphicsView
+from PyQt6.QtWidgets import QGraphicsView, QToolTip
 
 from .plot import ValueLabels, contour_colour, display_colormap
 from .plotting.identity_labels import measurement_caption
@@ -135,8 +135,10 @@ class WaferPanel(pg.GraphicsObject):
         self.contours = None
         self.label_path = QPainterPath()
         self.drawn_indices = []
+        self._pixel_positions = np.empty((0, 2))
+        self.status_callback = None
         self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
-        self.setAcceptHoverEvents(False)
+        self.setAcceptHoverEvents(True)
         if not scene.get("skip") and not scene["error"]:
             self.positions = scene["surface"][0]
             self.low, self.high = colour_limits(scene)
@@ -193,9 +195,51 @@ class WaferPanel(pg.GraphicsObject):
             self.axis_rect = QRectF(box)
         if self.image is not None:
             self.image.setRect(self.axis_rect)
+            transform = self.data_transform()
+            self._pixel_positions = np.array(
+                [(mapped.x(), mapped.y()) for mapped in
+                 (transform.map(QPointF(float(x), float(y))) for x, y in self.positions)],
+                dtype=float) if len(self.positions) else np.empty((0, 2))
             self._prepare_labels()
             self._prepare_bar()
         self.update()
+
+    def hover_text(self, point):
+        """Nearest measured die and value under the cursor, or None."""
+        if not len(self.positions) or not len(self._pixel_positions):
+            return None
+        delta = self._pixel_positions - np.array([point.x(), point.y()])
+        distances = np.einsum("ij,ij->i", delta, delta)
+        index = int(distances.argmin())
+        if distances[index] > 12 * 12:
+            return None
+        row = self.source["layer"].iloc[index]
+        die = str(row.get("die", "") or "").strip()
+        label = str(self.source.get("label", self.source.get("wafer", ""))).replace("\n", " · ")
+        text = [label]
+        if die:
+            text.append(f"Die {die}")
+        text.append(f"{self.source['metric']} = {float(row['value']):.8g}")
+        text.append(f"X = {float(row['x']):.6g}, Y = {float(row['y']):.6g}")
+        return " · ".join(text)
+
+    def hoverMoveEvent(self, event):
+        text = self.hover_text(event.pos())
+        if text:
+            if self.status_callback is not None:
+                self.status_callback(text)
+            views = self.scene().views() if self.scene() is not None else []
+            widget = views[0].viewport() if views else None
+            position = event.screenPos()
+            QToolTip.showText(position.toPoint() if hasattr(position, "toPoint") else position,
+                              text, widget)
+        else:
+            QToolTip.hideText()
+        super().hoverMoveEvent(event)
+
+    def hoverLeaveEvent(self, event):
+        QToolTip.hideText()
+        super().hoverLeaveEvent(event)
 
     def data_transform(self):
         options, rect = self.source["options"], self.axis_rect
@@ -419,6 +463,7 @@ class WaferMapGrid(pg.GraphicsObject):
         super().__init__()
         self.panels = []
         self.rect = QRectF()
+        self.status_callback = None
         self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
         self.setAcceptHoverEvents(False)
 
@@ -441,6 +486,8 @@ class WaferMapGrid(pg.GraphicsObject):
         rows, columns = result["shape"]
         self.rect = QRectF(0, 0, columns*460, rows*420+30)
         self.panels = [WaferPanel(scene, result["settings"], self) for scene in result["scenes"]]
+        for panel in self.panels:
+            panel.status_callback = self.status_callback
         self.relayout(result, font_size, identity_labels)
 
     def relayout(self, result, font_size, identity_labels):

@@ -164,6 +164,7 @@ class RadiusPage(QWidget):
         self.stack.addWidget(self.selector_panel)
         layout.addWidget(self.stack, 1)
         self.status = QLabel(objectName="hint")
+        self.radius_grid.status_callback = self.status.setText
         layout.addWidget(self.status)
         self.x_column.currentIndexChanged.connect(self.invalidate)
         self.y_column.currentIndexChanged.connect(self.invalidate)
@@ -392,6 +393,10 @@ class RadiusPage(QWidget):
             unit = "mm" if all("mm" in name.lower() for name in (x_name, y_name)) else "coordinate units"
             drawn = 0
             sources = []
+            names = {"".join(character.lower() for character in str(column) if character.isalnum()): column
+                     for column in self.frame}
+            die_column = next((names[name] for name in
+                               ("dieseq", "dieid", "diesequence", "diesequenceno") if name in names), None)
             for color, wafer in zip(colors, wafers):
                 for metric in metrics:
                     if (wafer, metric) not in cells:
@@ -399,8 +404,11 @@ class RadiusPage(QWidget):
                         continue
                     drawn += 1
                     part = parts[wafer]
-                    data = pd.DataFrame({"x": number(part[x_name]), "y": number(part[y_name]),
-                                         "value": number(part[metric])}).dropna()
+                    frame = pd.DataFrame({"x": number(part[x_name]), "y": number(part[y_name]),
+                                          "value": number(part[metric])})
+                    if die_column is not None:
+                        frame["die"] = part[die_column].fillna("").astype(str).to_numpy()
+                    data = frame.dropna(subset=["x", "y", "value"])
                     radius = signed_radius(data.x.to_numpy(), data.y.to_numpy())
                     if not data.empty:
                         _, standard = infer_wafer_geometry(data[["x", "y"]].to_numpy(), (x_name, y_name))
@@ -410,8 +418,9 @@ class RadiusPage(QWidget):
                     stats = f"Min {data.value.min():.5g}   Max {data.value.max():.5g}   Mean {data.value.mean():.5g}"
                     sources.append({"metric": metric, "label": labels.get(wafer, wafer),
                                     "radius": radius, "value": data.value.to_numpy(float),
+                                    "die": data["die"].tolist() if "die" in data else [""] * len(data),
                                     "limit": limit, "unit": unit, "color": color, "stats": stats})
-            width, height = columns * 460, rows * 370 + 30
+            width, height = columns * 460, rows * 420 + 30
             self.base_size = width, height
             self.plot_sources, self._shape = sources, (rows, columns)
             self._export_dirty = True

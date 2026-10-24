@@ -25,7 +25,8 @@ from PyQt6.QtWidgets import (
 )
 
 from .appearance import (MAX_COPY_PIXELS, MAX_EXPORT_PIXELS, configure_resolution_combo,
-                         export_dpi, panel_title_label, resolution_settings)
+                         export_dpi, panel_title_label, resolution_settings,
+                         TREND_LINE_WIDTH, TREND_MARKER_SIZE)
 from .appearance import widget_to_qimage
 from .array_plot import drawn_axes
 from .data import number
@@ -1170,7 +1171,8 @@ class SequencePage(QWidget):
                 values = self._metric_values(name, curve_groups)
                 lines = target.plot(
                     positions, values, color=color,
-                    linestyle="-", linewidth=1.35, marker="o", markersize=3.8,
+                    linestyle="-", linewidth=TREND_LINE_WIDTH, marker="o",
+                    markersize=TREND_MARKER_SIZE,
                     markerfacecolor=color, label=label,
                 )
                 plain_matplotlib_y(target)
@@ -1471,10 +1473,10 @@ class SequencePage(QWidget):
                     return None
                 positions = np.concatenate([group["positions"] for group in curve_groups])
                 values = self._metric_values(name, curve_groups)
-                pen = pg.mkPen(color, width=2.2)
+                pen = pg.mkPen(color, width=TREND_LINE_WIDTH)
                 item = ResponsivePlotDataItem(
                     positions, values, connect="finite", pen=pen,
-                    symbol="o", symbolSize=5, symbolPen=None,
+                    symbol="o", symbolSize=TREND_MARKER_SIZE, symbolPen=None,
                     symbolBrush=pg.mkBrush(color), name=label,
                 )
                 target.addItem(item)

@@ -310,11 +310,22 @@ class SheetModel(QAbstractTableModel):
         return True
 
     def edit(self, changes, *, document_rows=None):
+        """Apply one undoable edit and return read-only original values.
+
+        Paste feedback reuses the Undo capture; callers cannot modify it.
+        Locked and unchanged cells are absent from the returned mapping.
+        """
+        if self.clipboard_locks:
+            changes = {key: value for key, value in changes.items()
+                       if self.cells.get((0, key[1]), "") not in self.clipboard_locks}
         changes = {key: value for key, value in changes.items()
-                   if self.cells.get((0, key[1]), "") not in self.clipboard_locks
-                   and self.cells.get(key, "") != value}
+                   if self.cells.get(key, "") != value}
         if changes:
-            self.undo.push(CellEdit(self, changes, document_rows=document_rows))
+            command = CellEdit(self, changes, document_rows=document_rows)
+            before = MappingProxyType(command.before)
+            self.undo.push(command)
+            return before
+        return MappingProxyType({})
 
     def paste_cells(self, changes, *, bounds=None):
         """Paste over a range and report actual edits, not the clipboard size."""
@@ -323,11 +334,9 @@ class SheetModel(QAbstractTableModel):
                 raise ValueError("Unlock metadata before pasting additional rows.")
             changes = {key: value for key, value in changes.items()
                        if self.cells.get((0, key[1]), "") not in self.clipboard_locks}
-        before = {key: self.cells.get(key, "") for key, value in changes.items()
-                  if self.cells.get(key, "") != value}
         rows = self._document_rows
-        headers = {column: self.cells.get((0, column), "") for _, column in before}
-        self.edit({key: changes[key] for key in before})
+        headers = {column: self.cells.get((0, column), "") for column in {c for _, c in changes}}
+        before = self.edit(changes)
         if bounds is None and changes:
             bounds = (min(r for r, _ in changes), min(c for _, c in changes),
                       max(r for r, _ in changes), max(c for _, c in changes))
@@ -1130,9 +1139,14 @@ class SheetView(QTableView):
                 # without constructing a QModelIndex for every trailing blank.
                 bounds = [(r.top(), r.bottom(), r.left(), r.right())
                           for r in self.selectionModel().selection()]
-                changes = {(row, column): "" for row, column in model.cells
-                           if any(top <= row <= bottom and left <= column <= right
-                                  for top, bottom, left, right in bounds)}
+                if len(bounds) == 1:
+                    top, bottom, left, right = bounds[0]
+                    changes = {(row, column): "" for row, column in model.cells
+                               if top <= row <= bottom and left <= column <= right}
+                else:
+                    changes = {(row, column): "" for row, column in model.cells
+                               if any(top <= row <= bottom and left <= column <= right
+                                      for top, bottom, left, right in bounds)}
             else:
                 # Projections and models with custom disabled cells retain Qt's
                 # own selectable-index semantics and source-row translation.

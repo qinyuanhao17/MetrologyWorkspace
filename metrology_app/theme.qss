@@ -154,6 +154,7 @@ QToolButton#primary:pressed { background: #5f3489; }
 QToolButton#primary::menu-button { subcontrol-origin: border; subcontrol-position: top right; width: 26px; border-left: 1px solid #b891dd; }
 QToolButton#primary::menu-arrow { width: 8px; height: 8px; }
 QPushButton#subtle { padding: 5px 9px; font-size: 12px; }
+QPushButton#compareRemove { padding: 0; font-size: 16px; }
 QPushButton#link { background: transparent; border: none; color: #c19af3; padding: 3px 5px; font-size: 12px; }
 QPushButton#link:hover { background: #281935; }
 QPushButton#groupPicker { text-align: left; background: #100b17; border-color: #6c4a87; padding: 8px 11px; }

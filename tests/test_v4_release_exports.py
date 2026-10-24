@@ -67,7 +67,13 @@ class ReleaseExportTests(unittest.TestCase):
                 if sheet.title.startswith('Match '):
                     for chart in sheet._charts[2:]:
                         self.assertAlmostEqual(chart.y_axis.scaling.min, -chart.y_axis.scaling.max)
-            self.assertEqual(original._charts[1].anchor.ext.cx, group._charts[1].anchor.ext.cx)
+            self.assertAlmostEqual(original._charts[1].anchor.ext.cx / 360000, 25)
+            self.assertEqual(group._charts[1].anchor.ext.cx,
+                             group._charts[2].anchor.ext.cx)
+            self.assertEqual(wafer._charts[1].anchor.ext.cx,
+                             wafer._charts[2].anchor.ext.cx)
+            self.assertLess(group._charts[1].anchor.ext.cx,
+                            original._charts[1].anchor.ext.cx)
             points, = original._charts[0].series
             self.assertIsNotNone(points.trendline)
             self.assertTrue(points.xVal.numRef.f.startswith("'Match Original (WO Card)'!"))

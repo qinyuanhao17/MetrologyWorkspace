@@ -47,8 +47,8 @@ class ExcelReportLayoutTests(unittest.TestCase):
                 raw, ref = figure.axes[0].lines[:2]
                 self.assertEqual(ref.get_linestyle(), '-')
                 self.assertGreater(ref.get_zorder(), raw.get_zorder())
-                self.assertGreaterEqual(ref.get_linewidth(), 1.8)
-                self.assertGreaterEqual(ref.get_markersize(), 4)
+                self.assertTrue(all(line.get_linewidth() == 2.5 for line in (raw, ref)))
+                self.assertTrue(all(line.get_markersize() == 6 for line in (raw, ref)))
                 self.assertTrue(all(spine.get_linewidth() >= 1.2 for spine in figure.axes[0].spines.values()))
             finally:
                 figure.clear()
@@ -59,6 +59,46 @@ class ExcelReportLayoutTests(unittest.TestCase):
             self.assertGreaterEqual(figure.axes[0].collections[0].get_sizes()[0], 25)
         finally:
             figure.clear()
+
+    def test_match_chart_rows_and_columns_keep_similar_spacing(self):
+        from metrology_app.excel_export import (
+            CHART_HORIZONTAL_GAP_CM, CHART_VERTICAL_GAP_CM, PANEL_HEIGHT_CM)
+        reference = pd.DataFrame({
+            "CD Reference": [3., 5., 7.],
+            "Depth Reference": [9., 11., 13.],
+        })
+        raw = pd.DataFrame({
+            "Wafer ID": ["W1"] * 3, "Die Seq": [1, 2, 3],
+            "CD": ["1.000", "2.000", "3.000"],
+            "Depth": ["2.000", "4.000", "6.000"],
+        })
+        self.window.set_reference_frame(reference)
+        self.window.set_raw_frame(raw)
+        self.window.run_analysis()
+        with tempfile.TemporaryDirectory() as folder:
+            for native in (True, False):
+                path = self.window.export_excel(
+                    Path(folder) / f"spacing-{native}.xlsx", native=native)
+                sheet = load_workbook(path)["Match Original (WO Card)"]
+                charts = sheet._charts if native else sheet._images
+
+                positions = [fixtures.drawing_xy_px(chart, sheet)
+                             for chart in charts]
+
+                horizontal = []
+                for left, right in zip(charts[:2], charts[1:3]):
+                    left_x = positions[charts.index(left)][0]
+                    right_x = positions[charts.index(right)][0]
+                    left_end = left_x + left.anchor.ext.cx / 9525
+                    horizontal.append(
+                        (right_x - left_end) / 96 * 2.54)
+                vertical = (
+                    (positions[3][1] - positions[0][1]) / 96 * 2.54
+                    - PANEL_HEIGHT_CM
+                )
+                self.assertTrue(all(abs(gap - CHART_HORIZONTAL_GAP_CM) < .02
+                                    for gap in horizontal))
+                self.assertAlmostEqual(vertical, CHART_VERTICAL_GAP_CM, places=2)
 
     def test_child_trend_reference_stays_orange_and_above_raw_independent_of_selection_order(self):
         from metrology_app.analysis_export import plot_figure, append_report
@@ -110,9 +150,11 @@ class ExcelReportLayoutTests(unittest.TestCase):
             self.assertEqual(match.x_axis.numFmt.formatCode, '0.00',
                              'A tight .95 boundary must not be labelled as integer 1')
             self.assertEqual(trend.series[-1].tx.strRef.f, "'Match Original (WO Card)'!E2")
-            self.assertEqual(trend.series[-1].graphicalProperties.line.prstDash, 'solid')
-            self.assertGreaterEqual(trend.series[-1].graphicalProperties.line.w, 22860)
-            self.assertGreaterEqual(trend.series[-1].marker.size, 4)
+            self.assertTrue(all(series.graphicalProperties.line.prstDash == 'solid'
+                                for series in trend.series))
+            self.assertTrue(all(series.graphicalProperties.line.w == 31750
+                                for series in trend.series))
+            self.assertTrue(all(series.marker.size == 6 for series in trend.series))
 
     def test_group_reference_curves_overlay_later_raw_groups_without_losing_group_colours(self):
         from metrology_app.analysis_export import plot_figure
@@ -155,8 +197,9 @@ class ExcelReportLayoutTests(unittest.TestCase):
                 self.assertIn("PAD: ARRAY", sheet.cell(header_row + 1, 1).value)
                 objects = sheet._charts if native else sheet._images
                 self.assertTrue(objects)
-                self.assertTrue(all(obj.anchor._from.row == 4 for obj in objects))
-                self.assertEqual(objects[0].anchor._from.col, 0)
+                cells = [fixtures.drawing_cell(obj, sheet) for obj in objects]
+                self.assertTrue(all(cell[1] == 4 for cell in cells))
+                self.assertEqual(cells[0][0], 0)
                 values = [c.value for row in sheet for c in row]
                 self.assertNotIn("Card source", values)
                 self.assertNotIn("Source row", values)
@@ -222,7 +265,8 @@ class ExcelReportLayoutTests(unittest.TestCase):
                     self.assertAlmostEqual(actual[1], expected[1], places=3)
                 self.assertIn("A1:G1", {str(area) for area in sheet.merged_cells.ranges})
                 self.assertEqual(sheet["A1"].value, "CD")
-                self.assertTrue(all(obj.anchor._from.row == 4 for obj in objects))
+                self.assertTrue(all(
+                    fixtures.drawing_cell(obj, sheet)[1] == 4 for obj in objects))
 
     def test_group_overview_and_complete_wafer_detail_export_side_by_side_in_both_modes(self):
         raw = pd.DataFrame({"Wafer ID": [f"WAFER-{index:03}" for index in range(20) for _ in range(3)],
@@ -241,7 +285,9 @@ class ExcelReportLayoutTests(unittest.TestCase):
                 dimensions = [panel.anchor.ext.cx / 360000 for panel in panels]
                 self.assertEqual(dimensions[0], 15)
                 self.assertGreaterEqual(dimensions[1], 25)
-                self.assertTrue(all(left.anchor._from.col < right.anchor._from.col for left, right in zip(panels, panels[1:])))
+                cells = [fixtures.drawing_cell(panel, sheet) for panel in panels]
+                self.assertTrue(all(left[0] < right[0]
+                                    for left, right in zip(cells, cells[1:])))
                 if native:
                     detail = book['Match Wafer (WO Card)']._charts[1]
                     categories = detail.series[0].cat.strRef
@@ -257,6 +303,10 @@ class ExcelReportLayoutTests(unittest.TestCase):
         self.assertEqual(figure.axes[0].get_xlim(), (.5, 51.5))
         self.assertAlmostEqual(figure.get_figwidth() * 2.54, 25, places=3)
         self.assertAlmostEqual(figure.get_figheight() * 2.54, 11, places=3)
+        line = figure.axes[0].lines[0]
+        self.assertEqual(line.get_linewidth(), 2.5)
+        self.assertEqual(line.get_marker(), "o")
+        self.assertEqual(line.get_markersize(), 6)
         figure.clear()
 
     def test_report_trend_keeps_die_sequence_and_once_per_span_identity_captions(self):
@@ -287,6 +337,93 @@ class ExcelReportLayoutTests(unittest.TestCase):
         # Equally wide captions each receive half the compact expanded axis,
         # even though the second Wafer contains three observations.
         self.assertAlmostEqual(float(np.interp(1.5, layout['source'], layout['display'])), 2.5)
+
+    def test_group_export_uses_independent_group_and_wafer_width_rules(self):
+        import numpy as np
+        from openpyxl import Workbook
+        from metrology_app.excel_export import (
+            parameter_figure, parameter_footer, sequence_export_layout)
+        data = pd.DataFrame({
+            "Group": ["A", "B", "B", "B", "B"],
+            "Group label": ["GROUP"] * 5,
+            "Wafer": ["WAFER"] * 5,
+            "Wafer key": ["W1", "W2", "W2", "W3", "W3"],
+            "Show wafer": [False, True, True, True, True],
+            "Raw": [1., 2., 3., 4., 5.],
+            "Reference": [1., 2., 3., 4., 5.],
+            "Die Seq": ["1", "1", "2", "1", "2"],
+        })
+
+        captions = parameter_footer(Workbook().active, 3, data,
+                                    {"Group": 1, "Wafer": 2}, "group")
+        layout = sequence_export_layout(
+            data, mode="group", captions=captions)
+
+        group_only = layout["group_only_widths"]
+        mixed = layout["group_widths"]
+        self.assertAlmostEqual(group_only["B"] / group_only["A"], 4, places=6)
+        self.assertAlmostEqual(mixed["B"] / mixed["A"], 2, places=6)
+        self.assertGreater(group_only["B"], mixed["B"])
+        self.assertEqual(len(layout["wafer_widths"]["B"]), 2)
+        self.assertAlmostEqual(
+            sum(layout["wafer_widths"]["B"].values()), mixed["B"], places=6)
+        groups = [item for item in captions if item["role"] == "group"]
+        self.assertEqual(len(groups), 2)
+        self.assertTrue(all(item["show"] for item in groups))
+        figure = parameter_figure(
+            "CD", data, None, "Final", "Group", panel="Trend",
+            sequence=layout)
+        try:
+            positions = {text.get_text(): [] for text in figure.axes[0].texts}
+            for text in figure.axes[0].texts:
+                positions[text.get_text()].append(float(text.xy[0]))
+            a_width = mixed["A"]
+            b_width = mixed["B"]
+            wafer_a, wafer_b = layout["wafer_widths"]["B"].values()
+            self.assertTrue(np.allclose(
+                sorted(positions["GROUP"]),
+                [a_width / 2, a_width + b_width / 2]))
+            self.assertTrue(np.allclose(
+                sorted(positions["WAFER"]),
+                [a_width + wafer_a / 2,
+                 a_width + wafer_a + wafer_b / 2]))
+        finally:
+            figure.clear()
+        hidden = data.assign(**{"Show wafer": False})
+        hidden_captions = parameter_footer(
+            Workbook().active, 3, hidden, {"Group": 1, "Wafer": 2}, "group")
+        hidden_layout = sequence_export_layout(
+            hidden, mode="group", captions=hidden_captions)
+        self.assertEqual(hidden_layout["group_widths"],
+                         hidden_layout["group_only_widths"])
+
+    def test_wafer_export_keeps_every_visible_label_and_has_no_width_cap(self):
+        from openpyxl import Workbook
+        from metrology_app.excel_export import parameter_footer, sequence_export_layout
+        rows = []
+        for wafer in range(1, 7):
+            for die in (1, 2):
+                rows.append({
+                    "Group": "All",
+                    "Group label": "All",
+                    "Wafer": f"WAFER-{wafer:02}\nLOT: LONG-LOT-{wafer:02}\nPAD: LONG-PAD-{wafer:02}",
+                    "Wafer key": (f"WAFER-{wafer:02}", f"LOT-{wafer:02}", "PAD"),
+                    "Show wafer": True,
+                    "Raw": float(wafer * 10 + die),
+                    "Reference": float(wafer * 10 + die + 1),
+                    "Die Seq": str(die),
+                })
+        data = pd.DataFrame(rows)
+        captions = parameter_footer(Workbook().active, 3, data,
+                                    {"Group": 1, "Wafer": 2}, "wafer")
+        layout = sequence_export_layout(data, mode="wafer", captions=captions)
+
+        self.assertEqual(len(captions), 6)
+        self.assertTrue(all(item["show"] for item in captions))
+        self.assertEqual(len(layout["captions"]), 6)
+        self.assertGreater(layout["width"], 25,
+                           "Visible full labels take precedence over the old 25 cm floor")
+        self.assertEqual(len(layout["x"]), len(data))
 
     def test_report_axes_keep_decimal_ticks_and_signed_bias_inside_fixed_size(self):
         from metrology_app.excel_export import parameter_figure, sequence_layout
@@ -427,6 +564,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
             "head_names": {"0": "Head A", "1": "Head B"}}, pd.DataFrame({"TestFlag": [0, 1, 1, 0]}))
         self.window.group_controls.apply_button.click()
         before = self.window.workspace_snapshot()
+        widths = []
         with tempfile.TemporaryDirectory() as folder:
             for native in (True, False):
                 book = load_workbook(self.window.export_excel(Path(folder) / f"wafer-{native}.xlsx", native=native))
@@ -446,16 +584,51 @@ class ExcelReportLayoutTests(unittest.TestCase):
                     self.assertIn(f"'Match Original (WO Card)'!${ref_letter}${source_row + 1}", wafer.cell(row, 6).value)
                 panels = wafer._charts if native else wafer._images
                 self.assertEqual(len(panels), 3, "Match, Wafer Trend and Wafer Bias, without a Group overview")
-                self.assertTrue(all(panel.anchor._from.row == 4 for panel in panels))
-                self.assertGreaterEqual(panels[1].anchor.ext.cx / 360000, 25)
+                self.assertTrue(all(
+                    fixtures.drawing_cell(panel, wafer)[1] == 4 for panel in panels))
+                widths.append(panels[1].anchor.ext.cx / 360000)
+                self.assertGreater(widths[-1], 0)
+                self.assertLess(widths[-1], 25, "Small wafer sheets must stay tight")
                 if native:
                     categories = panels[1].series[0].cat.strRef
                     self.assertEqual(categories.f, "'Match Wafer (WO Card)'!$C$3:$C$6")
                     self.assertEqual([point.v for point in categories.strCache.pt], ['01', '02', '01', '02'])
+        self.assertAlmostEqual(widths[0], widths[1], places=4)
         after = self.window.workspace_snapshot()
         self.assertEqual(before.states, after.states)
         for name in before.frames:
             pd.testing.assert_frame_equal(before.frames[name], after.frames[name])
+
+    def test_group_and_wafer_trend_widths_match_between_export_renderers(self):
+        raw = pd.DataFrame({
+            "Wafer ID": ["W1", "W2", "W2", "W3", "W3"],
+            "Die Seq": [1, 1, 2, 1, 2],
+            "CD": ["1.000", "2.000", "3.000", "4.000", "5.000"],
+        })
+        self.window.set_reference_frame(
+            pd.DataFrame({"CD Reference": [2., 3., 4., 5., 6.]}))
+        self.window.set_raw_frame(raw)
+        self.window.group_controls.restore(
+            {"enabled": True, "mark_enabled": False,
+             "head_names": {"0": "A", "1": "B"},
+             "show_wafer_groups": ["All:1"]},
+            pd.DataFrame({"TestFlag": [0, 1, 1, 1, 1]}))
+        self.window.group_controls.apply_button.click()
+        widths = {}
+        with tempfile.TemporaryDirectory() as folder:
+            for native in (True, False):
+                book = load_workbook(
+                    self.window.export_excel(
+                        Path(folder) / f"widths-{native}.xlsx", native=native))
+                for prefix in ("Match Group", "Match Wafer"):
+                    sheet = book[f"{prefix} (WO Card)"]
+                    panels = sheet._charts if native else sheet._images
+                    self.assertEqual(panels[1].anchor.ext.cx, panels[2].anchor.ext.cx)
+                    widths[(prefix, native)] = panels[1].anchor.ext.cx
+        for prefix in ("Match Group", "Match Wafer"):
+            self.assertEqual(widths[(prefix, True)], widths[(prefix, False)])
+        self.assertNotEqual(widths[("Match Group", True)],
+                            widths[("Match Wafer", True)])
 
     def test_fullmap_trend_uses_own_data_and_only_mapped_parameters(self):
         self.window.match_type.setCurrentText('TEM')
@@ -476,8 +649,12 @@ class ExcelReportLayoutTests(unittest.TestCase):
                 self.assertEqual(objects[0].anchor._from.row, 4)
                 self.assertEqual(objects[0].anchor._from.col, 0)
                 if native:
-                    source = objects[0].series[0].val.numRef.f
+                    series = objects[0].series[0]
+                    source = series.val.numRef.f
                     self.assertIn("'FullMap (WO Card)'", source)
+                    self.assertEqual(series.marker.symbol, "circle")
+                    self.assertEqual(series.marker.size, 6)
+                    self.assertEqual(series.graphicalProperties.line.w, 31750)
                     letter = fixtures.source_cell(sheet, 'CD', 2).column_letter
                     formulas = [cell.value for row in sheet for cell in row
                                 if cell.data_type == "f" and f'IF({letter}2=""' in cell.value]

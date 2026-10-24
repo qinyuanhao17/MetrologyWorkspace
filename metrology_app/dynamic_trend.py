@@ -25,7 +25,8 @@ from PyQt6.QtWidgets import (
 )
 
 from .appearance import (MAX_COPY_PIXELS, MAX_EXPORT_PIXELS, configure_resolution_combo,
-                         export_dpi, panel_title_label, resolution_settings)
+                         export_dpi, panel_title_label, resolution_settings,
+                         TREND_LINE_WIDTH, TREND_MARKER_SIZE)
 from .appearance import widget_to_qimage
 from .dynamic import (changed_dynamic_parameters, cycle_trend,
                       prepare_dynamic_frame, selected_measurement_rows)
@@ -40,21 +41,13 @@ PANEL_WIDTH = 900
 PANEL_HEIGHT = 350
 DIE_CONTROL_WIDTH = 150
 # Die traces need to stay distinguishable up to a full reticle of measurements,
-# so the palette and markers are longer than the comparison palettes.
+# so this palette is longer than the comparison palettes.
 DIE_COLOURS = (
     "#4472C4", "#ED7D31", "#A5A5A5", "#FFC000", "#5B9BD5",
     "#70AD47", "#264478", "#9E480E", "#636363", "#997300",
     "#255E91", "#43682B", "#698ED0", "#F1975A", "#B7B7B7",
     "#FFCD33", "#7CAFDD", "#8CC168", "#8EA9DB", "#C55A11",
 )
-# (pyqtgraph symbol, matplotlib marker). Only symbols both backends know:
-# pyqtgraph has no plain "v"/"<"/">" — its triangles are t, t1, t2 and t3.
-DIE_SYMBOLS = (
-    ("o", "o"), ("s", "s"), ("t", "^"), ("t1", "v"), ("t2", "<"), ("t3", ">"),
-    ("d", "D"), ("+", "+"), ("x", "x"), ("star", "*"), ("p", "P"), ("h", "h"),
-)
-
-
 class DiePickerComboBox(QComboBox):
     """Switch the plotted Die on vertical wheel input, even without focus."""
 
@@ -85,6 +78,7 @@ class DynamicTrendPage(QWidget):
         self.die_pickers = {}
         self.selected_dies = {}
         self.comparisons = {}
+        self._compare_render_pending = False
         self.home_views = []
         self.secondary_home_views = []
         self.plot_host = None
@@ -114,11 +108,6 @@ class DynamicTrendPage(QWidget):
 
         options = QHBoxLayout()
         options.setSpacing(8)
-        self.view_mode = QComboBox(objectName="dynamicTrendMode")
-        self.view_mode.addItems(["Single Die", "All Dies"])
-        self.view_mode.setToolTip("Single Die: compare parameters for one Die. All Dies: compare every Die of one parameter.")
-        self.view_mode.currentIndexChanged.connect(self.refresh)
-        options.addWidget(self.view_mode)
         options.addWidget(QLabel("Columns", objectName="muted"))
         self.columns = QComboBox()
         self.columns.addItems(["1", "2"])
@@ -363,20 +352,12 @@ class DynamicTrendPage(QWidget):
                    default=0)
         self.summary.setText(f"{len(self.panel_specs)} × {dies}")
         self.status.setText(
-            f"{len(self.panel_specs)} parameters · {'all' if self.all_dies else 'one of'} {dies} Die Seq per panel · "
+            f"{len(self.panel_specs)} parameters · one of {dies} Die Seq per panel · "
             f"{cycles} Cycle points."
         )
         QTimer.singleShot(0, self.remember_home_views)
 
-    @property
-    def all_dies(self):
-        return self.view_mode.currentIndex() == 1
-
     def panel_curves(self, parameter):
-        table = self.panel_tables[parameter]
-        if self.all_dies:
-            return [(name, die) for name in [parameter, *self.comparisons.get(parameter, ())]
-                    for die in self.panel_tables[name].columns]
         die = self.selected_dies[parameter]
         return [(name, die) for name in [parameter, *self.comparisons.get(parameter, ())]
                 if die in self.panel_tables[name].columns]
@@ -407,18 +388,20 @@ class DynamicTrendPage(QWidget):
         targets = getattr(widget, 'dynamic_axes', {})
         for index, (name, die) in enumerate(curves):
             table = self.panel_tables[name]
-            if name != parameter and name not in targets:
-                targets[name] = widget.add_secondary_axis(name, DIE_COLOURS[(len(targets) + 5) % len(DIE_COLOURS)])
+            if name == parameter:
+                target = plot
+            elif name not in targets:
+                targets[name] = widget.add_secondary_axis(
+                    name, DIE_COLOURS[(len(targets) + 5) % len(DIE_COLOURS)])
                 targets[name].setDefaultPadding(HOME_PADDING)
-            item = self.plot_die(targets.get(name, plot), table, die)
+                target = targets[name]
+            else:
+                target = targets[name]
+            item = self.plot_die(target, table, die)
             item.dynamic_series = (name, die)
-            if self.all_dies and name != parameter:
-                pen = item.opts['pen']
-                pen.setStyle(Qt.PenStyle.DashLine)
-                item.setPen(pen)
-            if not self.all_dies and index:
+            if index:
                 colour = DIE_COLOURS[(index + 4) % len(DIE_COLOURS)]
-                item.setPen(pg.mkPen(colour, width=1.8))
+                item.setPen(pg.mkPen(colour, width=TREND_LINE_WIDTH))
                 item.setSymbolBrush(colour)
                 item.setSymbolPen(colour)
             if plot.legend is not None:
@@ -435,21 +418,32 @@ class DynamicTrendPage(QWidget):
         return widget.listDataItems() + [item for view in widget.secondary_views
             for item in view.addedItems if isinstance(item, pg.PlotDataItem)]
 
-    def add_compare(self, parameter):
+    def add_compare(self, parameter, *, defer=False):
         selected = self.comparisons.setdefault(parameter, [])
         available = [name for name in self.panel_tables if name != parameter and name not in selected]
         if available:
             selected.append(available[0])
-            self.render_interactive(dict(self.panel_tables))
+            self._queue_compare_render() if defer else self.render_interactive(dict(self.panel_tables))
 
-    def change_compare(self, parameter, index, name):
+    def change_compare(self, parameter, index, name, *, defer=False):
         selected = self.comparisons.get(parameter, [])
         if index < len(selected):
             if name is None:
                 selected.pop(index)
             else:
                 selected[index] = name
-            self.render_interactive(dict(self.panel_tables))
+            self._queue_compare_render() if defer else self.render_interactive(dict(self.panel_tables))
+
+    def _queue_compare_render(self):
+        """Rebuild after the emitting combo/button has returned to Qt."""
+        if self._compare_render_pending:
+            return
+        self._compare_render_pending = True
+        QTimer.singleShot(0, self._refresh_compare_panels)
+
+    def _refresh_compare_panels(self):
+        self._compare_render_pending = False
+        self.render_interactive(dict(self.panel_tables))
 
     def build_die_picker(self, parameter, table):
         """Right-hand control that keeps one panel on a single Die Seq."""
@@ -473,15 +467,12 @@ class DynamicTrendPage(QWidget):
             lambda _index, name=parameter, box=picker:
             self.select_die(name, box.currentData())
         )
-        if not self.all_dies:
-            layout.addWidget(picker)
-        else:
-            picker.hide()
-            picker.setParent(control)
+        layout.addWidget(picker)
         add = QPushButton("Add Compare", objectName="dynamicAddCompare")
         selected = self.comparisons.get(parameter, [])
         add.setEnabled(len(selected) < len(self.panel_tables) - 1)
-        add.clicked.connect(lambda _=False, name=parameter: self.add_compare(name))
+        add.clicked.connect(lambda _=False, name=parameter:
+                            self.add_compare(name, defer=True))
         layout.addWidget(add)
         for index, current in enumerate(selected):
             row = QHBoxLayout()
@@ -492,17 +483,18 @@ class DynamicTrendPage(QWidget):
                     box.addItem(name, name)
             box.setCurrentIndex(box.findData(current))
             box.currentIndexChanged.connect(lambda _i, p=parameter, i=index, b=box:
-                                            self.change_compare(p, i, b.currentData()))
+                                            self.change_compare(p, i, b.currentData(), defer=True))
             row.addWidget(box)
-            remove = QPushButton("×")
+            remove = QPushButton("×", objectName="compareRemove")
             remove.setAccessibleName("Remove comparison")
-            remove.setFixedWidth(25)
-            remove.clicked.connect(lambda _=False, p=parameter, i=index: self.change_compare(p, i, None))
-            row.addWidget(remove)
+            remove.setToolTip("Remove this comparison")
+            remove.setFixedSize(25, 25)
+            remove.clicked.connect(lambda _=False, p=parameter, i=index:
+                                   self.change_compare(p, i, None, defer=True))
+            row.addWidget(remove, 0, Qt.AlignmentFlag.AlignVCenter)
             layout.addLayout(row)
         layout.addStretch(1)
-        if not self.all_dies:
-            self.die_pickers[parameter] = picker
+        self.die_pickers[parameter] = picker
         return control
 
     def select_die(self, parameter, die):
@@ -532,11 +524,10 @@ class DynamicTrendPage(QWidget):
         values = pd.to_numeric(table[die], errors="coerce").to_numpy(float)
         position = list(table.columns).index(die)
         colour = DIE_COLOURS[position % len(DIE_COLOURS)]
-        symbol = DIE_SYMBOLS[position % len(DIE_SYMBOLS)][0]
         item = pg.PlotDataItem(
             cycles, values, connect="finite",
-            pen=pg.mkPen(colour, width=1.8),
-            symbol=symbol, symbolSize=5,
+            pen=pg.mkPen(colour, width=TREND_LINE_WIDTH),
+            symbol="o", symbolSize=TREND_MARKER_SIZE,
             symbolPen=pg.mkPen(colour), symbolBrush=pg.mkBrush(colour),
         )
         plot.addItem(item)
@@ -606,6 +597,8 @@ class DynamicTrendPage(QWidget):
         """Matplotlib mirror of the on-screen grid, used for Export PNG."""
         columns = max(1, min(int(self.columns.currentText()), len(self.panel_specs)))
         rows = ceil(len(self.panel_specs) / columns)
+        extra_axes = max((len(self.comparisons.get(parameter, ()))
+                          for parameter, _ in self.panel_specs), default=0)
         width, height = self.base_size
         base = int(self.font_size.currentText())
         stats_header = 0
@@ -622,8 +615,7 @@ class DynamicTrendPage(QWidget):
             for index, (name, die) in enumerate(curves):
                 source = self.panel_tables[name]
                 position = list(source.columns).index(die)
-                colour = DIE_COLOURS[(position if self.all_dies or not index else index + 4) % len(DIE_COLOURS)]
-                marker = DIE_SYMBOLS[position % len(DIE_SYMBOLS)][1]
+                colour = DIE_COLOURS[(position if not index else index + 4) % len(DIE_COLOURS)]
                 values = pd.to_numeric(source[die], errors="coerce").to_numpy(float)
                 if name not in targets:
                     target = ax.twinx()
@@ -633,8 +625,9 @@ class DynamicTrendPage(QWidget):
                     plain_matplotlib_y(target)
                     targets[name] = target
                 targets[name].plot([float(cycle) for cycle in source.index], values, color=colour,
-                        linestyle="--" if self.all_dies and name != parameter else "-",
-                        marker=marker, markersize=3.8, linewidth=1.5,
+                        linestyle="-",
+                        marker="o", markersize=TREND_MARKER_SIZE,
+                        linewidth=TREND_LINE_WIDTH,
                         label=f"{name} · Die {die}")
             if len(curves) > 1:
                 handles, labels = [], []
@@ -642,8 +635,9 @@ class DynamicTrendPage(QWidget):
                     lines, names = target.get_legend_handles_labels()
                     handles.extend(lines)
                     labels.extend(names)
-                ax.legend(handles, labels, fontsize=max(6, base - 2), ncol=min(4, len(curves)))
-            title = str(parameter) if self.all_dies else f"{parameter} · Die {self.selected_dies[parameter]}"
+                ax.legend(handles, labels, fontsize=max(6, base - 2),
+                          ncol=min(4, len(curves)))
+            title = f"{parameter} · Die {self.selected_dies[parameter]}"
             ax.set_title(
                 title, fontsize=base + 1,
                 fontweight="semibold", pad=8,
@@ -663,9 +657,9 @@ class DynamicTrendPage(QWidget):
             self.figure.subplots_adjust(left=.08, right=.985, top=1 - stats_header / height,
                                         bottom=50 / height, hspace=(stats_header + 50) / plot_height, wspace=.2)
         else:
-            extra_axes = max((len(self.comparisons.get(parameter, ())) for parameter, _ in self.panel_specs), default=0)
             self.figure.subplots_adjust(
-                left=.08, right=max(.55, .985 - .085 * extra_axes), top=.93, bottom=.1,
+                left=.08, right=max(.55, .985 - .085 * extra_axes),
+                top=.93, bottom=.1,
                 hspace=.55, wspace=.2 + .15 * extra_axes
             )
 
@@ -722,4 +716,4 @@ class DynamicTrendPage(QWidget):
             QApplication.restoreOverrideCursor()
 
 
-__all__ = ["DIE_COLOURS", "DIE_SYMBOLS", "DynamicTrendPage"]
+__all__ = ["DIE_COLOURS", "DynamicTrendPage"]

@@ -17,6 +17,64 @@ APP = QApplication.instance() or QApplication([])
 
 
 class TableClipboardTests(unittest.TestCase):
+    def test_edit_returns_immutable_original_values_for_applied_cells_only(self):
+        model = SheetModel()
+        model.load_matrix([["ID", "Value"], ["001", "1.000"], ["002", "2.100"]])
+        model.set_clipboard_locks(["ID"])
+        initial = model.snapshot()
+        changed = QSignalSpy(model.changed)
+        before = model.edit({(1, 0): "999", (1, 1): "1.250", (2, 1): "2.100"})
+        self.assertEqual(before, {(1, 1): "1.000"})
+        with self.assertRaises(TypeError):
+            before[(1, 1)] = "corrupt Undo"
+        self.assertEqual((len(changed), model.undo.count()), (1, 1))
+        self.assertEqual(model.cells[(1, 0)], "001")
+        self.assertEqual(model.edit({(1, 1): "1.250"}), {})
+        self.assertEqual((len(changed), model.undo.count()), (1, 1))
+        model.undo.undo()
+        self.assertEqual(model.snapshot(), initial)
+        model.undo.redo()
+        self.assertEqual(model.cells[(1, 1)], "1.250")
+        self.assertEqual(before, {(1, 1): "1.000"})
+
+    def test_order_paste_reports_only_editable_cells_and_preserves_undo(self):
+        from metrology_app.match_group_ui import OrderModel
+        model = OrderModel()
+        model.load_matrix([["TestFlag"], ["001"], ["002"]])
+        initial = model.snapshot()
+        model.paste_cells({(1, 0): "010", (1, 1): "derived", (2, 0): "002"})
+        self.assertEqual(dict(model.paste_report.changes), {(1, 0): ("001", "010")})
+        self.assertEqual(model.paste_report.columns, ((0, "TestFlag", 1),))
+        self.assertEqual(model.undo.count(), 1)
+        self.assertNotIn((1, 1), model.cells)
+        model.undo.undo()
+        self.assertEqual(model.snapshot(), initial)
+
+    def test_delete_ranges_preserve_unselected_and_locked_cells_as_one_edit(self):
+        for ranges in ([(1, 0, 2, 1)], [(1, 0, 1, 1), (3, 0, 3, 1)]):
+            with self.subTest(ranges=ranges):
+                model = SheetModel()
+                model.load_matrix([["ID", "Value"], ["001", "1.000"],
+                                   ["002", "2.100"], ["003", "3.000"]])
+                model.set_clipboard_locks(["ID"])
+                _, view = self.make_view(model)
+                initial = model.snapshot()
+                changed = QSignalSpy(model.changed)
+                for top, left, bottom, right in ranges:
+                    view.selectionModel().select(
+                        QItemSelection(model.index(top, left), model.index(bottom, right)),
+                        QItemSelectionModel.SelectionFlag.Select)
+                QTest.keyClick(view, Qt.Key.Key_Delete)
+                selected_rows = {row for top, _, bottom, _ in ranges
+                                 for row in range(top, bottom + 1)}
+                for row in range(1, 4):
+                    self.assertEqual(model.cells[(row, 0)], f"{row:03d}")
+                    self.assertEqual(model.cells.get((row, 1), ""),
+                                     "" if row in selected_rows else initial[0][row, 1])
+                self.assertEqual((len(changed), model.undo.count()), (1, 1))
+                model.undo.undo()
+                self.assertEqual(model.snapshot(), initial)
+
     def make_view(self, model=None):
         model = model or SheetModel()
         if not model.cells:

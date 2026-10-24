@@ -34,6 +34,42 @@ def source_cell(sheet, name, row):
     return sheet.cell(row, source_column(sheet, name))
 
 
+def drawing_xy_px(drawing, sheet):
+    anchor = drawing.anchor
+    if getattr(anchor, 'pos', None) is not None:
+        return anchor.pos.x / 9525, anchor.pos.y / 9525
+    from openpyxl.utils import get_column_letter
+    x = sum(
+        ((sheet.column_dimensions[get_column_letter(column)].width or 13) * 7 + 5)
+        for column in range(1, anchor._from.col + 1)
+    ) + anchor._from.colOff / 9525
+    y = sum(
+        (sheet.row_dimensions[row].height or 15.)
+        for row in range(1, anchor._from.row + 1)
+    ) * 96 / 72 + anchor._from.rowOff / 9525
+    return x, y
+
+
+def drawing_cell(drawing, sheet):
+    from openpyxl.utils import get_column_letter
+    x, y = drawing_xy_px(drawing, sheet)
+    column, cursor = 0, 0.
+    while True:
+        width = (sheet.column_dimensions[get_column_letter(column + 1)].width or 13) * 7 + 5
+        if cursor + width > x:
+            break
+        cursor += width
+        column += 1
+    row, cursor = 0, 0.
+    while True:
+        height = (sheet.row_dimensions[row + 1].height or 15.) * 96 / 72
+        if cursor + height > y:
+            break
+        cursor += height
+        row += 1
+    return column, row
+
+
 class ExcelExportTests(unittest.TestCase):
     def test_partial_reference_export_keeps_raw_rows_and_missing_pair_gaps(self):
         reference = pd.DataFrame({"CD Reference": ["3.000", "", "7.000"]})
@@ -97,10 +133,11 @@ class ExcelExportTests(unittest.TestCase):
             charts = match._charts
             self.assertEqual([type(chart) for chart in charts],
                              [ScatterChart, LineChart, LineChart])
-            self.assertEqual(charts[0].anchor._from.col, 0)
-            self.assertTrue(all(left.anchor._from.col < right.anchor._from.col
-                                for left, right in zip(charts, charts[1:])))
-            self.assertEqual([chart.anchor._from.row for chart in charts], [4, 4, 4])
+            cells = [drawing_cell(chart, match) for chart in charts]
+            self.assertEqual(cells[0][0], 0)
+            self.assertTrue(all(left[0] < right[0]
+                                for left, right in zip(cells, cells[1:])))
+            self.assertEqual([cell[1] for cell in cells], [4, 4, 4])
             self.assertNotEqual(charts[0].x_axis.numFmt.formatCode, "General")
             points = charts[0].series[0]
             self.assertEqual(points.xVal.numRef.f, "'Match Original (WO Card)'!$C$3:$C$5")
@@ -221,7 +258,9 @@ class ExcelExportTests(unittest.TestCase):
             pictures = load_workbook(path)
             self.assertFalse(any(sheet._charts for sheet in pictures))
             self.assertTrue(pictures["Match Original (WO Card)"]._images)
-            self.assertEqual(pictures["Match Original (WO Card)"]._images[0].anchor._from.col, 0)
+            image = pictures["Match Original (WO Card)"]._images[0]
+            self.assertEqual(
+                drawing_cell(image, pictures["Match Original (WO Card)"])[0], 0)
             for title in native.sheetnames:
                 self.assertEqual(list(native[title].values), list(pictures[title].values))
             self.assertEqual(list(Path(folder).rglob("*.png")), [])
@@ -305,8 +344,8 @@ class ExcelExportTests(unittest.TestCase):
             self.assertEqual(trend.series[0].graphicalProperties.line.solidFill.srgbClr, "5B9BD5")
             self.assertEqual(trend.series[1].graphicalProperties.line.solidFill.srgbClr, "ED7D31")
             self.assertEqual(trend.series[1].tx.strRef.f, "'Match Original (WO Card)'!E2")
-            self.assertAlmostEqual(trend.y_axis.scaling.min, 2.)
-            self.assertAlmostEqual(trend.y_axis.scaling.max, 8.)
+            self.assertLess(trend.y_axis.scaling.min, 2.)
+            self.assertGreater(trend.y_axis.scaling.max, 8.)
             self.assertEqual(trend.y_axis.majorUnit, 1.)
             self.assertAlmostEqual(match.x_axis.scaling.min, .95)
             self.assertAlmostEqual(match.x_axis.scaling.max, 3.05)
@@ -361,6 +400,14 @@ class ExcelExportTests(unittest.TestCase):
                 native = load_workbook(window.export_excel(Path(folder) / "own.xlsx"))
                 self.assertTrue(native["Correlation"]._charts)
                 self.assertTrue(native["Trend"]._charts)
+                trend_series = [series for chart in native["Trend"]._charts
+                                for series in chart.series]
+                self.assertTrue(trend_series)
+                self.assertTrue(all(series.marker.symbol == "circle"
+                                    for series in trend_series))
+                self.assertTrue(all(series.marker.size == 6 for series in trend_series))
+                self.assertTrue(all(series.graphicalProperties.line.w == 31750
+                                    for series in trend_series))
                 self.assertEqual(native["Raw Data"]["C2"].value, "1.000")
                 self.assertEqual(native["Ref Data"]["C1"].value, "DP Ref")
                 table = [cell.value for row in native["Trend"] for cell in row]

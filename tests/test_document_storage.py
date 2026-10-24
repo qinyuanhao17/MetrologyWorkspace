@@ -19,6 +19,153 @@ APP = QApplication.instance() or QApplication([])
 
 
 class DocumentStorageTests(unittest.TestCase):
+    def test_dirty_checks_follow_card_filter_and_plot_values_and_clean_on_exact_reversion(self):
+        window = CorrelationWindow()
+        try:
+            window.set_table(pd.DataFrame({"Wafer ID": ["001"] * 3,
+                                           "CD": ["1.000", "2.000", "3.000"],
+                                           "Depth": ["3.00", "5.00", "7.00"]}), "test")
+            window.set_parameter_cards({"CD": (1.0, 0.0)})
+            window.sequence_page.selector.selectAll()
+            window.sequence_page.draw_plot()
+            window.show()
+            APP.processEvents()
+            window.document.mark_clean()
+            accepted = window.workspace_snapshot()
+            minimum = window.correlation_page.min_rsq.value()
+            transitions = (
+                ("Card", lambda: window.set_parameter_cards({"CD": (1.25, -.5)}),
+                 lambda: window.set_parameter_cards({"CD": (1.0, 0.0)})),
+                ("filter", lambda: window.sequence_page.parameter_filter.set_selection("CD"),
+                 lambda: window.sequence_page.parameter_filter.set_selection(None)),
+                ("plot", lambda: window.correlation_page.min_rsq.setValue(.5 if minimum != .5 else .6),
+                 lambda: window.correlation_page.min_rsq.setValue(minimum)),
+            )
+            for name, change, revert in transitions:
+                with self.subTest(control=name):
+                    change()
+                    self.assertTrue(window.document.is_dirty())
+                    revert()
+                    self.assertFalse(window.document.is_dirty())
+            window.parameter_list.setFocus()
+            APP.processEvents()
+            self.assertIs(APP.focusWidget(), window.parameter_list)
+            self.assertFalse(window.document.is_dirty())
+            from metrology_app.workspace_document import same_snapshot
+            self.assertTrue(same_snapshot(window.document.baseline, accepted))
+        finally:
+            window.document.force_close = True
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_point_precision_failure_restores_the_active_global_value(self):
+        import os
+        from metrology_app.settings import get_settings, load_settings, save_settings
+        before = load_settings()
+        save_settings({"point_value_decimals": 2})
+        window = MainWindow()
+        try:
+            with patch.object(os, "replace", side_effect=OSError("disk unavailable")):
+                window.plot_page.point_decimals.setValue(4)
+            self.assertEqual(get_settings()["point_value_decimals"], 2)
+            self.assertEqual(window.plot_page.point_decimals.value(), 2)
+            self.assertIn("Could not save", window.plot_page.status.text())
+        finally:
+            save_settings(before)
+            window.document.force_close = True
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    def test_document_overlay_save_restore_and_discard_do_not_change_global_defaults(self):
+        from metrology_app.settings import SETTINGS_PATH, load_settings, save_settings
+        before = load_settings()
+        save_settings({"trend_overlay": {}, "trend_source_overlay": None})
+        windows = []
+        try:
+            for _ in range(2):
+                window = CorrelationWindow()
+                windows.append(window)
+                window.set_table(pd.DataFrame({"Wafer ID": ["001"] * 3,
+                                               "CD": [1., 2., 3.], "Depth": [3., 5., 7.]}), "test")
+                window.sequence_page.selector.selectAll()
+                window.sequence_page.draw_plot()
+                window.document.mark_clean()
+            first, second = windows
+            baseline = first.workspace_snapshot()
+            global_bytes = SETTINGS_PATH.read_bytes()
+            self.assertTrue(first.sequence_page.set_overlay("CD", "Depth"))
+            self.assertEqual(SETTINGS_PATH.read_bytes(), global_bytes)
+            self.assertEqual(second.sequence_page.overlay, {})
+            self.assertTrue(first.document.is_dirty())
+            self.assertFalse(second.document.is_dirty())
+            save_settings({"trend_overlay": {"Global": ["Default"]}})
+            with tempfile.TemporaryDirectory() as folder:
+                path = Path(folder) / "trend.wct"
+                first.document.save(path)
+                restored = CorrelationWindow()
+                windows.append(restored)
+                restored.load_workspace(path)
+                self.assertEqual(restored.sequence_page.overlay, {"CD": ["Depth"]})
+                self.assertEqual(load_settings()["trend_overlay"], {"Global": ["Default"]})
+            first.restore_workspace(baseline)
+            self.assertEqual(first.sequence_page.overlay, {})
+            self.assertEqual(load_settings()["trend_overlay"], {"Global": ["Default"]})
+        finally:
+            for window in windows:
+                window.document.force_close = True
+                window.close()
+                window.deleteLater()
+            APP.processEvents()
+            load_settings()
+            save_settings(before)
+
+    def test_settings_dialog_reports_failed_save_without_accepting_or_applying(self):
+        import os
+        from metrology_app.settings import get_settings, load_settings
+        from metrology_app.settings_dialog import SettingsDialog
+        from PyQt6.QtTest import QSignalSpy
+        before = load_settings()
+        dialog = SettingsDialog()
+        accepted = QSignalSpy(dialog.accepted)
+        try:
+            dialog.recovery_interval.setValue(300)
+            with patch.object(os, "replace", side_effect=OSError("disk unavailable")), \
+                    patch.object(QMessageBox, "warning") as warning:
+                dialog.save()
+            self.assertEqual(len(accepted), 0)
+            self.assertEqual(get_settings(), before)
+            warning.assert_called_once()
+        finally:
+            dialog.close()
+            dialog.deleteLater()
+
+    def test_settings_dialog_reloads_conflicting_values_before_explicit_retry(self):
+        from metrology_app.settings import get_settings, load_settings, save_settings
+        from metrology_app.settings_dialog import SettingsDialog
+        from PyQt6.QtTest import QSignalSpy
+        before = load_settings()
+        save_settings({"font_size": 10})
+        dialog = SettingsDialog()
+        accepted = QSignalSpy(dialog.accepted)
+        try:
+            save_settings({"font_size": 12})
+            with patch.object(QMessageBox, "warning") as warning:
+                dialog.save()
+            self.assertEqual(get_settings()["font_size"], 12)
+            self.assertEqual(len(accepted), 0)
+            self.assertEqual(dialog.font_size.currentText(), "12")
+            warning.assert_called_once()
+            dialog.font_size.setCurrentText("14")
+            dialog.save()
+            self.assertEqual(get_settings()["font_size"], 14)
+            self.assertEqual(len(accepted), 1)
+        finally:
+            save_settings(before)
+            dialog.close()
+            dialog.deleteLater()
+
     def test_cancelled_save_as_suspends_recovery_publication_and_then_resumes_the_draft(self):
         import os
         import threading

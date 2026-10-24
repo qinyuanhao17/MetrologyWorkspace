@@ -143,8 +143,8 @@ class AnalysisPlotStyleTests(unittest.TestCase):
         page.draw_plot()
         original = page.plot_widgets[0].listDataItems()[0]
         self.assertEqual(original.opts["pen"].color().name(), "#5b9bd5")
-        self.assertEqual(original.opts["pen"].widthF(), 2.2)
-        self.assertEqual(original.opts["symbolSize"], 5)
+        self.assertEqual(original.opts["pen"].widthF(), 2.5)
+        self.assertEqual(original.opts["symbolSize"], 6)
         self.assertTrue(page.set_overlay("CD", "Depth"))
         widget = page.plot_widgets[0]
         items = list(widget.listDataItems())
@@ -153,14 +153,16 @@ class AnalysisPlotStyleTests(unittest.TestCase):
         self.assertEqual(len(items), 2)
         self.assertEqual({item.opts["symbol"] for item in items}, {"o"})
         self.assertEqual({item.opts["pen"].style() for item in items}, {Qt.PenStyle.SolidLine})
-        self.assertEqual({item.opts["symbolSize"] for item in items}, {5})
-        self.assertEqual({item.opts["pen"].widthF() for item in items}, {2.2})
+        self.assertEqual({item.opts["symbolSize"] for item in items}, {6})
+        self.assertEqual({item.opts["pen"].widthF() for item in items}, {2.5})
         self.assertEqual(len({item.opts["pen"].color().name() for item in items}), 2)
         page.ensure_export_figure()
         lines = [line for axis in page.figure.axes for line in axis.lines
                  if line.get_label() in {"CD", "Depth"}]
         self.assertEqual({line.get_marker() for line in lines}, {"o"})
         self.assertEqual({line.get_linestyle() for line in lines}, {"-"})
+        self.assertEqual({line.get_linewidth() for line in lines}, {2.5})
+        self.assertEqual({line.get_markersize() for line in lines}, {6})
         pd.testing.assert_frame_equal(page.frame, frame)
 
 

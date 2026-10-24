@@ -63,6 +63,7 @@ from PyQt6.QtWidgets import (
     QWidgetAction,
 )
 
+from .appearance import TREND_LINE_WIDTH, TREND_MARKER_SIZE
 from .appearance import (CORRELATION_FIT_COLOR, CORRELATION_POINT_COLOR,
                          fit_window_to_screen, help_title_label)
 from .analysis_windows import LABELS as WINDOW_LABELS, scope_parts, validate_windows, window_entries, window_metadata
@@ -3571,7 +3572,9 @@ class MatchingWindow(QMainWindow):
         if hasattr(workspace, "document") and not reset_data:
             baseline = workspace.document.baseline
             if baseline is not None:
-                current_frames = workspace.workspace_snapshot().frames
+                # Compare tables immediately; copying the unrelated Group/UI
+                # state here adds work for every linked analysis window.
+                current_frames = workspace.workspace_snapshot(readonly=True).frames
                 source_frames = getattr(workspace, "_workbook_source_frames", baseline.frames)
                 if source_policy is not None:
                     source_frames = {name: frame for name, frame in source_frames.items() if source_policy.get(name)}
@@ -3673,7 +3676,7 @@ class MatchingWindow(QMainWindow):
         if hasattr(workspace, "document") and workspace.document.baseline is not None and not reset_data:
             # Parent-driven table refreshes are not child edits. Keep draft
             # configuration intact while advancing the table-only baseline.
-            current_frames = workspace.workspace_snapshot().frames
+            current_frames = workspace.workspace_snapshot(readonly=True).frames
             accepted_link = workspace.document.baseline.states.get("ui", {}).get("copy_from_wkb", True)
             for name, frame in current_frames.items():
                 if source_policy is None or (source_policy.get(name) and accepted_link):
@@ -4738,9 +4741,9 @@ class MatchingWindow(QMainWindow):
                 row,
                 bias,
                 connect="finite",
-                pen=pg.mkPen("#4f8bd6", width=1.3),
+                pen=pg.mkPen("#4f8bd6", width=TREND_LINE_WIDTH),
                 symbol="o",
-                symbolSize=5,
+                symbolSize=TREND_MARKER_SIZE,
                 symbolBrush="#4f8bd6",
                 symbolPen=None,
             )
@@ -4763,9 +4766,9 @@ class MatchingWindow(QMainWindow):
                 row,
                 bias_percent,
                 connect="finite",
-                pen=pg.mkPen("#4f8bd6", width=1.3),
+                pen=pg.mkPen("#4f8bd6", width=TREND_LINE_WIDTH),
                 symbol="o",
-                symbolSize=5,
+                symbolSize=TREND_MARKER_SIZE,
                 symbolBrush="#4f8bd6",
                 symbolPen=None,
             )
@@ -4919,9 +4922,9 @@ class MatchingWindow(QMainWindow):
         trend_plot.plot(
             row,
             pmish,
-            pen=pg.mkPen("#5b9bd5", width=2.2),
+            pen=pg.mkPen("#5b9bd5", width=TREND_LINE_WIDTH),
             symbol="o",
-            symbolSize=5,
+            symbolSize=TREND_MARKER_SIZE,
             symbolBrush="#5b9bd5",
             symbolPen=None,
             name="PMISH",
@@ -4929,9 +4932,9 @@ class MatchingWindow(QMainWindow):
         trend_plot.plot(
             row,
             reference,
-            pen=pg.mkPen("#ed7d31", width=2.2),
+            pen=pg.mkPen("#ed7d31", width=TREND_LINE_WIDTH),
             symbol="o",
-            symbolSize=5,
+            symbolSize=TREND_MARKER_SIZE,
             symbolBrush="#ed7d31",
             symbolPen=None,
             name=workbook.match_type,

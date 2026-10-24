@@ -644,7 +644,8 @@ class DynamicPage(QWidget):
             self.bar_items.append(bars)
 
     def _add_parameter_plot(self, parameter, pivot, colour):
-        plot = self._new_plot(parameter)
+        plot = self._new_plot(
+            f"{max(0, len(pivot.index) - 1)} Cycles Dynamic of {parameter} (nm)")
         dies = list(pivot.columns)
         x = self._set_die_ticks(plot, dies)
         sigma = pivot.loc["3 Sigma"].to_numpy(float)

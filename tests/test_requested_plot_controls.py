@@ -99,23 +99,6 @@ class RequestedPlotControlsTests(unittest.TestCase):
         page.change_compare("DP", 0, None)
         self.assertEqual(len(page.panel_widgets["DP"].listDataItems()), 1)
 
-    def test_dynamic_all_dies_view_keeps_missing_gaps_and_statistics(self):
-        page = DynamicTrendPage()
-        self.addCleanup(page.deleteLater)
-        table = pd.DataFrame({1: [.01, np.nan, .03], 2: [.02, .04, .06]}, index=[1, 2, 3])
-        page.view_mode.blockSignals(True)
-        page.view_mode.setCurrentIndex(1)
-        page.view_mode.blockSignals(False)
-        page.render_interactive({"DP": table})
-        self.assertEqual(len(page.plot_widgets[0].listDataItems()), 2)
-        np.testing.assert_equal(page.plot_widgets[0].listDataItems()[0].yData, table[1])
-        self.assertFalse(page.die_pickers)
-        self.assertIn("Mean: 0.02", page.plot_widgets[0].getViewBox().toolTip())
-        page.ensure_export_figure()
-        self.assertEqual(len(page.figure.axes[0].lines), 2)
-        self.assertFalse(page.figure.axes[0].yaxis.get_major_formatter().get_useOffset())
-        self.assertNotIn("Mean:", page.figure.axes[0].get_title())
-
     def test_match_points_and_sequence_curves_keep_die_metadata_and_full_statistics(self):
         window = MatchingWindow()
         self.addCleanup(self.close_window, window)
@@ -179,16 +162,12 @@ class RequestedPlotControlsTests(unittest.TestCase):
         window.update_plan()
         page = window.dynamic_trend
         page.add_compare("DP")
-        page.view_mode.setCurrentIndex(1)
         snapshot = window.workspace_snapshot()
-        page.view_mode.setCurrentIndex(0)
         window.restore_workspace(snapshot)
-        self.assertTrue(page.all_dies)
         self.assertEqual(page.comparisons, {"DP": ["EW"]})
         self.assertFalse(hasattr(page, "show_statistics"))
         self.assertEqual([item.dynamic_series for item in page.panel_widgets["DP"].listDataItems()],
-                         [("DP", "1"), ("DP", "2")])
-        page.view_mode.setCurrentIndex(0)
+                         [("DP", "1")])
         self.assertEqual(len(page.data_curves(page.panel_widgets["DP"])), 2)
 
     def test_row_number_fallback_does_not_invent_die_metadata(self):

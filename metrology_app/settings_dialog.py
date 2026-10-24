@@ -2,11 +2,11 @@
 
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFormLayout, QHBoxLayout,
-    QLabel, QPushButton, QVBoxLayout, QWidget,
+    QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget,
 )
 
 from .appearance import COLOR_MAP_OPTIONS
-from .settings import get_settings, save_settings
+from .settings import SettingsConflictError, get_settings, load_settings, save_settings
 
 
 class SettingsDialog(QDialog):
@@ -115,6 +115,7 @@ class SettingsDialog(QDialog):
         self._update_from(get_settings())
 
     def _update_from(self, settings):
+        self._settings_before = settings
         self.theme.setCurrentIndex(max(0, self.theme.findData(settings.get("theme", "dark"))))
         self.resolution.setCurrentIndex(max(0, self.resolution.findText(settings.get("resolution", "High"))))
         self.color_map.setCurrentIndex(max(0, self.color_map.findData(settings.get("color_map", "turbo"))))
@@ -162,7 +163,16 @@ class SettingsDialog(QDialog):
         }
 
     def save(self):
-        save_settings(self._collect())
+        try:
+            save_settings(self._collect(), expected=self._settings_before)
+        except SettingsConflictError as error:
+            QMessageBox.warning(self, "Settings changed", str(error) +
+                                "\nThe saved settings will be reloaded. Review them and save again.")
+            self._update_from(load_settings())
+            return
+        except OSError as error:
+            QMessageBox.warning(self, "Cannot save settings", str(error))
+            return
         from .plot_page import PlotPage
         PlotPage.sync_point_precision(int(self.point_decimals.value()))
         from .workspace_document import apply_recovery_settings

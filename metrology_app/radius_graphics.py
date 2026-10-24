@@ -5,7 +5,7 @@ from matplotlib.colors import to_rgba
 from matplotlib.ticker import AutoLocator, MaxNLocator, ScalarFormatter
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QPainter, QPen
-from PyQt6.QtWidgets import QGraphicsRectItem
+from PyQt6.QtWidgets import QGraphicsRectItem, QToolTip
 
 from .wafer_graphics import WaferPanel
 from .plotting.identity_labels import measurement_caption
@@ -22,8 +22,10 @@ class RadiusPanel(pg.GraphicsObject):
         self.box = QRectF()
         self.base = 10
         self.identity_labels = {"pad": True, "lot": True}
+        self._pixel_positions = np.empty((0, 2))
+        self.status_callback = None
         self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
-        self.setAcceptHoverEvents(False)
+        self.setAcceptHoverEvents(True)
         self.scatter = None
         if not source.get("skip") and len(source["value"]):
             values = source["value"]
@@ -60,7 +62,44 @@ class RadiusPanel(pg.GraphicsObject):
             y = box.bottom()-(self.source["value"]-low)/(high-low)*box.height()
             self.scatter.setData(x=x, y=y)
             self.zero.setData(x=[box.center().x()]*2, y=[box.top(), box.bottom()])
+            self._pixel_positions = np.column_stack((x, y)) if len(x) else np.empty((0, 2))
         self.update()
+
+    def hover_text(self, point):
+        """Nearest source die showing its value and signed radius."""
+        if self.scatter is None or not len(self._pixel_positions):
+            return None
+        delta = self._pixel_positions - np.array([point.x(), point.y()])
+        distances = np.einsum("ij,ij->i", delta, delta)
+        index = int(distances.argmin())
+        if distances[index] > 10 * 10:
+            return None
+        source = self.source
+        die = str(source.get("die", [""] * len(source["value"]))[index] or "").strip()
+        text = [str(source["label"]).replace("\n", " · ")]
+        if die:
+            text.append(f"Die {die}")
+        text.append(f"{source['metric']} = {float(source['value'][index]):.8g}")
+        text.append(f"Signed radius = {float(source['radius'][index]):.6g} {source['unit']}")
+        return " · ".join(text)
+
+    def hoverMoveEvent(self, event):
+        text = self.hover_text(event.pos())
+        if text:
+            if self.status_callback is not None:
+                self.status_callback(text)
+            views = self.scene().views() if self.scene() is not None else []
+            widget = views[0].viewport() if views else None
+            position = event.screenPos()
+            QToolTip.showText(position.toPoint() if hasattr(position, "toPoint") else position,
+                              text, widget)
+        else:
+            QToolTip.hideText()
+        super().hoverMoveEvent(event)
+
+    def hoverLeaveEvent(self, event):
+        QToolTip.hideText()
+        super().hoverLeaveEvent(event)
 
     def paint(self, painter, *args):
         if self.source.get("skip"):
@@ -131,6 +170,7 @@ class RadiusGrid(pg.GraphicsObject):
     def __init__(self):
         super().__init__()
         self.rect, self.panels = QRectF(), []
+        self.status_callback = None
         self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
 
     def boundingRect(self):
@@ -146,8 +186,10 @@ class RadiusGrid(pg.GraphicsObject):
                 panel.scene().removeItem(panel)
         self.prepareGeometryChange()
         rows, columns = shape
-        self.rect = QRectF(0, 0, columns*460, rows*370+30)
+        self.rect = QRectF(0, 0, columns*460, rows*420+30)
         self.panels = [RadiusPanel(source, self) for source in sources]
+        for panel in self.panels:
+            panel.status_callback = self.status_callback
         self.relayout(shape, base, labels)
 
     def relayout(self, shape, base, labels):

@@ -85,8 +85,9 @@ class ExportOpeningLayoutTests(unittest.TestCase):
                     for sheet in (s for s in book if s.title.startswith('Match ')):
                         self.assertEqual(sheet['A1'].value, 'CD')
                         panels = sheet._charts if native else sheet._images
-                        self.assertEqual(panels[0].anchor._from.row, 4)
-                        self.assertEqual(panels[0].anchor._from.col, 0)
+                        column, row = fixtures.drawing_cell(panels[0], sheet)
+                        self.assertEqual(row, 4)
+                        self.assertEqual(column, 0)
                         self.assertEqual(sheet.freeze_panes, 'A3')
                 finally:
                     book.close()
@@ -156,7 +157,8 @@ class ExportOpeningLayoutTests(unittest.TestCase):
                     self.assertEqual(panel.x_axis.tickMarkSkip, panel.x_axis.tickLblSkip)
                     for series in panel.series:
                         self.assertEqual(series.marker.symbol, 'circle')
-                        self.assertEqual(series.marker.size, 4)
+                        self.assertEqual(series.marker.size, 6)
+                        self.assertEqual(series.graphicalProperties.line.w, 31750)
                         self.assertFalse(series.graphicalProperties.line.noFill)
             finally:
                 book.close()

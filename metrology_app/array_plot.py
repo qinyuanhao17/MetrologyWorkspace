@@ -1,4 +1,6 @@
 """Prepare row-by-wafer arrays; keep numerical work independent of Qt."""
+from concurrent.futures import ThreadPoolExecutor
+import os
 from dataclasses import dataclass
 
 import numpy as np
@@ -111,20 +113,50 @@ def prepare_array(frame, selection, options, progress=lambda *_: None, cancelled
         coordinates = tuple(map(tuple, scene["layer"][["x", "y"]].to_numpy(float)))
         batches.setdefault((scene["wafer"], coordinates), []).append(scene)
     completed = sum(bool(scene["error"]) for scene in scenes)
-    for batch in batches.values():
-        if cancelled():
-            return None
-        try:
-            values = np.column_stack([scene["layer"]["value"].to_numpy(float) for scene in batch])
-            surfaces = prepare_surfaces(batch[0]["layer"][["x", "y"]].to_numpy(float),
-                                        values, batch[0]["options"])
+
+    def interpolate_batch(batch):
+        values = np.column_stack([scene["layer"]["value"].to_numpy(float) for scene in batch])
+        surfaces = prepare_surfaces(batch[0]["layer"][["x", "y"]].to_numpy(float),
+                                    values, batch[0]["options"])
+        return batch, surfaces
+
+    jobs = list(batches.values())
+    # Each wafer is an independent numerical solve; SciPy releases the GIL while
+    # it evaluates the spline, so separate wafers scale across threads without
+    # changing a single interpolated value. One map stays single-threaded.
+    workers = min(8, os.cpu_count() or 1)
+    if len(jobs) > 1 and workers > 1:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = []
+            for batch in jobs:
+                if cancelled():
+                    return None
+                futures.append((batch, pool.submit(interpolate_batch, batch)))
+            for batch, future in futures:
+                try:
+                    _batch, surfaces = future.result()
+                except ValueError as error:
+                    for scene in batch:
+                        scene["error"] = str(error)
+                    continue
+                for scene, surface in zip(_batch, surfaces):
+                    scene["surface"] = surface
+                completed += len(_batch)
+                progress(completed, len(selected))
+    else:
+        for batch in jobs:
+            if cancelled():
+                return None
+            try:
+                batch, surfaces = interpolate_batch(batch)
+            except ValueError as error:
+                for scene in batch:
+                    scene["error"] = str(error)
+                continue
             for scene, surface in zip(batch, surfaces):
                 scene["surface"] = surface
-        except ValueError as error:
-            for scene in batch:
-                scene["error"] = str(error)
-        completed += len(batch)
-        progress(completed, len(selected))
+            completed += len(batch)
+            progress(completed, len(selected))
     if options.shared_scale and not options.limits:
         for metric in metrics:
             valid = [s for s in scenes if s["metric"] == metric and not s["error"] and not s.get("skip")]

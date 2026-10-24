@@ -1,5 +1,6 @@
 """Document choices and close/recovery workflow, shared by real windows."""
 from copy import deepcopy
+from math import copysign, isfinite
 from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path
@@ -158,7 +159,7 @@ PAGE_NAMES = ("plot_page", "radius_page", "correlation_page", "sequence_page", "
 CONTROL_NAMES = ("x_column", "y_column", "diameter", "color_map", "opacity", "labels", "points",
                  "contour", "point_outline", "fill_edge", "shared", "scale_bar", "font_size",
                  "resolution", "columns", "min_rsq", "page_size", "axis_ratio", "axis_mode", "zoom", "expand_wafer_ids",
-                 "show_statistics", "view_mode")
+                 "show_statistics")
 
 
 def _key(value):
@@ -328,11 +329,67 @@ def _comparison_json(state):
         return json_text(state)
 
 
+def _same_plain_state(first, second):
+    """Compare valid plain JSON values, or return None to require the encoder.
+
+    Visit containers even when identical: they can contain cycles or NaN.
+    Visit all values after a mismatch so invalid later values still raise.
+    Order, scalar types and signed zero remain significant, just as in JSON.
+    """
+    kind, other = type(first), type(second)
+    if kind is str and other is str:
+        return first == second
+    if kind is dict and other is dict:
+        if len(first) != len(second):
+            return None
+        equal = True
+        for (k1, v1), (k2, v2) in zip(first.items(), second.items()):
+            if type(k1) is not str or type(k2) is not str or k1 != k2:
+                return None
+            matched = _same_plain_state(v1, v2)
+            if matched is None:
+                return None
+            equal = equal and matched
+        return equal
+    if kind in (list, tuple) and other in (list, tuple):
+        if len(first) != len(second):
+            return None
+        equal = True
+        for a, b in zip(first, second):
+            matched = _same_plain_state(a, b)
+            if matched is None:
+                return None
+            equal = equal and matched
+        return equal
+    if kind is not other:
+        return None
+    if kind is bool or first is None:
+        return first == second
+    if kind is int:
+        # Larger integers retain the encoder's configured digit-limit checks.
+        return first == second if first.bit_length() <= 64 and second.bit_length() <= 64 else None
+    if kind is float:
+        if not isfinite(first) or not isfinite(second):
+            return None
+        return first == second and (first != 0 or copysign(1, first) == copysign(1, second))
+    return None
+
+
+def _same_state(first, second):
+    try:
+        equal = _same_plain_state(first, second)
+        if equal is not None:
+            return equal
+    except RecursionError:
+        pass  # Preserve the original cycle/depth errors from the checked encoder.
+    return _comparison_json(first) == _comparison_json(second)
+
+
 def same_snapshot(first, second):
     return (first.workspace_type == second.workspace_type
             and first.frames.keys() == second.frames.keys()
             and all(frame.equals(second.frames[name]) for name, frame in first.frames.items())
-            and _comparison_json(first.states) == _comparison_json(second.states))
+            and _same_state(first.states, second.states))
 
 
 def recovery_directory():
@@ -689,8 +746,14 @@ class WkbDocument:
             return
         from .recovery import freeze_snapshot, submit_recovery
         try:
-            source = (self.window.workspace_snapshot(readonly=True, validate=False)
-                      if self.window.workspace_type == "match_workbook" else self.window.workspace_snapshot())
+            if self.window.workspace_type == "match_workbook":
+                source = self.window.workspace_snapshot(readonly=True, validate=False)
+            elif self.window.workspace_type == "correlation_trend":
+                source = self.window.workspace_snapshot(readonly=True)
+            else:
+                source = self.window.workspace_snapshot()
+            # Borrowed state is detached here, before the event loop resumes or
+            # any input reaches the worker. Other snapshot APIs stay unchanged.
             current = freeze_snapshot(source)
             baseline = freeze_snapshot(self.baseline) if self.baseline is not None else None
             children = {scope: {"baseline": freeze_snapshot(saved["baseline"]),
@@ -702,7 +765,9 @@ class WkbDocument:
                     continue
                 children[child._managed_scope] = {
                     "baseline": freeze_snapshot(child.document.baseline) if child.document.baseline is not None else None,
-                    "draft": freeze_snapshot(child.workspace_snapshot()), "open": True,
+                    "draft": freeze_snapshot(child.workspace_snapshot(readonly=True)
+                                             if child.workspace_type == "correlation_trend"
+                                             else child.workspace_snapshot()), "open": True,
                     "forced_dirty": child.document.forced_dirty,
                     "follow_source": bool(getattr(child, "_use_workbook_data", False))}
             target = Path(self.recovery_path).resolve()

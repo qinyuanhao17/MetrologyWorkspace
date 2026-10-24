@@ -41,8 +41,11 @@ class _Pictures:
         self.book, self.pending, self.pool = book, deque(), None
         self.cancelled, self.limit = None, 4
 
-    def add(self, sheet, anchor, title, images, kind, args, kwargs, cost):
-        self.pending.append((sheet, anchor, title, images, kind, args, kwargs, cost, None))
+    def add(self, sheet, anchor, title, images, kind, args, kwargs, cost,
+            position_cm=None):
+        self.pending.append((
+            sheet, anchor, title, images, kind, args, kwargs, cost, None,
+            position_cm))
         # Small reports render locally: spawning Python would cost more than
         # drawing them. The queue and wide Agg rasters are bounded in both modes.
         if self.pool is None and sum(item[7] for item in self.pending) >= 10000 and (os.cpu_count() or 1) > 1:
@@ -57,18 +60,23 @@ class _Pictures:
             self.limit = 4 * workers
             self.pool = ProcessPoolExecutor(max_workers=workers, mp_context=context,
                 initializer=_configure_renderer, initargs=(dict(matplotlib.rcParams), self.cancelled))
-            self.pending = deque((*item[:-1], self.pool.submit(_render_picture, item[4], item[5], item[6], item[2]))
+            self.pending = deque((*item[:8],
+                                  self.pool.submit(
+                                      _render_picture, item[4], item[5], item[6], item[2]),
+                                  item[9])
                                  for item in self.pending)
         elif self.pool is not None:
             item = self.pending.pop()
-            self.pending.append((*item[:-1], self.pool.submit(_render_picture, kind, args, kwargs, title)))
+            self.pending.append((*item[:8], self.pool.submit(
+                _render_picture, kind, args, kwargs, title), item[9]))
         if len(self.pending) >= self.limit:
             self._complete()
 
     def _complete(self):
         from .excel_export import _checkpoint
         from openpyxl.drawing.image import Image
-        sheet, anchor, title, images, kind, args, kwargs, _cost, future = self.pending[0]
+        (sheet, anchor, title, images, kind, args, kwargs,
+         _cost, future, position_cm) = self.pending[0]
         _checkpoint(self.book, f'Rendering {title}')
         if future is None:
             contents, size = _render_picture(kind, args, kwargs, title)
@@ -86,6 +94,8 @@ class _Pictures:
         picture = Image(BytesIO(contents))
         picture.width, picture.height = size
         sheet.add_image(picture, anchor)
+        if position_cm is not None:
+            picture._export_position_cm = position_cm
         if images is not None:
             images.append((title, contents))
         self.pending.popleft()
@@ -135,11 +145,13 @@ def embed_plot(sheet, plot, anchor, title, images=None, *, window=False):
                      sum(len(series['data']) for series in plot['series']))
 
 
-def embed_parameter(sheet, anchor, title, images, parameter, data, card, stage, scope, **kwargs):
+def embed_parameter(sheet, anchor, title, images, parameter, data, card, stage, scope,
+                    *, position_cm=None, **kwargs):
     from .excel_export import _embed_figure, parameter_figure
     pictures = getattr(sheet.parent, '_export_pictures', None)
     if pictures is None:
         _embed_figure(sheet, parameter_figure(parameter, data, card, stage, scope, **kwargs), anchor, title, images)
     else:
         pictures.add(sheet, anchor, title, images, 'parameter',
-                     (parameter, data[[name for name in ('Raw', 'Reference', 'Die Seq') if name in data]], card, stage, scope), kwargs, len(data))
+                     (parameter, data[[name for name in ('Raw', 'Reference', 'Die Seq') if name in data]], card, stage, scope),
+                     kwargs, len(data), position_cm)

@@ -32,6 +32,7 @@ from .data import number
 from .map_selector import MapSelector
 from .plot import set_panel_title
 from .plotting import InteractivePlotWidget, PanelGrid, PlotPanel
+from .plotting.curve import ResponsivePlotDataItem
 from .plotting.annotations import plain_matplotlib_y, plain_y_axes
 from .plotting.parameter_filter import ParameterFilterBar
 from .settings import get_settings
@@ -1027,12 +1028,15 @@ class CorrelationPage(QWidget):
                 plot.addLegend(offset=(10, 8))
                 for source in fit.sources:
                     values = source.fit
-                    points = plot.plot(
+                    # Reuse the unchanged full scatter arrays during layout,
+                    # pan and zoom, as the Trend renderer already does.
+                    points = ResponsivePlotDataItem(
                         values.x, values.y, pen=None, symbol="o", symbolSize=5,
                         symbolPen=None,
                         symbolBrush=pg.mkBrush(point_color),
                         name=f"{source.name} points",
                     )
+                    plot.addItem(points)
                     order = np.argsort(values.x)
                     line = plot.plot(
                         values.x[order], values.predicted[order],

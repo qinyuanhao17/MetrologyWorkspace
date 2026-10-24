@@ -1104,6 +1104,42 @@ class WorkbookPerformanceTests(unittest.TestCase):
         self.assertTrue(all(sip.isdeleted(menu) for menu in menus), "Disposed plots left live native menus")
         app.processEvents()
 
+    def test_source_correlation_pan_keeps_every_point_without_rebuilding_scatter(self):
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.correlation_window import CorrelationWindow
+        app = QApplication.instance() or QApplication([])
+        window = CorrelationWindow()
+        try:
+            raw = pd.DataFrame({"Wafer ID": ["001"] * 6000,
+                                "CD": np.arange(6000.) + 1,
+                                "Thickness": np.arange(6000.) * 2 + 3})
+            reference = pd.DataFrame({"Ref": raw["CD"] * 1.03 + 2,
+                                      "Thickness Ref": raw["Thickness"] * 1.03 + 2})
+            window.set_sources(reference, raw, [ParameterMapping("CD", "Ref", "CD"),
+                               ParameterMapping("Thickness", "Thickness Ref", "Thickness")])
+            page = window.correlation_page
+            page.draw_plot()
+            self.assertTrue(page.ready, page.status.text())
+            self.assertEqual(len(page.plot_widgets), 6)
+            curves = [item for widget in page.plot_widgets for item in widget.listDataItems()]
+            expected = [(item, tuple(array.copy() for array in item.getData())) for item in curves]
+            start = perf_counter()
+            for offset in range(20):
+                for widget in page.plot_widgets:
+                    widget.setRange(xRange=(100 + offset, 5900 + offset),
+                                    yRange=(100 + offset, 5900 + offset), padding=0)
+            elapsed = perf_counter() - start
+            for item, (x, y) in expected:
+                np.testing.assert_array_equal(item.getData()[0], x)
+                np.testing.assert_array_equal(item.getData()[1], y)
+                self.assertEqual(len(x), 6000)
+            self.assertLess(elapsed, .25, f"Panning unchanged source points took {elapsed:.3f}s")
+        finally:
+            window.document.force_close = True
+            window.close()
+            window.deleteLater()
+            app.processEvents()
+
     def test_saved_correlation_restores_complete_grouped_plots_promptly(self):
         from PyQt6.QtWidgets import QApplication
         from metrology_app.correlation_window import CorrelationWindow

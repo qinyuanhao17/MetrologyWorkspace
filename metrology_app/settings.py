@@ -3,6 +3,7 @@
 from pathlib import Path
 import os
 import sys
+import tempfile
 
 import yaml
 
@@ -48,46 +49,97 @@ _current = dict(DEFAULTS)
 # a helper script or a test would replace the saved theme and recent WKB list
 # with defaults.
 _loaded_path = None
+_loaded_contents = None
+_load_error = None
 
 
-def _normalize_recovery_interval():
-    decimals = _current.get("point_value_decimals")
+class SettingsConflictError(OSError):
+    """A stale settings edit must be reviewed against the latest file."""
+
+
+def _file_contents(path):
+    try:
+        return path.read_bytes()
+    except FileNotFoundError:
+        return None
+
+
+def _normalize_recovery_interval(values):
+    decimals = values.get("point_value_decimals")
     if type(decimals) is not int or not 0 <= decimals <= 10:
-        _current["point_value_decimals"] = DEFAULTS["point_value_decimals"]
-    value = _current.get("recovery_interval_seconds")
+        values["point_value_decimals"] = DEFAULTS["point_value_decimals"]
+    value = values.get("recovery_interval_seconds")
     if type(value) is not int or not 30 <= value <= 1800:
-        _current["recovery_interval_seconds"] = DEFAULTS["recovery_interval_seconds"]
+        values["recovery_interval_seconds"] = DEFAULTS["recovery_interval_seconds"]
 
 
 def load_settings(path=SETTINGS_PATH):
     """Read settings from YAML, keeping unknown or missing keys at their defaults."""
-    global _loaded_path
-    path = Path(path)
+    global _loaded_path, _loaded_contents, _load_error
+    path = Path(path).expanduser().resolve()
     _current.clear()
     _current.update(DEFAULTS)
-    if path.exists():
-        try:
-            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-            if isinstance(data, dict):
-                _current.update({key: value for key, value in data.items() if key in DEFAULTS})
-        except (OSError, yaml.YAMLError):
-            pass
-    _normalize_recovery_interval()
+    _loaded_contents = None
+    _load_error = None
+    try:
+        _loaded_contents = _file_contents(path)
+        if _loaded_contents is not None:
+            data = yaml.safe_load(_loaded_contents.decode("utf-8"))
+            if data is None:
+                data = {}
+            if not isinstance(data, dict):
+                raise ValueError("Settings must contain a YAML mapping.")
+            _current.update({key: value for key, value in data.items() if key in DEFAULTS})
+    except (OSError, ValueError, yaml.YAMLError) as error:
+        _load_error = error
+    _normalize_recovery_interval(_current)
     _loaded_path = path
     return dict(_current)
 
 
-def save_settings(data, path=SETTINGS_PATH):
-    """Validate, persist and activate a settings mapping."""
-    path = Path(path)
+def save_settings(data, path=SETTINGS_PATH, *, expected=None):
+    """Atomically persist preferences, rejecting stale files or edited fields.
+
+    Dialogs may supply the settings they displayed as ``expected`` so another
+    save/load in this process cannot silently accept an outdated form.
+    """
+    from PyQt6.QtCore import QLockFile
+    global _loaded_contents
+    path = Path(path).expanduser().resolve()
     if _loaded_path != path:
         load_settings(path)
+    if _load_error is not None:
+        raise OSError(f"Cannot save unreadable or invalid settings at {path}. Repair the file and reload before saving.") from _load_error
+    if expected is not None and any(_current[key] != expected.get(key)
+                                    for key in data if key in DEFAULTS):
+        raise SettingsConflictError("Settings changed while this dialog was open. Reload and review them before saving.")
+    candidate = dict(_current)
     for key in DEFAULTS:
         if key in data:
-            _current[key] = data[key]
-    _normalize_recovery_interval()
+            candidate[key] = data[key]
+    _normalize_recovery_interval(candidate)
+    payload = yaml.safe_dump(candidate, sort_keys=False, allow_unicode=True).encode("utf-8")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(_current, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    lock = QLockFile(str(path) + ".lock")
+    if not lock.tryLock(0):
+        raise OSError("Settings are busy or cannot be locked. Please retry saving.")
+    try:
+        if _file_contents(path) != _loaded_contents:
+            raise SettingsConflictError("Settings changed on disk. Reload and review them before saving.")
+        descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+        try:
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+        _current.clear()
+        _current.update(candidate)
+        _loaded_contents = payload
+    finally:
+        lock.unlock()
     return dict(_current)
 
 
@@ -174,7 +226,7 @@ def apply_theme(widget, theme=None):
 
 
 __all__ = [
-    "DEFAULTS", "MAX_RECENT_WKBS", "SETTINGS_PATH", "forget_recent_wkb",
+    "DEFAULTS", "MAX_RECENT_WKBS", "SETTINGS_PATH", "SettingsConflictError", "forget_recent_wkb",
     "get_settings", "load_settings", "recent_wkb_paths", "remember_recent_wkb",
     "save_settings", "theme_stylesheet", "apply_theme",
 ]

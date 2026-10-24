@@ -1,9 +1,9 @@
 """Run the unit test suite against a scratch settings file.
 
 The application persists theme, recent workbooks and other preferences in one
-YAML file. Tests exercise the same code paths, so running them without
-METROLOGY_SETTINGS_PATH would rewrite the settings of whoever launched them
-(that is how a saved light theme and the Open Recent WKB list were lost once).
+YAML file. Tests exercise the same code paths. This runner overrides inherited
+persistence paths with a fresh temporary directory before importing the app
+(a saved light theme and Open Recent WKB list were once lost without isolation).
 
     python run_tests.py                    # whole suite
     python run_tests.py tests.test_settings -v
@@ -16,18 +16,32 @@ from unittest.mock import patch
 from pathlib import Path
 
 
-def isolate_settings():
-    """Point the application at a scratch settings file for this process."""
-    scratch = Path(tempfile.gettempdir()) / "metrology-workspace-tests" / "settings.yaml"
-    os.environ.setdefault("METROLOGY_SETTINGS_PATH", str(scratch))
+def isolate_settings(directory=None):
+    """Override inherited application paths before importing application code.
+
+    Each invocation owns its directory: parallel runs must not share mutable
+    settings, recovery candidates or reminders. Callers may supply a dedicated
+    scratch directory, but production environment variables are never reused.
+    """
+    root = Path(directory or tempfile.mkdtemp(prefix="metrology-workspace-tests-"))
+    root = root.resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    scratch = root / "settings.yaml"
+    os.environ["METROLOGY_SETTINGS_PATH"] = str(scratch)
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    os.environ.setdefault("METROLOGY_RECOVERY_DIR", str(scratch.parent / "recovery"))
-    os.environ.setdefault("METROLOGY_REMINDERS_PATH", str(scratch.parent / "reminders.sqlite3"))
+    os.environ["METROLOGY_RECOVERY_DIR"] = str(root / "recovery")
+    os.environ["METROLOGY_REMINDERS_PATH"] = str(root / "reminders.sqlite3")
+    os.environ["MPLCONFIGDIR"] = str(root / "matplotlib")
     return scratch
 
 
 def main(argv):
-    isolate_settings()
+    with tempfile.TemporaryDirectory(prefix="metrology-workspace-tests-") as directory:
+        isolate_settings(directory)
+        return isolated_suite(argv)
+
+
+def isolated_suite(argv):
     # Fixture teardown must not wait for a human. Save/Cancel workflow tests
     # override this default locally and assert the actual document behavior.
     from PyQt6.QtWidgets import QMessageBox

@@ -17,7 +17,6 @@ from PyQt6.QtWidgets import (
 
 from metrology_app.dynamic import dynamic_pivot, prepare_dynamic_frame
 from metrology_app.dynamic import cycle_trend, selected_measurement_rows
-from metrology_app.dynamic_trend import DIE_SYMBOLS
 from metrology_app.dynamic_window import DynamicWindow
 from metrology_app.plotting import InteractivePlotWidget
 
@@ -115,17 +114,6 @@ class DynamicDataTests(unittest.TestCase):
         self.assertEqual(list(rows.index), [0, 2])
         self.assertEqual(rows["DP"].tolist(), [1.0, 3.0])
 
-    def test_die_symbols_are_supported_by_both_render_backends(self):
-        """A symbol pyqtgraph does not know would break the whole Trend tab."""
-        from matplotlib.markers import MarkerStyle
-        from pyqtgraph.graphicsItems.ScatterPlotItem import Symbols
-
-        for qt_symbol, marker in DIE_SYMBOLS:
-            with self.subTest(symbol=qt_symbol):
-                self.assertIn(qt_symbol, Symbols)
-                MarkerStyle(marker)
-
-
 class DynamicWindowTests(unittest.TestCase):
     def setUp(self):
         self.window = DynamicWindow()
@@ -200,7 +188,7 @@ class DynamicWindowTests(unittest.TestCase):
         )
         self.assertEqual(
             [plot.getPlotItem().titleLabel.text for plot in page.plots],
-            ["", "DP", "EW"],
+            ["", "3 Cycles Dynamic of DP (nm)", "3 Cycles Dynamic of EW (nm)"],
         )
         legend = page.comparison_legend
         self.assertIsNotNone(legend)
@@ -270,7 +258,9 @@ class DynamicWindowTests(unittest.TestCase):
         page = self.window.dynamic_page
         self.assertEqual(
             [plot.getPlotItem().titleLabel.text for plot in page.plots],
-            ["", "DP", "EW", "TG", "UC", "WTH"],
+            ["", "3 Cycles Dynamic of DP (nm)", "3 Cycles Dynamic of EW (nm)",
+             "3 Cycles Dynamic of TG (nm)", "3 Cycles Dynamic of UC (nm)",
+             "3 Cycles Dynamic of WTH (nm)"],
         )
         self.assertEqual(page.comparison_legend.columnCount, 5)
         self.assertEqual(page.comparison_legend.rowCount, 1)
@@ -567,6 +557,43 @@ class DynamicWindowTests(unittest.TestCase):
         self.assertEqual(list(page.die_pickers), ["DP"])
         self.assertFalse(page.die_pickers["DP"].currentText().startswith("Die 5"))
 
+    def test_compare_parameter_switch_and_remove_rebuild_safely(self):
+        """Compare controls stay usable while their deferred redraw replaces them."""
+        self.window.set_table(self.frame(), "dynamic.csv")
+        self.select_parameters("DP", "EW", "TG")
+        page = self.window.dynamic_trend
+        self.window.tabs.setCurrentIndex(2)
+        self.window.show()
+        self.window.document.force_close = True
+        APP.processEvents()
+
+        def comparison_controls():
+            index = [name for name, _table in page.panel_specs].index("DP")
+            return page.panel_hosts[index].side_widget
+
+        add = comparison_controls().findChild(QPushButton, "dynamicAddCompare")
+        QTest.mouseClick(add, Qt.MouseButton.LeftButton)
+        APP.processEvents()
+        APP.processEvents()
+        self.assertEqual(page.comparisons["DP"], ["EW"])
+
+        picker = comparison_controls().findChild(QComboBox, "dynamicComparePicker")
+        picker.setCurrentIndex(picker.findData("TG"))
+        APP.processEvents()
+        APP.processEvents()
+        self.assertEqual(page.comparisons["DP"], ["TG"])
+        self.assertEqual(page.panel_widgets["DP"].secondary_axes[0].labelText, "TG")
+
+        remove = comparison_controls().findChild(QPushButton, "compareRemove")
+        self.assertEqual(remove.text(), "×")
+        self.assertEqual((remove.width(), remove.height()), (25, 25))
+        self.assertIn("QPushButton#compareRemove", self.window.styleSheet())
+        QTest.mouseClick(remove, Qt.MouseButton.LeftButton)
+        APP.processEvents()
+        APP.processEvents()
+        self.assertEqual(page.comparisons["DP"], [])
+        self.assertEqual(page.panel_widgets["DP"].secondary_views, [])
+
     def test_trend_tab_reports_a_parameter_without_dynamic_values(self):
         self.window.set_table(self.frame(), "dynamic.csv")
         self.select_parameters("DP")
@@ -581,6 +608,7 @@ class DynamicWindowTests(unittest.TestCase):
 
     def test_trend_tab_export_mirror_and_copy_use_the_cycle_axis(self):
         self.window.set_table(self.frame(), "dynamic.csv")
+        self.window.document.force_close = True
         self.select_parameters("DP", "EW")
         page = self.window.dynamic_trend
 
@@ -591,8 +619,27 @@ class DynamicWindowTests(unittest.TestCase):
         self.assertEqual(axes.get_xlabel(), "Cycle")
         self.assertEqual(axes.get_title(), "DP · Die 1")
         self.assertEqual(len(axes.get_lines()), 1)
+        line = axes.get_lines()[0]
+        self.assertEqual(line.get_linewidth(), 2.5)
+        self.assertEqual(line.get_marker(), "o")
+        self.assertEqual(line.get_markersize(), 6)
+        curve = page.plot_widgets[0].listDataItems()[0]
+        self.assertEqual(curve.opts["pen"].widthF(), 2.5)
+        self.assertEqual(curve.opts["symbol"], "o")
+        self.assertEqual(curve.opts["symbolSize"], 6)
         page.copy_png()
         self.assertIn("Copied Cycle trends", page.status.text())
+
+    def test_trend_has_no_view_mode_selector(self):
+        """The redundant Single Die selector was removed with All Dies."""
+        self.window.set_table(self.frame(), "dynamic.csv")
+        self.select_parameters("DP")
+        page = self.window.dynamic_trend
+        self.assertFalse(hasattr(page, "view_mode"))
+        self.assertEqual(page.findChildren(QComboBox, "dynamicTrendMode"), [])
+        page.ensure_export_figure()
+        self.assertEqual(len(page.figure.axes), 1)
+        self.assertEqual(page.figure.axes[0].get_title(), "DP · Die 1")
 
     def test_trend_die_picker_switches_one_panel_only(self):
         """Wheel-switching a Die redraws its panel without scrolling the page."""

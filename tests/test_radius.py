@@ -51,7 +51,7 @@ class RadiusTests(unittest.TestCase):
             self.assertEqual(len(page.figure.axes), 18)
             self.assertEqual(len(page.figure.legends), 0)
             self.assertTrue(all(len(axis.collections) == 1 for axis in page.figure.axes))
-            self.assertEqual(page.base_size, (3 * 460, 6 * 370 + 30))
+            self.assertEqual(page.base_size, (3 * 460, 6 * 420 + 30))
             self.assertEqual(page.resolution.currentText(), get_settings()["resolution"])
             screen_scale = {"Standard": 1, "High": 1.5, "Ultra": 2}[page.resolution.currentText()]
             screen_scale = screen_render_scale(3 * 460, 6 * 370 + 30, screen_scale)
@@ -152,7 +152,7 @@ class RadiusTests(unittest.TestCase):
                     page.selector.item(row, column).setSelected(True)
             page.draw_plot()
             self.assertTrue(page.ready, page.status.text())
-            self.assertEqual(page.base_size, (2 * 460, 2 * 370 + 30))
+            self.assertEqual(page.base_size, (2 * 460, 2 * 420 + 30))
             self.assertEqual(len(page.figure.axes), 4)
             self.assertIn("4 / 4 radius plots drawn", page.status.text())
         finally:

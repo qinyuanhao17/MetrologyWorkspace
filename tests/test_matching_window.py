@@ -1836,9 +1836,9 @@ class MatchingWindowTests(unittest.TestCase):
             with self.subTest(surface=surface):
                 for curve in trend.listDataItems():
                     self.assertEqual(curve.opts["symbol"], "o")
-                    self.assertEqual(curve.opts["symbolSize"], 5)
+                    self.assertEqual(curve.opts["symbolSize"], 6)
                     self.assertEqual(curve.opts["pen"].style(), Qt.PenStyle.SolidLine)
-                    self.assertEqual(curve.opts["pen"].widthF(), 2.2)
+                    self.assertEqual(curve.opts["pen"].widthF(), 2.5)
                 self.assertEqual(trend.getAxis("left").labelText, "CD")
                 self.assertTrue(trend.getAxis("left").label.isVisible())
                 self.assertEqual(trend.title_label.text(), "CD")
@@ -3355,13 +3355,18 @@ class MatchingWindowTests(unittest.TestCase):
         )
         for item in trend_items.values():
             self.assertEqual(item.opts["pen"].style(), Qt.PenStyle.SolidLine)
-            self.assertGreaterEqual(item.opts["pen"].widthF(), 2.0)
+            self.assertEqual(item.opts["pen"].widthF(), 2.5)
             self.assertEqual(item.opts["symbol"], "o")
+            self.assertEqual(item.opts["symbolSize"], 6)
 
         bias_item = plots["bias"].listDataItems()[0]
         self.assertEqual(bias_item.opts["symbol"], "o")
+        self.assertEqual(bias_item.opts["pen"].widthF(), 2.5)
+        self.assertEqual(bias_item.opts["symbolSize"], 6)
         bias_percent_item = plots["bias-percent"].listDataItems()[0]
         self.assertEqual(bias_percent_item.opts["symbol"], "o")
+        self.assertEqual(bias_percent_item.opts["pen"].widthF(), 2.5)
+        self.assertEqual(bias_percent_item.opts["symbolSize"], 6)
         self.assertEqual(plots["match"].getAxis("bottom").labelText, "PMISH")
         self.assertEqual(plots["match"].getAxis("left").labelText, "TEM")
         self.assertEqual(plots["trend"].getAxis("left").labelText, "CD_Bot")

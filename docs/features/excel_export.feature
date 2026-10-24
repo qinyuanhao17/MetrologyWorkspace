@@ -74,16 +74,27 @@ Feature: Export analysis with editable Excel charts or Matplotlib pictures
     And contiguous records of the same Wafer, Lot and PAD share one merged Wafer caption
     And the original Raw Data cells remain unmerged and unchanged
 
-  Scenario: Export legible physical-size panels
+  Scenario: Export legible content-tight panels
     Given a NOVA Workbook has several Wafers in Head A and Head B
     When the Workbook is exported in either mode
     Then each Match panel is 15 cm wide and 11 cm high
-    And Trend and Bias panels are 11 cm high and at least 25 cm wide
-    And Match Original and Match Group Trend panels have the same width
+    And Trend and Bias panels are 11 cm high with no maximum width
+    And Match Original retains its 25 cm Die Seq baseline
+    And a Group without visible Wafers scales from the tightest Group before using record proportions
+    And a Group with visible Wafers scales from the complete Wafer labels inside that Group
+    And visible Wafer, Lot and PAD fields are never omitted to force a narrower panel
+    And Group and Wafer widths match between the two export renderers
     And Group and Wafer separator bars sit below, detached from the coordinate axes
     And Wafer views do not add a redundant Wafer axis title
     And independent panels align with the full-width parameter heading
     And ordinal horizontal limits leave only a small margin around the observations
+
+  Scenario: Export consistent Trend and Bias strokes
+    Given an analysis contains Trend, Bias and Bias percent data
+    When the Workbook is exported as editable charts or Matplotlib pictures
+    Then every data curve uses a 2.5 pt line and 6 pt circle markers
+    And a secondary Trend axis uses the same stroke and marker size
+    And Match fits, Correlation fits, zero baselines and Bias limits keep their auxiliary styles
 
   Scenario: Choose an export renderer
     Given an analysis has selected measurements and software fitted results

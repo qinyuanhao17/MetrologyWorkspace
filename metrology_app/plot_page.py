@@ -315,6 +315,7 @@ class PlotPage(QWidget):
         self.stack.addWidget(self.selector_panel)
         layout.addWidget(self.stack, 1)
         self.status = QLabel("", objectName="hint")
+        self.map_grid.status_callback = self.status.setText
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
         self.x_column.currentIndexChanged.connect(self.invalidate)
@@ -895,6 +896,8 @@ class PlotPage(QWidget):
             save_settings({"point_value_decimals": decimals})
         except OSError as error:
             self.status.setText(f"Could not save point decimals: {error}")
+            self.sync_point_precision(get_settings()["point_value_decimals"])
+            return
         self.sync_point_precision(decimals)
 
     @staticmethod

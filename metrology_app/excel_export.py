@@ -9,6 +9,7 @@ visible measurements when their cells are edited in Excel.
 from pathlib import Path
 from io import BytesIO
 from copy import copy
+from math import ceil
 import os
 import tempfile
 
@@ -17,7 +18,9 @@ import pandas as pd
 from openpyxl import Workbook
 from openpyxl.chart import LineChart, Reference, ScatterChart, Series
 from openpyxl.chart.marker import Marker
-from openpyxl.chart.data_source import AxDataSource, StrRef, StrData, MultiLevelStrRef, MultiLevelStrData, Level, StrVal
+from openpyxl.chart.data_source import (AxDataSource, StrRef, StrData, MultiLevelStrRef,
+                                        MultiLevelStrData, Level, StrVal, NumData, NumVal,
+                                        NumDataSource)
 from openpyxl.chart.axis import ChartLines
 from openpyxl.chart.shapes import GraphicalProperties
 from openpyxl.drawing.line import LineProperties
@@ -27,9 +30,11 @@ from openpyxl.utils import get_column_letter
 from openpyxl.utils.cell import quote_sheetname
 from openpyxl.drawing.image import Image
 from openpyxl.chart.text import RichText
-from openpyxl.chart.series import SeriesLabel
+from openpyxl.chart.series import Series as SeriesObject, SeriesLabel
 from openpyxl.chart.trendline import Trendline, TrendlineLabel
 from openpyxl.drawing.text import CharacterProperties, Font as DrawingFont, Paragraph, ParagraphProperties
+
+from .appearance import TREND_LINE_WIDTH, TREND_MARKER_SIZE
 
 MAX_TITLE = 31
 _INVALID_TITLE = set('[]:*?/\\')
@@ -47,6 +52,9 @@ PANEL_HEIGHT_CM = 11
 MATCH_WIDTH_CM = 15
 TREND_WIDTH_CM = 25
 DYNAMIC_WIDTH_CM = 18
+CHART_HORIZONTAL_GAP_CM = 1.0
+CHART_VERTICAL_GAP_CM = 2.0
+MARKER_HEADROOM = .03
 FM_PICTURE_HEIGHT_CM = 30
 FM_PICTURE_WIDTH_CM = 72
 WAFER_MAP_CELL_HEIGHT_CM = 8
@@ -63,7 +71,51 @@ def _checkpoint(book, message=None):
         raise InterruptedError('Export cancelled')
 
 
-def plot_scale(values, *, tight=False, symmetric=False):
+def _column_width_pixels(width):
+    width = 13. if width is None else float(width)
+    return int(width * 12 + .5) if width < 1 else int(width * 7 + 5)
+
+
+def _column_left_cm(worksheet, column):
+    return sum(
+        _column_width_pixels(worksheet.column_dimensions[get_column_letter(index)].width)
+        for index in range(1, column)
+    ) * 2.54 / 96
+
+
+def _row_top_cm(worksheet, row):
+    return sum(
+        worksheet.row_dimensions[index].height or 15.
+        for index in range(1, row)
+    ) * 2.54 / 72
+
+
+def _position_targeted_drawings(book):
+    """Place Match charts and pictures at their exact physical grid coordinates."""
+    from openpyxl.drawing.spreadsheet_drawing import AbsoluteAnchor
+    from openpyxl.drawing.xdr import XDRPoint2D, XDRPositiveSize2D
+    from openpyxl.utils.units import cm_to_EMU, pixels_to_EMU
+    for worksheet in book:
+        drawings = [*worksheet._charts, *worksheet._images]
+        for drawing in drawings:
+            target = getattr(drawing, '_export_position_cm', None)
+            if target is None:
+                continue
+            if isinstance(drawing, Image):
+                width, height = (
+                    pixels_to_EMU(float(drawing.width)),
+                    pixels_to_EMU(float(drawing.height)))
+            else:
+                width, height = (
+                    cm_to_EMU(float(drawing.width)),
+                    cm_to_EMU(float(drawing.height)))
+            x_emu, y_emu = (cm_to_EMU(value) for value in target)
+            drawing.anchor = AbsoluteAnchor(
+                pos=XDRPoint2D(x_emu, y_emu),
+                ext=XDRPositiveSize2D(width, height))
+
+
+def plot_scale(values, *, tight=False, symmetric=False, headroom=0.):
     """Data-derived bounds; continuous X keeps padding instead of outer rounding."""
     finite = np.asarray(values, dtype=float).ravel()
     finite = finite[np.isfinite(finite)]
@@ -81,6 +133,9 @@ def plot_scale(values, *, tight=False, symmetric=False):
     step = min((1, 2, 2.5, 5, 10), key=lambda value: abs(value * power - requested)) * power
     if not tight:
         low, high = np.floor(low / step) * step, np.ceil(high / step) * step
+        if headroom:
+            margin = max((high - low) * headroom, step * .05)
+            low, high = low - margin, high + margin
     return float(low), float(high), float(step)
 
 
@@ -90,7 +145,9 @@ def plot_axis_limits(axis, y, x=None, *, bars=False, symmetric=False):
         if values is None:
             continue
         scaled_values = np.r_[0., values] if bars and name == 'y' else values
-        scale = plot_scale(scaled_values, tight=name == "x", symmetric=symmetric and name == "y")
+        scale = plot_scale(
+            scaled_values, tight=name == "x", symmetric=symmetric and name == "y",
+            headroom=MARKER_HEADROOM if name == "y" and not bars else 0.)
         if scale:
             low, high, step = scale
             if name == "y" and bars:
@@ -99,14 +156,16 @@ def plot_axis_limits(axis, y, x=None, *, bars=False, symmetric=False):
             getattr(axis, f"{name}axis").set_major_locator(MultipleLocator(step))
 
 
-def style_native_series(series, index, *, markers=True, color=None, marker_size=4):
+def style_native_series(series, index, *, markers=True, color=None, marker_size=4,
+                        line_width=22860):
     color = color or PLOT_COLORS[index % len(PLOT_COLORS)]
     series.marker = Marker(symbol="circle" if markers else None,
                            size=marker_size if markers else None)
     series.marker.graphicalProperties = GraphicalProperties(solidFill=color,
         ln=LineProperties(noFill=True))
     if not series.graphicalProperties.line.noFill:
-        series.graphicalProperties.line = LineProperties(solidFill=color, w=22860, prstDash="solid")
+        series.graphicalProperties.line = LineProperties(
+            solidFill=color, w=line_width, prstDash="solid")
 
 
 def _chart_point_count(chart):
@@ -138,7 +197,9 @@ def _equation_width(equation, chart_width):
 
 
 def chart_limits(chart, y, x=None, *, bars=False, symmetric=False):
-    bounds = plot_scale(np.r_[0., y] if bars else y, symmetric=symmetric)
+    bounds = plot_scale(
+        np.r_[0., y] if bars else y, symmetric=symmetric,
+        headroom=0. if bars else MARKER_HEADROOM)
     if bounds:
         chart.y_axis.scaling.min = 0 if bars else bounds[0]
         chart.y_axis.scaling.max = max(bounds[1], bounds[2]) if bars else bounds[1]
@@ -366,18 +427,169 @@ def report_sequence_layout(dies, captions=(), *, name='Wafer'):
     return layout
 
 
+def _tight_span_widths(counts, labels, measure):
+    """Smallest span sets the scale; larger spans grow with their point count."""
+    counts = np.asarray(counts, dtype=float)
+    counts = np.where(np.isfinite(counts) & (counts > 0), counts, 1)
+    minimums = np.asarray([
+        max((measure(line) for line in str(label).splitlines()), default=0) + 16
+        for label in labels
+    ], dtype=float)
+    least = counts.min()
+    base = max(minimums[counts == least] / least)
+    return np.maximum(minimums, base * counts)
+
+
+def sequence_export_layout(data, *, mode, captions=()):
+    """Tight Group/Wafer export geometry, with no artificial maximum width.
+
+    Group mode handles mixed Show wafer choices independently: hidden-wafer
+    groups use the group-only proportional layout, while visible-wafer groups
+    use the sum of their wafer label widths. Wafer mode applies the same wafer
+    rule across the whole sheet.
+    """
+    from functools import cache as memoize
+    from matplotlib.backends.backend_agg import RendererAgg
+    from matplotlib.font_manager import FontProperties
+
+    frame = pd.DataFrame(data)
+    count = len(frame)
+    name = 'Wafer' if mode == 'wafer' else 'Group'
+    empty = {"name": name, "x": np.array([]), "ticks": [], "limits": (0., 1.),
+             "width": 0., "native_width": 0., "group_only_widths": {},
+             "group_widths": {}, "wafer_widths": {}, "captions": list(captions),
+             "native_captions": list(captions)}
+    if not count:
+        return empty
+
+    group_labels = (frame.get('Group caption', frame.get('Group label',
+                    frame.get('Group', pd.Series([''] * count)))).astype(str).tolist())
+    group_keys = frame.get('Group', pd.Series(group_labels)).astype(str).tolist()
+    wafer_labels = frame.get('Wafer', frame.get('Label',
+                   pd.Series([''] * count))).astype(str).tolist()
+    wafer_keys = frame.get('Wafer key', pd.Series(wafer_labels)).map(
+        lambda value: repr(tuple(value)) if isinstance(value, (tuple, list)) else str(value)
+    ).tolist()
+    shown = frame.get('Show wafer', pd.Series([False] * count)).fillna(False).astype(bool).tolist()
+    raw = pd.to_numeric(frame.get('Raw', pd.Series(np.ones(count))), errors='coerce').to_numpy(float)
+    reference = pd.to_numeric(frame.get('Reference', pd.Series(np.ones(count))), errors='coerce').to_numpy(float)
+    drawable = np.isfinite(raw) & np.isfinite(reference)
+
+    renderer = RendererAgg(1, 1, 96)
+    font = FontProperties(family=EXPORT_FONT, size=11)
+    @memoize
+    def measure(text):
+        return renderer.get_text_width_height_descent(str(text), font, False)[0]
+
+    group_spans = _label_spans(group_keys, limit=None)
+    group_counts = [max(1, int(drawable[start:end + 1].sum()))
+                    for start, end, _key in group_spans]
+    group_only_widths_array = _tight_span_widths(
+        group_counts, [group_labels[start] for start, _end, _key in group_spans], measure)
+    group_only = {key: float(width) for (_start, _end, key), width
+                  in zip(group_spans, group_only_widths_array)}
+
+    segments = []
+    edge_pairs = [(0, 0.)]
+    group_widths = {}
+    wafer_widths = {}
+    cursor = 0.
+    if mode == 'wafer':
+        wafer_spans = _label_spans(wafer_keys, limit=None)
+        counts = [max(1, int(drawable[start:end + 1].sum())) for start, end, _key in wafer_spans]
+        widths = _tight_span_widths(
+            counts, [wafer_labels[start] for start, _end, _key in wafer_spans], measure)
+        for (start, end, key), width in zip(wafer_spans, widths):
+            segments.append([(start, end, cursor, float(width))])
+            wafer_widths[key] = float(width)
+            edge_pairs.extend(((float(start), cursor),
+                               (float(end + 1), cursor + float(width))))
+            cursor += float(width)
+    else:
+        for (start, end, group_key), group_width in zip(group_spans, group_only_widths_array):
+            pieces = []
+            if any(shown[start:end + 1]):
+                local_wafers = _label_spans(wafer_keys[start:end + 1], limit=None)
+                local_wafers = [(first + start, last + start, key)
+                                for first, last, key in local_wafers]
+                counts = [max(1, int(drawable[first:last + 1].sum()))
+                          for first, last, _key in local_wafers]
+                widths = _tight_span_widths(
+                    counts, [wafer_labels[first] for first, _last, _key in local_wafers],
+                    measure)
+                total = float(widths.sum())
+                group_label_min = max(
+                    measure(line) for line in group_labels[start].splitlines()) + 16
+                if total < group_label_min:
+                    widths *= group_label_min / total
+                    total = group_label_min
+                piece_cursor = cursor
+                for (first, last, key), width in zip(local_wafers, widths):
+                    pieces.append((first, last, piece_cursor, float(width)))
+                    wafer_widths.setdefault(group_key, {})[key] = float(width)
+                    edge_pairs.extend(((float(first), piece_cursor),
+                                       (float(last + 1), piece_cursor + float(width))))
+                    piece_cursor += float(width)
+                group_width = total
+            else:
+                pieces.append((start, end, cursor, float(group_width)))
+                edge_pairs.extend(((float(start), cursor),
+                                   (float(end + 1), cursor + float(group_width))))
+            segments.append(pieces)
+            group_widths[group_key] = float(group_width)
+            cursor += float(group_width)
+
+    if not segments:
+        return empty
+    edge_map = {}
+    for source, display in sorted(edge_pairs):
+        edge_map[source] = display
+    source_edges = list(edge_map)
+    display_edges = [edge_map[source] for source in source_edges]
+    x = np.zeros(count, dtype=float)
+    for pieces in segments:
+        for first, last, piece_start, width in pieces:
+            x[first:last + 1] = piece_start + width * (
+                np.arange(1, last - first + 2, dtype=float) - .5) / (last - first + 1)
+
+    total_width = max(1., float(cursor))
+    remapped = []
+    for item in captions:
+        mapped = dict(item)
+        for field in ('start', 'end', 'center'):
+            source = float(item.get(field, 0.)) * count
+            display = float(np.interp(source, source_edges, display_edges)) / total_width
+            mapped[field] = display
+        remapped.append(mapped)
+    ticks = [(float(x[index]), str(value)) for index, value in
+             enumerate(frame.get('Die Seq', pd.Series([''] * count)).tolist())
+             if index % max(1, int(np.ceil(count / 18))) == 0]
+    width_cm = (total_width + 110) * 2.54 / 96
+    layout = {
+        "name": name, "x": x, "ticks": ticks, "limits": (0., total_width),
+        "source": np.asarray(source_edges), "display": np.asarray(display_edges),
+        "width": width_cm, "native_width": width_cm,
+        "group_only_widths": group_only, "group_widths": group_widths,
+        "wafer_widths": wafer_widths, "captions": remapped,
+        "native_captions": list(captions), "captions_are_display": True,
+    }
+    return dict(layout)
+
+
 def parameter_footer(sheet, first, data, columns, mode):
     """One wafer strip and, when grouped, a separate outer Group strip."""
     grouped = mode == 'group' and 'Group' in columns
     groups = data['Group'].tolist() if grouped else [''] * len(data)
     keys = list(zip(groups, data['Wafer key']))
-    wafers = identity_captions(sheet, first, data['Wafer'].tolist(), keys, columns['Wafer'], limit=4)
+    wafers = identity_captions(
+        sheet, first, data['Wafer'].tolist(), keys, columns['Wafer'], limit=None)
     if grouped:
         show = data.get('Show wafer', pd.Series([False] * len(data))).tolist()
         wafers = [item for item in wafers if show[round(item['start'] * len(data))]]
         labels = data.get('Group caption', data['Group label']).tolist()
-        return wafers + identity_captions(sheet, first, labels, groups, columns['Group'],
-                                         limit=6, role='group', level=int(bool(wafers)))
+        return wafers + identity_captions(
+            sheet, first, labels, groups, columns['Group'],
+            limit=None, role='group', level=int(bool(wafers)))
     return wafers
 
 
@@ -417,7 +629,12 @@ def draw_sequence_axis(axis, sequence, dies=(), *, boundary_gap=0.0):
     if 'captions' in sequence:
         captions = sequence['captions']
         count = len(dies)
-        project = lambda fraction: float(np.interp(.5 + fraction * count, sequence['source'], sequence['display']))
+        if sequence.get('captions_are_display'):
+            low, high = sequence['limits']
+            project = lambda fraction: float(low + fraction * (high - low))
+        else:
+            project = lambda fraction: float(np.interp(
+                .5 + fraction * count, sequence['source'], sequence['display']))
         height_points = axis.bbox.height * 72 / axis.figure.dpi
         offset = 42
         first_top = 34
@@ -494,7 +711,8 @@ def _original_value(original, column, source_row):
 
 def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
                            card_source, scope, stage, *, native=True, images=None, show_percent=False, reference_label="REF", original=None, wafer_only=False, axis_mode=None, panel_widths=None,
-                           start_column=1, chart_row=None, chart_column=None):
+                           start_column=1, chart_row=None, chart_column=None,
+                           chart_index=0):
     """Compact visible measurements; chart labels/fit provenance stay internal."""
     _checkpoint(worksheet.parent, f'{stage}: {scope} — {parameter}')
     reference = data["Reference"].to_numpy(float)
@@ -693,13 +911,9 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
             layout['native_width'] = max(layout['native_width'], panel_widths[0])
             layout['width'] = max(layout['width'], panel_widths[1])
     if axis_mode in ('group', 'wafer'):
-        # Sparse footer captions no longer need one physical caption-width per
-        # measurement. Keep all source-order ordinals in a normal-sized panel.
         captions = parameter_footer(worksheet, first_row, data, columns, axis_mode)
-        layout = report_sequence_layout(data['Die Seq'].tolist(), captions, name=layouts[0]['name'])
+        layout = sequence_export_layout(data, mode=axis_mode, captions=captions)
         layout['mode'] = axis_mode
-        if panel_widths:
-            layout['native_width'] = layout['width'] = max(layout['width'], panel_widths[0])
         layouts = [layout]
     category_columns = [(columns["Group"], data["Group label"].tolist())] if "Group" in columns and not wafer_only else None
     detailed_columns = ([(columns["Group"], data["Group label"].tolist())] if "Group" in columns and not wafer_only else []) + [
@@ -716,35 +930,59 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
         else:
             layout["categories"] = native_categories(worksheet, first_row, last_row, categories) if count else None
     if count and native:
+        chart_left = _column_left_cm(
+            worksheet, chart_column if chart_column is not None else len(headers) + 2)
+        chart_top = _row_top_cm(
+            worksheet, chart_row if chart_row is not None else row
+        ) + chart_index * (PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
         _add_charts(worksheet, row if chart_row is None else chart_row, first_row, last_row, parameter, fit, show_percent=show_percent,
                     raw=raw, reference=reference, evaluated=evaluated_values, equation=equation,
                     reference_label=reference_label, unit="" if mapping is None else _unit(mapping.reference_column),
                     columns=columns, helper=helper, helper_row=helper_row, final=final,
-                    layouts=layouts, anchor_column=chart_column)
+                    layouts=layouts, anchor_column=chart_column,
+                    chart_left_cm=chart_left, chart_top_cm=chart_top,
+                    bias_limit=None if mapping is None or mapping.bias_limit is None
+                    else float(mapping.bias_limit),
+                    show_bias_limit=bool(mapping is not None and mapping.show_bias_limit))
     elif count:
         from .export_rendering import embed_parameter
         anchor = chart_column if chart_column is not None else len(headers) + 2
+        chart_left = _column_left_cm(worksheet, anchor)
+        chart_top = _row_top_cm(
+            worksheet, chart_row if chart_row is not None else row
+        ) + chart_index * (PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
         panels = [("Match", None)] + [(panel, layout) for layout in layouts
             for panel in ("Trend", "Bias", *(("Bias %",) if show_percent else ()))]
         for panel, layout in panels:
+            position = (chart_left, chart_top)
             embed_parameter(worksheet, f"{get_column_letter(anchor)}{row if chart_row is None else chart_row}",
                 f"{parameter} {panel} {layout['name'] if layout else ''} {scope} {stage}{stage_suffix(stage)}",
                 images, parameter, data, card, stage, scope, panel=panel, reference_label=reference_label,
-                unit="" if mapping is None else _unit(mapping.reference_column), sequence=layout)
+                unit="" if mapping is None else _unit(mapping.reference_column), sequence=layout,
+                bias_limit=None if mapping is None or mapping.bias_limit is None
+                else float(mapping.bias_limit),
+                show_bias_limit=bool(mapping is not None and mapping.show_bias_limit),
+                position_cm=position)
             width = MATCH_WIDTH_CM if panel == 'Match' else layout['width']
-            anchor = _next_plot_column(worksheet, anchor, (width / 2.54) * 96)
+            chart_left += width + CHART_HORIZONTAL_GAP_CM
     return max(first_row + count + 3, row + BLOCK_MIN_ROWS) + 3
 
 
 def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_percent=False,
                 raw, reference, evaluated, equation, reference_label, unit, columns, helper, helper_row,
-                final, layouts, anchor_column=None):
+                final, layouts, anchor_column=None, chart_left_cm=None, chart_top_cm=None,
+                bias_limit=None, show_bias_limit=False):
     anchor = len(columns) + 2 if anchor_column is None else anchor_column
+    left_cm = (_column_left_cm(worksheet, anchor)
+               if chart_left_cm is None else chart_left_cm)
+    top_cm = _row_top_cm(worksheet, row) if chart_top_cm is None else chart_top_cm
+
     def add(chart):
-        nonlocal anchor
+        nonlocal left_cm
         chart.visible_cells_only = False  # Keep every charted range visible for Excel's source outlines.
         worksheet.add_chart(chart, f"{get_column_letter(anchor)}{row}")
-        anchor = _next_plot_column(worksheet, anchor, chart.width * 96 / 2.54)
+        worksheet._charts[-1]._export_position_cm = (left_cm, top_cm)
+        left_cm += chart.width + CHART_HORIZONTAL_GAP_CM
     match = ScatterChart()
     match.scatterStyle = 'marker'
     match.title = parameter
@@ -789,7 +1027,8 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
             chart.title = parameter if panel == "Trend" else panel
             chart.y_axis.title = parameter if panel == "Trend" else f"Bias ({unit})" if panel == "Bias" and unit and unit != "1" else panel
             chart.height, chart.width = PANEL_HEIGHT_CM, layout["native_width"]
-            chart._identity_captions = layout.get('captions')
+            chart._identity_captions = layout.get(
+                'native_captions', layout.get('captions'))
             chart.x_axis.title = None
             chart.x_axis.tickLblSkip = max(1, int(np.ceil(len(raw) / 18)))
             if layout.get('mode') == 'die' or layout.get('captions'):
@@ -803,7 +1042,28 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
                 if name == 'PMISH+Card':
                     chart.series[-1].tx = SeriesLabel(v='PMISH')
                 if name == reference_label:
-                    style_native_series(chart.series[-1], 1, color="ED7D31")
+                    style_native_series(
+                        chart.series[-1], 1, color="ED7D31",
+                        marker_size=TREND_MARKER_SIZE,
+                        line_width=int(TREND_LINE_WIDTH * 12700))
+                else:
+                    style_native_series(
+                        chart.series[-1], len(chart.series) - 1,
+                        marker_size=TREND_MARKER_SIZE,
+                        line_width=int(TREND_LINE_WIDTH * 12700))
+            if panel == "Bias" and show_bias_limit and bias_limit is not None:
+                count = last_row - first_row + 1
+                for label, value in (("Bias limit +", bias_limit), ("Bias limit -", -bias_limit)):
+                    limit_series = SeriesObject()
+                    limit_series.tx = SeriesLabel(v=label)
+                    limit_series.val = NumDataSource(numLit=NumData(
+                        formatCode="General", ptCount=count,
+                        pt=[NumVal(idx=index, v=value) for index in range(count)]))
+                    limit_series.cat = layout["categories"]
+                    limit_series.marker = Marker(symbol=None)
+                    limit_series.graphicalProperties.line = LineProperties(
+                        solidFill="DC2626", w=19050, prstDash="dash")
+                    chart.series.append(limit_series)
             chart_limits(chart, values, symmetric=panel != "Trend")
             add(chart)
 
@@ -905,7 +1165,8 @@ def write_parameter_sheets(book, used_titles, result, workbook, *, native=True, 
             result.card(parameter), "Overall", "All", stage, native=native, images=images,
             show_percent="percent" in workbook.bias_views, reference_label=workbook.match_type, original=original,
             axis_mode='die', panel_widths=shared_widths.get(parameter),
-            start_column=1 + index * (block_width + 1), chart_row=chart_start + index * BLOCK_MIN_ROWS,
+            start_column=1 + index * (block_width + 1),
+            chart_row=chart_start, chart_index=index,
             chart_column=1)
     if result.group_plan.enabled:
         grouped = book.create_sheet(sheet_title('Match Group', used_titles, suffix))
@@ -919,8 +1180,9 @@ def write_parameter_sheets(book, used_titles, result, workbook, *, native=True, 
                 grouped_data[parameter], result.card(parameter),
                 'Overall', 'Group', stage, native=native, images=images,
                 show_percent='percent' in workbook.bias_views, reference_label=workbook.match_type,
-                original=original, axis_mode='group', panel_widths=shared_widths[parameter],
-                start_column=1 + index * (block_width + 1), chart_row=chart_start + index * BLOCK_MIN_ROWS,
+                original=original, axis_mode='group',
+                start_column=1 + index * (block_width + 1),
+                chart_row=chart_start, chart_index=index,
                 chart_column=1)
     wafer = book.create_sheet(sheet_title("Match Wafer", used_titles, suffix))
     _fill_title(wafer)
@@ -935,7 +1197,8 @@ def write_parameter_sheets(book, used_titles, result, workbook, *, native=True, 
             result.card(parameter), "Overall", "Wafer", stage, native=native, images=images,
             show_percent="percent" in workbook.bias_views, reference_label=workbook.match_type,
             original=original, wafer_only=True, axis_mode='wafer',
-            start_column=1 + index * (block_width + 1), chart_row=chart_start + index * BLOCK_MIN_ROWS,
+            start_column=1 + index * (block_width + 1),
+            chart_row=chart_start, chart_index=index,
             chart_column=1)
     plan = result.group_plan
     if not plan.enabled:
@@ -958,7 +1221,8 @@ def write_parameter_sheets(book, used_titles, result, workbook, *, native=True, 
                 "Group" if card is not None else "Overall", label, stage,
                 native=native, images=images, show_percent="percent" in workbook.bias_views,
                 reference_label=workbook.match_type, original=original, axis_mode='group',
-                start_column=1 + index * (block_width + 1), chart_row=chart_start + index * BLOCK_MIN_ROWS,
+                start_column=1 + index * (block_width + 1),
+                chart_row=chart_start, chart_index=index,
                 chart_column=1)
     return sheet
 
@@ -1114,7 +1378,10 @@ def write_all_trend_sheet(book, used_titles, result, workbook, *, native=True, i
                                   max_row=first_row + len(data) - 1),
                         titles_from_data=True)
                     chart.series[-1].tx = SeriesLabel(v=f"{label} {'PMISH' if offset == 1 else workbook.match_type}")
-                    style_native_series(chart.series[-1], len(chart.series) - 1)
+                    style_native_series(
+                        chart.series[-1], len(chart.series) - 1,
+                        marker_size=TREND_MARKER_SIZE,
+                        line_width=int(TREND_LINE_WIDTH * 12700))
             chart.series = chart.series[::2] + chart.series[1::2]
             chart_limits(chart, np.concatenate([
                 array for _label, _key, data, card in series
@@ -1205,6 +1472,7 @@ def _write_workbook(book, path, *, reference, stages, native, images, reports, e
     flush_pictures(book)
     select_export_sheets(book, selected_sheets)
     style_workbook(book)
+    _position_targeted_drawings(book)
     if selected_sheets is None:
         book.active = next((index for index, sheet in enumerate(book) if sheet.title.startswith("Match Original (")),
                            next(index for index, sheet in enumerate(book) if sheet.sheet_state == "visible"))
@@ -1364,7 +1632,7 @@ def _embed_figure(sheet, figure, anchor, title, images):
 
 def picture_ratio(title, picture, shapes):
     """Whole-page PNG scaling, with an eight-centimetre Wafer Map row pitch."""
-    if title.startswith('Wafer Map'):
+    if title.startswith(('Wafer Map', 'Radius')):
         rows, _columns = shapes.get(title, (1, 1))
         return max(1, rows) * WAFER_MAP_CELL_HEIGHT_CM * 96 / 2.54 / picture.height
     return min(FM_PICTURE_HEIGHT_CM * 96 / 2.54 / picture.height,
@@ -1460,6 +1728,9 @@ def write_fullmap(sheet, frame, parameters, *, native=True, images=None, plot_la
             chart.visible_cells_only = False
             chart.add_data(Reference(sheet, min_col=slot, min_row=1, max_row=len(frame) + 1), titles_from_data=True)
             chart.series[0].cat = categories
+            style_native_series(
+                chart.series[0], 0, marker_size=TREND_MARKER_SIZE,
+                line_width=int(TREND_LINE_WIDTH * 12700))
             chart._identity_captions = captions_for_plot
             chart_limits(chart, values)
             sheet.add_chart(chart, f"{anchor}{cursor}")
@@ -1501,7 +1772,8 @@ def set_export_font(figure):
         text.set_fontfamily(EXPORT_FONT)
 
 
-def parameter_figure(parameter, data, card, stage, scope, *, panel="Match", reference_label="REF", unit="", sequence=None):
+def parameter_figure(parameter, data, card, stage, scope, *, panel="Match", reference_label="REF", unit="",
+                     sequence=None, bias_limit=None, show_bias_limit=False):
     """Matplotlib report from the same software values used in the Excel areas."""
     from matplotlib.figure import Figure
     from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -1528,7 +1800,7 @@ def parameter_figure(parameter, data, card, stage, scope, *, panel="Match", refe
         bottom = 1.5
     else:
         rows = np.arange(1, len(data) + 1) if sequence is None else sequence["x"]
-        marker_size, line_width = 4, 1.8
+        marker_size, line_width = TREND_MARKER_SIZE, TREND_LINE_WIDTH
         ylabel = parameter if panel == "Trend" else f"Bias ({unit})" if panel == "Bias" and unit and unit != "1" else panel
         style_plot_axis(axis, title=parameter if panel == "Trend" else panel, xlabel="", ylabel=ylabel)
         if panel == "Trend":
@@ -1546,7 +1818,14 @@ def parameter_figure(parameter, data, card, stage, scope, *, panel="Match", refe
                 bias = percent
             axis.plot(rows, bias, marker="o", markersize=marker_size, color="#4F8BD6", linewidth=line_width)
             axis.axhline(0, color="#8A8F98", linewidth=.7, linestyle="--")
-            plot_axis_limits(axis, bias, symmetric=True)
+            limit = (None if panel != "Bias" or bias_limit is None or not show_bias_limit
+                     else abs(float(bias_limit)))
+            if limit is not None:
+                for value in (-limit, limit):
+                    axis.axhline(value, color="#DC2626", linewidth=1.8,
+                                 linestyle="--", zorder=4)
+            plot_axis_limits(axis, bias if limit is None else np.concatenate((bias, [-limit, limit])),
+                             symmetric=True)
         selected = ([(float((start + end) / 2 + 1), label) for start, end, label in _label_spans(data["Label"])]
                     if sequence is None and "Label" in data else [] if sequence is None else sequence["ticks"])
         bottom = .8 + .45 * max((len(label.splitlines()) for _position, label in selected), default=1)

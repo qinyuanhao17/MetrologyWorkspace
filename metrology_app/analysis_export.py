@@ -18,6 +18,7 @@ from .excel_export import (PLOT_COLORS, _value, _write_frame, chart_limits, plot
     plot_axis_limits, save_atomic, set_export_font, sheet_title, stage_suffix,
     style_native_series, style_plot_axis, style_workbook, sequence_layout,
     PANEL_HEIGHT_CM, MATCH_WIDTH_CM, TREND_WIDTH_CM, DYNAMIC_WIDTH_CM)
+from .appearance import TREND_LINE_WIDTH, TREND_MARKER_SIZE
 
 
 def _series(name, x, y, *, line=True, markers=True, **metadata):
@@ -65,7 +66,8 @@ def capture_window(window):
             pivot = model.frame.copy(deep=True)
             report['pivot_sources'][parameter] = dict(model.cell_sources)
             report["frames"][f"Pivot {parameter}"] = pivot.reset_index()
-            report["plots"].append({"sheet": "Dynamic", "title": f"{parameter} 3 Sigma",
+            report["plots"].append({"sheet": "Dynamic",
+                "title": f"{max(0, len(pivot) - 1)} Cycles Dynamic of {parameter} (nm)",
                 "kind": "bar", "x": "Die Seq", "y": "3 Sigma", "series": [
                     _series(parameter, list(pivot.columns), pivot.loc["3 Sigma"].to_numpy(float))]})
     else:
@@ -78,7 +80,8 @@ def capture_window(window):
             if not ready:
                 continue
             if label == 'Wafer Map':
-                report.setdefault('picture_shapes', {})[label] = tuple(page.result['shape'])
+                report.setdefault('picture_shapes', {})[label] = (
+                    tuple(page.result['shape']) if label == 'Wafer Map' else tuple(page._shape))
             report["pictures"].append((label, page.png_bytes(),
                 f"Page {page.page_index + 1}; current Copy PNG grid"))
     return report
@@ -200,8 +203,13 @@ def plot_figure(plot):
             target.set_xticks(np.arange(len(data)), data["X"].astype(str))
             target.set_ylim(bottom=0)
         elif series.get("line", True):
-            target.plot(x, data["Y"], marker=("o" if index % 2 == 0 else "s") if series.get("markers", True) else None,
-                markersize=4, linewidth=1.8, linestyle="--" if series.get('dash') == 'dash' else "-",
+            trend = plot.get("sheet") != "Correlation"
+            target.plot(x, data["Y"],
+                marker=("o" if trend else "o" if index % 2 == 0 else "s")
+                       if series.get("markers", True) else None,
+                markersize=TREND_MARKER_SIZE if trend else 5.5,
+                linewidth=TREND_LINE_WIDTH if trend else 2.4,
+                linestyle="--" if series.get('dash') == 'dash' else "-",
                 color=color, label=series["name"],
                 zorder=3 if series.get("reference") or series.get("source") == "Reference" else 2)
         else:
@@ -322,7 +330,12 @@ def append_report(book, used, report, *, native=True, images=None, prefix=""):
                             secondary_axes[unit] = second
                         target = secondary_axes[unit]
                     target.series.append(item)
-                    style_native_series(item, index, markers=series.get("markers", True), color=_series_color(series, index))
+                    style_native_series(
+                        item, index, markers=series.get("markers", True),
+                        color=_series_color(series, index),
+                        marker_size=(TREND_MARKER_SIZE if plot.get("sheet") == "Trend" else 4),
+                        line_width=(int(TREND_LINE_WIDTH * 12700)
+                                    if plot.get("sheet") == "Trend" else 22860))
                     if series.get("reference") or series.get("source") == "Reference":
                         reference_series.add(id(item))
                 values_by_chart.setdefault(target if plot.get("kind") != "bar" else chart, []).extend(data["Y"].to_numpy(float))
@@ -421,7 +434,7 @@ def write_dynamic_report(sheet, report, *, native=True, images=None):
                 sigma_cells[parameter, die] = sheet.cell(sigma_row, index).coordinate
             if native:
                 chart = BarChart()
-                chart.title = f'{parameter} 3 Sigma'
+                chart.title = f'{max(0, len(pivot) - 1)} Cycles Dynamic of {parameter} (nm)'
                 chart.x_axis.title, chart.y_axis.title = 'Die Seq', '3 Sigma'
                 chart.height, chart.width = PANEL_HEIGHT_CM, DYNAMIC_WIDTH_CM
                 chart.add_data(Reference(sheet, min_col=table_column + 1,
@@ -434,7 +447,8 @@ def write_dynamic_report(sheet, report, *, native=True, images=None):
                 chart.legend = None
                 sheet.add_chart(chart, f'{get_column_letter(plot_column)}{row}')
             else:
-                plot = {'title': f'{parameter} 3 Sigma', 'kind': 'bar', 'x': 'Die Seq', 'y': '3 Sigma', 'width_cm': DYNAMIC_WIDTH_CM,
+                plot = {'title': f'{max(0, len(pivot) - 1)} Cycles Dynamic of {parameter} (nm)',
+                    'kind': 'bar', 'x': 'Die Seq', 'y': '3 Sigma', 'width_cm': DYNAMIC_WIDTH_CM,
                     'series': [_series(parameter, list(pivot.columns[1:]), pivot.iloc[sigma_index, 1:].to_numpy(float))]}
                 embed_plot(sheet, plot, f'{get_column_letter(plot_column)}{row}',
                            sheet.title + ' ' + plot['title'], images)
@@ -452,7 +466,9 @@ def write_dynamic_report(sheet, report, *, native=True, images=None):
     if pivots and dies:
         if native:
             chart = BarChart()
-            chart.title, chart.x_axis.title, chart.y_axis.title = 'Dynamic 3 Sigma', 'Die Seq', '3 Sigma'
+            chart.title = (f'{max(0, max(len(frame) for _, frame in pivots) - 1)} Cycles Dynamic of '
+                           f'{", ".join(parameter for parameter, _ in pivots)} (nm)')
+            chart.x_axis.title, chart.y_axis.title = 'Die Seq', '3 Sigma'
             chart.height, chart.width = PANEL_HEIGHT_CM, DYNAMIC_WIDTH_CM
             chart.add_data(Reference(sheet, min_col=summary_column + 1,
                 max_col=summary_column + len(pivots), min_row=summary_row, max_row=summary_row + len(dies)),
@@ -467,7 +483,10 @@ def write_dynamic_report(sheet, report, *, native=True, images=None):
             for parameter, pivot in pivots:
                 values = dict(zip(pivot.columns[1:], pivot.iloc[-1, 1:].to_numpy(float)))
                 curves.append(_series(parameter, dies, [values.get(die, np.nan) for die in dies]))
-            plot = {'title': 'Dynamic 3 Sigma', 'kind': 'bar', 'x': 'Die Seq', 'y': '3 Sigma', 'series': curves, 'width_cm': DYNAMIC_WIDTH_CM}
+            plot = {'title': (f'{max(0, max(len(frame) for _, frame in pivots) - 1)} Cycles Dynamic of '
+                              f'{", ".join(parameter for parameter, _ in pivots)} (nm)'),
+                    'kind': 'bar', 'x': 'Die Seq', 'y': '3 Sigma', 'series': curves,
+                    'width_cm': DYNAMIC_WIDTH_CM}
             embed_plot(sheet, plot, f'{get_column_letter(summary_chart_column)}1', sheet.title + ' Summary', images)
     if native:
         for root in sheet._charts:

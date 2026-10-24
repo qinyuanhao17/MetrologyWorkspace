@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import QApplication
 
 from metrology_app.excel_export import write_fullmap
 from metrology_app.matching_window import MatchingWindow
+from tests import test_excel_export as fixtures
 
 APP = QApplication.instance() or QApplication([])
 
@@ -37,9 +38,10 @@ class TemplateLayoutTests(unittest.TestCase):
                         self.assertEqual(sheet['J2'].value, 'Group', sheet.title)
                         objects = sheet._charts if native else sheet._images
                         self.assertEqual(len(objects), 6)
-                        self.assertEqual(objects[0].anchor._from.col, 0)
-                        self.assertGreater(objects[3].anchor._from.row, objects[0].anchor._from.row)
-                        self.assertEqual(objects[0].anchor._from.row, 4)
+                        cells = [fixtures.drawing_cell(obj, sheet) for obj in objects]
+                        self.assertEqual(cells[0][0], 0)
+                        self.assertGreater(cells[3][1], cells[0][1])
+                        self.assertEqual(cells[0][1], 4)
                     book.close()
         finally:
             window.document.force_close = True
@@ -132,9 +134,10 @@ class TemplateLayoutTests(unittest.TestCase):
                     self.assertIn(f'${sheet.cell(1, source + 2).column_letter}$2', sheet['C3'].value)
                     objects = sheet._charts if native else sheet._images
                     self.assertEqual(len(objects), 6)
-                    self.assertEqual(objects[0].anchor._from.row, 4)
-                    self.assertEqual(objects[0].anchor._from.col, 0)
-                    self.assertGreater(objects[3].anchor._from.row, objects[0].anchor._from.row)
+                    cells = [fixtures.drawing_cell(obj, sheet) for obj in objects]
+                    self.assertEqual(cells[0][1], 4)
+                    self.assertEqual(cells[0][0], 0)
+                    self.assertGreater(cells[3][1], cells[0][1])
                     self.assertEqual(sheet.freeze_panes, 'A3')
                     for view in (s for s in book if s.title.startswith('Match ')):
                         self.assertEqual(view['A1'].value, 'DP')
@@ -142,7 +145,7 @@ class TemplateLayoutTests(unittest.TestCase):
                         self.assertEqual(view['A2'].value, 'Wafer')
                         self.assertEqual(view['I2'].value, 'Wafer')
                         panels = view._charts if native else view._images
-                        self.assertEqual(panels[0].anchor._from.row, 4)
+                        self.assertEqual(fixtures.drawing_cell(panels[0], view)[1], 4)
                     if native:
                         self.assertIn('$K$3:$K$5', objects[3].series[0].xVal.numRef.f)
                         self.assertIn('$M$3:$M$5', objects[3].series[0].yVal.numRef.f)

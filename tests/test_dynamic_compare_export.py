@@ -54,52 +54,48 @@ class DynamicCompareExportTests(unittest.TestCase):
         undo.undo()
         self.assertEqual(self.window.model.document_frame().iloc[0, 3], '65.000')
 
-    def test_compare_parameters_have_independent_y_axes_in_both_modes_and_export_mirror(self):
+    def test_compare_parameters_have_independent_y_axes_and_export_mirror(self):
         page = self.window.dynamic_trend
-        for mode, count in ((0, 1), (1, 2)):
-            with self.subTest(mode=mode):
-                page.view_mode.setCurrentIndex(mode)
-                page.comparisons.clear()
-                page.render_interactive(dict(page.panel_tables))
-                page.add_compare('DP')
-                widget = page.panel_widgets['DP']
-                self.assertEqual(len(widget.secondary_views), 1)
-                self.assertEqual(widget.secondary_axes[0].labelText, 'EW')
-                self.assertEqual(len(widget.listDataItems()), count)
-                secondary = widget.secondary_views[0]
-                curves = [c for c in secondary.addedItems if hasattr(c, 'dynamic_series')]
-                self.assertEqual(len(curves), count)
-                self.assertTrue(all(c.dynamic_series[0] == 'EW' for c in curves))
-                if mode == 1:
-                    self.assertTrue(all(c.opts['pen'].style() == Qt.PenStyle.DashLine for c in curves))
-                expected = page.panel_tables['EW'].iloc[:, 0].to_numpy(float)
-                np.testing.assert_array_equal(curves[0].getData()[1], expected)
-                self.assertTrue(page.panel_hosts[0].findChildren(QPushButton, 'dynamicAddCompare'))
-                page.ensure_export_figure()
-                ew_axes = [a for a in page.figure.axes if a.get_ylabel() == 'EW']
-                self.assertTrue(any(len(a.lines) == count for a in ew_axes))
-                # Secondary curves must update from live source edits too.
-                changed = self.window.model.document_frame().copy()
-                changed.iloc[0, 4] = '30.333'
-                page.set_input(changed, page.selection)
-                self.assertAlmostEqual(curves[0].getData()[1][0], 30.333)
+        page.comparisons.clear()
+        page.render_interactive(dict(page.panel_tables))
+        page.add_compare('DP')
+        widget = page.panel_widgets['DP']
+        self.assertEqual(len(widget.secondary_views), 1)
+        self.assertEqual(widget.secondary_axes[0].labelText, 'EW')
+        self.assertEqual(len(widget.listDataItems()), 1)
+        secondary = widget.secondary_views[0]
+        curves = [c for c in secondary.addedItems if hasattr(c, 'dynamic_series')]
+        self.assertEqual(len(curves), 1)
+        self.assertTrue(all(c.dynamic_series[0] == 'EW' for c in curves))
+        self.assertEqual(curves[0].opts["pen"].widthF(), 2.5)
+        self.assertEqual(curves[0].opts["symbol"], "o")
+        self.assertEqual(curves[0].opts["symbolSize"], 6)
+        expected = page.panel_tables['EW'].iloc[:, 0].to_numpy(float)
+        np.testing.assert_array_equal(curves[0].getData()[1], expected)
+        self.assertTrue(page.panel_hosts[0].findChildren(QPushButton, 'dynamicAddCompare'))
+        page.ensure_export_figure()
+        ew_axes = [a for a in page.figure.axes if a.get_ylabel() == 'EW']
+        self.assertTrue(any(len(a.lines) == 1 for a in ew_axes))
+        # Secondary curves must update from live source edits too.
+        changed = self.window.model.document_frame().copy()
+        changed.iloc[0, 4] = '30.333'
+        page.set_input(changed, page.selection)
+        self.assertAlmostEqual(curves[0].getData()[1][0], 30.333)
 
     def test_dynamic_report_exports_sigma_but_not_per_die_cycle_trends(self):
         page = self.window.dynamic_trend
-        page.view_mode.setCurrentIndex(1)
         page.add_compare('DP')
         report = capture_window(self.window)
         self.assertEqual({p['sheet'] for p in report['plots']}, {'Dynamic'})
         self.assertEqual(len(report['plots']), 2)
         self.assertTrue(all(p['kind'] == 'bar' for p in report['plots']))
-        self.assertEqual(len(page.panel_curves('DP')), 4, 'Live comparisons must remain available')
+        self.assertEqual(len(page.panel_curves('DP')), 2, 'Live comparisons must remain available')
         pd.testing.assert_frame_equal(report['frames']['Data'], self.window.model.document_frame())
 
     def test_native_dynamic_sigma_charts_link_editable_pivots_and_summary_is_top_aligned(self):
         from openpyxl import Workbook
         from metrology_app.analysis_export import append_report
         page = self.window.dynamic_trend
-        page.view_mode.setCurrentIndex(1)
         page.add_compare('DP')
         book = Workbook()
         book.remove(book.active)
