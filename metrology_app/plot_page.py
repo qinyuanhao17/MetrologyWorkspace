@@ -737,7 +737,9 @@ class PlotPage(QWidget):
         if self.result is None:
             return
         self._export_dirty = True
-        self.map_grid.relayout(self.result, int(self.font_size.currentText()), self.identity_labels)
+        for panel in self.map_grid.panels:
+            panel.identity_labels = self.identity_labels
+            panel.update()
 
     def set_identity_labels(self, options):
         """Only repaint caption text, even if interpolation is still running."""

@@ -570,7 +570,24 @@ class DynamicTrendPage(QWidget):
 
     def restyle(self, *_args):
         if self.ready:
-            self.relayout()
+            base = int(self.font_size.currentText())
+            self._export_dirty = True
+            self._copy_image = None
+            self._copy_dpi = None
+            # A font change does not change any curve or its chosen Die/view.
+            for container, widget in zip(self.panel_hosts, self.plot_widgets):
+                heading = container.findChild(QLabel, "panelTitle")
+                if heading is not None:
+                    heading.setStyleSheet(f"color: #20242a; font-size: {base + 1}pt;")
+                plot = widget.getPlotItem()
+                for name in ("left", "bottom"):
+                    axis = plot.getAxis(name)
+                    options = {key: getattr(axis, attribute) for key, attribute in
+                               (("unitPower", "unitPower"), ("siPrefixEnableRanges", "_siPrefixEnableRanges"))
+                               if hasattr(axis, attribute)}
+                    axis.setLabel(axis.labelText, units=axis.labelUnits, unitPrefix=axis.labelUnitPrefix,
+                                  **options,
+                                  **{**axis.labelStyle, "size": f"{max(7, base - 1)}pt"})
         elif self.plot_host is None:
             self.draw_canvas_message("")
 

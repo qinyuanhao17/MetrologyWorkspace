@@ -450,7 +450,9 @@ class RadiusPage(QWidget):
         self.identity_labels = dict(options)
         self._export_dirty = True
         if self.ready:
-            self.radius_grid.relayout(self._shape, int(self.font_size.currentText()), self.identity_labels)
+            for panel in self.radius_grid.panels:
+                panel.identity_labels = self.identity_labels
+                panel.update()
 
     def refresh_previous_selection(self):
         if not self.pending_input_refresh:

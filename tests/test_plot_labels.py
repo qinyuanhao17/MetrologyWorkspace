@@ -103,6 +103,10 @@ class PlotLabelTests(unittest.TestCase):
         axis_spans = [[(start, end) for start, end, _ in widget._wafer_axis.spans] for widget in widgets]
         arrays = [item.getData() for widget in widgets for item in widget.listDataItems()]
         surfaces = [scene.get("surface") for scene in map_page.result["scenes"]]
+        map_geometry = [(panel, panel.box, panel._pixel_positions, panel.label_path)
+                        for panel in map_page.map_grid.panels]
+        radius_geometry = [(panel, panel.box, panel._pixel_positions, panel.scatter.data)
+                           for panel in radius.radius_grid.panels if panel.scatter is not None]
         offsets = [axis.collections[0].get_offsets().copy() for axis in radius.figure.axes if axis.axison]
         spans = window.plot_groups["Depth"]["plots"]["trend"].getAxis("bottom").spans
         self.assertEqual([text for _, _, text in spans], ["W001\nLOT: L001\nPAD: ARRAY", "W001\nLOT: L002\nPAD: CELL"])
@@ -131,6 +135,16 @@ class PlotLabelTests(unittest.TestCase):
         self.assertEqual([axis._wafer_title_details[0].get_text() for axis in radius.figure.axes if axis.axison], ["W001", "W001"])
         for old, scene in zip(surfaces, map_page.result["scenes"]):
             self.assertIs(old, scene.get("surface"))
+        for panel, box, pixels, labels in map_geometry:
+            self.assertEqual(panel.box, box)
+            self.assertIs(panel._pixel_positions, pixels)
+            self.assertIs(panel.label_path, labels)
+            self.assertEqual(panel.identity_labels, {"pad": False, "lot": False})
+        for panel, box, pixels, points in radius_geometry:
+            self.assertEqual(panel.box, box)
+            self.assertIs(panel._pixel_positions, pixels)
+            self.assertIs(panel.scatter.data, points)
+            self.assertEqual(panel.identity_labels, {"pad": False, "lot": False})
         for old, axis in zip(offsets, (axis for axis in radius.figure.axes if axis.axison)):
             np.testing.assert_array_equal(old, axis.collections[0].get_offsets())
         for old, item in zip(arrays, (item for widget in widgets for item in widget.listDataItems())):

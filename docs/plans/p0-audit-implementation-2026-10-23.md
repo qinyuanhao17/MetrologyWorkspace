@@ -3,7 +3,8 @@
 ## 范围与版本
 
 依据桌面的 `MetrologyWorkspace_v4.2.0_P0_Audit_and_Codex_Tasks.md`。
-已核对当前 HEAD 为 `3f1af6f3fcfef6e76d2cf6608ad63acc3c66cc79`，即报告固定的 v4.2.0。
+最初核对的基线为 `3f1af6f3fcfef6e76d2cf6608ad63acc3c66cc79`，即报告固定的 v4.2.0。
+它不是后续各阶段的当前 HEAD；实际 checkpoint 以最新 Git 与串行交接记录为准。
 原有 `asdf.xlsx`、`matching-matplotlib.xlsx` 保留。此前未提交的成果已在串行接手时
 保存到 `bec21bb`（接手现场 checkpoint，包含既有地图/导出修改）；未推送或发布。
 
@@ -21,6 +22,13 @@
 Task 06 的极大宽表长停顿仍按实测保留为未解决项，不代表所有场景均流畅。
 本阶段仅按 03→01→06 串行推进，完成后停止，详细交接见
 [本阶段记录](p0-serial-handoff-2026-10-24.md)。
+
+**Ultra 串行续作（2026-10-24）：Task 08 已完成本阶段低风险范围，7/9 完成；
+Task 07 待继续，09 待评估。** 五类页面已分段测量，局部消除 Dynamic Trend
+字号重建与 Map/Radius 字幕几何重建。全量 **1,057 项通过，353.931 s**。
+实际收益、剩余绘图停顿、数值/导出证据与回滚见
+[Ultra 交接](p0-ultra-handoff-2026-10-24.md)。后续按 07→09 串行执行，不修改
+数据所有权、generation 或持久化协议。
 
 ## 证据与修改
 
