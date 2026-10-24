@@ -15,6 +15,10 @@ from .match_group_ui import ColumnFilterDialog
 from .table_clipboard import attach_copy_feedback
 
 
+_PARTICIPATION_FLAGS = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+_USE_FLAGS = _PARTICIPATION_FLAGS | Qt.ItemFlag.ItemIsUserCheckable
+
+
 class ParticipationModel(QAbstractTableModel):
     changed = pyqtSignal()
 
@@ -51,18 +55,23 @@ class ParticipationModel(QAbstractTableModel):
             return "" if pd.isna(value) else str(value)
 
     def flags(self, index):
-        flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
-        return flags | Qt.ItemFlag.ItemIsUserCheckable if index.column() == 0 else flags
+        return _USE_FLAGS if index.column() == 0 else _PARTICIPATION_FLAGS
 
     def setData(self, index, value, role=Qt.ItemDataRole.EditRole):
         if not index.isValid() or index.column() != 0 or role != Qt.ItemDataRole.CheckStateRole:
             return False
-        key = self.ids[self.rows[index.row()]]
+        return self.set_checked_range(index.row(), index.row(), value)
+
+    def set_checked_range(self, first, last, value):
+        """Change inclusive visible rows once, preserving hidden source IDs."""
+        if not 0 <= first <= last < len(self.rows):
+            return False
+        keys = (self.ids[row] for row in self.rows[first:last + 1])
         if value in (Qt.CheckState.Checked, Qt.CheckState.Checked.value):
-            self.checked.add(key)
+            self.checked.update(keys)
         else:
-            self.checked.discard(key)
-        self.dataChanged.emit(index, index, [Qt.ItemDataRole.CheckStateRole])
+            self.checked.difference_update(keys)
+        self.dataChanged.emit(self.index(first, 0), self.index(last, 0), [Qt.ItemDataRole.CheckStateRole])
         self.changed.emit()
         return True
 
@@ -105,8 +114,7 @@ class ParticipationView(QTableView):
         if event.modifiers() & Qt.KeyboardModifier.ShiftModifier and self.anchor is not None:
             state = model.data(model.index(self.anchor, 0), Qt.ItemDataRole.CheckStateRole)
             start, end = sorted((self.anchor, row))
-            for i in range(start, end + 1):
-                model.setData(model.index(i, 0), state, Qt.ItemDataRole.CheckStateRole)
+            model.set_checked_range(start, end, state)
         else:
             state = model.data(model.index(row, 0), Qt.ItemDataRole.CheckStateRole)
             model.setData(model.index(row, 0), Qt.CheckState.Unchecked if state == Qt.CheckState.Checked else Qt.CheckState.Checked, Qt.ItemDataRole.CheckStateRole)
