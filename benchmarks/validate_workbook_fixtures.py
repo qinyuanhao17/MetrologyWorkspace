@@ -4,6 +4,8 @@ python -m benchmarks.validate_workbook_fixtures --workbooks DIRECTORY
 Checks full snapshot round trips, independent finite-pair fits and source hashes.
 This supplements, not replaces, GUI workflow and numerical regression tests.
 """
+if __name__ == "__main__" and not __package__:
+    raise SystemExit("Run with python -m benchmarks.validate_workbook_fixtures for persistence isolation")
 import argparse
 from collections import Counter
 import hashlib

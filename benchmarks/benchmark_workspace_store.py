@@ -2,6 +2,8 @@
 
 No GUI, global preferences or user documents are touched.
 """
+if __name__ == "__main__" and not __package__:
+    raise SystemExit("Run with python -m benchmarks.benchmark_workspace_store for persistence isolation")
 import argparse
 import json
 from pathlib import Path

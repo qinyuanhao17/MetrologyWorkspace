@@ -12,6 +12,22 @@ from run_tests import isolate_settings
 
 
 class TestEnvironmentTests(unittest.TestCase):
+    def test_legacy_file_entry_rejects_before_importing_app_with_user_paths(self):
+        for name in ("benchmark_matching", "benchmark_workspace_store", "benchmark_match_groups",
+                     "validate_workbook_fixtures"):
+            with self.subTest(script=name), tempfile.TemporaryDirectory() as folder:
+                sentinel = Path(folder) / "user-settings.yaml"
+                sentinel.write_text("theme: light\n", encoding="utf-8")
+                inherited = dict(os.environ, METROLOGY_SETTINGS_PATH=str(sentinel),
+                                 METROLOGY_RECOVERY_DIR=folder, METROLOGY_REMINDERS_PATH=str(sentinel),
+                                 MPLCONFIGDIR=folder)
+                result = subprocess.run([sys.executable, str(Path("benchmarks") / (name + ".py")), "--help"],
+                                        env=inherited, capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("python -m benchmarks." + name, result.stderr)
+                self.assertEqual(sentinel.read_text(encoding="utf-8"), "theme: light\n")
+                self.assertEqual(list(Path(folder).iterdir()), [sentinel])
+
     def test_benchmark_module_entry_isolates_all_inherited_persistence_paths(self):
         keys = ("METROLOGY_SETTINGS_PATH", "METROLOGY_RECOVERY_DIR",
                 "METROLOGY_REMINDERS_PATH", "MPLCONFIGDIR")

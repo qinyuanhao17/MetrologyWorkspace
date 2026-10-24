@@ -49,11 +49,90 @@ Mapping 重新勾选后保留的 UI 状态差异。
 
 最新全量后四份文件哈希均相同。
 
-## Task 01：待继续
+## Task 01：完成
 
-既有基准已覆盖 offscreen 表格 1k/10k/100k、恢复、Dirty、多窗口控件、CPU/
-RSS/private/累计 peak。接下来仅补原生 Windows GUI、持续复用视图、多次操作趋势、
-更宽的真实 NOVA 表以及排序/筛选/隐藏行/批量操作的缺口，复用现有 benchmark。
+Task 03 checkpoint 为 `d3d57d1c183fc1e9a9722ba5f8e9d9448f334120`。
+本任务没有改生产代码；扩展现有 `benchmark_sheet_workflows` 和
+`benchmark_raw_paste_undo`，没有重建基准系统。既有 offscreen Correlation、Dirty、
+Recovery 与多窗口结果仍按历史批次保留，不重复计算其净收益。
+
+补齐内容：Windows 原生平台、视图暴露断言与同步 viewport paint、同一组视图持续
+复用（每轮仅重置目标数据/历史）、排序、搜索、显示/隐藏未参与行、批量勾选和实际
+Shift 鼠标连选；另补投影表粘贴/删除/Undo/Redo、真实 Workbook 的数值完成和可见
+重绘。每次核对完整源表字符串、源行映射、隐藏行、单命令 Undo/Redo 与分析汇总。
+剪贴板可读取的 MIME 格式在测试结束时恢复。输入 WKB 和真实 settings 运行前后
+均核对 SHA-256。四个早期导入应用的旧脚本按文件直接执行时现在提前拒绝，提示
+改用 `python -m benchmarks...`，避免绕过包入口的持久化隔离；新增入口测试通过。
+
+### 环境与规模
+
+Python 3.11.16、Qt 6.11.0、20 逻辑 CPU，Win32 原生 `windows` 平台；系统报告
+build 26200，主屏逻辑 2048×1152、DPR 1.25、约 59.95 Hz，Fusion 与应用字体。
+所有性能进程顺序运行，没有与测试、profile 或其他基准并行。
+
+- 4 列确定性字符串 fixture：1k/10k/100k，每档 10 轮，同一组视图，30 轮通过。
+- 真实 NOVA Raw（7,731×33）的切片/重复：1k/10k/100k，每档 3 轮，9 轮通过。
+  100k 是重复的实际字符串负载，不冒充真实采集的 100k 独立 Workbook 分析。
+- 反向隔行投影编辑补测：4 列三档、33 列 100k 各 1 次全部通过；这是规模与正确性
+  验证，单次分位数没有长尾统计意义。
+- 真实 Workbook 7,731×33：原生单格和整表 paste/undo 各 5 次，另各测连续五次 Undo
+  一次，完整 Raw 与分析 summary 均一致，源文件哈希不变。
+
+全量回归 **1,053/1,053 通过，352.077 s**，日志
+`.cache/p0-audit/sol-task01-full.log`；新增投影基准随后通过真实原生操作验证。
+生产代码与 Task 03 checkpoint 相同。
+
+### 原生基线（不是本任务带来的速度提升）
+
+| 100k 行操作 | 4 列 P50/P95 ms | NOVA 33 列 P50/P95 ms |
+| --- | --- | --- |
+| Ctrl+A | 11.89 / 773.75 | 17.80 / 6402.97 |
+| Ctrl+C | 167.35 / 201.57 | 981.93 / 983.04 |
+| Ctrl+V | 1352.03 / 1579.70 | 11470.66 / 12208.01 |
+| Undo | 143.45 / 194.38 | 1284.55 / 1291.25 |
+| Redo | 154.96 / 163.38 | 1425.09 / 1438.94 |
+| Delete | 365.35 / 402.59 | 3739.62 / 3783.36 |
+| 倒序隔行投影复制 | 189.79 / 203.24 | 1204.33 / 1204.40 |
+| Die Seq 稳定降序 | 49.64 / 51.87 | 49.78 / 56.18 |
+| 全表搜索 | 59.80 / 61.11 | 425.23 / 427.91 |
+| Shift 取消勾选范围 | 4135.41 / 4494.45 | 11934.28 / 12214.85 |
+
+CPU、Qt max gap、RSS/private/累计进程 peak 和全部小规模操作见已提交的
+`docs/validation/p0-native-baseline-2026-10-24.json`；原始逐轮数据保留于
+`.cache/p0-audit/task01-native-{repeated,nova-wide}.json`。4 列进程累计 peak
+611.58 MiB，33 列 2783.83 MiB，含建模、Undo、缓存及首次窗口准备，不能解释为
+单操作独占分配。两批 P95 为 nearest-rank，10 或 3 个样本时等于最大值。
+
+4 列 100k Ctrl+A 首轮 773.75 ms、末轮 11.89 ms；Shift 取消首轮 4142.51 ms、
+末轮 4193.42 ms。相同 Shift 事件结束后的 RSS 由 557.00→584.01 MiB；paste
+结束后由 549.84→554.40 MiB。预热/分配器保留与潜在长期增长不能凭 10 轮区分，
+不宣称无泄漏。首次全选与宽表粘贴仍是未解决的原生长停顿。
+
+| 真实 Workbook 操作 | 回调 P50 ms | 数值完成 P50 ms | 可见重绘 P50 ms | Qt gap P95 ms |
+| --- | ---: | ---: | ---: | ---: |
+| 单格 paste | 26.69 | 407.57 | 495.77 | 273.03 |
+| 单格 Undo | 19.68 | 408.74 | 495.94 | 315.58 |
+| 整表 paste | 625.35 | 859.44 | 944.54 | 659.30 |
+| 整表 Undo | 36.94 | 442.49 | 527.70 | 344.96 |
+
+主 Workbook 的峰值分别为 813.10、838.53 MiB。连续五次 Undo 的可见完成耗时
+638.49、604.95 ms（各仅一次）。Qt 可见窗口/同步 paint 与事件循环心跳已测，
+不把它当作 DWM/显示器呈现 FPS，也不与历史 offscreen 4 列数据直接相减。
+
+### 复现命令
+
+沿用前文隔离 TEMP，`$py` 指向已核验的 conda Python；`--scratch` 使用独立目录。
+
+```powershell
+& $py -m benchmarks.benchmark_sheet_workflows --platform windows --rows 1000 10000 100000 --count 10 --reuse-views --interactions --output .cache/p0-audit/task01-native-repeated.json
+& $py -m benchmarks.benchmark_sheet_workflows --platform windows --wkb .cache/p0-audit/input/nova.wkb --rows 1000 10000 100000 --count 3 --reuse-views --interactions --output .cache/p0-audit/task01-native-nova-wide.json
+& $py -m benchmarks.benchmark_sheet_workflows --platform windows --rows 1000 10000 100000 --count 1 --projected-edits --output .cache/p0-audit/task01-projected-native.json
+& $py -m benchmarks.benchmark_sheet_workflows --platform windows --wkb .cache/p0-audit/input/nova.wkb --rows 100000 --count 1 --projected-edits --output .cache/p0-audit/task01-projected-nova-wide.json
+& $py -m benchmarks.benchmark_raw_paste_undo --code-root . --scratch .cache/p0-audit/task01-workbook-cell --wkb .cache/p0-audit/input/nova.wkb --platform windows --kind cell --count 5 --burst --output .cache/p0-audit/task01-workbook-cell.json
+& $py -m benchmarks.benchmark_raw_paste_undo --code-root . --scratch .cache/p0-audit/task01-workbook-column --wkb .cache/p0-audit/input/nova.wkb --platform windows --kind column --count 5 --burst --output .cache/p0-audit/task01-workbook-column.json
+```
+
+`--profile-actions` 单独采集 profile，不能把插桩耗时混入上面的基线。
 
 ## Task 06：待继续
 

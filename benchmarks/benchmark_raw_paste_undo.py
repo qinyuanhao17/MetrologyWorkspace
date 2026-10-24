@@ -12,11 +12,15 @@ import hashlib
 import json
 from io import StringIO
 import os
+import math
+import statistics
 from pathlib import Path
 import pstats
 import sys
 import tempfile
-from time import perf_counter
+from time import perf_counter, process_time
+
+from .benchmark_correlation_restore import digest, memory_info
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -27,12 +31,14 @@ def main():
     parser.add_argument('--profile', action='store_true')
     parser.add_argument('--kind', choices=('cell', 'column'), default='cell')
     parser.add_argument('--burst', action='store_true')
+    parser.add_argument('--platform', choices=('offscreen', 'windows'), default='offscreen')
+    parser.add_argument('--output', type=Path)
     args = parser.parse_args()
     if args.count < 1:
         parser.error('--count must be positive')
     sys.path.insert(0, str(args.code_root))
     args.scratch.mkdir(parents=True, exist_ok=True)
-    os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+    os.environ['QT_QPA_PLATFORM'] = args.platform
     os.environ['METROLOGY_SETTINGS_PATH'] = str(args.scratch / 'settings.yaml')
     os.environ['METROLOGY_RECOVERY_DIR'] = str(args.scratch / 'recovery')
     os.environ['MPLCONFIGDIR'] = str(args.scratch / 'matplotlib')
@@ -43,16 +49,28 @@ def main():
     import metrology_app
     implementation = Path(metrology_app.__file__).resolve().parent
     assert implementation == (args.code_root / 'metrology_app').resolve(), implementation
-    from PyQt6.QtCore import Qt, QTimer
+    from PyQt6.QtCore import QMimeData, Qt, QTimer
     from PyQt6.QtTest import QTest
     from PyQt6.QtWidgets import QApplication
     from metrology_app.appearance import configure_fonts
     from metrology_app.matching_window import MatchingWindow
+    from metrology_app.settings import apply_theme
 
     app = QApplication.instance() or QApplication([])
+    assert app.platformName() == args.platform
+    incoming = app.clipboard().mimeData()
+    clipboard = QMimeData()
+    if incoming is not None:
+        for kind in incoming.formats():
+            clipboard.setData(kind, incoming.data(kind))
+    import atexit
+    atexit.register(lambda: app.clipboard().setMimeData(clipboard))
     configure_fonts(app)
+    settings = Path(__file__).resolve().parents[1] / 'config/settings.yaml'
+    settings_hash = digest(settings)
     sha = hashlib.sha256(args.wkb.read_bytes()).hexdigest()
     window = MatchingWindow()
+    apply_theme(window)
     window.resize(1500, 950)
     window.load_workbook(args.wkb)
     window.result_mode.setCurrentText('Preview')
@@ -62,6 +80,18 @@ def main():
     timer = QTimer(interval=10)
     timer.timeout.connect(lambda: ticks.append(perf_counter()))
     timer.start()
+    samples = []
+
+    def cleanup():
+        timer.stop()
+        window.document.force_close = True
+        window.document.timer.stop()
+        window.document.identity_timer.stop()
+        window.close()
+        window.deleteLater()
+        app.processEvents()
+
+    atexit.register(cleanup)
 
     def settle():
         deadline = perf_counter() + 30
@@ -83,7 +113,7 @@ def main():
 
     def measure(name, action):
         ticks[:] = [perf_counter()]
-        start = perf_counter()
+        start, cpu = perf_counter(), process_time()
         action()
         callback = perf_counter()
         deadline = start + 30
@@ -93,9 +123,12 @@ def main():
         numerical = perf_counter()
         visible = settle()
         QTest.qWait(35)
-        print(json.dumps({'operation': name, 'callback_ms': (callback-start)*1000,
+        sample = {'operation': name, 'callback_ms': (callback-start)*1000,
                           'numerical_ms': (numerical-start)*1000, 'visible_ms': (visible-start)*1000,
-                          'max_gap_ms': max((b-a for a,b in zip(ticks,ticks[1:])), default=0)*1000}), flush=True)
+                          'max_gap_ms': max((b-a for a,b in zip(ticks,ticks[1:])), default=0)*1000,
+                          'cpu_ms': (process_time()-cpu)*1000, **memory_info()}
+        samples.append(sample)
+        print(json.dumps(sample), flush=True)
 
     settle()
     raw = window.raw_model.document_frame()
@@ -161,15 +194,24 @@ def main():
 
     pd.testing.assert_frame_equal(window.raw_model.document_frame(), raw)
     pd.testing.assert_frame_equal(window.result.summary, baseline_summary)
-    timer.stop()
-    for target in [window]:
-        target.document.force_close = True
-        target.document.timer.stop()
-        target.document.identity_timer.stop()
-        target.close()
-        target.deleteLater()
-    app.processEvents()
+    cleanup()
+    atexit.unregister(cleanup)
     assert hashlib.sha256(args.wkb.read_bytes()).hexdigest() == sha
+    assert digest(settings) == settings_hash, 'Real settings changed'
+    if args.output:
+        summary = []
+        for name in dict.fromkeys(row['operation'] for row in samples):
+            group = [row for row in samples if row['operation'] == name]
+            result = {'operation': name, 'count': len(group)}
+            for key in ('callback_ms', 'numerical_ms', 'visible_ms', 'max_gap_ms', 'cpu_ms', 'rss', 'private', 'peak'):
+                values = sorted(row[key] for row in group if row[key] is not None)
+                result[key] = ({'p50': statistics.median(values), 'p95': values[math.ceil(len(values)*.95)-1],
+                                'max': max(values)} if values else None)
+            summary.append(result)
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps({'platform': app.platformName(), 'rows': len(raw),
+            'columns': len(raw.columns), 'source_sha256': sha, 'settings_sha256': settings_hash,
+            'profile': args.profile, 'samples': samples, 'summary': summary}, indent=2), encoding='utf-8')
     print(json.dumps({'equivalence': 'pass', 'source_hash_unchanged': True}), flush=True)
 
 

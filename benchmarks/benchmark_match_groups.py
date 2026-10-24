@@ -1,8 +1,10 @@
 """Repeatable grouped workbook edit/undo benchmark and styled UI inspection.
 
-Run: python benchmarks/benchmark_match_groups.py [--table pasted.tsv] [--render]
+Run: python -m benchmarks.benchmark_match_groups [--table pasted.tsv] [--render]
 Settings/recovery always use a temporary directory, never the user's preferences.
 """
+if __name__ == "__main__" and not __package__:
+    raise SystemExit("Run with python -m benchmarks.benchmark_match_groups for persistence isolation")
 import argparse
 import csv
 import os

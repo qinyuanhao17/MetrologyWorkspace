@@ -1,5 +1,8 @@
 """Repeatable capacity benchmark for the Card Matching deep module."""
 
+if __name__ == "__main__" and not __package__:
+    raise SystemExit("Run with python -m benchmarks.benchmark_matching for persistence isolation")
+
 from argparse import ArgumentParser
 from pathlib import Path
 import tempfile
