@@ -77,3 +77,90 @@ $env:QT_QPA_PLATFORM='windows'
 
 回滚仅撤销本阶段三个生产文件的 diff（字号回到 relayout，字幕回到 grid
 relayout），基准与测试可保留。无需迁移数据或改写任何 WKB/恢复文件。
+
+## Task 07：命名窗口同步
+
+增加 `benchmark_workspace_sync.py`，沿用隔离 benchmark 入口、NOVA WKB、原生
+Windows 和现有内存采样。0/1/3/5 个同类命名 Correlation 子窗口分别在独立进程
+运行，Raw/Mapping/Group/Preview–Final/子参数选择/Card/未变同步各预热一次、
+保留 3 次。两个阶段先准备有效且互相独立的 Raw；每个 Correlation 有独立手工
+Reference，并绘制两个参数的 Trend/Correlation。测量同时记录键/控件返回、
+分析/同步/排队绘制收尾、10ms 心跳、CPU、同步调用次数与 inclusive span。
+
+这是旧 Recovery 探针之外的新覆盖：旧探针编辑了全部子 Raw，因而窗口已经
+脱离 Copy 链，不能替代 linked 同步测量。本探针主矩阵全部保持 linked；计时
+后另在一个子窗口写入精确哨兵 `99.12345000`，再编辑父 Raw，验证独立 Raw、
+Reference、accepted baseline 原样保留，其他 linked 兄弟继续跟随。0 窗口的
+子参数项只是空对照，不代表存在一项真实子参数操作。
+
+无 profile 配对之外，另做 GUI cProfile：单窗口一次 Raw 更新中
+`_commit_stage_workspace` 的一次 fillna/astype 约 13ms；同列名的数值改变根本
+不可能产生 rename，却仍规范化整张 7,731×33 Raw。只增加 columns 候选检查：
+有潜在重命名才执行原转换和逐列精确比较。原碰撞规则、Draw 选择重命名、
+类型转换及所有权检查保持原样，不跨调用缓存，不合并刷新前后两次帧读取。
+
+最终原生配对摘要（完成含排队分析和同步 paint，ms）：
+
+| 子窗口 | Raw P50 前→后 | Mapping P50 前→后 | Group P50 前→后 | 阶段切换 P50 前→后 |
+| ---: | --- | --- | --- | --- |
+| 0 | 309.64→305.59 | 362.97→356.40 | 621.25→625.37 | 207.60→206.82 |
+| 1 | 888.55→924.72 | 843.53→832.58 | 1690.49→1670.50 | 1263.22→1251.68 |
+| 3 | 2057.30→1943.56 | 1774.04→1713.31 | 4134.50→3724.25 | 3269.90→3219.21 |
+| 5 | 3448.90→3223.78 | 2667.92→2604.97 | 6019.23→5889.33 | 5495.06→5478.33 |
+
+5 窗口 Raw P50 本次下降约 6.5%，但单窗口 Raw 反而波动增高；只保留“无效
+转换已消除”的明确结论，不宣称所有同步都提速或 5 窗口已经流畅。三样本 P95
+仅为最大值；Mapping/Group/阶段按相同迭代位置切换状态，聚合中位数不可代替
+所有分支。子参数、Card、未变同步、CPU、gap、RSS/private/累计 peak 与调用
+次数均见 `docs/validation/p0-task07-comparison-2026-10-24.json`；原始文件为
+`.cache/p0-audit/task07-{before,after}-{0,1,3,5}.json`。
+
+额外五窗口混合冒烟（两个 Correlation、两个未绘制 Map、一个独立空 Dynamic）
+通过相同七类动作和独立草稿检查；每项仅一个保留样本，用于覆盖，不当性能
+统计。该次 Raw/Mapping/Group/阶段完成分别约 1976/1758/2884/2235ms，证据
+`task07-mixed.json`。所有输入文件与真实设置 hash 保持不变。
+
+复现沿用 Task 08 的 Python/隔离约束，每个 N 顺序运行：
+
+```powershell
+& $py -X utf8 -m benchmarks.benchmark_workspace_sync --wkb .cache/p0-audit/input/nova.wkb --children N --count 3 --output .cache/p0-audit/task07-after-N.json
+# N 为 0/1/3/5；before 追加 --code-root .cache/p0-audit/task07-baseline-source
+# 混合覆盖：--children 5 --kind mixed --count 1
+# 插桩另跑：--children 1 --only raw --profile raw --count 1
+```
+
+回滚只撤销 `matching_window.py` 本阶段候选列检查，恢复无条件规范化；不改变
+任何所有权状态或文档格式。Task 08 checkpoint 为
+`ff3c1336520965227572a91f88ad90d3b06a74bd`。
+
+Task 07 三项针对性回归通过（0.953s），最终当前工作区全量
+**1,059/1,059 通过，359.544s**，日志 `.cache/p0-audit/ultra-task07-full.log`。
+全量包含现场保留的两项新增导出测试，但相关外部修改不归入本阶段 checkpoint。
+profile-after 中此分支的 fillna/astype 调用均消失；同步次数和保护分支未被跳过。
+本阶段低风险范围完成，高风险方案和五窗口长停顿仍交 Astra High 审核。
+
+### 交给 Astra High 的高风险方案（未实施）
+
+1. `_refresh_stage_workspace` 在事务前调用 `set_workbook_participation` 准备旧
+   Group context，后续 `set_sources` 清除、`set_workbook_groups` 又重建。正常
+   linked 路径存在重复，但独立草稿、手动输入、空 Workbook 的提前返回仍依赖
+   前面的 participation 更新。需要先明确各分支事务的输入和发布边界，再考虑
+   一次性提交 context；不能直接删除第一次调用。
+2. 两次 `workspace_snapshot(readonly=True).frames` 仍生成了不使用的 UI state。
+   若要增设纯 source-frame 读取接口，必须分别保留刷新前草稿检测与刷新后
+   baseline 推进，不能共用同一份旧 frames。新接口可能影响子窗口种类和所有权，
+   此阶段仅记录，Task 09 再评估必要性。
+3. 不在本轮引入 shared frame 缓存、revision/generation 或后台同步。若后续采用
+   这些方案，评审需要覆盖五个混合子窗口连续 Raw/Mapping/阶段切换、故意倒序
+   完成绘图任务及同时请求 Recovery 的发布顺序。既有单场景正确性测试不能证明
+   新协议在该组合下正确。
+
+### 本轮新增范围
+
+用户在 Task 07 期间明确要求继续解决 100k×33 首次 Shift 取消勾选、所有表格
+首次 Ctrl+A 和 Ctrl+Z 的长停顿。Task 08 checkpoint 已完成；本阶段先完成 Task
+07 checkpoint，再单独做这一组表格修改，最后完成 Task 09 评估。此前 Task 06
+的 6.4s gap 不作为本次新增验收的合格结果，也不能用热中位数掩盖冷操作。
+
+工作区中途出现的 `excel_export.py`、`export_rendering.py`、相关导出测试及两份
+导出文档修改属于本阶段之外的现场修改，保留且不混入 P0 checkpoint。

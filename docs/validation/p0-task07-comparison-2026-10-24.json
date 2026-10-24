@@ -1,0 +1,2103 @@
+{
+  "baseline_commit": "ff3c1336520965227572a91f88ad90d3b06a74bd",
+  "count": 3,
+  "qt_platform": "windows",
+  "limits": [
+    "P95 is the maximum of three retained samples.",
+    "Mapping/Group/stage samples alternate state; compare identical iteration positions.",
+    "inclusive spans overlap and include nested sync reentry guards.",
+    "empty child parameter action at zero windows is a no-op control.",
+    "native Qt repaint completion is not compositor FPS.",
+    "peak memory is cumulative per process, not per action."
+  ],
+  "scales": {
+    "0": {
+      "raw": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 25.717,
+            "p95": 26.357
+          },
+          "complete_ms": {
+            "p50": 309.641,
+            "p95": 310.846
+          },
+          "cpu_ms": {
+            "p50": 312.5,
+            "p95": 328.125
+          },
+          "max_gap_ms": {
+            "p50": 252.932,
+            "p95": 261.159
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            }
+          ],
+          "inclusive_ms_p50": {
+            "sync_stage_windows": 0.002
+          },
+          "rss_mib_p50": 795.57,
+          "private_mib_p50": 1338.48,
+          "cumulative_peak_mib": 972.62
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 24.535,
+            "p95": 25.365
+          },
+          "complete_ms": {
+            "p50": 305.585,
+            "p95": 308.696
+          },
+          "cpu_ms": {
+            "p50": 328.125,
+            "p95": 375.0
+          },
+          "max_gap_ms": {
+            "p50": 254.284,
+            "p95": 256.251
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            }
+          ],
+          "inclusive_ms_p50": {
+            "sync_stage_windows": 0.003
+          },
+          "rss_mib_p50": 816.11,
+          "private_mib_p50": 1372.98,
+          "cumulative_peak_mib": 973.62
+        }
+      },
+      "mapping": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 0.497,
+            "p95": 0.53
+          },
+          "complete_ms": {
+            "p50": 362.965,
+            "p95": 397.014
+          },
+          "cpu_ms": {
+            "p50": 390.625,
+            "p95": 468.75
+          },
+          "max_gap_ms": {
+            "p50": 352.686,
+            "p95": 386.843
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            }
+          ],
+          "inclusive_ms_p50": {
+            "sync_stage_windows": 0.003
+          },
+          "rss_mib_p50": 798.95,
+          "private_mib_p50": 1346.42,
+          "cumulative_peak_mib": 972.62
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 0.599,
+            "p95": 0.69
+          },
+          "complete_ms": {
+            "p50": 356.4,
+            "p95": 359.078
+          },
+          "cpu_ms": {
+            "p50": 359.375,
+            "p95": 390.625
+          },
+          "max_gap_ms": {
+            "p50": 346.33,
+            "p95": 349.429
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            }
+          ],
+          "inclusive_ms_p50": {
+            "sync_stage_windows": 0.003
+          },
+          "rss_mib_p50": 792.93,
+          "private_mib_p50": 1338.15,
+          "cumulative_peak_mib": 973.62
+        }
+      },
+      "group": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 512.986,
+            "p95": 513.929
+          },
+          "complete_ms": {
+            "p50": 621.251,
+            "p95": 643.642
+          },
+          "cpu_ms": {
+            "p50": 640.625,
+            "p95": 640.625
+          },
+          "max_gap_ms": {
+            "p50": 513.001,
+            "p95": 513.944
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            }
+          ],
+          "inclusive_ms_p50": {
+            "sync_stage_windows": 0.002
+          },
+          "rss_mib_p50": 801.87,
+          "private_mib_p50": 1349.2,
+          "cumulative_peak_mib": 972.62
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 503.333,
+            "p95": 512.058
+          },
+          "complete_ms": {
+            "p50": 625.371,
+            "p95": 628.837
+          },
+          "cpu_ms": {
+            "p50": 640.625,
+            "p95": 640.625
+          },
+          "max_gap_ms": {
+            "p50": 503.358,
+            "p95": 512.086
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            }
+          ],
+          "inclusive_ms_p50": {
+            "sync_stage_windows": 0.002
+          },
+          "rss_mib_p50": 796.59,
+          "private_mib_p50": 1341.96,
+          "cumulative_peak_mib": 973.62
+        }
+      },
+      "stage": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 88.614,
+            "p95": 88.887
+          },
+          "complete_ms": {
+            "p50": 207.602,
+            "p95": 291.562
+          },
+          "cpu_ms": {
+            "p50": 312.5,
+            "p95": 328.125
+          },
+          "max_gap_ms": {
+            "p50": 91.139,
+            "p95": 131.477
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            }
+          ],
+          "inclusive_ms_p50": {
+            "sync_stage_windows": 0.002
+          },
+          "rss_mib_p50": 809.18,
+          "private_mib_p50": 1357.49,
+          "cumulative_peak_mib": 972.62
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 87.183,
+            "p95": 90.066
+          },
+          "complete_ms": {
+            "p50": 206.819,
+            "p95": 299.879
+          },
+          "cpu_ms": {
+            "p50": 265.625,
+            "p95": 375.0
+          },
+          "max_gap_ms": {
+            "p50": 89.02,
+            "p95": 139.46
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            }
+          ],
+          "inclusive_ms_p50": {
+            "sync_stage_windows": 0.002
+          },
+          "rss_mib_p50": 808.68,
+          "private_mib_p50": 1356.01,
+          "cumulative_peak_mib": 973.62
+        }
+      },
+      "parameter": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 0.007,
+            "p95": 0.009
+          },
+          "complete_ms": {
+            "p50": 2.508,
+            "p95": 3.798
+          },
+          "cpu_ms": {
+            "p50": 0.0,
+            "p95": 0.0
+          },
+          "max_gap_ms": {
+            "p50": 11.845,
+            "p95": 12.555
+          },
+          "call_counts": [
+            {},
+            {},
+            {}
+          ],
+          "inclusive_ms_p50": {},
+          "rss_mib_p50": 809.85,
+          "private_mib_p50": 1358.13,
+          "cumulative_peak_mib": 972.62
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 0.007,
+            "p95": 0.007
+          },
+          "complete_ms": {
+            "p50": 1.776,
+            "p95": 1.863
+          },
+          "cpu_ms": {
+            "p50": 0.0,
+            "p95": 15.625
+          },
+          "max_gap_ms": {
+            "p50": 12.164,
+            "p95": 12.536
+          },
+          "call_counts": [
+            {},
+            {},
+            {}
+          ],
+          "inclusive_ms_p50": {},
+          "rss_mib_p50": 809.38,
+          "private_mib_p50": 1356.71,
+          "cumulative_peak_mib": 973.62
+        }
+      },
+      "card": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 70.853,
+            "p95": 72.569
+          },
+          "complete_ms": {
+            "p50": 74.879,
+            "p95": 76.698
+          },
+          "cpu_ms": {
+            "p50": 78.125,
+            "p95": 78.125
+          },
+          "max_gap_ms": {
+            "p50": 70.916,
+            "p95": 72.627
+          },
+          "call_counts": [
+            {},
+            {},
+            {}
+          ],
+          "inclusive_ms_p50": {},
+          "rss_mib_p50": 809.85,
+          "private_mib_p50": 1358.13,
+          "cumulative_peak_mib": 972.62
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 70.747,
+            "p95": 111.668
+          },
+          "complete_ms": {
+            "p50": 74.364,
+            "p95": 115.092
+          },
+          "cpu_ms": {
+            "p50": 78.125,
+            "p95": 109.375
+          },
+          "max_gap_ms": {
+            "p50": 70.763,
+            "p95": 111.738
+          },
+          "call_counts": [
+            {},
+            {},
+            {}
+          ],
+          "inclusive_ms_p50": {},
+          "rss_mib_p50": 809.39,
+          "private_mib_p50": 1356.71,
+          "cumulative_peak_mib": 973.62
+        }
+      },
+      "unchanged_sync": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 0.012,
+            "p95": 0.012
+          },
+          "complete_ms": {
+            "p50": 3.615,
+            "p95": 6.423
+          },
+          "cpu_ms": {
+            "p50": 15.625,
+            "p95": 15.625
+          },
+          "max_gap_ms": {
+            "p50": 10.954,
+            "p95": 14.513
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            }
+          ],
+          "inclusive_ms_p50": {
+            "sync_stage_windows": 0.003
+          },
+          "rss_mib_p50": 810.32,
+          "private_mib_p50": 1358.25,
+          "cumulative_peak_mib": 972.62
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 0.013,
+            "p95": 0.013
+          },
+          "complete_ms": {
+            "p50": 4.713,
+            "p95": 6.774
+          },
+          "cpu_ms": {
+            "p50": 0.0,
+            "p95": 15.625
+          },
+          "max_gap_ms": {
+            "p50": 14.764,
+            "p95": 17.511
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            }
+          ],
+          "inclusive_ms_p50": {
+            "sync_stage_windows": 0.003
+          },
+          "rss_mib_p50": 809.8,
+          "private_mib_p50": 1357.14,
+          "cumulative_peak_mib": 973.62
+        }
+      }
+    },
+    "1": {
+      "raw": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 26.474,
+            "p95": 27.236
+          },
+          "complete_ms": {
+            "p50": 888.551,
+            "p95": 966.6
+          },
+          "cpu_ms": {
+            "p50": 890.625,
+            "p95": 968.75
+          },
+          "max_gap_ms": {
+            "p50": 669.941,
+            "p95": 685.395
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 1,
+              "_commit_stage_workspace": 1
+            },
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 1,
+              "_commit_stage_workspace": 1
+            },
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 1,
+              "_commit_stage_workspace": 1
+            }
+          ],
+          "inclusive_ms_p50": {
+            "_refresh_stage_workspace": 598.45,
+            "sync_stage_windows": 619.683,
+            "_commit_stage_workspace": 316.533
+          },
+          "rss_mib_p50": 1037.15,
+          "private_mib_p50": 2247.17,
+          "cumulative_peak_mib": 1151.09
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 28.349,
+            "p95": 28.727
+          },
+          "complete_ms": {
+            "p50": 924.724,
+            "p95": 1021.687
+          },
+          "cpu_ms": {
+            "p50": 953.125,
+            "p95": 1062.5
+          },
+          "max_gap_ms": {
+            "p50": 621.285,
+            "p95": 694.88
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 1,
+              "_commit_stage_workspace": 1
+            },
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 1,
+              "_commit_stage_workspace": 1
+            },
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 1,
+              "_commit_stage_workspace": 1
+            }
+          ],
+          "inclusive_ms_p50": {
+            "_refresh_stage_workspace": 612.66,
+            "sync_stage_windows": 634.427,
+            "_commit_stage_workspace": 311.79
+          },
+          "rss_mib_p50": 1039.88,
+          "private_mib_p50": 2250.92,
+          "cumulative_peak_mib": 1151.62
+        }
+      },
+      "mapping": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 0.544,
+            "p95": 0.69
+          },
+          "complete_ms": {
+            "p50": 843.53,
+            "p95": 920.603
+          },
+          "cpu_ms": {
+            "p50": 890.625,
+            "p95": 921.875
+          },
+          "max_gap_ms": {
+            "p50": 630.497,
+            "p95": 706.024
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 1,
+              "_commit_stage_workspace": 1
+            },
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 1,
+              "_commit_stage_workspace": 1
+            },
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 1,
+              "_commit_stage_workspace": 1
+            }
+          ],
+          "inclusive_ms_p50": {
+            "_refresh_stage_workspace": 470.319,
+            "sync_stage_windows": 496.531,
+            "_commit_stage_workspace": 195.886
+          },
+          "rss_mib_p50": 1037.46,
+          "private_mib_p50": 2246.03,
+          "cumulative_peak_mib": 1151.09
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 0.622,
+            "p95": 0.664
+          },
+          "complete_ms": {
+            "p50": 832.582,
+            "p95": 862.174
+          },
+          "cpu_ms": {
+            "p50": 843.75,
+            "p95": 906.25
+          },
+          "max_gap_ms": {
+            "p50": 641.978,
+            "p95": 678.406
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 1,
+              "_commit_stage_workspace": 1
+            },
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 1,
+              "_commit_stage_workspace": 1
+            },
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 1,
+              "_commit_stage_workspace": 1
+            }
+          ],
+          "inclusive_ms_p50": {
+            "_refresh_stage_workspace": 388.056,
+            "sync_stage_windows": 409.762,
+            "_commit_stage_workspace": 191.101
+          },
+          "rss_mib_p50": 1041.25,
+          "private_mib_p50": 2251.45,
+          "cumulative_peak_mib": 1151.62
+        }
+      },
+      "group": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 1653.718,
+            "p95": 1749.782
+          },
+          "complete_ms": {
+            "p50": 1690.487,
+            "p95": 1789.144
+          },
+          "cpu_ms": {
+            "p50": 1687.5,
+            "p95": 1843.75
+          },
+          "max_gap_ms": {
+            "p50": 942.269,
+            "p95": 1031.707
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 1,
+              "_commit_stage_workspace": 1
+            },
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 1,
+              "_commit_stage_workspace": 1
+            },
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 1,
+              "_commit_stage_workspace": 1
+            }
+          ],
+          "inclusive_ms_p50": {
+            "_refresh_stage_workspace": 1133.945,
+            "sync_stage_windows": 1151.427,
+            "_commit_stage_workspace": 215.244
+          },
+          "rss_mib_p50": 1068.77,
+          "private_mib_p50": 2277.16,
+          "cumulative_peak_mib": 1151.09
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 1630.181,
+            "p95": 1823.191
+          },
+          "complete_ms": {
+            "p50": 1670.495,
+            "p95": 1862.789
+          },
+          "cpu_ms": {
+            "p50": 1656.25,
+            "p95": 1890.625
+          },
+          "max_gap_ms": {
+            "p50": 996.944,
+            "p95": 1099.573
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 1,
+              "_commit_stage_workspace": 1
+            },
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 1,
+              "_commit_stage_workspace": 1
+            },
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 1,
+              "_commit_stage_workspace": 1
+            }
+          ],
+          "inclusive_ms_p50": {
+            "_refresh_stage_workspace": 1120.711,
+            "sync_stage_windows": 1138.661,
+            "_commit_stage_workspace": 199.445
+          },
+          "rss_mib_p50": 1071.29,
+          "private_mib_p50": 2281.51,
+          "cumulative_peak_mib": 1151.62
+        }
+      },
+      "stage": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 1159.722,
+            "p95": 1218.504
+          },
+          "complete_ms": {
+            "p50": 1263.219,
+            "p95": 1285.754
+          },
+          "cpu_ms": {
+            "p50": 1250.0,
+            "p95": 1312.5
+          },
+          "max_gap_ms": {
+            "p50": 635.606,
+            "p95": 647.019
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 1,
+              "_commit_stage_workspace": 1
+            },
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 1,
+              "_commit_stage_workspace": 1
+            },
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 1,
+              "_commit_stage_workspace": 1
+            }
+          ],
+          "inclusive_ms_p50": {
+            "_refresh_stage_workspace": 1052.21,
+            "sync_stage_windows": 1069.409,
+            "_commit_stage_workspace": 349.539
+          },
+          "rss_mib_p50": 1097.02,
+          "private_mib_p50": 2306.37,
+          "cumulative_peak_mib": 1151.09
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 1143.307,
+            "p95": 1208.453
+          },
+          "complete_ms": {
+            "p50": 1251.682,
+            "p95": 1272.662
+          },
+          "cpu_ms": {
+            "p50": 1265.625,
+            "p95": 1265.625
+          },
+          "max_gap_ms": {
+            "p50": 649.879,
+            "p95": 668.157
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 1,
+              "_commit_stage_workspace": 1
+            },
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 1,
+              "_commit_stage_workspace": 1
+            },
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 1,
+              "_commit_stage_workspace": 1
+            }
+          ],
+          "inclusive_ms_p50": {
+            "_refresh_stage_workspace": 1038.158,
+            "sync_stage_windows": 1055.122,
+            "_commit_stage_workspace": 322.259
+          },
+          "rss_mib_p50": 1096.7,
+          "private_mib_p50": 2307.05,
+          "cumulative_peak_mib": 1151.62
+        }
+      },
+      "parameter": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 89.292,
+            "p95": 146.777
+          },
+          "complete_ms": {
+            "p50": 109.685,
+            "p95": 169.16
+          },
+          "cpu_ms": {
+            "p50": 156.25,
+            "p95": 265.625
+          },
+          "max_gap_ms": {
+            "p50": 89.327,
+            "p95": 146.829
+          },
+          "call_counts": [
+            {},
+            {},
+            {}
+          ],
+          "inclusive_ms_p50": {},
+          "rss_mib_p50": 1102.25,
+          "private_mib_p50": 2311.14,
+          "cumulative_peak_mib": 1151.09
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 86.323,
+            "p95": 151.243
+          },
+          "complete_ms": {
+            "p50": 104.677,
+            "p95": 176.137
+          },
+          "cpu_ms": {
+            "p50": 109.375,
+            "p95": 156.25
+          },
+          "max_gap_ms": {
+            "p50": 86.369,
+            "p95": 151.28
+          },
+          "call_counts": [
+            {},
+            {},
+            {}
+          ],
+          "inclusive_ms_p50": {},
+          "rss_mib_p50": 1101.67,
+          "private_mib_p50": 2312.84,
+          "cumulative_peak_mib": 1151.62
+        }
+      },
+      "card": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 72.539,
+            "p95": 76.79
+          },
+          "complete_ms": {
+            "p50": 92.178,
+            "p95": 101.771
+          },
+          "cpu_ms": {
+            "p50": 93.75,
+            "p95": 93.75
+          },
+          "max_gap_ms": {
+            "p50": 72.602,
+            "p95": 76.852
+          },
+          "call_counts": [
+            {},
+            {},
+            {}
+          ],
+          "inclusive_ms_p50": {},
+          "rss_mib_p50": 1102.39,
+          "private_mib_p50": 2311.14,
+          "cumulative_peak_mib": 1151.09
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 69.874,
+            "p95": 180.693
+          },
+          "complete_ms": {
+            "p50": 91.414,
+            "p95": 201.451
+          },
+          "cpu_ms": {
+            "p50": 93.75,
+            "p95": 203.125
+          },
+          "max_gap_ms": {
+            "p50": 69.946,
+            "p95": 180.755
+          },
+          "call_counts": [
+            {},
+            {},
+            {}
+          ],
+          "inclusive_ms_p50": {},
+          "rss_mib_p50": 1101.67,
+          "private_mib_p50": 2312.84,
+          "cumulative_peak_mib": 1151.62
+        }
+      },
+      "unchanged_sync": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 7.143,
+            "p95": 10.185
+          },
+          "complete_ms": {
+            "p50": 26.396,
+            "p95": 27.968
+          },
+          "cpu_ms": {
+            "p50": 31.25,
+            "p95": 31.25
+          },
+          "max_gap_ms": {
+            "p50": 19.207,
+            "p95": 24.294
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            }
+          ],
+          "inclusive_ms_p50": {
+            "sync_stage_windows": 7.128
+          },
+          "rss_mib_p50": 1102.8,
+          "private_mib_p50": 2311.58,
+          "cumulative_peak_mib": 1151.09
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 6.192,
+            "p95": 6.324
+          },
+          "complete_ms": {
+            "p50": 29.917,
+            "p95": 38.72
+          },
+          "cpu_ms": {
+            "p50": 31.25,
+            "p95": 31.25
+          },
+          "max_gap_ms": {
+            "p50": 23.521,
+            "p95": 32.45
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            }
+          ],
+          "inclusive_ms_p50": {
+            "sync_stage_windows": 6.178
+          },
+          "rss_mib_p50": 1101.67,
+          "private_mib_p50": 2312.84,
+          "cumulative_peak_mib": 1151.62
+        }
+      }
+    },
+    "3": {
+      "raw": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 24.014,
+            "p95": 27.152
+          },
+          "complete_ms": {
+            "p50": 2057.299,
+            "p95": 2058.827
+          },
+          "cpu_ms": {
+            "p50": 2109.375,
+            "p95": 2125.0
+          },
+          "max_gap_ms": {
+            "p50": 619.658,
+            "p95": 631.338
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 3,
+              "_commit_stage_workspace": 3
+            },
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 3,
+              "_commit_stage_workspace": 3
+            },
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 3,
+              "_commit_stage_workspace": 3
+            }
+          ],
+          "inclusive_ms_p50": {
+            "_refresh_stage_workspace": 1716.948,
+            "sync_stage_windows": 1741.475,
+            "_commit_stage_workspace": 967.995
+          },
+          "rss_mib_p50": 1308.57,
+          "private_mib_p50": 2517.45,
+          "cumulative_peak_mib": 1399.09
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 24.975,
+            "p95": 26.124
+          },
+          "complete_ms": {
+            "p50": 1943.558,
+            "p95": 1945.686
+          },
+          "cpu_ms": {
+            "p50": 1953.125,
+            "p95": 1968.75
+          },
+          "max_gap_ms": {
+            "p50": 587.159,
+            "p95": 589.283
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 3,
+              "_commit_stage_workspace": 3
+            },
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 3,
+              "_commit_stage_workspace": 3
+            },
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 3,
+              "_commit_stage_workspace": 3
+            }
+          ],
+          "inclusive_ms_p50": {
+            "_refresh_stage_workspace": 1609.98,
+            "sync_stage_windows": 1631.507,
+            "_commit_stage_workspace": 882.177
+          },
+          "rss_mib_p50": 1305.22,
+          "private_mib_p50": 2512.03,
+          "cumulative_peak_mib": 1397.08
+        }
+      },
+      "mapping": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 0.555,
+            "p95": 0.77
+          },
+          "complete_ms": {
+            "p50": 1774.041,
+            "p95": 1984.513
+          },
+          "cpu_ms": {
+            "p50": 1812.5,
+            "p95": 1984.375
+          },
+          "max_gap_ms": {
+            "p50": 648.559,
+            "p95": 865.743
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 3,
+              "_commit_stage_workspace": 3
+            },
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 3,
+              "_commit_stage_workspace": 3
+            },
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 3,
+              "_commit_stage_workspace": 3
+            }
+          ],
+          "inclusive_ms_p50": {
+            "_refresh_stage_workspace": 1360.057,
+            "sync_stage_windows": 1381.937,
+            "_commit_stage_workspace": 626.681
+          },
+          "rss_mib_p50": 1308.13,
+          "private_mib_p50": 2516.91,
+          "cumulative_peak_mib": 1399.09
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 0.564,
+            "p95": 0.704
+          },
+          "complete_ms": {
+            "p50": 1713.312,
+            "p95": 1859.021
+          },
+          "cpu_ms": {
+            "p50": 1718.75,
+            "p95": 1906.25
+          },
+          "max_gap_ms": {
+            "p50": 675.608,
+            "p95": 709.919
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 3,
+              "_commit_stage_workspace": 3
+            },
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 3,
+              "_commit_stage_workspace": 3
+            },
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 3,
+              "_commit_stage_workspace": 3
+            }
+          ],
+          "inclusive_ms_p50": {
+            "_refresh_stage_workspace": 1216.542,
+            "sync_stage_windows": 1242.348,
+            "_commit_stage_workspace": 569.378
+          },
+          "rss_mib_p50": 1306.49,
+          "private_mib_p50": 2513.19,
+          "cumulative_peak_mib": 1397.08
+        }
+      },
+      "group": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 4063.048,
+            "p95": 4081.405
+          },
+          "complete_ms": {
+            "p50": 4134.499,
+            "p95": 4159.917
+          },
+          "cpu_ms": {
+            "p50": 4187.5,
+            "p95": 4203.125
+          },
+          "max_gap_ms": {
+            "p50": 1242.933,
+            "p95": 1264.705
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 3,
+              "_commit_stage_workspace": 3
+            },
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 3,
+              "_commit_stage_workspace": 3
+            },
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 3,
+              "_commit_stage_workspace": 3
+            }
+          ],
+          "inclusive_ms_p50": {
+            "_refresh_stage_workspace": 3375.75,
+            "sync_stage_windows": 3393.82,
+            "_commit_stage_workspace": 675.443
+          },
+          "rss_mib_p50": 1415.57,
+          "private_mib_p50": 2623.5,
+          "cumulative_peak_mib": 1442.38
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 3651.807,
+            "p95": 3812.819
+          },
+          "complete_ms": {
+            "p50": 3724.253,
+            "p95": 3884.347
+          },
+          "cpu_ms": {
+            "p50": 3718.75,
+            "p95": 3906.25
+          },
+          "max_gap_ms": {
+            "p50": 1054.071,
+            "p95": 1076.543
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 3,
+              "_commit_stage_workspace": 3
+            },
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 3,
+              "_commit_stage_workspace": 3
+            },
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 3,
+              "_commit_stage_workspace": 3
+            }
+          ],
+          "inclusive_ms_p50": {
+            "_refresh_stage_workspace": 3101.951,
+            "sync_stage_windows": 3119.941,
+            "_commit_stage_workspace": 585.107
+          },
+          "rss_mib_p50": 1414.38,
+          "private_mib_p50": 2623.88,
+          "cumulative_peak_mib": 1439.72
+        }
+      },
+      "stage": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 3192.169,
+            "p95": 3471.938
+          },
+          "complete_ms": {
+            "p50": 3269.901,
+            "p95": 3544.82
+          },
+          "cpu_ms": {
+            "p50": 3265.625,
+            "p95": 3562.5
+          },
+          "max_gap_ms": {
+            "p50": 1072.608,
+            "p95": 1138.192
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 3,
+              "_commit_stage_workspace": 3
+            },
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 3,
+              "_commit_stage_workspace": 3
+            },
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 3,
+              "_commit_stage_workspace": 3
+            }
+          ],
+          "inclusive_ms_p50": {
+            "_refresh_stage_workspace": 3062.567,
+            "sync_stage_windows": 3081.007,
+            "_commit_stage_workspace": 1062.56
+          },
+          "rss_mib_p50": 1461.51,
+          "private_mib_p50": 2670.15,
+          "cumulative_peak_mib": 1487.08
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 3142.494,
+            "p95": 3265.201
+          },
+          "complete_ms": {
+            "p50": 3219.215,
+            "p95": 3356.699
+          },
+          "cpu_ms": {
+            "p50": 3234.375,
+            "p95": 3312.5
+          },
+          "max_gap_ms": {
+            "p50": 1020.278,
+            "p95": 1052.586
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 3,
+              "_commit_stage_workspace": 3
+            },
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 3,
+              "_commit_stage_workspace": 3
+            },
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 3,
+              "_commit_stage_workspace": 3
+            }
+          ],
+          "inclusive_ms_p50": {
+            "_refresh_stage_workspace": 3008.472,
+            "sync_stage_windows": 3025.939,
+            "_commit_stage_workspace": 986.424
+          },
+          "rss_mib_p50": 1461.82,
+          "private_mib_p50": 2670.26,
+          "cumulative_peak_mib": 1485.48
+        }
+      },
+      "parameter": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 279.428,
+            "p95": 463.37
+          },
+          "complete_ms": {
+            "p50": 331.895,
+            "p95": 515.971
+          },
+          "cpu_ms": {
+            "p50": 328.125,
+            "p95": 515.625
+          },
+          "max_gap_ms": {
+            "p50": 279.468,
+            "p95": 463.415
+          },
+          "call_counts": [
+            {},
+            {},
+            {}
+          ],
+          "inclusive_ms_p50": {},
+          "rss_mib_p50": 1469.05,
+          "private_mib_p50": 2676.39,
+          "cumulative_peak_mib": 1487.08
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 464.823,
+            "p95": 480.709
+          },
+          "complete_ms": {
+            "p50": 516.693,
+            "p95": 533.357
+          },
+          "cpu_ms": {
+            "p50": 500.0,
+            "p95": 531.25
+          },
+          "max_gap_ms": {
+            "p50": 464.86,
+            "p95": 480.74
+          },
+          "call_counts": [
+            {},
+            {},
+            {}
+          ],
+          "inclusive_ms_p50": {},
+          "rss_mib_p50": 1463.19,
+          "private_mib_p50": 2670.92,
+          "cumulative_peak_mib": 1485.48
+        }
+      },
+      "card": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 70.626,
+            "p95": 71.08
+          },
+          "complete_ms": {
+            "p50": 125.473,
+            "p95": 136.171
+          },
+          "cpu_ms": {
+            "p50": 125.0,
+            "p95": 140.625
+          },
+          "max_gap_ms": {
+            "p50": 70.687,
+            "p95": 71.143
+          },
+          "call_counts": [
+            {},
+            {},
+            {}
+          ],
+          "inclusive_ms_p50": {},
+          "rss_mib_p50": 1469.45,
+          "private_mib_p50": 2676.41,
+          "cumulative_peak_mib": 1487.08
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 71.647,
+            "p95": 71.822
+          },
+          "complete_ms": {
+            "p50": 123.907,
+            "p95": 124.21
+          },
+          "cpu_ms": {
+            "p50": 125.0,
+            "p95": 125.0
+          },
+          "max_gap_ms": {
+            "p50": 71.713,
+            "p95": 71.879
+          },
+          "call_counts": [
+            {},
+            {},
+            {}
+          ],
+          "inclusive_ms_p50": {},
+          "rss_mib_p50": 1463.19,
+          "private_mib_p50": 2670.91,
+          "cumulative_peak_mib": 1485.48
+        }
+      },
+      "unchanged_sync": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 6.283,
+            "p95": 6.332
+          },
+          "complete_ms": {
+            "p50": 62.3,
+            "p95": 65.959
+          },
+          "cpu_ms": {
+            "p50": 62.5,
+            "p95": 62.5
+          },
+          "max_gap_ms": {
+            "p50": 55.905,
+            "p95": 59.626
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            }
+          ],
+          "inclusive_ms_p50": {
+            "sync_stage_windows": 6.27
+          },
+          "rss_mib_p50": 1469.67,
+          "private_mib_p50": 2676.41,
+          "cumulative_peak_mib": 1487.08
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 5.94,
+            "p95": 6.541
+          },
+          "complete_ms": {
+            "p50": 60.381,
+            "p95": 68.843
+          },
+          "cpu_ms": {
+            "p50": 93.75,
+            "p95": 140.625
+          },
+          "max_gap_ms": {
+            "p50": 59.686,
+            "p95": 68.836
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            }
+          ],
+          "inclusive_ms_p50": {
+            "sync_stage_windows": 5.925
+          },
+          "rss_mib_p50": 1463.19,
+          "private_mib_p50": 2670.91,
+          "cumulative_peak_mib": 1485.48
+        }
+      }
+    },
+    "5": {
+      "raw": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 29.093,
+            "p95": 31.179
+          },
+          "complete_ms": {
+            "p50": 3448.9,
+            "p95": 3459.736
+          },
+          "cpu_ms": {
+            "p50": 3421.875,
+            "p95": 3453.125
+          },
+          "max_gap_ms": {
+            "p50": 786.459,
+            "p95": 786.995
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 5,
+              "_commit_stage_workspace": 5
+            },
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 5,
+              "_commit_stage_workspace": 5
+            },
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 5,
+              "_commit_stage_workspace": 5
+            }
+          ],
+          "inclusive_ms_p50": {
+            "_refresh_stage_workspace": 2952.21,
+            "sync_stage_windows": 2974.785,
+            "_commit_stage_workspace": 1719.475
+          },
+          "rss_mib_p50": 1556.86,
+          "private_mib_p50": 2766.62,
+          "cumulative_peak_mib": 1644.16
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 27.162,
+            "p95": 27.495
+          },
+          "complete_ms": {
+            "p50": 3223.784,
+            "p95": 3276.144
+          },
+          "cpu_ms": {
+            "p50": 3218.75,
+            "p95": 3250.0
+          },
+          "max_gap_ms": {
+            "p50": 715.792,
+            "p95": 737.943
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 5,
+              "_commit_stage_workspace": 5
+            },
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 5,
+              "_commit_stage_workspace": 5
+            },
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 5,
+              "_commit_stage_workspace": 5
+            }
+          ],
+          "inclusive_ms_p50": {
+            "_refresh_stage_workspace": 2737.569,
+            "sync_stage_windows": 2760.767,
+            "_commit_stage_workspace": 1578.021
+          },
+          "rss_mib_p50": 1556.19,
+          "private_mib_p50": 2767.1,
+          "cumulative_peak_mib": 1644.81
+        }
+      },
+      "mapping": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 0.593,
+            "p95": 0.773
+          },
+          "complete_ms": {
+            "p50": 2667.923,
+            "p95": 2745.697
+          },
+          "cpu_ms": {
+            "p50": 2703.125,
+            "p95": 2718.75
+          },
+          "max_gap_ms": {
+            "p50": 659.937,
+            "p95": 752.174
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 5,
+              "_commit_stage_workspace": 5
+            },
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 5,
+              "_commit_stage_workspace": 5
+            },
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 5,
+              "_commit_stage_workspace": 5
+            }
+          ],
+          "inclusive_ms_p50": {
+            "_refresh_stage_workspace": 2223.11,
+            "sync_stage_windows": 2248.487,
+            "_commit_stage_workspace": 1049.599
+          },
+          "rss_mib_p50": 1556.48,
+          "private_mib_p50": 2765.78,
+          "cumulative_peak_mib": 1644.16
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 0.556,
+            "p95": 0.773
+          },
+          "complete_ms": {
+            "p50": 2604.968,
+            "p95": 2659.022
+          },
+          "cpu_ms": {
+            "p50": 2609.375,
+            "p95": 2656.25
+          },
+          "max_gap_ms": {
+            "p50": 643.475,
+            "p95": 728.059
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 5,
+              "_commit_stage_workspace": 5
+            },
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 5,
+              "_commit_stage_workspace": 5
+            },
+            {
+              "sync_stage_windows": 2,
+              "_refresh_stage_workspace": 5,
+              "_commit_stage_workspace": 5
+            }
+          ],
+          "inclusive_ms_p50": {
+            "_refresh_stage_workspace": 2141.165,
+            "sync_stage_windows": 2167.09,
+            "_commit_stage_workspace": 986.999
+          },
+          "rss_mib_p50": 1556.86,
+          "private_mib_p50": 2766.06,
+          "cumulative_peak_mib": 1644.81
+        }
+      },
+      "group": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 5908.917,
+            "p95": 6040.955
+          },
+          "complete_ms": {
+            "p50": 6019.235,
+            "p95": 6148.302
+          },
+          "cpu_ms": {
+            "p50": 6000.0,
+            "p95": 6156.25
+          },
+          "max_gap_ms": {
+            "p50": 1248.769,
+            "p95": 1324.33
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 5,
+              "_commit_stage_workspace": 5
+            },
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 5,
+              "_commit_stage_workspace": 5
+            },
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 5,
+              "_commit_stage_workspace": 5
+            }
+          ],
+          "inclusive_ms_p50": {
+            "_refresh_stage_workspace": 5446.244,
+            "sync_stage_windows": 5465.64,
+            "_commit_stage_workspace": 1096.943
+          },
+          "rss_mib_p50": 1746.93,
+          "private_mib_p50": 2980.0,
+          "cumulative_peak_mib": 1765.62
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 5783.501,
+            "p95": 5840.963
+          },
+          "complete_ms": {
+            "p50": 5889.326,
+            "p95": 5955.913
+          },
+          "cpu_ms": {
+            "p50": 5828.125,
+            "p95": 6000.0
+          },
+          "max_gap_ms": {
+            "p50": 1226.444,
+            "p95": 1285.452
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 5,
+              "_commit_stage_workspace": 5
+            },
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 5,
+              "_commit_stage_workspace": 5
+            },
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 5,
+              "_commit_stage_workspace": 5
+            }
+          ],
+          "inclusive_ms_p50": {
+            "_refresh_stage_workspace": 5315.369,
+            "sync_stage_windows": 5334.229,
+            "_commit_stage_workspace": 992.439
+          },
+          "rss_mib_p50": 1765.96,
+          "private_mib_p50": 2976.4,
+          "cumulative_peak_mib": 1783.04
+        }
+      },
+      "stage": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 5385.472,
+            "p95": 5459.519
+          },
+          "complete_ms": {
+            "p50": 5495.058,
+            "p95": 5569.987
+          },
+          "cpu_ms": {
+            "p50": 5437.5,
+            "p95": 5562.5
+          },
+          "max_gap_ms": {
+            "p50": 1146.614,
+            "p95": 1170.4
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 5,
+              "_commit_stage_workspace": 5
+            },
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 5,
+              "_commit_stage_workspace": 5
+            },
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 5,
+              "_commit_stage_workspace": 5
+            }
+          ],
+          "inclusive_ms_p50": {
+            "_refresh_stage_workspace": 5253.641,
+            "sync_stage_windows": 5271.986,
+            "_commit_stage_workspace": 1757.966
+          },
+          "rss_mib_p50": 1795.93,
+          "private_mib_p50": 3027.69,
+          "cumulative_peak_mib": 1831.61
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 5368.315,
+            "p95": 5503.615
+          },
+          "complete_ms": {
+            "p50": 5478.332,
+            "p95": 5660.072
+          },
+          "cpu_ms": {
+            "p50": 5562.5,
+            "p95": 5625.0
+          },
+          "max_gap_ms": {
+            "p50": 1117.961,
+            "p95": 1143.266
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 5,
+              "_commit_stage_workspace": 5
+            },
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 5,
+              "_commit_stage_workspace": 5
+            },
+            {
+              "sync_stage_windows": 1,
+              "_refresh_stage_workspace": 5,
+              "_commit_stage_workspace": 5
+            }
+          ],
+          "inclusive_ms_p50": {
+            "_refresh_stage_workspace": 5252.754,
+            "sync_stage_windows": 5270.185,
+            "_commit_stage_workspace": 1689.348
+          },
+          "rss_mib_p50": 1816.01,
+          "private_mib_p50": 3025.03,
+          "cumulative_peak_mib": 1849.46
+        }
+      },
+      "parameter": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 460.09,
+            "p95": 773.04
+          },
+          "complete_ms": {
+            "p50": 550.169,
+            "p95": 857.398
+          },
+          "cpu_ms": {
+            "p50": 578.125,
+            "p95": 859.375
+          },
+          "max_gap_ms": {
+            "p50": 460.127,
+            "p95": 773.076
+          },
+          "call_counts": [
+            {},
+            {},
+            {}
+          ],
+          "inclusive_ms_p50": {},
+          "rss_mib_p50": 1817.0,
+          "private_mib_p50": 3049.02,
+          "cumulative_peak_mib": 1831.61
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 469.957,
+            "p95": 780.223
+          },
+          "complete_ms": {
+            "p50": 562.668,
+            "p95": 867.378
+          },
+          "cpu_ms": {
+            "p50": 546.875,
+            "p95": 875.0
+          },
+          "max_gap_ms": {
+            "p50": 470.126,
+            "p95": 780.271
+          },
+          "call_counts": [
+            {},
+            {},
+            {}
+          ],
+          "inclusive_ms_p50": {},
+          "rss_mib_p50": 1837.59,
+          "private_mib_p50": 3046.64,
+          "cumulative_peak_mib": 1849.46
+        }
+      },
+      "card": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 71.401,
+            "p95": 71.684
+          },
+          "complete_ms": {
+            "p50": 163.164,
+            "p95": 164.179
+          },
+          "cpu_ms": {
+            "p50": 140.625,
+            "p95": 218.75
+          },
+          "max_gap_ms": {
+            "p50": 91.418,
+            "p95": 92.669
+          },
+          "call_counts": [
+            {},
+            {},
+            {}
+          ],
+          "inclusive_ms_p50": {},
+          "rss_mib_p50": 1817.29,
+          "private_mib_p50": 3049.02,
+          "cumulative_peak_mib": 1831.61
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 71.057,
+            "p95": 71.864
+          },
+          "complete_ms": {
+            "p50": 162.248,
+            "p95": 164.733
+          },
+          "cpu_ms": {
+            "p50": 171.875,
+            "p95": 187.5
+          },
+          "max_gap_ms": {
+            "p50": 92.007,
+            "p95": 92.772
+          },
+          "call_counts": [
+            {},
+            {},
+            {}
+          ],
+          "inclusive_ms_p50": {},
+          "rss_mib_p50": 1837.6,
+          "private_mib_p50": 3046.64,
+          "cumulative_peak_mib": 1849.46
+        }
+      },
+      "unchanged_sync": {
+        "before": {
+          "dispatch_ms": {
+            "p50": 6.242,
+            "p95": 6.254
+          },
+          "complete_ms": {
+            "p50": 88.957,
+            "p95": 112.302
+          },
+          "cpu_ms": {
+            "p50": 93.75,
+            "p95": 109.375
+          },
+          "max_gap_ms": {
+            "p50": 82.638,
+            "p95": 105.997
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            }
+          ],
+          "inclusive_ms_p50": {
+            "sync_stage_windows": 6.229
+          },
+          "rss_mib_p50": 1817.29,
+          "private_mib_p50": 3049.02,
+          "cumulative_peak_mib": 1831.61
+        },
+        "after": {
+          "dispatch_ms": {
+            "p50": 9.732,
+            "p95": 9.971
+          },
+          "complete_ms": {
+            "p50": 95.906,
+            "p95": 97.291
+          },
+          "cpu_ms": {
+            "p50": 93.75,
+            "p95": 93.75
+          },
+          "max_gap_ms": {
+            "p50": 85.884,
+            "p95": 87.507
+          },
+          "call_counts": [
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            },
+            {
+              "sync_stage_windows": 1
+            }
+          ],
+          "inclusive_ms_p50": {
+            "sync_stage_windows": 9.719
+          },
+          "rss_mib_p50": 1837.6,
+          "private_mib_p50": 3046.64,
+          "cumulative_peak_mib": 1849.46
+        }
+      }
+    }
+  }
+}

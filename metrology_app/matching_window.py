@@ -3609,10 +3609,15 @@ class MatchingWindow(QMainWindow):
             if source_policy is not None:
                 old_raw = workspace.raw_model.document_frame()
                 if saved is not None and old_raw.shape == scoped_raw.shape:
-                    new_raw = scoped_raw.fillna("").astype(str)
-                    renamed = {old: new for old, new in zip(old_raw.columns, new_raw.columns)
-                               if old not in new_raw and new not in old_raw
-                               and old_raw[old].equals(new_raw[new])}
+                    # Value/Card/Group changes cannot rename an unchanged
+                    # schema. Only normalize the table when a rename is possible.
+                    candidates = [(old, new) for old, new in zip(old_raw.columns, scoped_raw.columns)
+                                  if old not in scoped_raw and new not in old_raw]
+                    renamed = {}
+                    if candidates:
+                        new_raw = scoped_raw.fillna("").astype(str)
+                        renamed = {old: new for old, new in candidates
+                                   if old_raw[old].equals(new_raw[new])}
                     if renamed:
                         saved["raw"]["metrics"] = tuple(renamed.get(name, name) for name in saved["raw"]["metrics"])
                         for field in ("correlation_draw", "trend_draw"):
