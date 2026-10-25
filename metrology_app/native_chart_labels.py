@@ -131,7 +131,13 @@ def _drawing(
 def caption_boxes(labels, geometry=(.10, .85), *, width_px=None):
     """Non-overlapping normalized caption boxes shared by both report renderers."""
     left, width = geometry
-    available = width / max(1, len(labels)) - .012
+    # Group/Wafer span sizing already reserves 16 px around each measured
+    # caption. Adding a chart-relative gap here pushed correctly centred
+    # labels across unrelated spans: 0.012 of a 160 cm chart is about 130 px.
+    # Collision handling therefore separates boxes only when they would
+    # actually overlap; it never inflates the spacing of an aligned layout.
+    gap = 0.
+    available = width / max(1, len(labels))
     if width_px:
         from matplotlib.backends.backend_agg import RendererAgg
         from matplotlib.font_manager import FontProperties
@@ -145,7 +151,8 @@ def caption_boxes(labels, geometry=(.10, .85), *, width_px=None):
                 default=0) + 8
             for item in labels]
         widths = [
-            min(.22, available, max(.025, pixel_width / width_px))
+            min(.22, available, max(1. / width_px,
+                                   pixel_width / width_px))
             for pixel_width in measured]
     else:
         widths = [
@@ -158,12 +165,20 @@ def caption_boxes(labels, geometry=(.10, .85), *, width_px=None):
     if centers:
         centers[0] = max(centers[0], left + widths[0] / 2)
     for position in range(1, len(centers)):
-        centers[position] = max(centers[position], centers[position - 1] + (widths[position - 1] + widths[position]) / 2 + .012)
+        centers[position] = max(
+            centers[position],
+            centers[position - 1]
+            + (widths[position - 1] + widths[position]) / 2
+            + gap)
     if centers:
         centers[-1] = min(
             centers[-1], left + width - widths[-1] / 2)
         for position in range(len(centers) - 2, -1, -1):
-            centers[position] = min(centers[position], centers[position + 1] - (widths[position + 1] + widths[position]) / 2 - .012)
+            centers[position] = min(
+                centers[position],
+                centers[position + 1]
+                - (widths[position + 1] + widths[position]) / 2
+                - gap)
     return list(zip(centers, widths))
 
 

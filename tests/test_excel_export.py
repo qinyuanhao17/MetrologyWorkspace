@@ -212,7 +212,9 @@ class ExcelExportTests(unittest.TestCase):
             self.assertEqual(trend['A3'].value, 'Head A')
             self.assertEqual(trend['A5'].value, 'Head B')
             for series in trend._charts[1].series:
-                self.assertTrue(series.val.numRef.f.startswith("'Match Group (WO Card)'!"))
+                self.assertTrue(
+                    series.yVal.numRef.f.startswith(
+                        "'Match Group (WO Card)'!"))
             rsq = book["RSQ (WO Card)"]
             self.assertEqual(rsq["D1"].value, "CD R²")
             self.assertEqual(rsq["A2"].value, 1)

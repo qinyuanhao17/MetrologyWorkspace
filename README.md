@@ -1,8 +1,8 @@
 # Metrology Workspace
 
-Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、径向图、相关性图和趋势图。主窗口提供 **Match Workbook**、**Wafer Map**、**Correlation and Trend**、**Dynamic** 和 **AutoWeighting Writer** 五个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例；窗口可命名、勾选随 WKB 保存。当前发布版本为 **v4.3.0**；功能、验证及已知限制见 [v4.3.0 发布说明](docs/releases/v4.3.0.md)。历史版本与开发版标签保持不变。
+Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、径向图、相关性图和趋势图。主窗口提供 **Match Workbook**、**Wafer Map**、**Correlation and Trend**、**Dynamic** 和 **AutoWeighting Writer** 五个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例；窗口可命名、勾选随 WKB 保存。当前发布版本为 **v4.3.1**；功能、验证及已知限制见 [v4.3.1 发布说明](docs/releases/v4.3.1.md)。历史版本与开发版标签保持不变。
 
-v4.3.0 集中改善大表首次选择与局部 Undo、绘图重排和 Excel 导出布局，并恢复 Wafer Map / Radius 的 Die 数值悬停。Match Group 与 Match Group show Wafer 现分开生成，身份图使用与单元格绑定的数值横轴；分页 Wafer 的 Bias % 导出异常也已修复。完整 Undo、宽表粘贴/删除和多窗口阶段切换仍可能等待，不能把局部提速理解为整体流畅度全部达标。
+v4.3.1 修复 Match Group / Wafer 导出中曲线、Wafer 标签和分界线不一致的问题：原生 Trend、Bias 与 Bias % 改为绑定单元格的 XY series，Show Wafer Group 的真实宽度会同步作用于数据；Wafer 标签保持各自 span 中心。单独 Group 页始终展示全部 Wafer，Match Wafer 改为不分页的一张完整图，数值轴只保留一个 Die Seq 标题，并在每个 Wafer 内按可用宽度生成密集刻度。完整 Undo、宽表粘贴/删除和多窗口阶段切换仍可能等待，不能把局部提速理解为整体流畅度全部达标。
 
 v4.0.0 在 v4-dev3 基础上整理 Excel/Matplotlib 导出：Match Original 合并原始数据与参数图，增加 Match Group，Match Wafer 提供独立 Wafer 视图；Bias 纵轴正负对称。Dynamic 的原始数据、逐参数 Cycle×Die 表和 3 Sigma 图集中到同一工作表；FullMap 同时放置已绘制的 Wafer Map、Radius 图片，TEM 额外保留 Trend。提醒事项继续使用独立用户目录存储。
 
@@ -68,7 +68,7 @@ Interaction references: [Planify](https://github.com/alainm23/planify) and
 
 ## Windows 便携版
 
-`v4.3.0` 是源码标签，本次没有生成或发布新的 Windows 二进制包。最近的可下载 Windows 包仍为 [v4.2.0 Release](https://github.com/qinyuanhao17/MetrologyWorkspace/releases/tag/v4.2.0)：下载 `MetrologyWorkspace-Windows-x64-v4.2.0.zip`，完整解压后双击 `MetrologyWorkspace.exe` 即可运行，无需另装 Python；也可下载 `MetrologyWorkspace-Windows-x64-v4.2.0-Setup.exe` 安装到当前用户目录。`_internal` 文件夹必须和 EXE 放在同一目录；不要只复制 EXE。设置保存在 EXE 旁边的 `settings.yaml` 中，提醒事项使用上面说明的独立用户目录。更新前关闭旧版并备份自己的设置和数据；包内不附带用户数据。
+`v4.3.1` 提供新的 Windows 二进制包：[v4.3.1 Release](https://github.com/qinyuanhao17/MetrologyWorkspace/releases/tag/v4.3.1)。下载 `MetrologyWorkspace-Windows-x64-v4.3.1.zip` 后请完整解压，再双击 `MetrologyWorkspace.exe`，无需另装 Python；也可下载 `MetrologyWorkspace-Windows-x64-v4.3.1-Setup.exe` 安装到当前用户目录。`_internal` 文件夹必须和 EXE 放在同一目录；不要只复制 EXE。设置保存在 EXE 旁边的 `settings.yaml` 中，提醒事项使用上面说明的独立用户目录。更新前关闭旧版并备份自己的设置和数据；包内不附带用户数据。
 
 重新构建便携版：
 

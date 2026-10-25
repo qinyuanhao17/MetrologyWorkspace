@@ -123,9 +123,8 @@ class ExcelReportLayoutTests(unittest.TestCase):
                                 2 * (PANEL_HEIGHT_CM + 0.5),
                                 places=2)
 
-    def test_wide_match_wafer_pages_preserve_identity_and_do_not_overlap(self):
+    def test_wide_match_wafer_is_one_complete_untitled_chart(self):
         import re
-        from metrology_app.excel_export import WAFER_PAGE_WIDTH_CM
 
         wafer_count = 12
         labels = [f"WAFER-{index:02d}-IDENTITY-ABCDEFGHIJKLMN"
@@ -166,7 +165,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
             for native in (True, False):
                 images = []
                 path = self.window.export_excel(
-                    Path(folder) / f"paged-{native}.xlsx",
+                    Path(folder) / f"complete-wafer-{native}.xlsx",
                     native=native, images=images)
                 sheet = load_workbook(path)["Match Wafer (WO Card)"]
                 drawings = sheet._charts if native else sheet._images
@@ -179,18 +178,10 @@ class ExcelReportLayoutTests(unittest.TestCase):
                     page_labels = {
                         label for item in images
                         for label in re.findall(r"Page \d+/\d+", item[0])}
-                self.assertGreater(len(page_labels), 1)
-                # Each parameter must retain Match, Trend, Bias and Bias % on
-                # every page, including the Matplotlib export path.
-                self.assertEqual(len(drawings), 2 * 4 * len(page_labels))
-                if not native:
-                    percent_pages = {
-                        label for item in images if " Bias % Page " in item[0]
-                        for label in re.findall(r"Page \d+/\d+", item[0])}
-                    self.assertEqual(percent_pages, page_labels)
-                self.assertTrue(all(
-                    drawing.anchor.ext.cx / 360000 <= WAFER_PAGE_WIDTH_CM + .02
-                    for drawing in drawings))
+                self.assertEqual(page_labels, set())
+                self.assertEqual(len(drawings), 2 * 4)
+                self.assertGreater(
+                    drawings[1].anchor.ext.cx / 360000, 45)
 
                 boxes = rectangles(drawings, sheet)
                 positions_cm = [
@@ -215,19 +206,45 @@ class ExcelReportLayoutTests(unittest.TestCase):
                             or right[1] + right[3] <= left[1] + .5)
                         self.assertTrue(separated, (native, left, right))
                 if native:
-                    trend_pages = [
+                    trend = [
                         chart for chart in drawings
-                        if "Page " in title_text(chart)
-                        and title_text(chart).startswith("CD (Page ")
+                        if title_text(chart) == "CD"
                         and len(chart.series) == 2]
                     def category_count(chart):
-                        categories = chart.series[0].cat
+                        categories = chart.series[0].xVal
                         reference = getattr(categories, 'numRef', None)
                         cache = getattr(reference, 'numCache', None)
                         return len(cache.pt) if cache is not None else 0
                     self.assertEqual(
-                        sum(category_count(chart) for chart in trend_pages),
+                        sum(category_count(chart) for chart in trend),
                         wafer_count)
+
+    def test_wide_wafer_layout_has_dense_die_seq_ticks(self):
+        from metrology_app.excel_export import sequence_export_layout
+
+        rows = [
+            {
+                "Wafer": f"WAFER-{wafer:02d}",
+                "Wafer key": (wafer,),
+                "Die Seq": str(die + 1),
+                "Raw": 1.,
+                "Reference": 1.,
+            }
+            for wafer in range(60)
+            for die in range(10)
+        ]
+        layout = sequence_export_layout(pd.DataFrame(rows), mode="wafer")
+        self.assertGreater(len(layout["ticks"]), 18)
+        self.assertEqual(len(layout["ticks"]),
+                         len(layout["tick_indices"]))
+        for left, right in zip(
+                layout["display"], layout["display"][1:]):
+            span_labels = [
+                int(label)
+                for position, label in layout["ticks"]
+                if left <= position < right]
+            self.assertTrue(span_labels)
+            self.assertEqual(span_labels, sorted(span_labels))
 
     def test_child_trend_reference_stays_orange_and_above_raw_independent_of_selection_order(self):
         from metrology_app.analysis_export import plot_figure, append_report
@@ -479,15 +496,14 @@ class ExcelReportLayoutTests(unittest.TestCase):
                     self.assertGreaterEqual(len(trend_pages), 1)
                     category_count = 0
                     for detail in trend_pages:
-                        categories = detail.series[0].cat.numRef
+                        categories = detail.series[0].xVal.numRef
                         self.assertTrue(categories.f.startswith(
                             "'_Plot data'!"))
                         page_values = [
                             point.v for point in categories.numCache.pt]
                         category_count += len(page_values)
-                        self.assertEqual(
-                            detail.x_axis.tickLblSkip,
-                            max(1, int(math.ceil(len(page_values) / 18))))
+                        self.assertGreater(
+                            detail.x_axis.scaling.max, max(page_values))
                     self.assertEqual(category_count, 60)
 
     def test_fullmap_matplotlib_trend_keeps_tight_ordinal_limits(self):
@@ -682,8 +698,59 @@ class ExcelReportLayoutTests(unittest.TestCase):
         finally:
             figure.clear()
 
+    def test_show_wafer_captions_stay_centred_over_their_own_spans(self):
+        from openpyxl import Workbook
+        from metrology_app.excel_export import (
+            parameter_footer, sequence_export_layout)
+        from metrology_app.native_chart_labels import caption_boxes
+
+        counts = [100, 80, 40, 26, 10]
+        labels = ["Old MM1", "Old MM2", "Old Unknown", "New MM1", "New MM2"]
+        rows = [
+            {
+                "Group": f"All:{group}",
+                "Group label": label,
+                "Wafer": (
+                    f"WAFER-{group:02d}-{wafer:02d}\n"
+                    f"LOT: LOT-{wafer:02d}\n"
+                    "PAD: ARRAY-IDENTITY"),
+                "Wafer key": (group, wafer),
+                "Show wafer": group >= 3,
+                "Raw": 1.,
+                "Reference": 1.,
+                "Die Seq": "1",
+            }
+            for group, (label, count) in enumerate(zip(labels, counts))
+            for wafer in range(count)
+        ]
+        data = pd.DataFrame(rows)
+        captions = parameter_footer(
+            Workbook().active, 3, data,
+            {"Group": 1, "Wafer": 2}, "group")
+        layout = sequence_export_layout(
+            data, mode="group", captions=captions)
+        wafers = [
+            item for item in layout["captions"]
+            if item["role"] == "wafer"]
+        left, right = 3. / layout["width"], .7 / layout["width"]
+        boxes = caption_boxes(
+            wafers, (left, 1. - left - right),
+            width_px=layout["width"] * 96 / 2.54)
+
+        for item, (center, _width) in zip(wafers, boxes):
+            self.assertAlmostEqual(
+                center,
+                left + (1. - left - right) * item["center"],
+                places=6)
+        for (_left_center, left_width), (right_center, right_width) in zip(
+                boxes, boxes[1:]):
+            self.assertLessEqual(
+                _left_center + left_width / 2,
+                right_center - right_width / 2 + 1e-12)
+
     def test_match_group_splits_group_only_and_selective_show_wafer_sheets(self):
         from metrology_app.export_sheets import export_sheet_names
+        from openpyxl.chart import ScatterChart
 
         wafer_ids = ["OLD-WAFER"] * 12 + [
             "NEW-WAFER-LONG-IDENTITY-01"] * 2 + [
@@ -737,10 +804,69 @@ class ExcelReportLayoutTests(unittest.TestCase):
                     self.assertEqual(len(shown_panels), 3)
                     if native:
                         for chart in (group_panels[1], shown_panels[1]):
-                            self.assertIsNotNone(
-                                chart.series[0].cat.numRef)
+                            self.assertIsInstance(chart, ScatterChart)
+                            self.assertFalse(chart.visible_cells_only)
+                            for series in chart.series:
+                                self.assertTrue(
+                                    series.xVal.numRef.f.startswith(
+                                        "'_Plot data'!"))
+                                self.assertIsNotNone(series.yVal.numRef)
+                            self.assertIsNone(chart.x_axis.title)
                             self.assertIsNone(
                                 chart.x_axis.tickLblPos)
+                    if native:
+                        from xml.etree import ElementTree as ET
+                        from zipfile import ZipFile
+                        ns = {
+                            "d": "http://schemas.openxmlformats.org/"
+                                 "drawingml/2006/chartDrawing",
+                            "a": "http://schemas.openxmlformats.org/"
+                                 "drawingml/2006/main",
+                        }
+                        caption_text = {}
+                        with ZipFile(path) as archive:
+                            for name in archive.namelist():
+                                if not name.startswith(
+                                        "xl/drawings/identity-"):
+                                    continue
+                                root = ET.fromstring(archive.read(name))
+                                for shape in root.findall(
+                                        ".//d:sp[@textlink]", ns):
+                                    source = shape.get("textlink", "")
+                                    for title, sheet_name in (
+                                            ("Match Group",
+                                             f"Match Group ({suffix})"),
+                                            ("Match Group show Wafer",
+                                             shown_name),
+                                            ("Match Old A",
+                                             f"Match Old A ({suffix})"),
+                                            ("Match New B",
+                                             f"Match New B ({suffix})")):
+                                        if source.startswith(
+                                                f"'{sheet_name}'!"):
+                                            caption_text.setdefault(
+                                                title, []).append(
+                                                "".join(
+                                                    node.text or ""
+                                                    for node in shape.findall(
+                                                        ".//a:t", ns)))
+                        self.assertTrue(any(
+                            "OLD-WAFER" in text
+                            for text in caption_text["Match Old A"]))
+                        self.assertTrue(any(
+                            "NEW-WAFER-LONG-IDENTITY-01" in text
+                            for text in caption_text["Match New B"]))
+                        self.assertFalse(any(
+                            "OLD-WAFER" in text
+                            for text in caption_text["Match Group"]))
+                        self.assertFalse(any(
+                            "OLD-WAFER" in text
+                            for text in caption_text[
+                                "Match Group show Wafer"]))
+                        self.assertTrue(any(
+                            "NEW-WAFER-LONG-IDENTITY-01" in text
+                            for text in caption_text[
+                                "Match Group show Wafer"]))
                     self.assertLess(
                         group_panels[1].anchor.ext.cx,
                         shown_panels[1].anchor.ext.cx,
@@ -943,7 +1069,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
                 self.assertGreater(widths[-1], 0)
                 self.assertLess(widths[-1], 25, "Small wafer sheets must stay tight")
                 if native:
-                    categories = panels[1].series[0].cat.numRef
+                    categories = panels[1].series[0].xVal.numRef
                     self.assertTrue(categories.f.startswith(
                         "'_Plot data'!"))
                     self.assertEqual(len(categories.numCache.pt), 4)

@@ -66,7 +66,10 @@ Feature: Export analysis with editable Excel charts or Matplotlib pictures
     And Match Group show Wafer appears for both stages
     And Groups without Show Wafer keep their Match Group widths
     And Show Wafer Groups expand to fit every Wafer label and complete separator line
-    And Native Group and Wafer data share the caption numeric x scale
+    And every individual Group Match shows all of its Wafers regardless of Show wafer
+    And Show wafer only chooses which individual Group detail appears in the combined view
+    And Native Group and Wafer trends use the caption numeric x scale
+    And their X and Y values remain bound to cells for draggable Excel ranges
     And automatic internal numeric x tick text remains hidden
     And sparse cell-linked Die Seq ticks remain below the plot
 
@@ -94,9 +97,10 @@ Feature: Export analysis with editable Excel charts or Matplotlib pictures
     When the Workbook is exported in either mode
     Then each Match panel is 15 cm wide and 11 cm high
     And Trend and Bias panels are 11 cm high and expand to fit visible labels
-    And Match Wafer keeps Trend and Bias at or below 45 cm whenever one complete Wafer fits
-    And a single Wafer wider than 45 cm stays intact instead of dropping or truncating its identity labels
-    And Match Wafer pages stack without overlap and identify themselves as Page x/y
+    And Match Wafer keeps every Group and Wafer in one complete Trend and Bias chart
+    And Match Wafer never splits the data into Page x/y panels
+    And Die Seq ticks are sampled within each visible Wafer span instead of globally skipping whole spans
+    And numeric Trend and Bias axes show one Die Seq title
     And Match Original retains its 25 cm Die Seq baseline
     And a Group without visible Wafers scales from the tightest Group before using record proportions
     And a Group with visible Wafers scales from the complete Wafer labels inside that Group

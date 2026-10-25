@@ -58,9 +58,8 @@ class ReleaseExportTests(unittest.TestCase):
             self.assertIsNone(original_cat.multiLvlStrRef)
             self.assertIsNotNone(original_cat.strRef)
             group_axis = group._charts[1]
-            self.assertIsNotNone(group_axis.series[0].cat.numRef)
-            self.assertIsNone(group_axis.series[0].cat.strRef)
-            self.assertIsNone(group_axis.series[0].cat.multiLvlStrRef)
+            self.assertIsNotNone(group_axis.series[0].xVal.numRef)
+            self.assertIsNotNone(group_axis.series[0].yVal.numRef)
             # openpyxl round-trips the valid OOXML "none" as None.
             self.assertIsNone(group_axis.x_axis.tickLblPos)
             self.assertEqual(
@@ -79,21 +78,20 @@ class ReleaseExportTests(unittest.TestCase):
                     ns = {
                         'c': 'http://schemas.openxmlformats.org/'
                              'drawingml/2006/chart'}
-                    cat_axis = tree.find('.//c:catAx', ns)
-                    if (cat_axis is not None
-                            and cat_axis.find('c:delete', ns) is not None
-                            and cat_axis.find('c:delete', ns).get('val')
+                    numeric_axis = (
+                        tree.find('.//c:valAx', ns)
+                        if tree.find('.//c:scatterChart', ns) is not None
+                        else tree.find('.//c:catAx', ns))
+                    if (numeric_axis is not None
+                            and numeric_axis.find('c:delete', ns) is not None
+                            and numeric_axis.find('c:delete', ns).get('val')
                             == '1'):
                         hidden_numeric_axes += 1
                 self.assertGreaterEqual(hidden_numeric_axes, 2)
-            self.assertIsNotNone(wafer._charts[1].x_axis.title)
+            self.assertIsNone(wafer._charts[1].x_axis.title)
             for sheet in book:
                 for chart in sheet._charts:
-                    numeric_x = any(
-                        series.cat is not None
-                        and series.cat.numRef is not None
-                        for series in chart.series)
-                    if numeric_x:
+                    if chart.x_axis.delete:
                         self.assertIsNone(chart.x_axis.majorTickMark)
                     else:
                         self.assertEqual(chart.x_axis.majorTickMark, 'out')

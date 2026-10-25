@@ -30,7 +30,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.utils.cell import quote_sheetname
 from openpyxl.drawing.image import Image
 from openpyxl.chart.text import RichText
-from openpyxl.chart.series import Series as SeriesObject, SeriesLabel
+from openpyxl.chart.series import XYSeries, Series as SeriesObject, SeriesLabel
 from openpyxl.chart.trendline import Trendline, TrendlineLabel
 from openpyxl.drawing.text import CharacterProperties, Font as DrawingFont, Paragraph, ParagraphProperties
 
@@ -57,7 +57,6 @@ CHART_VERTICAL_GAP_CM = 0.5
 MATCH_CHART_LEFT_MARGIN_CM = 3.0
 MATCH_CHART_RIGHT_MARGIN_CM = 0.7
 MARKER_HEADROOM = .03
-WAFER_PAGE_WIDTH_CM = 45.0
 FM_PICTURE_HEIGHT_CM = 30
 FM_PICTURE_WIDTH_CM = 72
 WAFER_MAP_CELL_HEIGHT_CM = 8
@@ -581,13 +580,28 @@ def sequence_export_layout(data, *, mode, captions=()):
             display = float(np.interp(source, source_edges, display_edges)) / total_width
             mapped[field] = display
         remapped.append(mapped)
-    tick_step = max(1, int(np.ceil(count / 18)))
-    tick_indices = list(range(0, count, tick_step))
+    width_cm = (total_width + 110) * 2.54 / 96
+    plot_pixels = max(1., width_cm * 96 / 2.54 - 110)
+    # Sample inside each Group/Wafer span instead of stepping through the
+    # concatenated rows. A global step skips whole wafers and produces labels
+    # such as 1, 12, 3, 14, which no longer read as Die Seq. Span-local
+    # candidates keep every visible segment represented and let the renderer
+    # retain as many as its measured width can accommodate.
+    tick_indices = []
+    for pieces in segments:
+        for first, last, _piece_start, piece_width in pieces:
+            local_count = last - first + 1
+            piece_pixels = plot_pixels * piece_width / total_width
+            capacity = max(1, min(
+                local_count, int(piece_pixels / 32)))
+            offsets = np.linspace(
+                0, local_count - 1, capacity).round().astype(int)
+            tick_indices.extend(first + int(offset) for offset in offsets)
+    tick_indices = sorted(set(tick_indices))
     die_values = frame.get(
         'Die Seq', pd.Series([''] * count)).tolist()
     ticks = [(float(x[index]), str(die_values[index]))
              for index in tick_indices]
-    width_cm = (total_width + 110) * 2.54 / 96
     layout = {
         "name": name, "x": x, "ticks": ticks, "limits": (0., total_width),
         "source": np.asarray(source_edges), "display": np.asarray(display_edges),
@@ -598,41 +612,6 @@ def sequence_export_layout(data, *, mode, captions=()):
         "tick_indices": tick_indices,
     }
     return dict(layout)
-
-
-def _wafer_page_specs(worksheet, first_row, data, columns, *, full=None):
-    """Split a Wafer view at wafer boundaries so each page stays readable."""
-    if full is None:
-        captions = parameter_footer(worksheet, first_row, data, columns, 'wafer')
-        full = sequence_export_layout(data, mode='wafer', captions=captions)
-    full['mode'] = 'wafer'
-    if full['width'] <= WAFER_PAGE_WIDTH_CM:
-        return [(0, len(data) - 1, data, full)]
-
-    spans = _label_spans(data['Wafer key'], limit=None)
-    widths = full['wafer_widths']
-    max_plot_px = WAFER_PAGE_WIDTH_CM * 96 / 2.54 - 110
-    pages, start_span, used = [], 0, 0.
-    for index, (start, end, key) in enumerate(spans):
-        key_text = repr(tuple(key)) if isinstance(key, (tuple, list)) else str(key)
-        width = float(widths.get(key, widths.get(key_text, 100.)))
-        if index > start_span and used + width > max_plot_px:
-            pages.append((spans[start_span][0], spans[index - 1][1],
-                          spans[start_span:index]))
-            start_span, used = index, 0.
-        used += width
-    pages.append((spans[start_span][0], spans[-1][1], spans[start_span:]))
-
-    specs = []
-    for start, end, _page_spans in pages:
-        page_data = data.iloc[start:end + 1].copy()
-        page_captions = parameter_footer(
-            worksheet, first_row + start, page_data, columns, 'wafer')
-        layout = sequence_export_layout(
-            page_data, mode='wafer', captions=page_captions)
-        layout['mode'] = 'wafer'
-        specs.append((start, end, page_data, layout))
-    return specs
 
 
 def _native_identity_categories(helper, helper_row, layout, *, start=0):
@@ -985,18 +964,11 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
         for layout in layouts:
             layout['native_width'] = max(layout['native_width'], panel_widths[0])
             layout['width'] = max(layout['width'], panel_widths[1])
-    wafer_pages = None
     if axis_mode in ('group', 'wafer'):
         captions = parameter_footer(worksheet, first_row, data, columns, axis_mode)
         layout = sequence_export_layout(data, mode=axis_mode, captions=captions)
         layout['mode'] = axis_mode
         layouts = [layout]
-        if axis_mode == 'wafer':
-            page_specs = _wafer_page_specs(
-                worksheet, first_row, data, columns, full=layout)
-            if len(page_specs) > 1:
-                wafer_pages = page_specs
-                layouts = [page_specs[0][3]]
     panel_rows = max(
         1, len(layouts) * (2 + int(bool(show_percent))))
     category_columns = [(columns["Group"], data["Group label"].tolist())] if "Group" in columns and not wafer_only else None
@@ -1008,7 +980,7 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
                 helper, helper_row, layout)
             if native:
                 layout['categories'] = categories
-    if native and wafer_pages is None:
+    if native:
         for index, layout in enumerate(layouts):
             categories = (
                 category_columns if index == 0 and category_columns
@@ -1028,95 +1000,6 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
             elif axis_mode not in ('group', 'wafer'):
                 layout["categories"] = native_categories(
                     worksheet, first_row, last_row, categories)
-    if wafer_pages is not None:
-        for start, end, page_data, page_layout in wafer_pages:
-            categories = _native_identity_categories(
-                helper, helper_row, page_layout, start=start)
-            if native:
-                page_layout['categories'] = categories
-    if count and wafer_pages is not None:
-        page_count = len(wafer_pages)
-        if native:
-            chart_left = _column_left_cm(
-                worksheet,
-                chart_column if chart_column is not None else len(headers) + 2)
-            chart_top = (
-                _row_top_cm(
-                    worksheet, chart_row if chart_row is not None else row)
-                + chart_index * panel_rows * (
-                    PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
-                if chart_top_cm is None else chart_top_cm)
-            for page_index, (start, end, page_data, page_layout) in enumerate(wafer_pages):
-                page_top = chart_top + page_index * panel_rows * (
-                    PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
-                _add_charts(
-                    worksheet, row if chart_row is None else chart_row,
-                    first_row + start, first_row + end, parameter, fit,
-                    show_percent=show_percent,
-                    raw=raw[start:end + 1],
-                    reference=reference[start:end + 1],
-                    evaluated=evaluated_values[start:end + 1],
-                    equation=equation, reference_label=reference_label,
-                    unit="" if mapping is None else _unit(mapping.reference_column),
-                    columns=columns, helper=helper, helper_row=helper_row,
-                    final=final, layouts=[page_layout],
-                    anchor_column=chart_column,
-                    chart_left_cm=chart_left, chart_top_cm=page_top,
-                    page_label=f"Page {page_index + 1}/{page_count}",
-                    bias_limit=None if mapping is None or mapping.bias_limit is None
-                    else float(mapping.bias_limit),
-                    show_bias_limit=bool(
-                        mapping is not None and mapping.show_bias_limit))
-        else:
-            from .export_rendering import embed_parameter
-            anchor = chart_column if chart_column is not None else len(headers) + 2
-            chart_left = _column_left_cm(worksheet, anchor)
-            chart_top = (
-                _row_top_cm(
-                    worksheet, chart_row if chart_row is not None else row)
-                + chart_index * panel_rows * (
-                    PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
-                if chart_top_cm is None else chart_top_cm)
-            for page_index, (_start, _end, page_data, page_layout) in enumerate(wafer_pages):
-                page_top = chart_top + page_index * panel_rows * (
-                    PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
-                page_label = f"Page {page_index + 1}/{page_count}"
-                panels = [
-                    ("Match", None),
-                    ("Trend", page_layout),
-                    ("Bias", page_layout),
-                    *((("Bias %", page_layout),) if show_percent else ()),
-                ]
-                right_row = 0
-                for panel, layout in panels:
-                    if panel == 'Match':
-                        position = (chart_left, page_top)
-                    else:
-                        position = (
-                            chart_left + MATCH_WIDTH_CM
-                            + CHART_HORIZONTAL_GAP_CM,
-                            page_top + right_row * (
-                                PANEL_HEIGHT_CM
-                                + CHART_VERTICAL_GAP_CM))
-                        right_row += 1
-                    embed_parameter(
-                        worksheet,
-                        f"{get_column_letter(anchor)}"
-                        f"{row if chart_row is None else chart_row}",
-                        f"{parameter} {panel} {page_label} {scope} "
-                        f"{stage}{stage_suffix(stage)}",
-                        images, parameter, page_data, card, stage, scope,
-                        panel=panel, reference_label=reference_label,
-                        unit="" if mapping is None
-                        else _unit(mapping.reference_column),
-                        sequence=layout,
-                        page_label=page_label,
-                        bias_limit=None if mapping is None or mapping.bias_limit is None
-                        else float(mapping.bias_limit),
-                        show_bias_limit=bool(
-                            mapping is not None and mapping.show_bias_limit),
-                        position_cm=position)
-        return page_count
     if count and native:
         chart_left = _column_left_cm(
             worksheet, chart_column if chart_column is not None else len(headers) + 2)
@@ -1227,7 +1110,15 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
         for panel, names, values, _baseline_column in panels:
             panel_top = top_cm + right_row * (
                 PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
-            chart = LineChart()
+            # A line chart's category axis spaces numeric categories evenly,
+            # regardless of their cell values. Group/Wafer reports need a true
+            # numeric X axis so widened Show Wafer segments also widen the
+            # plotted points and remain aligned with their footer boundaries.
+            numeric_identity = getattr(
+                layout.get("categories"), "numRef", None) is not None
+            chart = ScatterChart() if numeric_identity else LineChart()
+            if numeric_identity:
+                chart.scatterStyle = "lineMarker"
             chart._identity_count = last_row - first_row + 1
             chart.title = (
                 f"{parameter} ({page_label})"
@@ -1238,8 +1129,6 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
             chart.height, chart.width = PANEL_HEIGHT_CM, layout["native_width"]
             chart._identity_captions = layout.get(
                 'captions', layout.get('native_captions'))
-            numeric_identity = getattr(
-                layout.get("categories"), "numRef", None) is not None
             if numeric_identity:
                 chart._numeric_identity_axis = True
                 chart.x_axis.scaling.min, chart.x_axis.scaling.max = (
@@ -1259,15 +1148,31 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
                 ]
                 chart._identity_axis_range = layout["limits"]
             chart.x_axis.title = None
-            chart.x_axis.tickLblSkip = max(1, int(np.ceil(len(raw) / 18)))
-            if layout.get('mode') == 'die' or layout.get('captions'):
+            if isinstance(chart, LineChart):
+                chart.x_axis.tickLblSkip = max(
+                    1, int(np.ceil(len(raw) / 18)))
+            if (not numeric_identity
+                    and (layout.get('mode') == 'die'
+                         or layout.get('captions'))):
                 chart.x_axis.title = 'Die Seq'
-                chart.x_axis.tickLblSkip = max(1, int(np.ceil(len(raw) / 18)))
+                if isinstance(chart, LineChart):
+                    chart.x_axis.tickLblSkip = max(
+                        1, int(np.ceil(len(raw) / 18)))
             if panel != "Trend":
                 chart.legend = None
             for name in names:
-                chart.add_data(Reference(worksheet, min_col=columns[name], min_row=first_row - 1, max_row=last_row), titles_from_data=True)
-                chart.series[-1].cat = layout["categories"]
+                yvalues = Reference(
+                    worksheet, min_col=columns[name],
+                    min_row=first_row - 1, max_row=last_row)
+                if numeric_identity:
+                    xvalues = Reference(
+                        range_string=layout["categories"].numRef.f)
+                    chart.series.append(Series(
+                        yvalues, xvalues, title_from_data=True))
+                    chart.series[-1].xVal = layout["categories"]
+                else:
+                    chart.add_data(yvalues, titles_from_data=True)
+                    chart.series[-1].cat = layout["categories"]
                 if name == 'PMISH+Card':
                     chart.series[-1].tx = SeriesLabel(v='PMISH')
                 if name == reference_label:
@@ -1288,7 +1193,14 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
                     limit_series.val = NumDataSource(numLit=NumData(
                         formatCode="General", ptCount=count,
                         pt=[NumVal(idx=index, v=value) for index in range(count)]))
-                    limit_series.cat = layout["categories"]
+                    if numeric_identity:
+                        numeric_limit = XYSeries()
+                        numeric_limit.tx = limit_series.tx
+                        numeric_limit.yVal = limit_series.val
+                        numeric_limit.xVal = layout["categories"]
+                        limit_series = numeric_limit
+                    else:
+                        limit_series.cat = layout["categories"]
                     limit_series.marker = Marker(symbol=None)
                     limit_series.graphicalProperties.line = LineProperties(
                         solidFill="DC2626", w=19050, prstDash="dash")
@@ -1466,7 +1378,16 @@ def write_parameter_sheets(book, used_titles, result, workbook, *, native=True, 
         sheet = book.create_sheet(sheet_title(f"Match {label}", used_titles, suffix))
         _fill_title(sheet)
         row = 1
-        group_data = {p: _parameter_data(result, p, key, plot_labels) for p in result.parameter_names}
+        # A single-Group report is the canonical Wafer view for that Group.
+        # Its detail always includes every Wafer; the Show wafer setting only
+        # chooses which of these detail segments appear in the combined
+        # Match Group show Wafer report.
+        group_data = {
+            parameter: _parameter_data(
+                result, parameter, key, plot_labels
+            ).assign(**{'Show wafer': True})
+            for parameter in result.parameter_names
+        }
         chart_start = 5
         sheet.freeze_panes = 'A3'
         for index, parameter in enumerate(result.parameter_names):
@@ -1785,8 +1706,8 @@ def style_workbook(book):
             numeric_identity = bool(
                 getattr(chart, "_numeric_identity_axis", False)
                 or any(
-                    series.cat is not None
-                    and series.cat.numRef is not None
+                    (getattr(series, "cat", None) is not None
+                     and series.cat.numRef is not None)
                     for series in chart.series))
             chart.x_axis.delete = numeric_identity
             chart.y_axis.delete = False
@@ -1794,7 +1715,8 @@ def style_workbook(book):
                 "none" if numeric_identity else "low")
             chart.y_axis.tickLblPos = "nextTo"
             if hasattr(chart.x_axis, "noMultiLvlLbl"):
-                separate_captions = bool(getattr(chart, '_identity_captions', None))
+                separate_captions = bool(getattr(
+                    chart, '_identity_captions', None))
                 chart.x_axis.noMultiLvlLbl = separate_captions
                 if any(series.cat is not None and series.cat.multiLvlStrRef is not None for series in chart.series):
                     # Row-based skipping also skips whole outer Wafer/Group
@@ -1810,20 +1732,20 @@ def style_workbook(book):
                                     for point in levels[0].pt:
                                         if point.idx not in selected:
                                             point.v = ''
-                if separate_captions:
-                    from openpyxl.chart.layout import Layout, ManualLayout
-                    from .native_chart_labels import footer_geometry
-                    bottom, _rows = footer_geometry(chart._identity_captions)
-                    left_cm, right_cm = _match_chart_margins(chart.width)
-                    left = left_cm / chart.width
-                    right = right_cm / chart.width
-                    chart._identity_geometry = (left, 1 - left - right)
-                    chart.layout = Layout(manualLayout=ManualLayout(
-                        layoutTarget='inner', xMode='edge', yMode='edge',
-                        x=left, y=.15, w=1 - left - right,
-                        h=bottom - .15))
                 chart.x_axis.tickLblSkip = chart.x_axis.tickLblSkip or max(1, int(np.ceil(count / 18)))
                 chart.x_axis.tickMarkSkip = chart.x_axis.tickLblSkip
+            if getattr(chart, '_identity_captions', None):
+                from openpyxl.chart.layout import Layout, ManualLayout
+                from .native_chart_labels import footer_geometry
+                bottom, _rows = footer_geometry(chart._identity_captions)
+                left_cm, right_cm = _match_chart_margins(chart.width)
+                left = left_cm / chart.width
+                right = right_cm / chart.width
+                chart._identity_geometry = (left, 1 - left - right)
+                chart.layout = Layout(manualLayout=ManualLayout(
+                    layoutTarget='inner', xMode='edge', yMode='edge',
+                    x=left, y=.15, w=1 - left - right,
+                    h=bottom - .15))
             # Use Excel's own chart theme rather than copying Matplotlib's frame.
             chart.y_axis.majorGridlines = ChartLines(spPr=GraphicalProperties(
                 ln=LineProperties(solidFill="D9D9D9", w=9525)))
