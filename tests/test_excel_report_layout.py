@@ -211,10 +211,12 @@ class ExcelReportLayoutTests(unittest.TestCase):
                         if title_text(chart) == "CD"
                         and len(chart.series) == 2]
                     def category_count(chart):
-                        categories = chart.series[0].xVal
-                        reference = getattr(categories, 'numRef', None)
-                        cache = getattr(reference, 'numCache', None)
-                        return len(cache.pt) if cache is not None else 0
+                        categories = chart.series[0].cat.strRef
+                        self.assertEqual(categories.f,
+                                         "'Match Wafer (WO Card)'!$B$3:$B$14")
+                        self.assertEqual([point.v for point in categories.strCache.pt],
+                                         ['1'] * wafer_count)
+                        return len(categories.strCache.pt)
                     self.assertEqual(
                         sum(category_count(chart) for chart in trend),
                         wafer_count)
@@ -496,14 +498,14 @@ class ExcelReportLayoutTests(unittest.TestCase):
                     self.assertGreaterEqual(len(trend_pages), 1)
                     category_count = 0
                     for detail in trend_pages:
-                        categories = detail.series[0].xVal.numRef
-                        self.assertTrue(categories.f.startswith(
-                            "'_Plot data'!"))
+                        categories = detail.series[0].cat.strRef
+                        self.assertEqual(categories.f,
+                                         "'Match Wafer (WO Card)'!$C$3:$C$62")
                         page_values = [
-                            point.v for point in categories.numCache.pt]
+                            point.v for point in categories.strCache.pt]
+                        self.assertEqual(page_values, ['1', '2', '3'] * 20)
                         category_count += len(page_values)
-                        self.assertGreater(
-                            detail.x_axis.scaling.max, max(page_values))
+                        self.assertEqual(detail.y_axis.crossBetween, 'between')
                     self.assertEqual(category_count, 60)
 
     def test_fullmap_matplotlib_trend_keeps_tight_ordinal_limits(self):
@@ -750,7 +752,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
 
     def test_match_group_splits_group_only_and_selective_show_wafer_sheets(self):
         from metrology_app.export_sheets import export_sheet_names
-        from openpyxl.chart import ScatterChart
+        from openpyxl.chart import LineChart, ScatterChart
 
         wafer_ids = ["OLD-WAFER"] * 12 + [
             "NEW-WAFER-LONG-IDENTITY-01"] * 2 + [
@@ -803,14 +805,24 @@ class ExcelReportLayoutTests(unittest.TestCase):
                     self.assertEqual(len(group_panels), 3)
                     self.assertEqual(len(shown_panels), 3)
                     if native:
+                        self.assertIsInstance(group_panels[1], LineChart)
+                        self.assertEqual(group_panels[1].y_axis.crossBetween, 'between')
+                        for series in group_panels[1].series:
+                            categories = series.cat.strRef
+                            self.assertEqual(categories.f,
+                                             f"'Match Group ({suffix})'!$C$3:$C$18")
+                            self.assertEqual([point.v for point in categories.strCache.pt],
+                                             [str(die) for die in raw['Die Seq']])
+                            self.assertTrue(series.val.numRef.f.startswith(
+                                f"'Match Group ({suffix})'!"))
+                        self.assertIsInstance(shown_panels[1], ScatterChart)
+                        for series in shown_panels[1].series:
+                            self.assertTrue(
+                                series.xVal.numRef.f.startswith(
+                                    "'_Plot data'!"))
+                            self.assertIsNotNone(series.yVal.numRef)
                         for chart in (group_panels[1], shown_panels[1]):
-                            self.assertIsInstance(chart, ScatterChart)
                             self.assertFalse(chart.visible_cells_only)
-                            for series in chart.series:
-                                self.assertTrue(
-                                    series.xVal.numRef.f.startswith(
-                                        "'_Plot data'!"))
-                                self.assertIsNotNone(series.yVal.numRef)
                             self.assertIsNone(chart.x_axis.title)
                             self.assertIsNone(
                                 chart.x_axis.tickLblPos)
@@ -1069,10 +1081,11 @@ class ExcelReportLayoutTests(unittest.TestCase):
                 self.assertGreater(widths[-1], 0)
                 self.assertLess(widths[-1], 25, "Small wafer sheets must stay tight")
                 if native:
-                    categories = panels[1].series[0].xVal.numRef
-                    self.assertTrue(categories.f.startswith(
-                        "'_Plot data'!"))
-                    self.assertEqual(len(categories.numCache.pt), 4)
+                    categories = panels[1].series[0].cat.strRef
+                    self.assertEqual(categories.f,
+                                     "'Match Wafer (WO Card)'!$C$3:$C$6")
+                    self.assertEqual([point.v for point in categories.strCache.pt],
+                                     ['01', '02', '01', '02'])
         self.assertAlmostEqual(widths[0], widths[1], places=4)
         after = self.window.workspace_snapshot()
         self.assertEqual(before.states, after.states)

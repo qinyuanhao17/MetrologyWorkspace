@@ -614,6 +614,42 @@ def sequence_export_layout(data, *, mode, captions=()):
     return dict(layout)
 
 
+def _native_die_axis_eligible(data, layout, mode):
+    """Use native categories only when their centres preserve all geometry."""
+    count = len(data)
+    if not count or 'Die Seq' not in data:
+        return False
+    if mode == 'group':
+        shown = data.get('Show wafer', pd.Series([False] * count)).fillna(False).astype(bool).tolist()
+        groups = data.get('Group', pd.Series([''] * count)).astype(str).tolist()
+        expanded = [any(shown[first:last + 1])
+                    for first, last, _key in _label_spans(groups, limit=None)]
+        if any(expanded) and not all(expanded):
+            return False
+    x = np.asarray(layout['x'], dtype=float)
+    limits = np.asarray(layout['limits'], dtype=float)
+    if (x.shape != (count,) or limits.shape != (2,)
+            or not np.isfinite(x).all() or not np.isfinite(limits).all()
+            or limits[1] <= limits[0]):
+        return False
+    span = limits[1] - limits[0]
+    if not np.allclose((x - limits[0]) / span,
+                       (np.arange(count) + .5) / count, rtol=0, atol=1e-12):
+        return False
+    # Boundary/caption equivalence is independent of point equivalence when
+    # spans contain a single observation or labels impose a minimum width.
+    if not np.allclose((np.asarray(layout['display']) - limits[0]) / span,
+                       np.asarray(layout['source']) / count, rtol=0, atol=1e-12):
+        return False
+    captions, originals = layout.get('captions', ()), layout.get('native_captions', ())
+    if len(captions) != len(originals):
+        return False
+    return all(np.allclose([caption[field] for field in ('start', 'end', 'center')],
+                           [original[field] for field in ('start', 'end', 'center')],
+                           rtol=0, atol=1e-12)
+               for caption, original in zip(captions, originals))
+
+
 def _native_identity_categories(helper, helper_row, layout, *, start=0):
     """Cell-bound numeric x values shared by data, captions and dividers."""
     values = np.asarray(layout["x"], dtype=float)
@@ -976,9 +1012,11 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
         (columns["Wafer"], data["Wafer"].tolist()), (columns["Die Seq"], data["Die Seq"].tolist())]
     for layout in layouts:
         if axis_mode in ('group', 'wafer') and count:
-            categories = _native_identity_categories(
-                helper, helper_row, layout)
-            if native:
+            layout['native_die_axis'] = native and _native_die_axis_eligible(data, layout, axis_mode)
+            # Keep source/helper cells identical across native and Matplotlib
+            # reports, even if the native chart no longer needs numeric X.
+            categories = _native_identity_categories(helper, helper_row, layout)
+            if native and not layout['native_die_axis']:
                 layout['categories'] = categories
     if native:
         for index, layout in enumerate(layouts):
@@ -988,7 +1026,7 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
             if axis_mode == 'group' and category_columns:
                 categories = category_columns + [
                     (columns['Die Seq'], data['Die Seq'].tolist())]
-            if axis_mode == 'die':
+            if axis_mode == 'die' or layout.get('native_die_axis'):
                 layout['categories'] = AxDataSource(strRef=StrRef(
                     f=str(Reference(
                         worksheet, min_col=columns['Die Seq'],
@@ -1110,15 +1148,16 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
         for panel, names, values, _baseline_column in panels:
             panel_top = top_cm + right_row * (
                 PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
-            # A line chart's category axis spaces numeric categories evenly,
-            # regardless of their cell values. Group/Wafer reports need a true
-            # numeric X axis so widened Show Wafer segments also widen the
-            # plotted points and remain aligned with their footer boundaries.
+            # Categories expose the local Die Seq range when positions and
+            # boundaries are affine. Other layouts retain the numeric X scale.
             numeric_identity = getattr(
                 layout.get("categories"), "numRef", None) is not None
+            identity_overlay = layout.get('mode') in ('group', 'wafer')
             chart = ScatterChart() if numeric_identity else LineChart()
             if numeric_identity:
                 chart.scatterStyle = "lineMarker"
+            elif layout.get('native_die_axis'):
+                chart.y_axis.crossBetween = 'between'
             chart._identity_count = last_row - first_row + 1
             chart.title = (
                 f"{parameter} ({page_label})"
@@ -1133,6 +1172,10 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
                 chart._numeric_identity_axis = True
                 chart.x_axis.scaling.min, chart.x_axis.scaling.max = (
                     layout["limits"])
+            if identity_overlay:
+                # Preserve existing sparse ticks/title and footer pixel layout
+                # even when the editable native X source becomes categorical.
+                chart._identity_axis_overlay = True
                 tick_indices = layout.get(
                     "tick_indices", range(len(layout.get("ticks", ()))))
                 die_column = get_column_letter(columns['Die Seq'])
@@ -1151,7 +1194,7 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
             if isinstance(chart, LineChart):
                 chart.x_axis.tickLblSkip = max(
                     1, int(np.ceil(len(raw) / 18)))
-            if (not numeric_identity
+            if (not identity_overlay and not numeric_identity
                     and (layout.get('mode') == 'die'
                          or layout.get('captions'))):
                 chart.x_axis.title = 'Die Seq'
@@ -1709,10 +1752,11 @@ def style_workbook(book):
                     (getattr(series, "cat", None) is not None
                      and series.cat.numRef is not None)
                     for series in chart.series))
-            chart.x_axis.delete = numeric_identity
+            identity_overlay = numeric_identity or bool(getattr(chart, '_identity_axis_overlay', False))
+            chart.x_axis.delete = identity_overlay
             chart.y_axis.delete = False
             chart.x_axis.tickLblPos = (
-                "none" if numeric_identity else "low")
+                "none" if identity_overlay else "low")
             chart.y_axis.tickLblPos = "nextTo"
             if hasattr(chart.x_axis, "noMultiLvlLbl"):
                 separate_captions = bool(getattr(
@@ -1767,7 +1811,7 @@ def style_workbook(book):
                     label.numFmt = NumFmt(formatCode='General', sourceLinked=False)
             for axis in (chart.x_axis, chart.y_axis):
                 axis.majorTickMark = (
-                    "none" if numeric_identity and axis is chart.x_axis
+                    "none" if identity_overlay and axis is chart.x_axis
                     else "out")
                 axis.minorTickMark = "none"
                 if axis.crosses != "max":
@@ -1776,7 +1820,7 @@ def style_workbook(book):
                     ln=LineProperties(solidFill="595959", w=15240, prstDash="solid"))
                 axis.txPr = (
                     hidden_chart_text()
-                    if numeric_identity and axis is chart.x_axis
+                    if identity_overlay and axis is chart.x_axis
                     else chart_text())
                 axis.txPr.bodyPr.rot = 0
                 axis.txPr.bodyPr.horzOverflow = "overflow"

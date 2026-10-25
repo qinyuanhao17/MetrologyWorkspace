@@ -68,10 +68,22 @@ Feature: Export analysis with editable Excel charts or Matplotlib pictures
     And Show Wafer Groups expand to fit every Wafer label and complete separator line
     And every individual Group Match shows all of its Wafers regardless of Show wafer
     And Show wafer only chooses which individual Group detail appears in the combined view
-    And Native Group and Wafer trends use the caption numeric x scale
+    And the selectively expanded combined Native report retains the caption numeric x scale
+    And uniformly spaced Group-only and Wafer reports use their parameter block's Die Seq categories
     And their X and Y values remain bound to cells for draggable Excel ranges
     And automatic internal numeric x tick text remains hidden
     And sparse cell-linked Die Seq ticks remain below the plot
+
+  # Executable examples: tests.test_export_native_die_categories
+  Scenario: Select native Die Seq ranges without changing exported geometry
+    Given a Group-only, Wafer, individual Group or all-Show-Wafer combined report
+    And its existing point and footer geometry is uniformly spaced
+    When native Excel charts are exported
+    Then Trend, Bias and Bias percent categories reference each parameter's own Die Seq column
+    And leading zeros, repeated Die values, row order and editable Y sources are preserved
+    And the Die Seq source outline can be dragged in Excel
+    And the existing point positions, sparse tick drawings, captions, boundaries and dimensions remain unchanged
+    But mixed Show Wafer or nonuniform label and missing-pair layouts keep the existing numeric XY scale
 
   Scenario: Read a separate Wafer report without changing Original
     Given original rows alternate between W2 and W1 across different Groups

@@ -212,8 +212,11 @@ class ExcelExportTests(unittest.TestCase):
             self.assertEqual(trend['A3'].value, 'Head A')
             self.assertEqual(trend['A5'].value, 'Head B')
             for series in trend._charts[1].series:
+                categories = series.cat.strRef
+                self.assertEqual(categories.f, "'Match Group (WO Card)'!$C$3:$C$5")
+                self.assertEqual([point.v for point in categories.strCache.pt], ['1', '2', '3'])
                 self.assertTrue(
-                    series.yVal.numRef.f.startswith(
+                    series.val.numRef.f.startswith(
                         "'Match Group (WO Card)'!"))
             rsq = book["RSQ (WO Card)"]
             self.assertEqual(rsq["D1"].value, "CD R²")

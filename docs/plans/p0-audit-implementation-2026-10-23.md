@@ -1,5 +1,14 @@
 # v4.2.0 P0 优化实施与验证记录
 
+## 本地进度复核与独立导出续作（2026-10-26）
+
+当前入口已为 v4.3.1 `991431d`，不是旧交接的 `017c10d`。
+[本地进度复核](p0-status-reconciliation-2026-10-26.md)确认第 1 项初始化诊断已由
+`b3fe61b` 完成，不重复改生产代码；该复核另存文档 checkpoint `e0ad1da`。
+本机缺少当时原始 cache/profile 和 NOVA 副本，历史耗时与通过数不冒充本次重测。
+本轮不继续性能热点 2-5，也不做 P1/P2 重构。用户追加的 Excel 原生 Die Seq 源
+范围需求作为独立局部工作，见[导出续作](native-die-categories-2026-10-26.md)。
+
 ## 剩余专项续作：Workbook Undo（2026-10-25）
 
 用户已明确排除主窗口 Tools 中尚未完成的 AutoWeighting Writer，后续不处理它。

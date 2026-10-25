@@ -1,0 +1,84 @@
+{
+  "date": "2026-10-26",
+  "scope": "Native Excel Die Seq category sources with existing report geometry",
+  "entry_revision": "991431daf1a3a26935ff7c3dbda122113ad944a9",
+  "initialization_diagnosis_checkpoint": "b3fe61b0031e3f69c5da71e72bbf1809c8eb6b2d",
+  "status_reconciliation_checkpoint": "e0ad1da",
+  "initialization_production_changes_this_round": false,
+  "other_performance_hotspots_modified": false,
+  "push_performed": false,
+  "runtime": {
+    "python": "3.10.20",
+    "qt": "6.11.0",
+    "python_executable": "F:/Anaconda3/envs/octs/python.exe",
+    "required_missing_dependencies": "Installed only into conversation-owned QA/dependencies, not global Conda",
+    "test_entry": "python -X utf8 run_tests.py",
+    "settings_isolation": "run_tests.py forcibly sets scratch settings/recovery/reminders/Matplotlib paths before application imports"
+  },
+  "category_contract": {
+    "source": "Each parameter block's own Die Seq cells, with a string cache",
+    "covers": ["Match Group", "Match Wafer", "Individual Match Group", "Preview", "Final", "Trend", "Bias", "Bias percent"],
+    "mixed_show_wafer": "Retain existing numeric XY geometry",
+    "uniform_show_wafer": "Native categories only if point centres, boundaries and captions preserve the existing affine category geometry",
+    "nonuniform_labels_or_missing_pair_density": "Retain existing numeric XY geometry even if all Show Wafer boxes are selected",
+    "normalized_absolute_tolerance": 1e-12,
+    "relative_tolerance": 0,
+    "outer_padding": "crossBetween=between",
+    "drawing_equivalence": "Existing identity DrawingML bytes unchanged versus forced previous XY export, with only test UUIDs fixed",
+    "editable_source": "Native Excel SERIES binds the visible local Die Seq range and Y values",
+    "fixed_footer_limit": "Rebinding a native series does not redesign fixed identity footer drawings",
+    "matplotlib_rendering_changed": false,
+    "numerical_rules_changed": false
+  },
+  "native_excel_qa": {
+    "files": "Only synthetic conversation-owned files in a separate Excel /x instance",
+    "before_and_after_undo": "=SERIES('Match Group (WO Card)'!$F$2,'Match Group (WO Card)'!$C$3:$C$14,'Match Group (WO Card)'!$F$3:$F$14,2)",
+    "after_actual_outline_drag": "=SERIES('Match Group (WO Card)'!$F$2,'Match Group (WO Card)'!$D$2:$D$13,'Match Group (WO Card)'!$F$3:$F$14,2)",
+    "undo_restored_original_range": true,
+    "all_expanded_visual_alignment_checked": true,
+    "own_instance_closed": true,
+    "existing_user_excel_controlled": false
+  },
+  "tests": {
+    "related": {
+      "modules": ["tests.test_export_native_die_categories", "tests.test_excel_export", "tests.test_excel_report_layout", "tests.test_v4_release_exports", "tests.test_export_wkb_axes"],
+      "total": 79,
+      "passed": 79,
+      "seconds": 175.025,
+      "log_sha256": "33edec3f9bf159a36eddba4c64921f80c2df4c8333bc081e89035be496f6ccd4"
+    },
+    "xml_safety_cancellation_native_subset": {
+      "total": 10,
+      "passed": 10,
+      "seconds": 32.315,
+      "overlaps_related_suite": true,
+      "log_sha256": "4847ee5caa1206dadba92d90407881fbd7a47a31935496466f12989c27801124"
+    },
+    "full": {
+      "total": 1095,
+      "passed": 1091,
+      "failures": 4,
+      "errors": 0,
+      "seconds": 1062.839,
+      "exit_code": 1,
+      "all_green": false,
+      "log_sha256": "96ae44dc879e41825dc446083fca21af736a78293c34e3bade0b424005cb60b0",
+      "failure_details": [
+        {"test": "test_analysis_close_performance.AnalysisCloseTests.test_closing_changed_analysis_state_is_responsive_and_keeps_source", "assertion": "wafer_map close elapsed < 0.25 seconds", "seconds": 0.2637489999997342},
+        {"test": "test_performance_regressions.WorkbookPerformanceTests.test_saved_wide_workbook_dirty_checks_preserve_the_accepted_state_promptly", "assertion": "minimum elapsed < 0.1 seconds", "sample_seconds": [0.11473600000135775, 0.12308970000049158, 0.12051640000026964]},
+        {"test": "test_performance_regressions.WorkbookPerformanceTests.test_wafer_window_opens_with_current_cards_and_uses_new_coefficients_after_edit", "assertion": "open elapsed < 0.4 seconds", "seconds": 0.4056999000003998},
+        {"test": "test_writer_cell_serialization.WriterCellSerializationTests.test_plain_cells_avoid_generic_recursive_serialization_cost", "assertion": "encoding elapsed < 0.3 seconds", "seconds": 0.3320874000000913}
+      ],
+      "limits": "Timing assertion tracebacks only; later assertions in those four cases are not established. No entry-revision timing comparison was run and no thresholds were changed."
+    },
+    "source_manifest": {"python_files": 154, "changed_during_full_run": 0}
+  },
+  "data_safety": {
+    "settings_before_and_after_sha256": "cb419604ac0620206baa212ac3c527dee022d8d98c1ff1e23dd7db580683014f",
+    "original_wkb_or_user_excel_opened_for_changes": false,
+    "source_measurement_strings_and_row_order_preserved": true,
+    "user_owned_git_changes_excluded": ["AGENTS.md", ".vscode/settings.json", "docs/todos/"]
+  },
+  "evidence_directory": "C:/Users/qinyu/.codex/visualizations/2026/10/18/01a14f7d-3088-7760-953c-a1aa86946096/p0-die-axis-20261026",
+  "historical_performance_limit": "Historical raw cache/profile and NOVA input are absent; original diagnosis and hashes were checked from tracked reports, not claimed as newly reproduced performance."
+}

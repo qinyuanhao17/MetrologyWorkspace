@@ -58,8 +58,15 @@ class ReleaseExportTests(unittest.TestCase):
             self.assertIsNone(original_cat.multiLvlStrRef)
             self.assertIsNotNone(original_cat.strRef)
             group_axis = group._charts[1]
-            self.assertIsNotNone(group_axis.series[0].xVal.numRef)
-            self.assertIsNotNone(group_axis.series[0].yVal.numRef)
+            for sheet in (group, wafer):
+                for chart in sheet._charts[1:]:
+                    self.assertEqual(chart.y_axis.crossBetween, 'between')
+                    for series in chart.series:
+                        categories = series.cat.strRef
+                        self.assertEqual(categories.f, f"'{sheet.title}'!$C$3:$C$8")
+                        self.assertEqual([point.v for point in categories.strCache.pt],
+                                         ['10', '17', '23'] * 2)
+                        self.assertTrue(series.val.numRef.f.startswith(f"'{sheet.title}'!"))
             # openpyxl round-trips the valid OOXML "none" as None.
             self.assertIsNone(group_axis.x_axis.tickLblPos)
             self.assertEqual(
