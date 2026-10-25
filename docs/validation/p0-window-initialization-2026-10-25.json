@@ -1,0 +1,1004 @@
+{
+  "date": "2026-10-25",
+  "base_commit": "017c10d48e93bf3d4e94a4ed12c8c485087f584b",
+  "scope": "Issue 1 only: large existing tables and new-window initialization",
+  "conclusion": "Bare top-level table roots amplify Qt 6.11 Windows UIA windowForAccessible fallback; not reproduced as a tens-of-seconds pause in real embedded workbook windows.",
+  "production_code_changed": false,
+  "protocol_or_ownership_changed": false,
+  "changes": [
+    "benchmarks/benchmark_sheet_workflows.py",
+    "benchmarks/benchmark_window_initialization.py"
+  ],
+  "full_regression": {
+    "passed": 1086,
+    "seconds": 739.729,
+    "log": ".cache\\p0-audit\\init-special\\full.log",
+    "sha256": "e02dc8b803d14673d7673a00b55895ee0a902f5932753b6ce150a2ebe618e2a9"
+  },
+  "native_workflow_regression": {
+    "rows": 10000,
+    "columns": 33,
+    "count": 2,
+    "action_samples": 52,
+    "exact_text_and_one_step_undo": true,
+    "artifact": ".cache\\p0-audit\\init-special\\workflows-host-regression.json"
+  },
+  "cases": {
+    "bare_10k": {
+      "count": 3,
+      "process_count": 3,
+      "profile": false,
+      "rows": 10000,
+      "columns": 30,
+      "holders": 1,
+      "kind": "sheets",
+      "shell": false,
+      "uia_clients_listening": [
+        true,
+        true,
+        true
+      ],
+      "system_memory": [
+        {
+          "load": 52,
+          "total": 34191085568,
+          "available": 16307515392
+        },
+        {
+          "load": 52,
+          "total": 34191085568,
+          "available": 16296013824
+        },
+        {
+          "load": 52,
+          "total": 34191085568,
+          "available": 16338456576
+        }
+      ],
+      "metrics": {
+        "construct_ms": {
+          "p50": 2089.923599967733,
+          "p95": 2104.988200007938,
+          "max": 2104.988200007938
+        },
+        "construct_and_paint_ms": {
+          "p50": 2179.729599971324,
+          "p95": 2195.0932999607176,
+          "max": 2195.0932999607176
+        },
+        "max_gap_ms": {
+          "p50": 2089.9279000004753,
+          "p95": 2104.9948999425396,
+          "max": 2104.9948999425396
+        },
+        "gc_ms": {
+          "p50": 0.256099971011281,
+          "p95": 0.2579001011326909,
+          "max": 0.2579001011326909
+        },
+        "cpu_ms": {
+          "p50": 2156.25,
+          "p95": 2171.875,
+          "max": 2171.875
+        },
+        "rss": {
+          "p50": 491556864,
+          "p95": 491634688,
+          "max": 491634688
+        },
+        "private": {
+          "p50": 1068634112,
+          "p95": 1068748800,
+          "max": 1068748800
+        },
+        "peak": {
+          "p50": 491556864,
+          "p95": 491634688,
+          "max": 491634688
+        }
+      },
+      "samples": [
+        {
+          "construct_ms": 2104.988200007938,
+          "construct_and_paint_ms": 2195.0932999607176,
+          "max_gap_ms": 2104.9948999425396,
+          "gc_ms": 0.2579001011326909,
+          "cpu_ms": 2156.25,
+          "rss": 491442176,
+          "private": 1068748800,
+          "peak": 491442176
+        },
+        {
+          "construct_ms": 2089.923599967733,
+          "construct_and_paint_ms": 2179.729599971324,
+          "max_gap_ms": 2089.9279000004753,
+          "gc_ms": 0.256099971011281,
+          "cpu_ms": 2171.875,
+          "rss": 491556864,
+          "private": 1068621824,
+          "peak": 491556864
+        },
+        {
+          "construct_ms": 2064.550200011581,
+          "construct_and_paint_ms": 2151.0179999750108,
+          "max_gap_ms": 2064.554400043562,
+          "gc_ms": 0.24590000975877047,
+          "cpu_ms": 2140.625,
+          "rss": 491634688,
+          "private": 1068634112,
+          "peak": 491634688
+        }
+      ]
+    },
+    "wrapped_10k": {
+      "count": 3,
+      "process_count": 3,
+      "profile": false,
+      "rows": 10000,
+      "columns": 30,
+      "holders": 1,
+      "kind": "sheets",
+      "shell": false,
+      "uia_clients_listening": [
+        true,
+        true,
+        true
+      ],
+      "system_memory": [
+        {
+          "load": 52,
+          "total": 34191085568,
+          "available": 16369446912
+        },
+        {
+          "load": 52,
+          "total": 34191085568,
+          "available": 16356536320
+        },
+        {
+          "load": 52,
+          "total": 34191085568,
+          "available": 16343932928
+        }
+      ],
+      "metrics": {
+        "construct_ms": {
+          "p50": 44.69579993747175,
+          "p95": 47.895199968479574,
+          "max": 47.895199968479574
+        },
+        "construct_and_paint_ms": {
+          "p50": 129.8255999572575,
+          "p95": 144.37720004934818,
+          "max": 144.37720004934818
+        },
+        "max_gap_ms": {
+          "p50": 44.70420000143349,
+          "p95": 47.8986999951303,
+          "max": 47.8986999951303
+        },
+        "gc_ms": {
+          "p50": 0.228899996727705,
+          "p95": 0.2410999732092023,
+          "max": 0.2410999732092023
+        },
+        "cpu_ms": {
+          "p50": 125.0,
+          "p95": 125.0,
+          "max": 125.0
+        },
+        "rss": {
+          "p50": 351571968,
+          "p95": 351772672,
+          "max": 351772672
+        },
+        "private": {
+          "p50": 922071040,
+          "p95": 922484736,
+          "max": 922484736
+        },
+        "peak": {
+          "p50": 351571968,
+          "p95": 351772672,
+          "max": 351772672
+        }
+      },
+      "samples": [
+        {
+          "construct_ms": 44.69579993747175,
+          "construct_and_paint_ms": 129.8255999572575,
+          "max_gap_ms": 44.70420000143349,
+          "gc_ms": 0.2410999732092023,
+          "cpu_ms": 125.0,
+          "rss": 351186944,
+          "private": 922071040,
+          "peak": 351186944
+        },
+        {
+          "construct_ms": 47.895199968479574,
+          "construct_and_paint_ms": 144.37720004934818,
+          "max_gap_ms": 47.8986999951303,
+          "gc_ms": 0.228899996727705,
+          "cpu_ms": 109.375,
+          "rss": 351772672,
+          "private": 922484736,
+          "peak": 351772672
+        },
+        {
+          "construct_ms": 44.66440004762262,
+          "construct_and_paint_ms": 129.6930001117289,
+          "max_gap_ms": 44.66859996318817,
+          "gc_ms": 0.21690013818442822,
+          "cpu_ms": 125.0,
+          "rss": 351571968,
+          "private": 921997312,
+          "peak": 351571968
+        }
+      ]
+    },
+    "bare_100k": {
+      "count": 3,
+      "process_count": 3,
+      "profile": false,
+      "rows": 100000,
+      "columns": 33,
+      "holders": 1,
+      "kind": "sheets",
+      "shell": false,
+      "uia_clients_listening": [
+        true,
+        true,
+        true
+      ],
+      "system_memory": [
+        {
+          "load": 52,
+          "total": 34191085568,
+          "available": 16400986112
+        },
+        {
+          "load": 52,
+          "total": 34191085568,
+          "available": 16390152192
+        },
+        {
+          "load": 51,
+          "total": 34191085568,
+          "available": 16555315200
+        }
+      ],
+      "metrics": {
+        "construct_ms": {
+          "p50": 38180.98409997765,
+          "p95": 38221.41940006986,
+          "max": 38221.41940006986
+        },
+        "construct_and_paint_ms": {
+          "p50": 38279.32819991838,
+          "p95": 38328.03380000405,
+          "max": 38328.03380000405
+        },
+        "max_gap_ms": {
+          "p50": 38180.989300017245,
+          "p95": 38221.423999988474,
+          "max": 38221.423999988474
+        },
+        "gc_ms": {
+          "p50": 0.24889991618692875,
+          "p95": 0.2565000904724002,
+          "max": 0.2565000904724002
+        },
+        "cpu_ms": {
+          "p50": 37750.0,
+          "p95": 37843.75,
+          "max": 37843.75
+        },
+        "rss": {
+          "p50": 2333532160,
+          "p95": 2342006784,
+          "max": 2342006784
+        },
+        "private": {
+          "p50": 2972721152,
+          "p95": 2980937728,
+          "max": 2980937728
+        },
+        "peak": {
+          "p50": 2333532160,
+          "p95": 2342006784,
+          "max": 2342006784
+        }
+      },
+      "samples": [
+        {
+          "construct_ms": 38221.41940006986,
+          "construct_and_paint_ms": 38328.03380000405,
+          "max_gap_ms": 38221.423999988474,
+          "gc_ms": 0.2565000904724002,
+          "cpu_ms": 37843.75,
+          "rss": 2342006784,
+          "private": 2980937728,
+          "peak": 2342006784
+        },
+        {
+          "construct_ms": 38180.98409997765,
+          "construct_and_paint_ms": 38279.32819991838,
+          "max_gap_ms": 38180.989300017245,
+          "gc_ms": 0.23669982329010963,
+          "cpu_ms": 37750.0,
+          "rss": 2333532160,
+          "private": 2972721152,
+          "peak": 2333532160
+        },
+        {
+          "construct_ms": 38031.17479989305,
+          "construct_and_paint_ms": 38124.671199941076,
+          "max_gap_ms": 38031.17879992351,
+          "gc_ms": 0.24889991618692875,
+          "cpu_ms": 37750.0,
+          "rss": 2333376512,
+          "private": 2972205056,
+          "peak": 2333376512
+        }
+      ]
+    },
+    "wrapped_100k": {
+      "count": 3,
+      "process_count": 3,
+      "profile": false,
+      "rows": 100000,
+      "columns": 33,
+      "holders": 1,
+      "kind": "sheets",
+      "shell": false,
+      "uia_clients_listening": [
+        true,
+        true,
+        true
+      ],
+      "system_memory": [
+        {
+          "load": 51,
+          "total": 34191085568,
+          "available": 16550117376
+        },
+        {
+          "load": 51,
+          "total": 34191085568,
+          "available": 16562548736
+        },
+        {
+          "load": 51,
+          "total": 34191085568,
+          "available": 16561061888
+        }
+      ],
+      "metrics": {
+        "construct_ms": {
+          "p50": 45.568999950774014,
+          "p95": 45.94129999168217,
+          "max": 45.94129999168217
+        },
+        "construct_and_paint_ms": {
+          "p50": 132.41129997186363,
+          "p95": 139.0555000398308,
+          "max": 139.0555000398308
+        },
+        "max_gap_ms": {
+          "p50": 45.57309998199344,
+          "p95": 45.945300022140145,
+          "max": 45.945300022140145
+        },
+        "gc_ms": {
+          "p50": 0.2202000468969345,
+          "p95": 0.22229994647204876,
+          "max": 0.22229994647204876
+        },
+        "cpu_ms": {
+          "p50": 125.0,
+          "p95": 140.625,
+          "max": 140.625
+        },
+        "rss": {
+          "p50": 816656384,
+          "p95": 817258496,
+          "max": 817258496
+        },
+        "private": {
+          "p50": 1387540480,
+          "p95": 1388404736,
+          "max": 1388404736
+        },
+        "peak": {
+          "p50": 816656384,
+          "p95": 817258496,
+          "max": 817258496
+        }
+      },
+      "samples": [
+        {
+          "construct_ms": 44.46010000538081,
+          "construct_and_paint_ms": 132.2772999992594,
+          "max_gap_ms": 44.46460003964603,
+          "gc_ms": 0.21630001720041037,
+          "cpu_ms": 125.0,
+          "rss": 816115712,
+          "private": 1387540480,
+          "peak": 816115712
+        },
+        {
+          "construct_ms": 45.94129999168217,
+          "construct_and_paint_ms": 139.0555000398308,
+          "max_gap_ms": 45.945300022140145,
+          "gc_ms": 0.22229994647204876,
+          "cpu_ms": 140.625,
+          "rss": 817258496,
+          "private": 1388404736,
+          "peak": 817258496
+        },
+        {
+          "construct_ms": 45.568999950774014,
+          "construct_and_paint_ms": 132.41129997186363,
+          "max_gap_ms": 45.57309998199344,
+          "gc_ms": 0.2202000468969345,
+          "cpu_ms": 125.0,
+          "rss": 816656384,
+          "private": 1387524096,
+          "peak": 816656384
+        }
+      ]
+    },
+    "real-sorted-10k": {
+      "count": 3,
+      "process_count": 1,
+      "profile": false,
+      "rows": 10000,
+      "columns": 30,
+      "holders": 3,
+      "kind": "sorted_workbooks",
+      "shell": true,
+      "uia_clients_listening": [
+        true
+      ],
+      "system_memory": [
+        {
+          "load": 51,
+          "total": 34191085568,
+          "available": 16563781632
+        }
+      ],
+      "metrics": {
+        "construct_ms": {
+          "p50": 88.08699995279312,
+          "p95": 89.26749997772276,
+          "max": 89.26749997772276
+        },
+        "construct_and_paint_ms": {
+          "p50": 161.71760007273406,
+          "p95": 165.24979996029288,
+          "max": 165.24979996029288
+        },
+        "max_gap_ms": {
+          "p50": 88.09440000914037,
+          "p95": 89.27509991917759,
+          "max": 89.27509991917759
+        },
+        "gc_ms": {
+          "p50": 0.16620010137557983,
+          "p95": 0.28039992321282625,
+          "max": 0.28039992321282625
+        },
+        "cpu_ms": {
+          "p50": 156.25,
+          "p95": 156.25,
+          "max": 156.25
+        },
+        "rss": {
+          "p50": 510169088,
+          "p95": 510476288,
+          "max": 510476288
+        },
+        "private": {
+          "p50": 1080045568,
+          "p95": 1080320000,
+          "max": 1080320000
+        },
+        "peak": {
+          "p50": 510169088,
+          "p95": 510476288,
+          "max": 510476288
+        }
+      },
+      "samples": [
+        {
+          "construct_ms": 88.08699995279312,
+          "construct_and_paint_ms": 137.49689992982894,
+          "max_gap_ms": 88.09440000914037,
+          "gc_ms": 0.28039992321282625,
+          "cpu_ms": 125.0,
+          "rss": 508690432,
+          "private": 1078673408,
+          "peak": 508690432
+        },
+        {
+          "construct_ms": 89.26749997772276,
+          "construct_and_paint_ms": 165.24979996029288,
+          "max_gap_ms": 89.27509991917759,
+          "gc_ms": 0.08759996853768826,
+          "cpu_ms": 156.25,
+          "rss": 510169088,
+          "private": 1080045568,
+          "peak": 510169088
+        },
+        {
+          "construct_ms": 85.1937000406906,
+          "construct_and_paint_ms": 161.71760007273406,
+          "max_gap_ms": 85.20189998671412,
+          "gc_ms": 0.16620010137557983,
+          "cpu_ms": 156.25,
+          "rss": 510476288,
+          "private": 1080320000,
+          "peak": 510476288
+        }
+      ]
+    },
+    "real-sorted-100k": {
+      "count": 3,
+      "process_count": 1,
+      "profile": false,
+      "rows": 100000,
+      "columns": 33,
+      "holders": 3,
+      "kind": "sorted_workbooks",
+      "shell": true,
+      "uia_clients_listening": [
+        true
+      ],
+      "system_memory": [
+        {
+          "load": 51,
+          "total": 34191085568,
+          "available": 16552669184
+        }
+      ],
+      "metrics": {
+        "construct_ms": {
+          "p50": 85.58740001171827,
+          "p95": 89.70240002963692,
+          "max": 89.70240002963692
+        },
+        "construct_and_paint_ms": {
+          "p50": 163.08899992145598,
+          "p95": 167.0905000064522,
+          "max": 167.0905000064522
+        },
+        "max_gap_ms": {
+          "p50": 85.5945999501273,
+          "p95": 89.70990008674562,
+          "max": 89.70990008674562
+        },
+        "gc_ms": {
+          "p50": 0.12939993757754564,
+          "p95": 2.1410000044852495,
+          "max": 2.1410000044852495
+        },
+        "cpu_ms": {
+          "p50": 171.875,
+          "p95": 203.125,
+          "max": 203.125
+        },
+        "rss": {
+          "p50": 2244521984,
+          "p95": 2244829184,
+          "max": 2244829184
+        },
+        "private": {
+          "p50": 2818428928,
+          "p95": 2818707456,
+          "max": 2818707456
+        },
+        "peak": {
+          "p50": 2275016704,
+          "p95": 2275016704,
+          "max": 2275016704
+        }
+      },
+      "samples": [
+        {
+          "construct_ms": 89.70240002963692,
+          "construct_and_paint_ms": 147.8983999695629,
+          "max_gap_ms": 89.70990008674562,
+          "gc_ms": 2.1410000044852495,
+          "cpu_ms": 156.25,
+          "rss": 2243432448,
+          "private": 2817605632,
+          "peak": 2275016704
+        },
+        {
+          "construct_ms": 85.15960001386702,
+          "construct_and_paint_ms": 163.08899992145598,
+          "max_gap_ms": 85.16849996522069,
+          "gc_ms": 0.08589995559304953,
+          "cpu_ms": 171.875,
+          "rss": 2244521984,
+          "private": 2818428928,
+          "peak": 2275016704
+        },
+        {
+          "construct_ms": 85.58740001171827,
+          "construct_and_paint_ms": 167.0905000064522,
+          "max_gap_ms": 85.5945999501273,
+          "gc_ms": 0.12939993757754564,
+          "cpu_ms": 203.125,
+          "rss": 2244829184,
+          "private": 2818707456,
+          "peak": 2275016704
+        }
+      ]
+    },
+    "real-saved-nova": {
+      "count": 3,
+      "process_count": 1,
+      "profile": false,
+      "rows": 7731,
+      "columns": 33,
+      "holders": 3,
+      "kind": "saved_workbooks",
+      "shell": true,
+      "uia_clients_listening": [
+        true
+      ],
+      "system_memory": [
+        {
+          "load": 51,
+          "total": 34191085568,
+          "available": 16521363456
+        }
+      ],
+      "metrics": {
+        "construct_ms": {
+          "p50": 360.6232999591157,
+          "p95": 361.27490003127605,
+          "max": 361.27490003127605
+        },
+        "construct_and_paint_ms": {
+          "p50": 538.966599968262,
+          "p95": 576.1950999731198,
+          "max": 576.1950999731198
+        },
+        "max_gap_ms": {
+          "p50": 360.6332999188453,
+          "p95": 361.28509999252856,
+          "max": 361.28509999252856
+        },
+        "gc_ms": {
+          "p50": 40.19549977965653,
+          "p95": 42.37650032155216,
+          "max": 42.37650032155216
+        },
+        "cpu_ms": {
+          "p50": 578.125,
+          "p95": 578.125,
+          "max": 578.125
+        },
+        "rss": {
+          "p50": 1091768320,
+          "p95": 1092268032,
+          "max": 1092268032
+        },
+        "private": {
+          "p50": 1662455808,
+          "p95": 1663766528,
+          "max": 1663766528
+        },
+        "peak": {
+          "p50": 1094627328,
+          "p95": 1097617408,
+          "max": 1097617408
+        }
+      },
+      "samples": [
+        {
+          "construct_ms": 361.27490003127605,
+          "construct_and_paint_ms": 576.1950999731198,
+          "max_gap_ms": 361.28509999252856,
+          "gc_ms": 40.19549977965653,
+          "cpu_ms": 578.125,
+          "rss": 1088651264,
+          "private": 1659498496,
+          "peak": 1091133440
+        },
+        {
+          "construct_ms": 324.80539998505265,
+          "construct_and_paint_ms": 501.133699901402,
+          "max_gap_ms": 324.81149991508573,
+          "gc_ms": 5.008200416341424,
+          "cpu_ms": 468.75,
+          "rss": 1091768320,
+          "private": 1662455808,
+          "peak": 1094627328
+        },
+        {
+          "construct_ms": 360.6232999591157,
+          "construct_and_paint_ms": 538.966599968262,
+          "max_gap_ms": 360.6332999188453,
+          "gc_ms": 42.37650032155216,
+          "cpu_ms": 578.125,
+          "rss": 1092268032,
+          "private": 1663766528,
+          "peak": 1097617408
+        }
+      ]
+    },
+    "memory-control": {
+      "count": 3,
+      "process_count": 1,
+      "profile": false,
+      "rows": 100000,
+      "columns": 33,
+      "holders": 1,
+      "kind": "sheets",
+      "shell": false,
+      "uia_clients_listening": [
+        true
+      ],
+      "system_memory": [
+        {
+          "load": 51,
+          "total": 34191085568,
+          "available": 16535048192
+        }
+      ],
+      "metrics": {
+        "construct_ms": {
+          "p50": 32.44699991773814,
+          "p95": 49.54490007366985,
+          "max": 49.54490007366985
+        },
+        "construct_and_paint_ms": {
+          "p50": 104.77800003718585,
+          "p95": 143.61750008538365,
+          "max": 143.61750008538365
+        },
+        "max_gap_ms": {
+          "p50": 37.461700034327805,
+          "p95": 49.5490999892354,
+          "max": 49.5490999892354
+        },
+        "gc_ms": {
+          "p50": 0.1202999847009778,
+          "p95": 0.23889995645731688,
+          "max": 0.23889995645731688
+        },
+        "cpu_ms": {
+          "p50": 125.0,
+          "p95": 187.5,
+          "max": 187.5
+        },
+        "rss": {
+          "p50": 2426810368,
+          "p95": 2426892288,
+          "max": 2426892288
+        },
+        "private": {
+          "p50": 3001724928,
+          "p95": 3001737216,
+          "max": 3001737216
+        },
+        "peak": {
+          "p50": 2426949632,
+          "p95": 2426949632,
+          "max": 2426949632
+        }
+      },
+      "samples": [
+        {
+          "construct_ms": 49.54490007366985,
+          "construct_and_paint_ms": 143.61750008538365,
+          "max_gap_ms": 49.5490999892354,
+          "gc_ms": 0.23889995645731688,
+          "cpu_ms": 187.5,
+          "rss": 2426679296,
+          "private": 3001671680,
+          "peak": 2426679296
+        },
+        {
+          "construct_ms": 32.44699991773814,
+          "construct_and_paint_ms": 96.26909997314215,
+          "max_gap_ms": 32.51329995691776,
+          "gc_ms": 0.07650000043213367,
+          "cpu_ms": 125.0,
+          "rss": 2426810368,
+          "private": 3001724928,
+          "peak": 2426949632
+        },
+        {
+          "construct_ms": 32.01020008418709,
+          "construct_and_paint_ms": 104.77800003718585,
+          "max_gap_ms": 37.461700034327805,
+          "gc_ms": 0.1202999847009778,
+          "cpu_ms": 109.375,
+          "rss": 2426892288,
+          "private": 3001737216,
+          "peak": 2426949632
+        }
+      ]
+    }
+  },
+  "protected_entry_files": [
+    {
+      "path": "docs/features/excel_export.feature",
+      "sha256": "b9085ba915f6c87b3d0fe3dd4cc6605ee65013f24806ea836d993bcf6d47e6c3",
+      "unchanged": true
+    },
+    {
+      "path": "docs/plans/map-hover-export-fixes-2026-10-24.md",
+      "sha256": "b3c926ae7e2d35fdcfaf0afba66af82e8a56ef28c6a49ecb27645fc9faa00ec1",
+      "unchanged": true
+    },
+    {
+      "path": "metrology_app/excel_export.py",
+      "sha256": "462ac52ac1c816007e61747f76198be143d7acbcc5ade1f32dbe316d573fe7fe",
+      "unchanged": true
+    },
+    {
+      "path": "metrology_app/export_sheets.py",
+      "sha256": "ad4d7aad687ae34a0ca7a5666fe46cd5ad81ecc39a574287e92e7cb0fe4b28c4",
+      "unchanged": true
+    },
+    {
+      "path": "metrology_app/native_chart_labels.py",
+      "sha256": "2299e6177e974edd5430318c2a85127e7ff2af952ac199449dac34af9a9b93ea",
+      "unchanged": true
+    },
+    {
+      "path": "tests/test_excel_export.py",
+      "sha256": "03c16946c084079cc7efb5acec5cf527fb4a2e19ed94d9a38f797173729ee9c9",
+      "unchanged": true
+    },
+    {
+      "path": "tests/test_excel_report_layout.py",
+      "sha256": "988dd10c05940f7496ffa7a617ef50d59fe1f34b00965a444f06c59944ee73d5",
+      "unchanged": true
+    },
+    {
+      "path": "tests/test_export_wkb_axes.py",
+      "sha256": "06836364b1913e317e7e4963f199d30c381e8621c3eb181c8b54107628e71bec",
+      "unchanged": true
+    },
+    {
+      "path": "tests/test_v4_release_exports.py",
+      "sha256": "23b7504ed9a55759abeed17861ceb0486cd8769dcf91465ef97eec1ee219a030",
+      "unchanged": true
+    },
+    {
+      "path": "config/settings.yaml",
+      "sha256": "203a50a598875a0b76e430638efde246da6eaa83ca75bef85406a956c20d3555",
+      "unchanged": true
+    },
+    {
+      "path": ".cache/p0-audit/input/nova.wkb",
+      "sha256": "fbe22da2a55571b136a1f3e17db1f69284c391e9a2fac86019c5abb919336b4f",
+      "unchanged": true
+    },
+    {
+      "path": "asdf.xlsx",
+      "sha256": "24bb76f47f1aa7b164f42827881ea6c1820a460709372e8fa6c37f2dbdc17f36",
+      "unchanged": true
+    },
+    {
+      "path": "matching-matplotlib.xlsx",
+      "sha256": "419a3ad6b0d98912ea989a38808dc7e73fdb4b978e88c923a71339c03b6a9f3a",
+      "unchanged": true
+    }
+  ],
+  "profile_evidence": {
+    "bare_100k_construct_ms": 44734.949900070205,
+    "gc_ms": 0.2601000014692545,
+    "projected_index_calls": 1800175,
+    "source_column_count_calls": 10958636,
+    "all_calls": 50975063,
+    "wrapped_all_calls": 102748,
+    "profiles": [
+      "sheets-100k-profile-0.profile.txt",
+      "wrapped-100k-profile-0.profile.txt",
+      "real-saved-profile-0.profile.txt"
+    ],
+    "real_saved_recent_menu_ms": 284,
+    "real_saved_full_read_ms": 276
+  },
+  "qt_sources": [
+    "https://github.com/qt/qtbase/blob/v6.11.0/src/plugins/platforms/windows/uiautomation/qwindowsuiautils.cpp#L19-L45",
+    "https://github.com/qt/qtbase/blob/6.11/src/widgets/accessible/qaccessiblewidget.cpp#L134-L143",
+    "https://github.com/qt/qtbase/blob/6.11/src/widgets/accessible/itemviews.cpp#L481-L585",
+    "https://github.com/qt/qtbase/blob/6.11/src/plugins/platforms/windows/uiautomation/qwindowsuiaaccessibility.cpp#L88-L152"
+  ],
+  "limits": [
+    "Three independent processes per bare/wrapped pair; P95 is maximum, not a confidence bound.",
+    "Real and memory-control cases have three new windows in one process, so include first and warm operations.",
+    "Construction plus Qt repaint is a sum of logged phases excluding logging overhead; not DWM FPS.",
+    "Profile runs are excluded from acceptance timings.",
+    "Initial 10k/100k real sorted holders contain Raw tables with active production sorting/projections; saved-NOVA case restores the actual full workbook.",
+    "System not driven into low-available-memory/paging conditions; memory control adds a resident 1536 MiB only.",
+    "Real saved-workbook initialization still reads Recent WKB and paints existing plots; no all-window millisecond claim.",
+    "Nine existing export-related modified files were preserved; full suite validates this current working tree, not a pristine 017c10d checkout.",
+    "Issues 2-5 not implemented."
+  ],
+  "artifacts": {
+    ".cache\\p0-audit\\init-special\\bare-100k-1.json": "65b50a54c4cd0992140b8ac7ed3a81c08fb534a26e931fb18f6b53f93240f110",
+    ".cache\\p0-audit\\init-special\\bare-100k-1.log": "e2716fff81a69f6278d35e3c739a1ca51438a7894ba81c70ecb9327356d07b2b",
+    ".cache\\p0-audit\\init-special\\bare-100k-2.json": "7c598192d7d83db4b677b929d520198c2cf1620adac69d7f96b15f27165c4f99",
+    ".cache\\p0-audit\\init-special\\bare-100k-2.log": "2d29ebff051d71da5949b538928400d2e4c9d1641495460f1969f8087b2741af",
+    ".cache\\p0-audit\\init-special\\bare-100k-3.json": "01aaf1c08bc4a5423326e078199f5d4b86b0f042a5c28eccb2c9ce43a0c652b8",
+    ".cache\\p0-audit\\init-special\\bare-100k-3.log": "d85859b0da8be834bfb377bb0ad5ee0fb82fbfd0a3ed8a6316d0007ba77e8a68",
+    ".cache\\p0-audit\\init-special\\bare-10k-1.json": "2c9f7c9ab11c25570ad0ac5c7a52c7b60370a83b9fb0af1627f9c908ff316452",
+    ".cache\\p0-audit\\init-special\\bare-10k-1.log": "277d00bd5c1652455e4eed958a7bc0571051ffc72fc0a526e0a287036dc82775",
+    ".cache\\p0-audit\\init-special\\bare-10k-2.json": "ff7eb5b31190de36afc98b4fd7860522284aaafe14fa08f1ff5188d3b72f1833",
+    ".cache\\p0-audit\\init-special\\bare-10k-2.log": "89d3003259966f904a887cf5a6812bd23de3b6fc95c0a43e20db446afa0fb715",
+    ".cache\\p0-audit\\init-special\\bare-10k-3.json": "047e0011673b36e46388478b1a0a4c265d8bd96c881e67be994e4a50fec0a404",
+    ".cache\\p0-audit\\init-special\\bare-10k-3.log": "625951fbdc453fea9057ffa536f8e8fbeed6ae7ab1957d122408f88676eeeffc",
+    ".cache\\p0-audit\\init-special\\dict-10k-profile-0.profile.txt": "67afc0bd9c1b1fb5c40562678bb81088362c8635023dd203427c8d18885fb413",
+    ".cache\\p0-audit\\init-special\\dict-10k-profile.json": "7bb7fc45f432431f4a7469148a9e23dfb42ca7825aee288966caf5020de45e9a",
+    ".cache\\p0-audit\\init-special\\dict-10k-profile.log": "a78709403d3abf122a48d2a15ac08e58e8d9dc5a86bc7aba6a4fbe917a24183d",
+    ".cache\\p0-audit\\init-special\\entry-diff.patch": "79bff729067c9cbdb223887c9a30d794c735b9289b7b10c38a741443239ffe6a",
+    ".cache\\p0-audit\\init-special\\entry-hashes.json": "b697400ef7af04d4962deafe8929e4a2537370185726f24ee70c7a78513fc12b",
+    ".cache\\p0-audit\\init-special\\full.log": "e02dc8b803d14673d7673a00b55895ee0a902f5932753b6ce150a2ebe618e2a9",
+    ".cache\\p0-audit\\init-special\\matrix-source.py": "e44bacc0407c8054c803de83366fd7a5a7fff263e2c6921012f5003265e9fb87",
+    ".cache\\p0-audit\\init-special\\memory-control.json": "5758ceda13bfe2775ad8a98c4e7e9df443c86b2478f32a061ea15bedbcea7ce1",
+    ".cache\\p0-audit\\init-special\\memory-control.log": "764750071a4ef2d2aacc7285ee47d05d038b526cfd6cbc961efc9e967105eba0",
+    ".cache\\p0-audit\\init-special\\offscreen-10k-profile-0.profile.txt": "fe6d7f4783fa7462112a197ae7a9fb62c908c7914fa8dbd4af0ccc256c9937ec",
+    ".cache\\p0-audit\\init-special\\offscreen-10k-profile.json": "c7bb92b5a53f4b8b1e26b4623f0474bb3dc7baf4b22fb730d094d24aeb8c67c1",
+    ".cache\\p0-audit\\init-special\\offscreen-10k-profile.log": "9af5066a1d97c0500a5c821bb9ec79d90fb12b473c2cd4e3e3bacaadf92fac73",
+    ".cache\\p0-audit\\init-special\\probe.py": "21628c0f91849864e606e970bc57b0134c96459d957f32b14f3f5383b426955b",
+    ".cache\\p0-audit\\init-special\\projected_workbooks-10k-profile-0.profile.txt": "8e1d09f77d769a06497f76276fad35bb7e790f4a40b9e3e01909bb50f18972fa",
+    ".cache\\p0-audit\\init-special\\projected_workbooks-10k-profile.json": "3b679d7de89c95cb1d680fe8bee7a74cef48c6a8305b7aec65864dab027ff747",
+    ".cache\\p0-audit\\init-special\\projected_workbooks-10k-profile.log": "e79e2ca8fce14f37261fcb09f32e56649804b6b5aec79795b0c3c333e12aef74",
+    ".cache\\p0-audit\\init-special\\real-saved-nova.json": "aa8345c2907e532cb9e106cf2fec464bb525a2ba8faca7421c47ac60ea9efb8a",
+    ".cache\\p0-audit\\init-special\\real-saved-nova.log": "60f1b26b2e041263e91980507c62fcf59309b051f489195b400594283fd70466",
+    ".cache\\p0-audit\\init-special\\real-saved-profile-0.profile.txt": "3d0318796e31eaf9dcba491369893623f1ebab51a85c425a04ccb49120f66127",
+    ".cache\\p0-audit\\init-special\\real-saved-profile.json": "7fb07431ff9eb9e23cd55255508ef764d51a406c0f3a8d581389ea24eaeac020",
+    ".cache\\p0-audit\\init-special\\real-saved-profile.log": "3a670ff114bbe7965330c1dfa7ef3ce9d354c73a7263c3eec270789d6a4a9e67",
+    ".cache\\p0-audit\\init-special\\real-sorted-100k.json": "2f41cce20cada188731e53818fc0ab7aa5599d30d484a062198f3038f0272d68",
+    ".cache\\p0-audit\\init-special\\real-sorted-100k.log": "a670cb3a66cf2fd97c4fb45855173cd429f2e39c79a8b6533cb61c4cd50e8f95",
+    ".cache\\p0-audit\\init-special\\real-sorted-10k-profile-0.profile.txt": "d678182504e46e73c5b7f83b3f6a98edde5915327539ceb6effe5b2ba5aca254",
+    ".cache\\p0-audit\\init-special\\real-sorted-10k-profile-1.profile.txt": "b03f457cc4264e0dae84a6707f212316c94e792c2a785ded5459323d76338c4a",
+    ".cache\\p0-audit\\init-special\\real-sorted-10k-profile-2.profile.txt": "74fb7b4868f7ba174dd640b4ba8f4b6b7f78114e16df9fe534246547ad57240e",
+    ".cache\\p0-audit\\init-special\\real-sorted-10k-profile.json": "3585c7fff9a022897ea21158de6b4c2e2f2cb903fe704ba0c1e60743e7124fb8",
+    ".cache\\p0-audit\\init-special\\real-sorted-10k-profile.log": "4c8ab09fdd02a64e765ceb3e4d891a1d18de0ab3b4046655a0ec6ad90683e17b",
+    ".cache\\p0-audit\\init-special\\real-sorted-10k.json": "7d271b115d973a3989ab878c9606097a38c0d3c0aa08d6e9031c1d749bed0dbb",
+    ".cache\\p0-audit\\init-special\\real-sorted-10k.log": "8842ff5d876ad4b4dbb7c179b4a8b0882eda81cee295eb2517562c1d32fd6bd3",
+    ".cache\\p0-audit\\init-special\\sheet-workflows-before.py": "f0a90955d662ec9a32598963e086099e4519d6831b74aaf0c092c03cfc78e2f1",
+    ".cache\\p0-audit\\init-special\\sheets-100k-profile-0.profile.txt": "ddfbee4bd73e3de2dcebfdf050ce01c22e8763e0ea471f7de3ee4176a68db2e7",
+    ".cache\\p0-audit\\init-special\\sheets-100k-profile.json": "309be1ae1d40e646bc5753a727408ba49c9c2dd33f91a7d5862253175ddfb214",
+    ".cache\\p0-audit\\init-special\\sheets-100k-profile.log": "1d858db0a778cfae3e22fb9af378d2f154651fb233a48689fe0ba5593ab10edd",
+    ".cache\\p0-audit\\init-special\\sheets-10k-profile-0.profile.txt": "8c0a4d75c0e99701b9a82dc279d457d178bd64728618a991a1fd667b533db9fd",
+    ".cache\\p0-audit\\init-special\\sheets-10k-profile.json": "462666703a37d3b2aa3a65a5ea5be3597f34d8881673e3cc0e7dfc432a634185",
+    ".cache\\p0-audit\\init-special\\sheets-10k-profile.log": "1be41e5e16d87b0430aeff317eac5125d7e31204db3c0c2fde986cd66752e810",
+    ".cache\\p0-audit\\init-special\\source-10k-profile-0.profile.txt": "4978da0160610e5fc9b56c471a2a376768b893693f1a67f73846ab3d5a798c8e",
+    ".cache\\p0-audit\\init-special\\source-10k-profile.json": "26b2e949abcaaaeaf8d62126603d683e10e1c5b03935610f70b06e3faed5c393",
+    ".cache\\p0-audit\\init-special\\source-10k-profile.log": "4832966a71c267c64a855409acae3fe6398ac8721df103d9992b72da718ef7fa",
+    ".cache\\p0-audit\\init-special\\summarize.py": "3273af9d5efdfd8ba61175984c0abec354c13469b2334d90151532613608e409",
+    ".cache\\p0-audit\\init-special\\workbooks-10k-profile-0.profile.txt": "1be34c4029d627ad3ff9fa40e0d9bdb8858bcf8c7153ff5c29c01067ae562f66",
+    ".cache\\p0-audit\\init-special\\workbooks-10k-profile.json": "c664268511df49ed07c246f8af6d3d04bf593433c2cb6fe4049fad5a07f5bfc8",
+    ".cache\\p0-audit\\init-special\\workbooks-10k-profile.log": "035bb95f540a15e360e7bb5b1c26bd235d700da45b717c843856d878ae7b3a55",
+    ".cache\\p0-audit\\init-special\\workflows-host-regression.json": "c24c9b5417658c20aea243e668f6f8c60c53596ecd5ff86a04e4ca524bac3d5f",
+    ".cache\\p0-audit\\init-special\\workflows-host-regression.log": "dc62ea68e6636a3a3980faa6ecbba8054a027f38ee0bb45007be87e082176bd7",
+    ".cache\\p0-audit\\init-special\\wrapped-100k-1.json": "66f65c46fe67b24190ca96632839c0ec16b37fd5549d16bd331f381200b5a090",
+    ".cache\\p0-audit\\init-special\\wrapped-100k-1.log": "27526b5b7f48382bbeda63dd0c00db2edc333972610b55d8a0613ccc9c87fc09",
+    ".cache\\p0-audit\\init-special\\wrapped-100k-2.json": "370592eaa81d012bb080d17186ee9d87889c83df39b289483386f46a68b60f16",
+    ".cache\\p0-audit\\init-special\\wrapped-100k-2.log": "5a0d3e940783f2b3c305c19c31fcc3312e86aceaab9779dcf619a8e0f24aae11",
+    ".cache\\p0-audit\\init-special\\wrapped-100k-3.json": "7ab999320140054d375b7d5234861c3356cc2dc9691f2f06dd204c0cba0075e0",
+    ".cache\\p0-audit\\init-special\\wrapped-100k-3.log": "29f932d7f502118f19e7a378552a22f31f9a29bf49a028ac91d02d8657335f0e",
+    ".cache\\p0-audit\\init-special\\wrapped-100k-profile-0.profile.txt": "f1a4473431248ad531e03bd79291843f7f0236f0ef4b5cd88669b2b568c83ede",
+    ".cache\\p0-audit\\init-special\\wrapped-100k-profile.json": "a010eb74ef52bab9d70c7ec94f0272ef1fcf872e7f641726d2c24c546645b80a",
+    ".cache\\p0-audit\\init-special\\wrapped-100k-profile.log": "d3ca8f411fc3c35728384028bcbef54dca93b67891ab124bb969b6d8da74e951",
+    ".cache\\p0-audit\\init-special\\wrapped-10k-1.json": "2347ac0102613bd73a1c280b2f5fe2222b08e7d30846dacac9e59b987e7975a3",
+    ".cache\\p0-audit\\init-special\\wrapped-10k-1.log": "fdd722778eab7e275201eb7479921c5be74332dfa8a341da19d09e1309a7e9d4",
+    ".cache\\p0-audit\\init-special\\wrapped-10k-2.json": "4f6dbae8ac9caf67bf1658f2c533f79619f148221b379ed728fad7cf32df97f0",
+    ".cache\\p0-audit\\init-special\\wrapped-10k-2.log": "86b74503d1815d561d9fa943e61ff5d824252ec801519906f44ff6aac9c80c20",
+    ".cache\\p0-audit\\init-special\\wrapped-10k-3.json": "84dde2a2578f4d52e676006dc152d2ed0b223a60fec05ae8f0e594aca596c907",
+    ".cache\\p0-audit\\init-special\\wrapped-10k-3.log": "7e7b0db2fd72bc61f59d89aafef31ddd6f999342415fc2294470c536f5da0083"
+  },
+  "benchmark_source_sha256": "87b494b5bcd63524212a99223d7e814aca79ae5745767907dac000a4f92d7cad",
+  "workflow_source_sha256": "53386c04481c537267720f409422b1a1c92b6fa48c8e0f0d2f82c6272c255979"
+}

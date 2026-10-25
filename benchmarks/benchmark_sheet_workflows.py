@@ -20,6 +20,14 @@ from time import perf_counter, process_time
 from .benchmark_correlation_restore import digest, memory_info
 
 
+def sheet_probe_host(view):
+    """Match production's embedded tables; a bare top-level table is a UIA root."""
+    from PyQt6.QtWidgets import QVBoxLayout, QWidget
+    host = QWidget()
+    QVBoxLayout(host).addWidget(view)
+    return host
+
+
 def selection_workflows(dialog, frame, measure, app):
     """Exercise the same public model, search, show-mode and mouse paths as the dialog."""
     from PyQt6.QtCore import Qt
@@ -333,14 +341,17 @@ def main():
                     selection_dialog = SelectionDialog(frame, ids, ids[::2], [])
                     views = (*views, selection_dialog)
                 for widget in views:
-                    apply_theme(widget)
-                    widget.resize(850, 330)
-                    widget.show()
+                    host = sheet_probe_host(widget) if isinstance(widget, SheetView) else widget
+                    if host is not widget:
+                        widget._benchmark_host = host
+                    apply_theme(host)
+                    host.resize(850, 330)
+                    host.show()
             else:
                 target.load_matrix([])
             app.processEvents()
             if args.platform == "windows":
-                assert all(widget.windowHandle().isExposed() for widget in views)
+                assert all(widget.window().windowHandle().isExposed() for widget in views)
             if args.screenshot and iteration == 0 and views:
                 args.screenshot.parent.mkdir(parents=True, exist_ok=True)
                 view.grab().save(str(args.screenshot.with_name(f"{args.screenshot.stem}-{rows}.png")))
@@ -443,8 +454,8 @@ def main():
             finally:
                 if not args.reuse_views or iteration == args.count - 1 or sys.exc_info()[0] is not None:
                     for widget in views:
-                        widget.close()
-                        widget.deleteLater()
+                        widget.window().close()
+                        widget.window().deleteLater()
                     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
                     app.processEvents()
     assert digest(settings) == before, "Real settings changed during the benchmark"
@@ -469,6 +480,7 @@ def main():
                                                                  "writer_parameter_columns": 4, "writer_step_columns": 41}
                                                                 if args.auxiliary_only else None),
                                       "accessibility_requested": args.accessibility,
+                                      "generic_sheet_host": "QWidget",
                                       "source_path": str(args.wkb) if args.wkb else None,
                                       "source_sha256": source_hash,
                                       "code_root": str(args.code_root.resolve()),
