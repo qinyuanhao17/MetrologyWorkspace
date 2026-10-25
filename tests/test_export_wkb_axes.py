@@ -27,7 +27,7 @@ class ExportWkbAxesTests(unittest.TestCase):
         self.window.set_raw_frame(pd.DataFrame({'Wafer ID': ['W1'] * 2 + ['W2'] * 2 + ['W1'] * 2 + ['W2'] * 2,
                                               'Die Seq': ['01', '02'] * 4,
                                               'CD': ['1.000', '2.000', '3.000', '4.000', '5.000', '6.000', '7.000', '8.000']}))
-        self.window.group_controls.restore({'enabled': True, 'head_names': {'0': 'POR', '1': 'New'},
+        self.window.group_controls.restore({'enabled': True, 'head_names': {'0': 'Old Unknown', '1': 'New MM1'},
                                             'show_wafer_groups': ['All:0', 'All:1']},
                                            pd.DataFrame({'TestFlag': [0] * 4 + [1] * 4}))
         self.window.group_controls.apply_button.click()
@@ -57,19 +57,67 @@ class ExportWkbAxesTests(unittest.TestCase):
             with ZipFile(path) as archive:
                 parts = [ET.fromstring(archive.read(name)) for name in archive.namelist()
                          if name.startswith('xl/drawings/identity-')]
-                group = next(root for root in parts if any("'Match Group" in s.get('textlink', '')
-                             for s in root.findall('.//d:sp', NS)))
-                captions = [(anchor, ''.join(t.text or '' for t in anchor.findall('.//a:t', NS)))
-                            for anchor in group if anchor.find('d:sp[@textlink]', NS) is not None]
+                def sheet_part(prefix):
+                    return next(root for root in parts
+                                if any(s.get('textlink', '').startswith(prefix)
+                                       for s in root.findall('.//d:sp', NS)))
+
+                def captions_for(root):
+                    return [
+                        (anchor, ''.join(
+                            t.text or ''
+                            for t in anchor.findall('.//a:t', NS)))
+                        for anchor in root
+                        if anchor.find('d:sp[@textlink]', NS) is not None
+                        and anchor.find(
+                            'd:sp/d:nvSpPr/d:cNvPr', NS)
+                        .get('name', '').startswith('Caption')]
+
+                group = sheet_part("'Match Group (")
+                group_names = [text for _anchor, text in captions_for(group)]
+                self.assertFalse(any(name.startswith(('W1', 'W2'))
+                                     for name in group_names))
+                self.assertEqual(
+                    group_names, ['Old Unknown', 'New MM1'])
+                shape_names = [
+                    anchor.find('d:sp/d:nvSpPr/d:cNvPr', NS).get('name')
+                    for anchor in group
+                    if anchor.find('d:sp/d:nvSpPr/d:cNvPr', NS) is not None]
+                self.assertTrue(any(
+                    name.startswith('Die Seq tick')
+                    for name in shape_names))
+                self.assertTrue(any(
+                    name.startswith('Die Seq axis title')
+                    for name in shape_names))
+                self.assertFalse(any(
+                    anchor.find('d:sp/d:nvSpPr/d:cNvPr', NS)
+                    .get('name').startswith('Leader')
+                    for anchor in group))
+
+                shown = sheet_part("'Match Group show Wafer")
+                captions = captions_for(shown)
                 names = [text for _, text in captions]
                 self.assertEqual(names.count('W1'), 2)
                 self.assertEqual(names.count('W2'), 2)
-                wafer_y = [float(anchor.find('d:from/d:y', NS).text) for anchor, text in captions if text.startswith('W')]
-                group_y = [float(anchor.find('d:from/d:y', NS).text) for anchor, text in captions if text in ('POR', 'New')]
+                wafer_y = [float(anchor.find('d:from/d:y', NS).text)
+                           for anchor, text in captions if text.startswith('W')]
+                group_y = [float(anchor.find('d:from/d:y', NS).text)
+                           for anchor, text in captions
+                           if text in ('Old Unknown', 'New MM1')]
                 self.assertTrue(group_y and min(group_y) > max(wafer_y))
-                boundaries = [anchor for anchor in group if 'boundary' in
+                boundaries = [anchor for anchor in shown if 'boundary' in
                               anchor.find('d:sp/d:nvSpPr/d:cNvPr', NS).get('name').lower()]
                 self.assertGreaterEqual(len(boundaries), 8)
+                group_boundaries = [
+                    anchor for anchor in boundaries
+                    if anchor.find('d:sp/d:nvSpPr/d:cNvPr', NS)
+                    .get('name').lower().startswith('group boundary')]
+                self.assertTrue(group_boundaries)
+                self.assertTrue(all(
+                    float(anchor.find('d:from/d:y', NS).text) < min(wafer_y)
+                    and float(anchor.find('d:to/d:y', NS).text)
+                    > max(group_y)
+                    for anchor in group_boundaries))
                 self.assertTrue(all(float(a.find('d:to/d:y', NS).text) -
                                     float(a.find('d:from/d:y', NS).text) >= .06 for a in boundaries))
 
@@ -112,7 +160,9 @@ class ExportWkbAxesTests(unittest.TestCase):
                                   reference_label=self.window.match_type.currentText(), sequence=sequence)
         try:
             axis = figure.axes[0]
-            self.assertEqual([text.get_text() for text in axis.texts], ['W1', 'W2', 'W1', 'W2', 'POR', 'New'])
+            self.assertEqual(
+                [text.get_text() for text in axis.texts],
+                ['W1', 'W2', 'W1', 'W2', 'Old Unknown', 'New MM1'])
             self.assertEqual(axis.get_xlabel(), 'Die Seq')
             dividers = [line for line in axis.lines if line.get_linestyle() == '--']
             self.assertEqual([line.get_color() for line in dividers], ['#929292', '#929292', '#000000'])

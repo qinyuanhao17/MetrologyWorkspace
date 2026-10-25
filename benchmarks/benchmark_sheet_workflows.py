@@ -162,15 +162,26 @@ def workbook_keys(frame, path, measure, app, *, stage="preview"):
             assert actual == ([bounds] if bounds else [])
             view.clearSelection()
             before = model.document_frame()
+            before_summary = window.result.summary.copy(deep=True) if analysis else None
             column = model.source_headers().index(parameter)
             value = str(float(before.iat[0, column])+.001) if str(before.iat[0, column]).strip() else "1"
             model.edit({(1, column): value})
             drain()
+            edited = model.document_frame()
+            edited_summary = window.result.summary.copy(deep=True) if analysis else None
             view.setCurrentIndex(view.model().index(1, column))
             measure(name+"_first_undo", view, Qt.Key.Key_Z, until=ready if analysis else None)
             pd.testing.assert_frame_equal(model.document_frame(), before)
             if analysis:
                 assert window._analysis_current
+                pd.testing.assert_frame_equal(window.result.summary, before_summary)
+            measure(name+"_first_redo", view, Qt.Key.Key_Y, until=ready if analysis else None)
+            pd.testing.assert_frame_equal(model.document_frame(), edited)
+            if analysis:
+                assert window._analysis_current
+                pd.testing.assert_frame_equal(window.result.summary, edited_summary)
+            model.undo.undo()
+            drain()
 
         mapping = window.selected_mappings()[0]
         if stage == "preview":
@@ -260,6 +271,8 @@ def main():
     parser.add_argument("--code-root", type=Path, default=Path.cwd())
     parser.add_argument("--platform", choices=("offscreen", "windows"), default="offscreen")
     parser.add_argument("--wkb", type=Path, help="Repeat/slice the read-only Raw table to the requested sizes")
+    parser.add_argument("--omit-raw-columns", nargs="*", default=[],
+                        help="Explicitly omit unused Raw columns from the benchmark copy only")
     parser.add_argument("--reuse-views", action="store_true", help="Repeat on the same views, resetting only destination data/history")
     parser.add_argument("--interactions", action="store_true", help="Also measure sort/filter/hidden-row/bulk selection workflows")
     parser.add_argument("--screenshot", type=Path)
@@ -301,6 +314,14 @@ def main():
         from metrology_app.workspace_store import load_workspace
         source = load_workspace(args.wkb).frames["raw"]
         assert len(source), "The workbook Raw table is empty"
+        if args.omit_raw_columns:
+            from metrology_app.matching import MatchWorkbook
+            book = MatchWorkbook.from_snapshot(load_workspace(args.wkb))
+            missing = set(args.omit_raw_columns) - set(source.columns)
+            mapped = {mapping.raw_column for mapping in book.mappings} & set(args.omit_raw_columns)
+            if missing or mapped:
+                parser.error(f"Cannot omit missing or mapped Raw columns: {sorted(missing | mapped)}")
+            source = source.drop(columns=args.omit_raw_columns)
     original_clipboard = QMimeData()
     incoming = app.clipboard().mimeData()
     if incoming is not None:
@@ -483,6 +504,7 @@ def main():
                                       "generic_sheet_host": "QWidget",
                                       "source_path": str(args.wkb) if args.wkb else None,
                                       "source_sha256": source_hash,
+                                      "omitted_raw_columns": args.omit_raw_columns,
                                       "code_root": str(args.code_root.resolve()),
                                       "profile_actions": args.profile_actions,
                                       "fixture": "Exact text; repeated wafers/dies; high precision; empty values",

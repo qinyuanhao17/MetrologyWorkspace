@@ -62,9 +62,8 @@ class ExcelReportLayoutTests(unittest.TestCase):
         finally:
             figure.clear()
 
-    def test_match_chart_rows_and_columns_keep_similar_spacing(self):
-        from metrology_app.excel_export import (
-            CHART_HORIZONTAL_GAP_CM, CHART_VERTICAL_GAP_CM, PANEL_HEIGHT_CM)
+    def test_all_match_sheets_stack_right_panels_with_uniform_gaps(self):
+        from metrology_app.excel_export import PANEL_HEIGHT_CM
         reference = pd.DataFrame({
             "CD Reference": [3., 5., 7.],
             "Depth Reference": [9., 11., 13.],
@@ -73,34 +72,56 @@ class ExcelReportLayoutTests(unittest.TestCase):
             "Wafer ID": ["W1"] * 3, "Die Seq": [1, 2, 3],
             "CD": ["1.000", "2.000", "3.000"],
             "Depth": ["2.000", "4.000", "6.000"],
+            "TestFlag": [0, 1, 0],
         })
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        self.window.group_controls.restore(
+            {"enabled": True, "head_names": {"0": "Head A", "1": "Head B"}},
+            raw[["TestFlag"]])
+        self.window.group_controls.apply_button.click()
         self.window.run_analysis()
         with tempfile.TemporaryDirectory() as folder:
             for native in (True, False):
                 path = self.window.export_excel(
                     Path(folder) / f"spacing-{native}.xlsx", native=native)
-                sheet = load_workbook(path)["Match Original (WO Card)"]
-                charts = sheet._charts if native else sheet._images
-
-                positions = [fixtures.drawing_xy_px(chart, sheet)
-                             for chart in charts]
-
-                horizontal = []
-                for left, right in zip(charts[:2], charts[1:3]):
-                    left_x = positions[charts.index(left)][0]
-                    right_x = positions[charts.index(right)][0]
-                    left_end = left_x + left.anchor.ext.cx / 9525
-                    horizontal.append(
-                        (right_x - left_end) / 96 * 2.54)
-                vertical = (
-                    (positions[3][1] - positions[0][1]) / 96 * 2.54
-                    - PANEL_HEIGHT_CM
-                )
-                self.assertTrue(all(abs(gap - CHART_HORIZONTAL_GAP_CM) < .02
-                                    for gap in horizontal))
-                self.assertAlmostEqual(vertical, CHART_VERTICAL_GAP_CM, places=2)
+                book = load_workbook(path)
+                match_sheets = [
+                    name for name in book.sheetnames
+                    if name.startswith("Match ")]
+                self.assertIn("Match Original (WO Card)", match_sheets)
+                self.assertIn("Match Group (WO Card)", match_sheets)
+                self.assertIn("Match Wafer (WO Card)", match_sheets)
+                self.assertIn("Match Head A (WO Card)", match_sheets)
+                for sheet_name in match_sheets:
+                    sheet = book[sheet_name]
+                    charts = sheet._charts if native else sheet._images
+                    self.assertGreaterEqual(len(charts), 6, sheet_name)
+                    self.assertEqual(len(charts) % 3, 0)
+                    positions = [
+                        tuple(value * 2.54 / 96 for value in
+                              fixtures.drawing_xy_px(chart, sheet))
+                        for chart in charts]
+                    for base in range(0, len(charts), 3):
+                        match, trend, bias = positions[base:base + 3]
+                        match_width = (
+                            charts[base].anchor.ext.cx / 360000)
+                        self.assertAlmostEqual(
+                            match[1], trend[1], places=2)
+                        self.assertAlmostEqual(
+                            trend[0] - match[0] - match_width,
+                            1.0, places=2)
+                        self.assertAlmostEqual(
+                            bias[0], trend[0], places=2)
+                        self.assertAlmostEqual(
+                            bias[1] - trend[1] - PANEL_HEIGHT_CM,
+                            0.5, places=2)
+                        if base + 3 < len(charts):
+                            next_match = positions[base + 3]
+                            self.assertAlmostEqual(
+                                next_match[1] - match[1],
+                                2 * (PANEL_HEIGHT_CM + 0.5),
+                                places=2)
 
     def test_wide_match_wafer_pages_preserve_identity_and_do_not_overlap(self):
         import re
@@ -172,6 +193,19 @@ class ExcelReportLayoutTests(unittest.TestCase):
                     for drawing in drawings))
 
                 boxes = rectangles(drawings, sheet)
+                positions_cm = [
+                    tuple(value * 2.54 / 96 for value in (x, y))
+                    for x, y, _width, _height in boxes]
+                for base in range(0, len(drawings), 4):
+                    match, trend, bias, percent = positions_cm[
+                        base:base + 4]
+                    self.assertAlmostEqual(match[1], trend[1])
+                    self.assertAlmostEqual(trend[0], bias[0])
+                    self.assertAlmostEqual(trend[0], percent[0])
+                    self.assertAlmostEqual(
+                        bias[1] - trend[1], 11.5)
+                    self.assertAlmostEqual(
+                        percent[1] - bias[1], 11.5)
                 for index, left in enumerate(boxes):
                     for right in boxes[index + 1:]:
                         separated = (
@@ -188,10 +222,8 @@ class ExcelReportLayoutTests(unittest.TestCase):
                         and len(chart.series) == 2]
                     def category_count(chart):
                         categories = chart.series[0].cat
-                        cache = getattr(categories, 'strCache', None)
-                        reference = getattr(categories, 'strRef', None)
-                        if cache is None and reference is not None:
-                            cache = getattr(reference, 'strCache', None)
+                        reference = getattr(categories, 'numRef', None)
+                        cache = getattr(reference, 'numCache', None)
                         return len(cache.pt) if cache is not None else 0
                     self.assertEqual(
                         sum(category_count(chart) for chart in trend_pages),
@@ -295,7 +327,9 @@ class ExcelReportLayoutTests(unittest.TestCase):
                 objects = sheet._charts if native else sheet._images
                 self.assertTrue(objects)
                 cells = [fixtures.drawing_cell(obj, sheet) for obj in objects]
-                self.assertTrue(all(cell[1] == 4 for cell in cells))
+                self.assertEqual(cells[0][1], 4)
+                self.assertEqual(cells[1][1], 4)
+                self.assertGreater(cells[2][1], cells[1][1])
                 self.assertEqual(cells[0][0], 0)
                 values = [c.value for row in sheet for c in row]
                 self.assertNotIn("Card source", values)
@@ -362,8 +396,58 @@ class ExcelReportLayoutTests(unittest.TestCase):
                     self.assertAlmostEqual(actual[1], expected[1], places=3)
                 self.assertIn("A1:G1", {str(area) for area in sheet.merged_cells.ranges})
                 self.assertEqual(sheet["A1"].value, "CD")
-                self.assertTrue(all(
-                    fixtures.drawing_cell(obj, sheet)[1] == 4 for obj in objects))
+                rows = [
+                    fixtures.drawing_cell(obj, sheet)[1]
+                    for obj in objects]
+                self.assertEqual(rows[0], 4)
+                self.assertEqual(rows[1], 4)
+                self.assertGreater(rows[2], rows[1])
+
+    def test_long_identity_charts_use_tight_physical_side_margins(self):
+        from openpyxl import Workbook
+        from openpyxl.chart import LineChart
+        from metrology_app.excel_export import (
+            parameter_figure, sequence_layout, style_workbook)
+
+        width_cm = 60.
+        chart = LineChart()
+        chart.width, chart.height = width_cm, 11
+        chart._identity_captions = [{
+            'text': 'Old MM1', 'source': "'Match Group'!A3",
+            'start': 0., 'end': 1., 'center': .5,
+            'role': 'group', 'level': 0, 'show': True,
+        }]
+        book = Workbook()
+        sheet = book.active
+        sheet.title = 'Match Group'
+        sheet.add_chart(chart, 'A1')
+        style_workbook(book)
+        manual = sheet._charts[0].layout.manualLayout
+        left_cm = manual.x * width_cm
+        right_cm = (1 - manual.x - manual.w) * width_cm
+        self.assertAlmostEqual(left_cm, 3., places=2)
+        self.assertAlmostEqual(right_cm, .7, places=2)
+
+        data = pd.DataFrame({
+            "Raw": [1., 2., 3.],
+            "Reference": [2., 3., 4.],
+            "Die Seq": ["1", "2", "3"],
+        })
+        sequence = sequence_layout(["Old MM1"] * 3, name="Group")
+        sequence["width"] = sequence["native_width"] = width_cm
+        figure = parameter_figure(
+            "CD", data, None, "Final", "Group",
+            panel="Trend", sequence=sequence)
+        try:
+            figure.canvas.draw()
+            axis_box = figure.axes[0].get_position()
+            figure_width_cm = figure.get_figwidth() * 2.54
+            self.assertAlmostEqual(
+                axis_box.x0 * figure_width_cm, 3., places=2)
+            self.assertAlmostEqual(
+                (1 - axis_box.x1) * figure_width_cm, .7, places=2)
+        finally:
+            figure.clear()
 
     def test_group_overview_and_complete_wafer_detail_export_side_by_side_in_both_modes(self):
         raw = pd.DataFrame({"Wafer ID": [f"WAFER-{index:03}" for index in range(20) for _ in range(3)],
@@ -383,26 +467,28 @@ class ExcelReportLayoutTests(unittest.TestCase):
                 self.assertEqual(dimensions[0], 15)
                 self.assertGreaterEqual(dimensions[1], 25)
                 cells = [fixtures.drawing_cell(panel, sheet) for panel in panels]
-                self.assertTrue(all(left[0] < right[0]
-                                    for left, right in zip(cells, cells[1:])))
+                self.assertEqual(cells[0][1], cells[1][1])
+                self.assertLess(cells[0][0], cells[1][0])
+                self.assertEqual(cells[1][0], cells[2][0])
+                self.assertLess(cells[1][1], cells[2][1])
                 if native:
                     wafer_sheet = book['Match Wafer (WO Card)']
                     trend_pages = [
                         chart for chart in wafer_sheet._charts
                         if len(chart.series) == 2]
                     self.assertGreaterEqual(len(trend_pages), 1)
-                    category_values = []
+                    category_count = 0
                     for detail in trend_pages:
-                        categories = detail.series[0].cat.strRef
+                        categories = detail.series[0].cat.numRef
                         self.assertTrue(categories.f.startswith(
-                            "'Match Wafer (WO Card)'!"))
-                        page_values = [point.v for point in categories.strCache.pt]
-                        category_values.extend(page_values)
+                            "'_Plot data'!"))
+                        page_values = [
+                            point.v for point in categories.numCache.pt]
+                        category_count += len(page_values)
                         self.assertEqual(
                             detail.x_axis.tickLblSkip,
                             max(1, int(math.ceil(len(page_values) / 18))))
-                    self.assertEqual(
-                        category_values, ['1', '2', '3'] * 20)
+                    self.assertEqual(category_count, 60)
 
     def test_fullmap_matplotlib_trend_keeps_tight_ordinal_limits(self):
         from metrology_app.analysis_export import plot_figure
@@ -472,6 +558,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
         mixed = layout["group_widths"]
         self.assertAlmostEqual(group_only["B"] / group_only["A"], 4, places=6)
         self.assertAlmostEqual(mixed["B"] / mixed["A"], 2, places=6)
+        self.assertEqual(mixed["A"], group_only["A"])
         self.assertGreater(group_only["B"], mixed["B"])
         self.assertEqual(len(layout["wafer_widths"]["B"]), 2)
         self.assertAlmostEqual(
@@ -505,6 +592,159 @@ class ExcelReportLayoutTests(unittest.TestCase):
             hidden, mode="group", captions=hidden_captions)
         self.assertEqual(hidden_layout["group_widths"],
                          hidden_layout["group_only_widths"])
+
+    def test_group_x_axis_uses_single_line_captions_without_leader_lines(self):
+        from xml.etree import ElementTree as ET
+        from openpyxl import Workbook
+        from metrology_app.excel_export import (
+            parameter_figure, parameter_footer, sequence_export_layout)
+        from metrology_app.native_chart_labels import _drawing
+
+        counts = [20, 4, 1]
+        labels = ["Old Unknown", "New MM1", "New MM2"]
+        data = pd.DataFrame({
+            "Group": [
+                f"All:{index}" for index, count in enumerate(counts)
+                for _ in range(count)],
+            "Group label": [
+                label for label, count in zip(labels, counts)
+                for _ in range(count)],
+            "Group caption": [
+                label.replace(" ", "\n")
+                for label, count in zip(labels, counts)
+                for _ in range(count)],
+            "Wafer": ["W1"] * sum(counts),
+            "Wafer key": ["W1"] * sum(counts),
+            "Show wafer": [False] * sum(counts),
+            "Raw": list(range(1, sum(counts) + 1)),
+            "Reference": list(range(2, sum(counts) + 2)),
+            "Die Seq": [str(index) for index in range(sum(counts))],
+        })
+        captions = parameter_footer(
+            Workbook().active, 3, data,
+            {"Group": 1, "Wafer": 2}, "group")
+        self.assertEqual(
+            [item["text"] for item in captions
+             if item["role"] == "group"],
+            labels)
+        layout = sequence_export_layout(
+            data, mode="group", captions=captions)
+        geometry = (2. / layout["width"], 1. - 2.7 / layout["width"])
+        root = ET.fromstring(_drawing(
+            captions, geometry, layout["width"] * 96 / 2.54))
+        ns = {
+            "d": "http://schemas.openxmlformats.org/drawingml/2006/chartDrawing",
+            "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
+        }
+        native = {}
+        for anchor in root:
+            shape = anchor.find("d:sp[@textlink]", ns)
+            if shape is None:
+                continue
+            text = "".join(
+                item.text or "" for item in anchor.findall(".//a:t", ns))
+            native[text] = {
+                "center": (
+                    float(anchor.find("d:from/d:x", ns).text)
+                    + float(anchor.find("d:to/d:x", ns).text)) / 2,
+                "wrap": shape.find("d:txBody/a:bodyPr", ns).get("wrap"),
+                "no_fill": shape.find("d:spPr/a:noFill", ns) is not None,
+            }
+        group_captions = [
+            item for item in layout["captions"]
+            if item["role"] == "group"]
+        for item in group_captions:
+            expected = geometry[0] + geometry[1] * item["center"]
+            self.assertAlmostEqual(
+                native[item["text"]]["center"], expected, places=6)
+            self.assertEqual(native[item["text"]]["wrap"], "none")
+            self.assertTrue(native[item["text"]]["no_fill"])
+
+        figure = parameter_figure(
+            "CD", data, None, "Final", "Group",
+            panel="Trend", sequence=layout)
+        try:
+            texts = [text.get_text() for text in figure.axes[0].texts]
+            self.assertEqual(texts.count(labels[0]), 1)
+            self.assertEqual(texts.count(labels[1]), 1)
+            self.assertEqual(texts.count(labels[2]), 1)
+            self.assertNotIn("", texts, "Caption leaders must not be drawn")
+            low, high = layout["limits"]
+            for item in group_captions:
+                text = next(
+                    text for text in figure.axes[0].texts
+                    if text.get_text() == item["text"])
+                self.assertAlmostEqual(
+                    float(text.xy[0]),
+                    low + item["center"] * (high - low), places=6)
+                self.assertEqual(
+                    text.get_bbox_patch().get_facecolor()[3], 0.)
+        finally:
+            figure.clear()
+
+    def test_match_group_splits_group_only_and_selective_show_wafer_sheets(self):
+        from metrology_app.export_sheets import export_sheet_names
+
+        wafer_ids = ["OLD-WAFER"] * 12 + [
+            "NEW-WAFER-LONG-IDENTITY-01"] * 2 + [
+            "NEW-WAFER-LONG-IDENTITY-02"] * 2
+        raw = pd.DataFrame({
+            "Wafer ID": wafer_ids,
+            "Lot ID": [f"LOT-{index:02}" for index in range(len(wafer_ids))],
+            "PAD Name": ["ARRAY-IDENTITY"] * len(wafer_ids),
+            "Die Seq": list(range(1, 13)) + [1, 2, 1, 2],
+            "CD": [str(index + 1) for index in range(len(wafer_ids))],
+        })
+        self.window.set_reference_frame(pd.DataFrame({
+            "CD Reference": [index + 2 for index in range(len(raw))]}))
+        self.window.result_mode.setCurrentText("Final")
+        self.window.set_raw_frame(raw.copy())
+        self.window.result_mode.setCurrentText("Preview")
+        self.window.set_raw_frame(raw)
+        self.window.group_controls.restore(
+            {
+                "enabled": True,
+                "head_names": {"0": "Old A", "1": "New B"},
+                "show_wafer_groups": ["All:1"],
+            },
+            pd.DataFrame({"TestFlag": [0] * 12 + [1] * 4}))
+        self.window.group_controls.apply_button.click()
+        self.window.run_analysis()
+
+        snapshot = self.window.excel_export_snapshot()
+        planned = export_sheet_names(snapshot, matching=True)
+        self.assertIn("Match Group (WO Card)", planned)
+        self.assertIn("Match Group show Wafer(WO Card)", planned)
+        self.assertIn("Match Group show Wafer (W Card)", planned)
+
+        with tempfile.TemporaryDirectory() as folder:
+            for native in (True, False):
+                images = []
+                path = self.window.export_excel(
+                    Path(folder) / f"group-views-{native}.xlsx",
+                    native=native, images=images)
+                book = load_workbook(path)
+                self.assertIn("Match Group show Wafer(WO Card)", book.sheetnames)
+                self.assertIn("Match Group show Wafer (W Card)", book.sheetnames)
+                for suffix, shown_name in (
+                        ("WO Card", "Match Group show Wafer(WO Card)"),
+                        ("W Card", "Match Group show Wafer (W Card)")):
+                    group = book[f"Match Group ({suffix})"]
+                    shown = book[shown_name]
+                    group_panels = group._charts if native else group._images
+                    shown_panels = shown._charts if native else shown._images
+                    self.assertEqual(len(group_panels), 3)
+                    self.assertEqual(len(shown_panels), 3)
+                    if native:
+                        for chart in (group_panels[1], shown_panels[1]):
+                            self.assertIsNotNone(
+                                chart.series[0].cat.numRef)
+                            self.assertIsNone(
+                                chart.x_axis.tickLblPos)
+                    self.assertLess(
+                        group_panels[1].anchor.ext.cx,
+                        shown_panels[1].anchor.ext.cx,
+                        "The group-only Trend must not reserve Show Wafer label width")
 
     def test_wafer_export_keeps_every_visible_label_and_has_no_width_cap(self):
         from openpyxl import Workbook
@@ -693,15 +933,20 @@ class ExcelReportLayoutTests(unittest.TestCase):
                     self.assertIn(f"'Match Original (WO Card)'!${ref_letter}${source_row + 1}", wafer.cell(row, 6).value)
                 panels = wafer._charts if native else wafer._images
                 self.assertEqual(len(panels), 3, "Match, Wafer Trend and Wafer Bias, without a Group overview")
-                self.assertTrue(all(
-                    fixtures.drawing_cell(panel, wafer)[1] == 4 for panel in panels))
+                panel_cells = [
+                    fixtures.drawing_cell(panel, wafer)
+                    for panel in panels]
+                self.assertEqual(panel_cells[0][1], 4)
+                self.assertEqual(panel_cells[1][1], 4)
+                self.assertGreater(panel_cells[2][1], panel_cells[1][1])
                 widths.append(panels[1].anchor.ext.cx / 360000)
                 self.assertGreater(widths[-1], 0)
                 self.assertLess(widths[-1], 25, "Small wafer sheets must stay tight")
                 if native:
-                    categories = panels[1].series[0].cat.strRef
-                    self.assertEqual(categories.f, "'Match Wafer (WO Card)'!$C$3:$C$6")
-                    self.assertEqual([point.v for point in categories.strCache.pt], ['01', '02', '01', '02'])
+                    categories = panels[1].series[0].cat.numRef
+                    self.assertTrue(categories.f.startswith(
+                        "'_Plot data'!"))
+                    self.assertEqual(len(categories.numCache.pt), 4)
         self.assertAlmostEqual(widths[0], widths[1], places=4)
         after = self.window.workspace_snapshot()
         self.assertEqual(before.states, after.states)

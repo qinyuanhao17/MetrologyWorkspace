@@ -135,9 +135,10 @@ class ExcelExportTests(unittest.TestCase):
                              [ScatterChart, LineChart, LineChart])
             cells = [drawing_cell(chart, match) for chart in charts]
             self.assertEqual(cells[0][0], 0)
-            self.assertTrue(all(left[0] < right[0]
-                                for left, right in zip(cells, cells[1:])))
-            self.assertEqual([cell[1] for cell in cells], [4, 4, 4])
+            self.assertEqual(cells[0][1], cells[1][1])
+            self.assertLess(cells[0][0], cells[1][0])
+            self.assertEqual(cells[1][0], cells[2][0])
+            self.assertLess(cells[1][1], cells[2][1])
             self.assertNotEqual(charts[0].x_axis.numFmt.formatCode, "General")
             points = charts[0].series[0]
             self.assertEqual(points.xVal.numRef.f, "'Match Original (WO Card)'!$C$3:$C$5")

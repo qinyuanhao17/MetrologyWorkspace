@@ -4,7 +4,8 @@ from openpyxl.formula import Tokenizer
 
 def export_sheet_names(snapshot, *, matching):
     """Plan the writer's visible names without rendering charts or writing cells."""
-    from .excel_export import sheet_title, stage_suffix
+    from .excel_export import (
+        group_show_wafer_sheet_title, sheet_title, stage_suffix)
     names, used = [], set()
     def add(title, suffix=''):
         names.append(sheet_title(title, used, suffix))
@@ -32,6 +33,11 @@ def export_sheet_names(snapshot, *, matching):
         add('Match Original', suffix)
         if result.group_plan.enabled:
             add('Match Group', suffix)
+            shown = set(result.group_plan.state.get(
+                'show_wafer_groups', ()))
+            if shown.intersection(result.group_plan.group_keys):
+                names.append(
+                    group_show_wafer_sheet_title(used, suffix))
         add('Match Wafer', suffix)
         if result.group_plan.enabled:
             for key in result.group_plan.group_keys:

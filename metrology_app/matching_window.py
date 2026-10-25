@@ -2399,12 +2399,14 @@ class MatchingWindow(QMainWindow):
         """Ignore columns without measurements; never mutate the source sheet."""
         def nonblank(value):
             if isinstance(value, str):
-                return bool(value.strip())
+                return bool(value.strip(None))
             missing = pd.isna(value)
             return False if np.isscalar(missing) and missing else bool(str(value).strip())
 
-        literal_strings = (not preserve_rows and all(type(value) is str
-                           for value in frame.to_numpy(copy=False).ravel("K")))
+        # Keep the mixed/typed fallback, but classify a large literal sheet in
+        # pandas' native loop instead of checking every cell in Python.
+        literal_strings = (not preserve_rows and pd.api.types.infer_dtype(
+            frame.to_numpy(copy=False).ravel("K"), skipna=False) == "string")
         if preserve_rows or literal_strings:
             # Presence needs one nonblank value, not normalization of all cells.
             columns = np.fromiter((any(nonblank(value) for value in column)
@@ -2417,7 +2419,7 @@ class MatchingWindow(QMainWindow):
                     if not len(pending):
                         break
                     values = frame.iloc[:, column].to_numpy(copy=False)
-                    rows[pending] = np.fromiter((bool(value.strip()) for value in values[pending]),
+                    rows[pending] = np.fromiter((bool(value.strip(None)) for value in values[pending]),
                                                dtype=bool, count=len(pending))
         else:
             text = frame.fillna("").astype(str)

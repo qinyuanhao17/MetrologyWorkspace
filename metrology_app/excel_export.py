@@ -20,7 +20,7 @@ from openpyxl.chart import LineChart, Reference, ScatterChart, Series
 from openpyxl.chart.marker import Marker
 from openpyxl.chart.data_source import (AxDataSource, StrRef, StrData, MultiLevelStrRef,
                                         MultiLevelStrData, Level, StrVal, NumData, NumVal,
-                                        NumDataSource)
+                                        NumDataSource, NumRef)
 from openpyxl.chart.axis import ChartLines
 from openpyxl.chart.shapes import GraphicalProperties
 from openpyxl.drawing.line import LineProperties
@@ -53,12 +53,23 @@ MATCH_WIDTH_CM = 15
 TREND_WIDTH_CM = 25
 DYNAMIC_WIDTH_CM = 18
 CHART_HORIZONTAL_GAP_CM = 1.0
-CHART_VERTICAL_GAP_CM = 2.0
+CHART_VERTICAL_GAP_CM = 0.5
+MATCH_CHART_LEFT_MARGIN_CM = 3.0
+MATCH_CHART_RIGHT_MARGIN_CM = 0.7
 MARKER_HEADROOM = .03
 WAFER_PAGE_WIDTH_CM = 45.0
 FM_PICTURE_HEIGHT_CM = 30
 FM_PICTURE_WIDTH_CM = 72
 WAFER_MAP_CELL_HEIGHT_CM = 8
+
+
+def _match_chart_margins(width_cm):
+    """Preferred physical margins, capped so a tiny Group keeps a plot area."""
+    width_cm = max(.1, float(width_cm))
+    return (
+        min(MATCH_CHART_LEFT_MARGIN_CM, width_cm * .35),
+        min(MATCH_CHART_RIGHT_MARGIN_CM, width_cm * .15),
+    )
 
 
 def _checkpoint(book, message=None):
@@ -279,6 +290,14 @@ def sheet_title(base, used, suffix=""):
     return candidate
 
 
+def group_show_wafer_sheet_title(used, suffix=""):
+    """Keep every stage term inside Excel's 31-character sheet limit."""
+    base = 'Match Group show Wafer'
+    if len(base + suffix) > MAX_TITLE:
+        suffix = suffix.lstrip()
+    return sheet_title(base, used, suffix)
+
+
 def _write_frame(worksheet, frame, *, start_column=1):
     _checkpoint(worksheet.parent, f'Writing {worksheet.title}')
     if frame is None or not len(frame.columns):
@@ -459,11 +478,11 @@ def sequence_export_layout(data, *, mode, captions=()):
     empty = {"name": name, "x": np.array([]), "ticks": [], "limits": (0., 1.),
              "width": 0., "native_width": 0., "group_only_widths": {},
              "group_widths": {}, "wafer_widths": {}, "captions": list(captions),
-             "native_captions": list(captions)}
+             "native_captions": list(captions), "tick_indices": []}
     if not count:
         return empty
 
-    group_labels = (frame.get('Group caption', frame.get('Group label',
+    group_labels = (frame.get('Group label', frame.get('Group caption',
                     frame.get('Group', pd.Series([''] * count)))).astype(str).tolist())
     group_keys = frame.get('Group', pd.Series(group_labels)).astype(str).tolist()
     wafer_labels = frame.get('Wafer', frame.get('Label',
@@ -562,9 +581,12 @@ def sequence_export_layout(data, *, mode, captions=()):
             display = float(np.interp(source, source_edges, display_edges)) / total_width
             mapped[field] = display
         remapped.append(mapped)
-    ticks = [(float(x[index]), str(value)) for index, value in
-             enumerate(frame.get('Die Seq', pd.Series([''] * count)).tolist())
-             if index % max(1, int(np.ceil(count / 18))) == 0]
+    tick_step = max(1, int(np.ceil(count / 18)))
+    tick_indices = list(range(0, count, tick_step))
+    die_values = frame.get(
+        'Die Seq', pd.Series([''] * count)).tolist()
+    ticks = [(float(x[index]), str(die_values[index]))
+             for index in tick_indices]
     width_cm = (total_width + 110) * 2.54 / 96
     layout = {
         "name": name, "x": x, "ticks": ticks, "limits": (0., total_width),
@@ -573,6 +595,7 @@ def sequence_export_layout(data, *, mode, captions=()):
         "group_only_widths": group_only, "group_widths": group_widths,
         "wafer_widths": wafer_widths, "captions": remapped,
         "native_captions": list(captions), "captions_are_display": True,
+        "tick_indices": tick_indices,
     }
     return dict(layout)
 
@@ -612,6 +635,24 @@ def _wafer_page_specs(worksheet, first_row, data, columns, *, full=None):
     return specs
 
 
+def _native_identity_categories(helper, helper_row, layout, *, start=0):
+    """Cell-bound numeric x values shared by data, captions and dividers."""
+    values = np.asarray(layout["x"], dtype=float)
+    for offset, value in enumerate(values):
+        helper.cell(
+            row=helper_row + start + offset, column=3,
+            value=float(value))
+    last = helper_row + start + len(values) - 1
+    return AxDataSource(numRef=NumRef(
+        f=str(Reference(
+            helper, min_col=3, min_row=helper_row + start,
+            max_row=last)),
+        numCache=NumData(
+            formatCode="General", ptCount=len(values),
+            pt=[NumVal(idx=index, v=float(value))
+                for index, value in enumerate(values)])))
+
+
 def parameter_footer(sheet, first, data, columns, mode):
     """One wafer strip and, when grouped, a separate outer Group strip."""
     grouped = mode == 'group' and 'Group' in columns
@@ -622,7 +663,8 @@ def parameter_footer(sheet, first, data, columns, mode):
     if grouped:
         show = data.get('Show wafer', pd.Series([False] * len(data))).tolist()
         wafers = [item for item in wafers if show[round(item['start'] * len(data))]]
-        labels = data.get('Group caption', data['Group label']).tolist()
+        labels = data.get('Group label', data.get('Group caption',
+                        data['Group'])).tolist()
         return wafers + identity_captions(
             sheet, first, labels, groups, columns['Group'],
             limit=None, role='group', level=int(bool(wafers)))
@@ -680,17 +722,14 @@ def draw_sequence_axis(axis, sequence, dies=(), *, boundary_gap=0.0):
             lines = max((len(item['text'].splitlines()) for item in entries), default=1)
             end = offset + lines * 12 + 4
             visible = [item for item in entries if item['show']]
-            for item, (center, _width) in zip(visible, caption_boxes(visible)):
-                fraction = (center - .10) / .85
+            boxes = caption_boxes(
+                visible, (0., 1.), width_px=axis.bbox.width)
+            for item, (center, _width) in zip(visible, boxes):
+                fraction = center
                 axis.annotate(item['text'], (project(fraction), 0), xycoords=('data', 'axes fraction'),
                               xytext=(0, -offset), textcoords='offset points', ha='center', va='top',
                               fontsize=11, annotation_clip=False,
-                              bbox=dict(facecolor='white', edgecolor='none', pad=1), zorder=5)
-                if abs(fraction - item['center']) > .005:
-                    axis.annotate('', (project(item['center']), 0), xycoords=('data', 'axes fraction'),
-                                  xytext=(project(fraction), -offset + 3), textcoords=('data', 'offset points'),
-                                  arrowprops=dict(arrowstyle='-', color='#929292', linewidth=.5),
-                                  annotation_clip=False)
+                              bbox=dict(facecolor='none', edgecolor='none', pad=1), zorder=5)
             top = first_top if entries[0]['role'] == 'group' else offset - 8
             dense_wafers = entries[0]['role'] == 'wafer' and len(entries) > 12
             for boundary in sorted({v for item in entries if not dense_wafers or item['show']
@@ -781,7 +820,7 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
     )
     helper = worksheet.parent["_Plot data"]
     helper_row = helper.max_row + 3
-    for column, text in enumerate(("Source row", "Axis label", "Fit X", "Fit Y"), 1):
+    for column, text in enumerate(("Source row", "Axis label", "Plot X", "Fit Y"), 1):
         helper.cell(row=helper_row - 1, column=column, value=text)
     for offset, (label, value) in enumerate(zip(INFO_LABELS, facts)):
         helper.cell(row=helper_row + offset, column=10, value=label)
@@ -958,30 +997,43 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
             if len(page_specs) > 1:
                 wafer_pages = page_specs
                 layouts = [page_specs[0][3]]
+    panel_rows = max(
+        1, len(layouts) * (2 + int(bool(show_percent))))
     category_columns = [(columns["Group"], data["Group label"].tolist())] if "Group" in columns and not wafer_only else None
     detailed_columns = ([(columns["Group"], data["Group label"].tolist())] if "Group" in columns and not wafer_only else []) + [
         (columns["Wafer"], data["Wafer"].tolist()), (columns["Die Seq"], data["Die Seq"].tolist())]
-    for index, layout in enumerate(layouts) if native and wafer_pages is None else ():
-        categories = category_columns if index == 0 and category_columns else detailed_columns
-        if axis_mode == 'group' and category_columns:
-            categories = category_columns + [(columns['Die Seq'], data['Die Seq'].tolist())]
-        if axis_mode in ('die', 'group', 'wafer'):
-            layout['categories'] = AxDataSource(strRef=StrRef(
-                f=str(Reference(worksheet, min_col=columns['Die Seq'], min_row=first_row, max_row=last_row)),
-                strCache=StrData(ptCount=count, pt=[StrVal(idx=i, v=str(value))
-                    for i, value in enumerate(data['Die Seq'])]))) if count else None
-        else:
-            layout["categories"] = native_categories(worksheet, first_row, last_row, categories) if count else None
-    if native and wafer_pages is not None:
+    for layout in layouts:
+        if axis_mode in ('group', 'wafer') and count:
+            categories = _native_identity_categories(
+                helper, helper_row, layout)
+            if native:
+                layout['categories'] = categories
+    if native and wafer_pages is None:
+        for index, layout in enumerate(layouts):
+            categories = (
+                category_columns if index == 0 and category_columns
+                else detailed_columns)
+            if axis_mode == 'group' and category_columns:
+                categories = category_columns + [
+                    (columns['Die Seq'], data['Die Seq'].tolist())]
+            if axis_mode == 'die':
+                layout['categories'] = AxDataSource(strRef=StrRef(
+                    f=str(Reference(
+                        worksheet, min_col=columns['Die Seq'],
+                        min_row=first_row, max_row=last_row)),
+                    strCache=StrData(
+                        ptCount=count,
+                        pt=[StrVal(idx=i, v=str(value))
+                            for i, value in enumerate(data['Die Seq'])])))
+            elif axis_mode not in ('group', 'wafer'):
+                layout["categories"] = native_categories(
+                    worksheet, first_row, last_row, categories)
+    if wafer_pages is not None:
         for start, end, page_data, page_layout in wafer_pages:
-            page_layout['categories'] = AxDataSource(strRef=StrRef(
-                f=str(Reference(
-                    worksheet, min_col=columns['Die Seq'],
-                    min_row=first_row + start, max_row=first_row + end)),
-                strCache=StrData(
-                    ptCount=len(page_data),
-                    pt=[StrVal(idx=i, v=str(value)) for i, value
-                        in enumerate(page_data['Die Seq'])])))
+            categories = _native_identity_categories(
+                helper, helper_row, page_layout, start=start)
+            if native:
+                page_layout['categories'] = categories
     if count and wafer_pages is not None:
         page_count = len(wafer_pages)
         if native:
@@ -991,10 +1043,11 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
             chart_top = (
                 _row_top_cm(
                     worksheet, chart_row if chart_row is not None else row)
-                + chart_index * (PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
+                + chart_index * panel_rows * (
+                    PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
                 if chart_top_cm is None else chart_top_cm)
             for page_index, (start, end, page_data, page_layout) in enumerate(wafer_pages):
-                page_top = chart_top + page_index * (
+                page_top = chart_top + page_index * panel_rows * (
                     PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
                 _add_charts(
                     worksheet, row if chart_row is None else chart_row,
@@ -1021,20 +1074,31 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
             chart_top = (
                 _row_top_cm(
                     worksheet, chart_row if chart_row is not None else row)
-                + chart_index * (PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
+                + chart_index * panel_rows * (
+                    PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
                 if chart_top_cm is None else chart_top_cm)
             for page_index, (_start, _end, page_data, page_layout) in enumerate(wafer_pages):
-                page_top = chart_top + page_index * (
+                page_top = chart_top + page_index * panel_rows * (
                     PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
                 page_label = f"Page {page_index + 1}/{page_count}"
-                page_left = chart_left
                 panels = [
                     ("Match", None),
                     ("Trend", page_layout),
                     ("Bias", page_layout),
                     *((("Bias %", page_layout),) if show_percent else ()),
                 ]
+                right_row = 0
                 for panel, layout in panels:
+                    if panel == 'Match':
+                        position = (chart_left, page_top)
+                    else:
+                        position = (
+                            chart_left + MATCH_WIDTH_CM
+                            + CHART_HORIZONTAL_GAP_CM,
+                            page_top + right_row * (
+                                PANEL_HEIGHT_CM
+                                + CHART_VERTICAL_GAP_CM))
+                        right_row += 1
                     embed_parameter(
                         worksheet,
                         f"{get_column_letter(anchor)}"
@@ -1051,16 +1115,15 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
                         else float(mapping.bias_limit),
                         show_bias_limit=bool(
                             mapping is not None and mapping.show_bias_limit),
-                        position_cm=(page_left, page_top))
-                    width = MATCH_WIDTH_CM if panel == 'Match' else layout['width']
-                    page_left += width + CHART_HORIZONTAL_GAP_CM
+                        position_cm=position)
         return page_count
     if count and native:
         chart_left = _column_left_cm(
             worksheet, chart_column if chart_column is not None else len(headers) + 2)
         chart_top = (
             _row_top_cm(worksheet, chart_row if chart_row is None else chart_row)
-            + chart_index * (PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
+            + chart_index * panel_rows * (
+                PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
             if chart_top_cm is None else chart_top_cm)
         _add_charts(worksheet, row if chart_row is None else chart_row, first_row, last_row, parameter, fit, show_percent=show_percent,
                     raw=raw, reference=reference, evaluated=evaluated_values, equation=equation,
@@ -1078,12 +1141,22 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
         chart_left = _column_left_cm(worksheet, anchor)
         chart_top = (
             _row_top_cm(worksheet, chart_row if chart_row is None else chart_row)
-            + chart_index * (PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
+            + chart_index * panel_rows * (
+                PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
             if chart_top_cm is None else chart_top_cm)
         panels = [("Match", None)] + [(panel, layout) for layout in layouts
             for panel in ("Trend", "Bias", *(("Bias %",) if show_percent else ()))]
+        right_row = 0
         for panel, layout in panels:
-            position = (chart_left, chart_top)
+            if panel == 'Match':
+                position = (chart_left, chart_top)
+            else:
+                position = (
+                    chart_left + MATCH_WIDTH_CM
+                    + CHART_HORIZONTAL_GAP_CM,
+                    chart_top + right_row * (
+                        PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM))
+                right_row += 1
             embed_parameter(worksheet, f"{get_column_letter(anchor)}{row if chart_row is None else chart_row}",
                 f"{parameter} {panel} {layout['name'] if layout else ''} {scope} {stage}{stage_suffix(stage)}",
                 images, parameter, data, card, stage, scope, panel=panel, reference_label=reference_label,
@@ -1093,8 +1166,6 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
                 else float(mapping.bias_limit),
                 show_bias_limit=bool(mapping is not None and mapping.show_bias_limit),
                 position_cm=position)
-            width = MATCH_WIDTH_CM if panel == 'Match' else layout['width']
-            chart_left += width + CHART_HORIZONTAL_GAP_CM
     return 1
 
 
@@ -1107,12 +1178,14 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
                if chart_left_cm is None else chart_left_cm)
     top_cm = _row_top_cm(worksheet, row) if chart_top_cm is None else chart_top_cm
 
-    def add(chart):
-        nonlocal left_cm
+    right_left_cm = (
+        left_cm + MATCH_WIDTH_CM + CHART_HORIZONTAL_GAP_CM)
+    right_row = 0
+
+    def add(chart, left, top):
         chart.visible_cells_only = False  # Keep every charted range visible for Excel's source outlines.
         worksheet.add_chart(chart, f"{get_column_letter(anchor)}{row}")
-        worksheet._charts[-1]._export_position_cm = (left_cm, top_cm)
-        left_cm += chart.width + CHART_HORIZONTAL_GAP_CM
+        worksheet._charts[-1]._export_position_cm = (left, top)
     match = ScatterChart()
     match.scatterStyle = 'marker'
     match.title = f"{parameter} ({page_label})" if page_label else parameter
@@ -1139,7 +1212,7 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
                 xMode='edge', yMode='edge', x=.5 - label_width / 2, y=.08, w=label_width, h=.12))))
         match.layout = Layout(manualLayout=ManualLayout(
             layoutTarget='inner', xMode='edge', yMode='edge', x=.13, y=.24, w=.81, h=.60))
-    add(match)
+    add(match, left_cm, top_cm)
     valid = np.isfinite(raw) & np.isfinite(reference)
     chart_limits(match, reference[valid], raw[valid])
 
@@ -1152,6 +1225,8 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
         if show_percent:
             panels.append(("Bias %", ("Bias %",), percentages, 5))
         for panel, names, values, _baseline_column in panels:
+            panel_top = top_cm + right_row * (
+                PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
             chart = LineChart()
             chart._identity_count = last_row - first_row + 1
             chart.title = (
@@ -1162,7 +1237,27 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
             chart.y_axis.title = parameter if panel == "Trend" else f"Bias ({unit})" if panel == "Bias" and unit and unit != "1" else panel
             chart.height, chart.width = PANEL_HEIGHT_CM, layout["native_width"]
             chart._identity_captions = layout.get(
-                'native_captions', layout.get('captions'))
+                'captions', layout.get('native_captions'))
+            numeric_identity = getattr(
+                layout.get("categories"), "numRef", None) is not None
+            if numeric_identity:
+                chart._numeric_identity_axis = True
+                chart.x_axis.scaling.min, chart.x_axis.scaling.max = (
+                    layout["limits"])
+                tick_indices = layout.get(
+                    "tick_indices", range(len(layout.get("ticks", ()))))
+                die_column = get_column_letter(columns['Die Seq'])
+                chart._identity_axis_ticks = [
+                    (
+                        float(position),
+                        str(label),
+                        f"{quote_sheetname(worksheet.title)}!"
+                        f"${die_column}${first_row + source_index}",
+                    )
+                    for (position, label), source_index
+                    in zip(layout.get("ticks", ()), tick_indices)
+                ]
+                chart._identity_axis_range = layout["limits"]
             chart.x_axis.title = None
             chart.x_axis.tickLblSkip = max(1, int(np.ceil(len(raw) / 18)))
             if layout.get('mode') == 'die' or layout.get('captions'):
@@ -1199,7 +1294,8 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
                         solidFill="DC2626", w=19050, prstDash="dash")
                     chart.series.append(limit_series)
             chart_limits(chart, values, symmetric=panel != "Trend")
-            add(chart)
+            add(chart, right_left_cm, panel_top)
+            right_row += 1
 
 
 def _unit(reference_column):
@@ -1282,7 +1378,9 @@ def write_parameter_sheets(book, used_titles, result, workbook, *, native=True, 
     # Horizontal parameter tables, then source measurements to their right.
     # Keep one literal source table to the right of the prepared parameter tables.
     trend_width = max((widths[0] for widths in shared_widths.values()), default=TREND_WIDTH_CM)
-    chart_pixels = (MATCH_WIDTH_CM + (3 if 'percent' in workbook.bias_views else 2) * trend_width) * 96 / 2.54
+    chart_pixels = (
+        MATCH_WIDTH_CM + CHART_HORIZONTAL_GAP_CM + trend_width
+    ) * 96 / 2.54
     source_column = max(len(result.parameter_names) * (block_width + 1) + 1,
                         _next_plot_column(original, 1, chart_pixels + 120))
     original._source_start_column = source_column
@@ -1303,27 +1401,47 @@ def write_parameter_sheets(book, used_titles, result, workbook, *, native=True, 
             chart_row=chart_start, chart_index=index,
             chart_column=1)
     if result.group_plan.enabled:
-        grouped = book.create_sheet(sheet_title('Match Group', used_titles, suffix))
-        _fill_title(grouped)
-        group_row = 1
-        chart_start = 5
-        grouped.freeze_panes = 'A3'
-        for index, parameter in enumerate(result.parameter_names):
-            mapping = next((item for item in workbook.mappings if item.name == parameter), None)
-            _write_parameter_block(grouped, group_row, parameter, mapping,
-                grouped_data[parameter], result.card(parameter),
-                'Overall', 'Group', stage, native=native, images=images,
-                show_percent='percent' in workbook.bias_views, reference_label=workbook.match_type,
-                original=original, axis_mode='group',
-                start_column=1 + index * (block_width + 1),
-                chart_row=chart_start, chart_index=index,
-                chart_column=1)
+        group_views = [(
+            'Match Group',
+            'Group',
+            {
+                parameter: data.assign(**{'Show wafer': False})
+                for parameter, data in grouped_data.items()
+            },
+        )]
+        if any(data['Show wafer'].any() for data in grouped_data.values()):
+            group_views.append(
+                ('Match Group show Wafer', 'Group show Wafer', grouped_data))
+        for title, view_scope, view_data in group_views:
+            grouped = book.create_sheet(
+                group_show_wafer_sheet_title(used_titles, suffix)
+                if title == 'Match Group show Wafer'
+                else sheet_title(title, used_titles, suffix))
+            _fill_title(grouped)
+            group_row = 1
+            chart_start = 5
+            grouped.freeze_panes = 'A3'
+            for index, parameter in enumerate(result.parameter_names):
+                mapping = next(
+                    (item for item in workbook.mappings
+                     if item.name == parameter), None)
+                _write_parameter_block(
+                    grouped, group_row, parameter, mapping,
+                    view_data[parameter], result.card(parameter),
+                    'Overall', view_scope, stage, native=native, images=images,
+                    show_percent='percent' in workbook.bias_views,
+                    reference_label=workbook.match_type,
+                    original=original, axis_mode='group',
+                    start_column=1 + index * (block_width + 1),
+                    chart_row=chart_start, chart_index=index,
+                    chart_column=1)
     wafer = book.create_sheet(sheet_title("Match Wafer", used_titles, suffix))
     _fill_title(wafer)
     row = 1
     wafer_data = {p: _parameter_data(result, p, labels=plot_labels, order='wafer') for p in result.parameter_names}
     chart_start = 5
     chart_top_cm = None
+    wafer_panel_rows = 2 + int('percent' in workbook.bias_views)
     wafer.freeze_panes = 'A3'
     for index, parameter in enumerate(result.parameter_names):
         mapping = next((item for item in workbook.mappings if item.name == parameter), None)
@@ -1338,7 +1456,7 @@ def write_parameter_sheets(book, used_titles, result, workbook, *, native=True, 
             chart_column=1)
         if chart_top_cm is None:
             chart_top_cm = _row_top_cm(wafer, chart_start)
-        chart_top_cm += page_count * (
+        chart_top_cm += page_count * wafer_panel_rows * (
             PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
     plan = result.group_plan
     if not plan.enabled:
@@ -1622,10 +1740,18 @@ def _write_workbook(book, path, *, reference, stages, native, images, reports, e
 def style_workbook(book):
     """Use the Excel theme for charts, with one explicit default typeface."""
     from copy import copy
+    from openpyxl.drawing.colors import ColorChoice
     properties = CharacterProperties(latin=DrawingFont(typeface=EXPORT_FONT), sz=1400)
     def chart_text():
         tick_properties = CharacterProperties(latin=DrawingFont(typeface=EXPORT_FONT), sz=1100)
         return RichText(p=[Paragraph(pPr=ParagraphProperties(defRPr=tick_properties), endParaRPr=tick_properties)])
+    def hidden_chart_text():
+        tick_properties = CharacterProperties(
+            latin=DrawingFont(typeface=EXPORT_FONT), sz=100,
+            solidFill=ColorChoice(srgbClr='FFFFFF'))
+        return RichText(p=[Paragraph(
+            pPr=ParagraphProperties(defRPr=tick_properties),
+            endParaRPr=tick_properties)])
     # Font IDs are shared by every cell in this newly authored workbook.
     # Change their definitions once, retaining bold/size/colour. Iterating a
     # large worksheet also materializes all blank cells between plot blocks.
@@ -1653,11 +1779,19 @@ def style_workbook(book):
                     series.graphicalProperties.solidFill = PLOT_COLORS[index % len(PLOT_COLORS)]
             chart.x_axis.axPos = "b"
             chart.y_axis.axPos = "r" if chart.y_axis.axId == 200 else "l"
-            chart.x_axis.delete = chart.y_axis.delete = False
             chart.roundedCorners = False
             chart.plot_area.spPr = GraphicalProperties(
                 ln=LineProperties(solidFill="595959", w=15240, prstDash="solid"))
-            chart.x_axis.tickLblPos = "low"
+            numeric_identity = bool(
+                getattr(chart, "_numeric_identity_axis", False)
+                or any(
+                    series.cat is not None
+                    and series.cat.numRef is not None
+                    for series in chart.series))
+            chart.x_axis.delete = numeric_identity
+            chart.y_axis.delete = False
+            chart.x_axis.tickLblPos = (
+                "none" if numeric_identity else "low")
             chart.y_axis.tickLblPos = "nextTo"
             if hasattr(chart.x_axis, "noMultiLvlLbl"):
                 separate_captions = bool(getattr(chart, '_identity_captions', None))
@@ -1680,8 +1814,14 @@ def style_workbook(book):
                     from openpyxl.chart.layout import Layout, ManualLayout
                     from .native_chart_labels import footer_geometry
                     bottom, _rows = footer_geometry(chart._identity_captions)
+                    left_cm, right_cm = _match_chart_margins(chart.width)
+                    left = left_cm / chart.width
+                    right = right_cm / chart.width
+                    chart._identity_geometry = (left, 1 - left - right)
                     chart.layout = Layout(manualLayout=ManualLayout(
-                        layoutTarget='inner', xMode='edge', yMode='edge', x=.10, y=.15, w=.85, h=bottom - .15))
+                        layoutTarget='inner', xMode='edge', yMode='edge',
+                        x=left, y=.15, w=1 - left - right,
+                        h=bottom - .15))
                 chart.x_axis.tickLblSkip = chart.x_axis.tickLblSkip or max(1, int(np.ceil(count / 18)))
                 chart.x_axis.tickMarkSkip = chart.x_axis.tickLblSkip
             # Use Excel's own chart theme rather than copying Matplotlib's frame.
@@ -1704,13 +1844,18 @@ def style_workbook(book):
                     label.txPr.p[0].pPr.algn = 'ctr'
                     label.numFmt = NumFmt(formatCode='General', sourceLinked=False)
             for axis in (chart.x_axis, chart.y_axis):
-                axis.majorTickMark = "out"
+                axis.majorTickMark = (
+                    "none" if numeric_identity and axis is chart.x_axis
+                    else "out")
                 axis.minorTickMark = "none"
                 if axis.crosses != "max":
                     axis.crosses = "min"
                 axis.spPr = GraphicalProperties(
                     ln=LineProperties(solidFill="595959", w=15240, prstDash="solid"))
-                axis.txPr = chart_text()
+                axis.txPr = (
+                    hidden_chart_text()
+                    if numeric_identity and axis is chart.x_axis
+                    else chart_text())
                 axis.txPr.bodyPr.rot = 0
                 axis.txPr.bodyPr.horzOverflow = "overflow"
                 axis.txPr.bodyPr.vertOverflow = "overflow"
@@ -1923,6 +2068,7 @@ def parameter_figure(parameter, data, card, stage, scope, *, panel="Match", refe
     from matplotlib.figure import Figure
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     width = MATCH_WIDTH_CM if panel == "Match" else TREND_WIDTH_CM if sequence is None else sequence["width"]
+    left_cm, right_cm = _match_chart_margins(width)
     figure = Figure(figsize=(width / 2.54, PANEL_HEIGHT_CM / 2.54), facecolor="white")
     FigureCanvasAgg(figure)
     axis = figure.subplots()
@@ -1985,7 +2131,10 @@ def parameter_figure(parameter, data, card, stage, scope, *, panel="Match", refe
         else:
             axis.set_xticks([position for position, _label in selected], [label for _position, label in selected], fontsize=10)
             axis.set_xlim(.5, max(1, len(data)) + .5)
-    figure.subplots_adjust(left=2.0 / width, right=1 - .7 / width, bottom=bottom / PANEL_HEIGHT_CM, top=.81)
+    figure.subplots_adjust(
+        left=left_cm / width,
+        right=1 - right_cm / width,
+        bottom=bottom / PANEL_HEIGHT_CM, top=.81)
     if panel != 'Match' and sequence is not None and 'Die Seq' in data:
         draw_sequence_axis(axis, sequence, data['Die Seq'].tolist(), boundary_gap=0.035)
     if axis.get_xlabel() == "Wafer":

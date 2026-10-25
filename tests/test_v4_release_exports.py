@@ -57,12 +57,46 @@ class ReleaseExportTests(unittest.TestCase):
             original_cat = original._charts[1].series[0].cat
             self.assertIsNone(original_cat.multiLvlStrRef)
             self.assertIsNotNone(original_cat.strRef)
-            self.assertIsNotNone(group._charts[1].series[0].cat.strRef)
-            self.assertIsNone(group._charts[1].series[0].cat.multiLvlStrRef)
+            group_axis = group._charts[1]
+            self.assertIsNotNone(group_axis.series[0].cat.numRef)
+            self.assertIsNone(group_axis.series[0].cat.strRef)
+            self.assertIsNone(group_axis.series[0].cat.multiLvlStrRef)
+            # openpyxl round-trips the valid OOXML "none" as None.
+            self.assertIsNone(group_axis.x_axis.tickLblPos)
+            self.assertEqual(
+                group_axis.x_axis.txPr.p[0].pPr.defRPr
+                .solidFill.srgbClr,
+                "FFFFFF")
+            from zipfile import ZipFile
+            from xml.etree import ElementTree as ET
+            with ZipFile(Path(folder) / 'axes.xlsx') as archive:
+                hidden_numeric_axes = 0
+                for name in archive.namelist():
+                    if not (name.startswith('xl/charts/chart')
+                            and name.endswith('.xml')):
+                        continue
+                    tree = ET.fromstring(archive.read(name))
+                    ns = {
+                        'c': 'http://schemas.openxmlformats.org/'
+                             'drawingml/2006/chart'}
+                    cat_axis = tree.find('.//c:catAx', ns)
+                    if (cat_axis is not None
+                            and cat_axis.find('c:delete', ns) is not None
+                            and cat_axis.find('c:delete', ns).get('val')
+                            == '1'):
+                        hidden_numeric_axes += 1
+                self.assertGreaterEqual(hidden_numeric_axes, 2)
             self.assertIsNotNone(wafer._charts[1].x_axis.title)
             for sheet in book:
                 for chart in sheet._charts:
-                    self.assertEqual(chart.x_axis.majorTickMark, 'out')
+                    numeric_x = any(
+                        series.cat is not None
+                        and series.cat.numRef is not None
+                        for series in chart.series)
+                    if numeric_x:
+                        self.assertIsNone(chart.x_axis.majorTickMark)
+                    else:
+                        self.assertEqual(chart.x_axis.majorTickMark, 'out')
                     self.assertEqual(chart.y_axis.majorTickMark, 'out')
                 if sheet.title.startswith('Match '):
                     for chart in sheet._charts[2:]:
@@ -260,8 +294,17 @@ class ReleaseExportTests(unittest.TestCase):
                 root = ET.fromstring(archive.read(part))
                 ns = {'d': 'http://schemas.openxmlformats.org/drawingml/2006/chartDrawing',
                       'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'}
-                captions = [anchor for anchor in root if anchor.find('d:sp[@textlink]', ns) is not None]
+                captions = [
+                    anchor for anchor in root
+                    if anchor.find('d:sp[@textlink]', ns) is not None
+                    and anchor.find(
+                        'd:sp/d:nvSpPr/d:cNvPr', ns)
+                    .get('name', '').startswith('Caption')]
                 self.assertEqual([''.join(t.text for t in anchor.findall('.//a:t', ns)) for anchor in captions], names)
+                self.assertFalse(any(
+                    anchor.find('d:sp/d:nvSpPr/d:cNvPr', ns)
+                    .get('name', '').startswith('Leader')
+                    for anchor in root))
                 for left, right in zip(captions, captions[1:]):
                     self.assertLess(float(left.find('d:to/d:x', ns).text), float(right.find('d:from/d:x', ns).text))
                 for anchor in root:

@@ -43,12 +43,15 @@ def _shape(root, index, name, start, end, *, text=None, source=None, color='0000
     if text is None:
         _child(properties, A, 'noFill')
     else:
-        _child(_child(properties, A, 'solidFill'), A, 'srgbClr', val='FFFFFF')
+        _child(properties, A, 'noFill')
     line = _child(properties, A, 'ln', w=str(width))
     if text is not None:
         _child(line, A, 'noFill')
         body = _child(shape, D, 'txBody')
-        _child(body, A, 'bodyPr', wrap='square', anchor='t', lIns='0', rIns='0', tIns='0', bIns='0')
+        _child(
+            body, A, 'bodyPr', wrap='none', anchor='t',
+            lIns='0', rIns='0', tIns='0', bIns='0',
+            horzOverflow='overflow', vertOverflow='overflow')
         _child(body, A, 'lstStyle')
         for value in ([str(text)] if source else str(text).splitlines()):
             paragraph = _child(body, A, 'p')
@@ -81,15 +84,18 @@ def footer_geometry(labels):
     return top - .14, rows
 
 
-def _drawing(labels):
+def _drawing(
+        labels, geometry=(.10, .85), width_px=None, *,
+        axis_ticks=(), axis_range=None):
     root = ET.Element(f'{{{C}}}userShapes')
+    left, width = geometry
     plot_bottom, rows = footer_geometry(labels)
     index = 1
     group_edges = {item['start'] for item in labels if item.get('role') == 'group'}
     for role in ('wafer', 'group'):
         edges = {item['start'] for item in labels if item.get('role', 'wafer') == role and item['start'] > 0}
         for edge in sorted(edges - group_edges if role == 'wafer' else edges):
-            x = .10 + .85 * edge
+            x = left + width * edge
             _shape(root, index, f'{role.title()} plot divider', (x, .15), (x, plot_bottom),
                    color='C8C8C8' if role == 'wafer' else '000000', width=9525 if role == 'wafer' else 19050,
                    dashed=True)
@@ -101,13 +107,18 @@ def _drawing(labels):
                              for v in (item['start'], item['end'])})
         boundary_top = min(v[0] for v in rows.values()) if entries[0].get('role') == 'group' else top
         for value in boundaries:
-            x = .10 + .85 * value
+            x = left + width * value
             _shape(root, index, f"{entries[0].get('role', 'wafer').title()} boundary",
                    (x, boundary_top - .015), (x, bottom + .015),
                    color='929292' if dense_wafers else '000000', width=9525 if dense_wafers else 19050)
             index += 1
         visible = [item for item in entries if item.get('show', True)]
-        index = _captions(root, visible, top, bottom, index)
+        index = _captions(
+            root, visible, top, bottom, index, geometry, width_px)
+    if axis_ticks and axis_range is not None:
+        index = _axis_tick_labels(
+            root, labels, geometry, width_px, index,
+            axis_ticks, axis_range)
     # Group boundaries span both footer levels. Paint every caption last so
     # those later structural lines cannot cross the Wafer text above it.
     captions = [anchor for anchor in root if anchor.find(f'{{{D}}}sp/{{{D}}}txBody') is not None]
@@ -117,30 +128,103 @@ def _drawing(labels):
     return ET.tostring(root, encoding='utf-8', xml_declaration=True)
 
 
-def caption_boxes(labels):
+def caption_boxes(labels, geometry=(.10, .85), *, width_px=None):
     """Non-overlapping normalized caption boxes shared by both report renderers."""
-    available = .90 / max(1, len(labels)) - .012
-    widths = [min(.22, available, max(.07, .009 * max(map(len, item['text'].splitlines()), default=1))) for item in labels]
-    centers = [.10 + .85 * item['center'] for item in labels]
+    left, width = geometry
+    available = width / max(1, len(labels)) - .012
+    if width_px:
+        from matplotlib.backends.backend_agg import RendererAgg
+        from matplotlib.font_manager import FontProperties
+        renderer = RendererAgg(1, 1, 96)
+        font = FontProperties(family='Times New Roman', size=11)
+        measured = [
+            max((
+                renderer.get_text_width_height_descent(
+                    line, font, False)[0]
+                for line in item['text'].splitlines()),
+                default=0) + 8
+            for item in labels]
+        widths = [
+            min(.22, available, max(.025, pixel_width / width_px))
+            for pixel_width in measured]
+    else:
+        widths = [
+            min(.22, available, max(
+                .07, .009 * max(
+                    map(len, item['text'].splitlines()),
+                    default=1)))
+            for item in labels]
+    centers = [left + width * item['center'] for item in labels]
     if centers:
-        centers[0] = max(centers[0], .04 + widths[0] / 2)
+        centers[0] = max(centers[0], left + widths[0] / 2)
     for position in range(1, len(centers)):
         centers[position] = max(centers[position], centers[position - 1] + (widths[position - 1] + widths[position]) / 2 + .012)
     if centers:
-        centers[-1] = min(centers[-1], .97 - widths[-1] / 2)
+        centers[-1] = min(
+            centers[-1], left + width - widths[-1] / 2)
         for position in range(len(centers) - 2, -1, -1):
             centers[position] = min(centers[position], centers[position + 1] - (widths[position + 1] + widths[position]) / 2 - .012)
     return list(zip(centers, widths))
 
 
-def _captions(root, labels, top, bottom, index):
-    for item, (center, width) in zip(labels, caption_boxes(labels)):
-        actual = .10 + .85 * item['center']
-        if abs(actual - center) > .005:
-            # Both coordinates are true chart fractions. The connector explains
-            # a displaced caption without moving or resampling observations.
-            _shape(root, index, 'Leader', (actual, top - .035), (center, top - .005), width=9525)
-            index += 1
+def _axis_tick_labels(
+        root, labels, geometry, width_px, index, axis_ticks, axis_range):
+    """Cell-linked, sparse Die Seq ticks beneath a numeric chart axis."""
+    from matplotlib.backends.backend_agg import RendererAgg
+    from matplotlib.font_manager import FontProperties
+    left, plot_width = geometry
+    width_px = float(width_px or 3000.)
+    renderer = RendererAgg(1, 1, 96)
+    font = FontProperties(family='Times New Roman', size=11)
+    title_font = FontProperties(family='Times New Roman', size=12)
+    low, high = (float(value) for value in axis_range)
+    span = max(1e-12, high - low)
+    plot_bottom, rows = footer_geometry(labels)
+    footer_top = min(top for top, _bottom in rows.values())
+    tick_top, tick_bottom = plot_bottom + .01, plot_bottom + .045
+    title_top = tick_bottom + .008
+    title_bottom = min(footer_top - .006, title_top + .04)
+    selected, last_right = [], -1e9
+    for tick_index, (position, label, source) in enumerate(axis_ticks):
+        lines = str(label).splitlines() or ['']
+        measure = max(
+            (renderer.get_text_width_height_descent(
+                line, font, False)[0]
+             for line in lines),
+            default=0) + 8
+        fraction = min(1., max(0., (position - low) / span))
+        center_px = (left + plot_width * fraction) * width_px
+        if (tick_index == 0 or tick_index == len(axis_ticks) - 1
+                or center_px - measure / 2 > last_right + 4):
+            selected.append((fraction, measure / width_px, label, source))
+            last_right = center_px + measure / 2
+    for fraction, label_width, label, source in selected:
+        center = left + plot_width * fraction
+        _shape(
+            root, index, 'Die Seq tick',
+            (center - label_width / 2, tick_top),
+            (center + label_width / 2, tick_bottom),
+            text=label, source=source)
+        index += 1
+    title = 'Die Seq'
+    title_width = (
+        renderer.get_text_width_height_descent(
+            title, title_font, False)[0] + 12) / width_px
+    center = left + plot_width / 2
+    _shape(
+        root, index, 'Die Seq axis title',
+        (center - title_width / 2, title_top),
+        (center + title_width / 2, title_bottom),
+        text=title)
+    return index + 1
+
+
+def _captions(
+        root, labels, top, bottom, index, geometry=(.10, .85),
+        width_px=None):
+    for item, (center, width) in zip(
+            labels, caption_boxes(
+                labels, geometry, width_px=width_px)):
         _shape(root, index, 'Caption', (center - width / 2, top), (center + width / 2, bottom),
                text=item['text'], source=item['source'])
         index += 1
@@ -169,7 +253,12 @@ def write_identity_drawings(book, path, checkpoint):
             _child(relationships, P, 'Relationship', Id=rel_id, Target='/' + drawing_path,
                    Type=R + '/chartUserShapes')
             replacements[rels_path] = ET.tostring(relationships, encoding='utf-8', xml_declaration=True)
-            additions[drawing_path] = _drawing(labels)
+            additions[drawing_path] = _drawing(
+                labels,
+                getattr(chart, '_identity_geometry', (.10, .85)),
+                chart.width * 96 / 2.54,
+                axis_ticks=getattr(chart, '_identity_axis_ticks', ()),
+                axis_range=getattr(chart, '_identity_axis_range', None))
             _child(content_types, T, 'Override', PartName='/' + drawing_path,
                    ContentType='application/vnd.openxmlformats-officedocument.drawingml.chartshapes+xml')
         replacements['[Content_Types].xml'] = ET.tostring(content_types, encoding='utf-8', xml_declaration=True)

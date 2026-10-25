@@ -52,3 +52,34 @@ class AnalysisInputPresenceTests(unittest.TestCase):
         elapsed = perf_counter()-start
         self.assertLess(elapsed, .35, f'First input presence scan blocked for {elapsed:.3f}s')
         pd.testing.assert_frame_equal(actual, frame)
+
+    def test_object_scalars_and_typed_missing_values_keep_original_presence_rules(self):
+        class StripBlank(str):
+            def strip(self, *args):
+                return ''
+
+        class ArgumentStrip(str):
+            def strip(self, chars='default'):
+                return '' if chars is None else 'visible'
+
+        frames = [
+            pd.DataFrame({'A': [pd.NaT, pd.NA, np.nan, None, np.str_('  '), StripBlank('text')],
+                          'B': [pd.Timestamp('2026-10-25'), False, 0, np.float64(1.25), ' 1.000 ', '']},
+                         dtype=object),
+            pd.DataFrame({'A': pd.to_datetime([None, '2026-10-25', None]),
+                          'B': ['', '', '  ']}),
+            pd.DataFrame({'A': pd.to_timedelta([None, '1 day', None]),
+                          'B': ['', '', '  ']}),
+            pd.DataFrame({'A': [b'', b' ', np.bytes_(''), b'value'],
+                          'B': ['', '', '', '']}, dtype=object),
+            pd.DataFrame({'A': [StripBlank('text'), np.str_('  '), '1.000'],
+                          'B': ['', '', '']}, dtype=object),
+            pd.DataFrame({'A': [ArgumentStrip('text')], 'B': ['']}, dtype=object),
+        ]
+        for frame in frames:
+            with self.subTest(dtypes=tuple(map(str, frame.dtypes))):
+                before = frame.copy(deep=True)
+                actual = MatchingWindow._analysis_input_frame(frame, preserve_rows=False)
+                expected = original_mask(frame, list(frame.columns), False)
+                pd.testing.assert_frame_equal(actual, expected)
+                pd.testing.assert_frame_equal(frame, before)

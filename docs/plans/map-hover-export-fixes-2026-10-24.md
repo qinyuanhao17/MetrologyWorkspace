@@ -106,18 +106,31 @@ SciPy 的 RBF 求值释放 GIL，实测 12 个 batch：串行 2.76 s、8 线程 
   圆点；Match 散点、Correlation 拟合、Bias limit 和零基准线保持辅助样式。
 - Match Original 保留 25 cm Die Seq 基线。Match Group 不再强制与 Original
   同宽，也不设置最大宽度。
-- Group 不显示 Wafer 时，以所有 Group 均不显示 Wafer 的场景计算：最小
-  Group 紧贴完整 Group 标签，其他 Group 按有限测量点数量增长。
-- Group 显示 Wafer 时，独立按该 Group 内所有 Wafer 的完整可见标签确定宽度；
-  混合显示时两类 Group 宽度直接相加。
+- `Match Group` 始终只显示 Group：最小 Group 紧贴完整标签，其他 Group
+  按有限测量点数量成比例增长，从而为整张长图确定紧贴总宽度。
+- Group 名称在 x 轴使用单行文本。Native 与 Matplotlib 的所有 identity
+  caption 都在真实区间中心落位；需要避让时只做最小位移，不再绘制拉线。
+  文字框不换行且透明，分界线不会在 caption 后方断开。
+- WKB 有 Show Wafer Group 时额外生成 `Match Group show Wafer`。未 Show Wafer
+  的 Group 沿用 group-only 宽度；Show Wafer 的 Group 独立按完整 Wafer / LOT /
+  PAD 标签和完整分界线确定宽度。WO 阶段因 Excel 31 字符限制省略名称中的
+  一个空格，使用 `Match Group show Wafer(WO Card)`。
+- Native 长图使用 3 cm 左边距和 0.7 cm 右边距；Matplotlib 使用同一物理边距，
+  身份 caption、Wafer/Group 分界线与绘图区同步对齐。
 - Match Wafer 对全部 Wafer 应用同一紧贴规则，所有当前启用的
   Wafer / LOT / PAD 行均保留，不省略。超过 45 cm 时按完整 Wafer
   分页，单个本身超过 45 cm 的标签仍保留全文；页面标题标明 `Page x/y`。
 - Excel 原生图和 Matplotlib 图片共享每个 Group/Wafer 面板计算出的物理宽度。
+- Group/Wafer 的 Native 长图使用 `_Plot data` 中的 cell-bound numeric x，
+  与分析数据、remap 后的 caption 和分界线共用同一坐标；隐藏自动数值刻度，
+  并由 chart userShapes 重新绘制稀疏、可随单元格更新的 Die Seq 刻度和标题，
+  避免 Excel 将非等宽 Group 重新按等距 category 绘制。
 - FullMap 的 Wafer Map 与 Radius 取两者可见行数的最大值统一定高，
   保存后的图片高度一致。
 - Match 页的 Match、Trend、Bias 图改为绝对物理定位：横向图间距固定 1 cm，
-  纵向参数行间距固定 2 cm，避免 Excel 行高/列宽导致一边过疏、一边过密。
+  纵向参数行间距固定 5 mm，避免 Excel 行高/列宽导致一边过疏、一边过密。
+- Match 放在左侧方形面板；Trend、Bias、Bias % 在右侧顺序纵向堆叠，
+  下一参数从完整面板组下方开始。
 - Trend 和 Bias 的 Y 轴在数据范围之外保留约 3% 的 marker 半径余量；实测
   AA Trend 为 13.7–24.3，Bias 为 -0.318–0.318，边界圆点不再被图框裁切。
 - 可执行覆盖：`test_export_hover_fixes`、`test_excel_report_layout`、

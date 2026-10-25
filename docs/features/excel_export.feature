@@ -42,7 +42,8 @@ Feature: Export analysis with editable Excel charts or Matplotlib pictures
     Given NOVA contains Head A and Head B with their own source rows
     When either renderer exports the Workbook
     Then Match Original uses Die ticks in original source-row order
-    And Match Group uses Group and Die labels at the same panel width
+    And Match Group uses only Group captions at a tight proportional width
+    And Match Group show Wafer uses the WKB Show Wafer choices
     And Match Wafer collects contiguous Wafer identities with sparse captions
     And the individual group sheets retain Head A and Head B in their names
     And no separate Original, Match, Group Fits, Order or All Trend sheet is added
@@ -54,6 +55,20 @@ Feature: Export analysis with editable Excel charts or Matplotlib pictures
     And grouped parameter tables collect each Group and Wafer, Lot and PAD identity
     And their PMISH values reference the matching Match Original source row
     And the source document and its selected plotting order remain unchanged
+
+  Scenario: Separate group-only and Wafer-expanded Group reports
+    Given Old and New groups have different point counts
+    And only New MM1 and New MM2 are set to Show Wafer
+    When the grouped Workbook is exported in either mode
+    Then Match Group uses only Group captions and the smallest Group sets the tight scale
+    And larger Groups keep widths proportional to their plotted point counts
+    And Group captions are single-line and centred without leader lines
+    And Match Group show Wafer appears for both stages
+    And Groups without Show Wafer keep their Match Group widths
+    And Show Wafer Groups expand to fit every Wafer label and complete separator line
+    And Native Group and Wafer data share the caption numeric x scale
+    And automatic internal numeric x tick text remains hidden
+    And sparse cell-linked Die Seq ticks remain below the plot
 
   Scenario: Read a separate Wafer report without changing Original
     Given original rows alternate between W2 and W1 across different Groups
@@ -87,9 +102,11 @@ Feature: Export analysis with editable Excel charts or Matplotlib pictures
     And a Group with visible Wafers scales from the complete Wafer labels inside that Group
     And visible Wafer, Lot and PAD fields are never omitted to force a narrower panel
     And Group and Wafer widths match between the two export renderers
-    And Match chart panels keep a 1 cm horizontal gap and a 2 cm vertical gap
+    And long identity charts keep a 3 cm left margin and a 0.7 cm right margin
+    And Match chart panels keep a 1 cm horizontal gap and a 5 mm vertical gap
     And Trend and Bias axes leave marker headroom beyond every plotted value
     And Group and Wafer separator bars sit below, detached from the coordinate axes
+    And identity captions never use leader lines
     And Wafer views do not add a redundant Wafer axis title
     And independent panels align with the full-width parameter heading
     And ordinal horizontal limits leave only a small margin around the observations
@@ -100,6 +117,14 @@ Feature: Export analysis with editable Excel charts or Matplotlib pictures
     Then every data curve uses a 2.5 pt line and 6 pt circle markers
     And a secondary Trend axis uses the same stroke and marker size
     And Match fits, Correlation fits, zero baselines and Bias limits keep their auxiliary styles
+
+  Scenario: Stack Match identity panels for wide Trends
+    Given a Match parameter has Match, Trend, Bias and optional Bias percent
+    When the Workbook is exported in either mode
+    Then Match occupies the left square panel
+    And Trend, Bias and Bias percent stack vertically to its right
+    And every right-hand panel starts at the same left coordinate
+    And the next parameter begins below the complete panel group
 
   Scenario: Choose an export renderer
     Given an analysis has selected measurements and software fitted results
