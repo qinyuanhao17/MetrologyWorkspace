@@ -164,3 +164,8 @@ profile-after 中此分支的 fillna/astype 调用均消失；同步次数和保
 
 工作区中途出现的 `excel_export.py`、`export_rendering.py`、相关导出测试及两份
 导出文档修改属于本阶段之外的现场修改，保留且不混入 P0 checkpoint。
+
+2026-10-25 此新增范围的独立测量、代码说明与验收限制见
+[大表冷操作补充交接](p0-table-cold-handoff-2026-10-25.md)。首次连选、全选和纯表格
+Undo 已消除原数秒枚举成本；完整分析 Undo 和 Writer Undo 仍不达全部流畅目标，
+没有把这一新增要求整体计为完成。

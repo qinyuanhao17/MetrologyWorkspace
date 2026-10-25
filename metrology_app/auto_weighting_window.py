@@ -15,10 +15,16 @@ from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QDialog
 from .auto_weighting import Cell, WriterDocument, export_excel
 from .workspace_document import WkbDocument, commit_editors, recovery_decision
 from .workspace_store import WorkspaceSnapshot, file_revision, load_workspace
+from .table_selection import RangeSelectionTableView
 
 
 class WriterTableModel(QAbstractTableModel):
     changed = pyqtSignal()
+
+    @property
+    def uniform_selection_flags(self):
+        return (type(self).flags is WriterTableModel.flags
+                and type(self).headerData is WriterTableModel.headerData)
 
     def __init__(self, window, kind):
         super().__init__(window)
@@ -226,7 +232,7 @@ class AutoWeightingWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.table_models, self.views = {}, {}
         for kind, label in [('parameters', 'Base Parameters'), ('steps', 'Multiple Step')]:
-            model, view = WriterTableModel(self, kind), QTableView()
+            model, view = WriterTableModel(self, kind), RangeSelectionTableView()
             view.setModel(model)
             view.setAlternatingRowColors(False)
             view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)

@@ -19,6 +19,7 @@ from .plotting import InteractivePlotWidget
 from .settings import get_settings
 from .sheet import clipboard_rows
 from .table_clipboard import ClipboardRangeOutline, copy_selection, selection_bounds
+from .table_selection import RangeSelectionTableView
 
 
 PLOT_WIDTH = 420
@@ -60,6 +61,11 @@ class DynamicPivotModel(QAbstractTableModel):
     the numbered cells are editable, which is how an engineer drops an outlier
     before the repeatability statistics are recomputed.
     """
+
+    @property
+    def uniform_selection_flags(self):
+        return (type(self).flags is DynamicPivotModel.flags
+                and type(self).headerData is DynamicPivotModel.headerData)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -170,7 +176,7 @@ class DynamicPivotModel(QAbstractTableModel):
             )
 
 
-class DynamicPivotView(QTableView):
+class DynamicPivotView(RangeSelectionTableView):
     """Pivot grid with the same clipboard and undo keys as the Data sheet."""
 
     def __init__(self, model, history=None):

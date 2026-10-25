@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 from .settings import get_settings
 from .metadata_locks import ColumnLockDelegate, is_metadata_column
 from .table_clipboard import ClipboardRangeOutline, copy_selection, selection_bounds
+from .table_selection import RangeSelectionHeader, RangeSelectionTableView
 
 
 HEADER_COLOURS = {"dark": ("#201629", "#d6b9f5"), "light": ("#f0f0f2", "#18181b")}
@@ -142,19 +143,42 @@ class CellEdit(QUndoCommand):
     def __init__(self, model, changes, *, document_rows=None):
         super().__init__("Edit cells")
         self.model = model
-        self.before = {cell: model.cells.get(cell, "") for cell in changes}
-        self.after = changes
+        self._before_cells = {cell: model.cells.get(cell, "") for cell in changes}
+        self._after_cells = changes
+        self.before = MappingProxyType(self._before_cells)
+        self.after = MappingProxyType(changes)
+        self.before_mode = self._value_mode(self.before)
+        self.after_mode = self._value_mode(self.after)
         self.before_rows = model._document_rows
         self.after_rows = max(self.before_rows if document_rows is None else document_rows,
                               max((row for (row, _), value in changes.items() if value), default=0))
+        # Command-owned immutable keys have the same bounds for Undo and Redo.
+        self.bounds = (min(r for r, _ in changes), min(c for _, c in changes),
+                       max(r for r, _ in changes), max(c for _, c in changes))
+        self.before_extent = max(self.before_rows,
+                                 max((r for (r, _), value in self.before.items() if value), default=0))
+
+    @staticmethod
+    def _value_mode(changes):
+        # Immutable command values: C-level update/clear are exact only for
+        # uniformly populated/blank edits. Mixed edits keep the ordinary loop.
+        return True if all(changes.values()) else False if not any(changes.values()) else None
 
     def redo(self):
         self.model._document_rows = self.after_rows
-        self.model.apply(self.after)
+        if type(self.model).apply is SheetModel.apply:
+            self.model._apply_changes(self._after_cells, bounds=self.bounds, document_rows=self.after_rows,
+                                      value_mode=self.after_mode)
+        else:
+            self.model.apply(self.after)
 
     def undo(self):
         self.model._document_rows = self.before_rows
-        self.model.apply(self.before)
+        if type(self.model).apply is SheetModel.apply:
+            self.model._apply_changes(self._before_cells, bounds=self.bounds, document_rows=self.before_extent,
+                                      value_mode=self.before_mode)
+        else:
+            self.model.apply(self.before)
 
 
 class TableReplace(QUndoCommand):
@@ -301,6 +325,11 @@ class SheetModel(QAbstractTableModel):
     def uniform_selectable(self):
         return type(self).flags is SheetModel.flags and type(self).headerData is SheetModel.headerData
 
+    @property
+    def uniform_selection_flags(self):
+        return (type(self).flags is SheetModel.flags
+                and type(self).headerData is SheetModel.headerData)
+
     def setData(self, index, value, role=Qt.ItemDataRole.EditRole):
         if role != Qt.ItemDataRole.EditRole or not index.isValid():
             return False
@@ -376,10 +405,13 @@ class SheetModel(QAbstractTableModel):
         return self._preserves_record_positions
 
     def apply(self, changes):
+        self._apply_changes(changes)
+
+    def _apply_changes(self, changes, *, bounds=None, document_rows=None, value_mode=None):
         previous = self._frame_change
         self._frame_change = changes
         try:
-            self._apply_cells(changes)
+            self._apply_cells(changes, bounds=bounds, document_rows=document_rows, value_mode=value_mode)
         finally:
             self._frame_change = previous
 
@@ -392,15 +424,25 @@ class SheetModel(QAbstractTableModel):
         """
         return MappingProxyType(self._frame_change) if self._frame_change is not None else None
 
-    def _apply_cells(self, changes):
-        renamed_locks = {self.cells.get((0, column), ""): value if is_metadata_column(value) else ""
-                         for (row, column), value in changes.items()
-                         if row == 0 and self.cells.get((0, column), "") in self.clipboard_locks}
+    def _apply_cells(self, changes, *, bounds=None, document_rows=None, value_mode=None):
+        if bounds is None:
+            bounds = (min(r for r, _ in changes), min(c for _, c in changes),
+                      max(r for r, _ in changes), max(c for _, c in changes))
+        top, left, bottom, right = bounds
+        renamed_locks = {}
+        if self.clipboard_locks and top <= 0 <= bottom:
+            headers = ((0, c) for c in range(left, right + 1)) if right-left < len(changes) else (key for key in changes if key[0] == 0)
+            if any(key in changes and self.cells.get(key, "") in self.clipboard_locks for key in headers):
+                # Duplicate locked draft headers keep the original last-write
+                # rule, which follows command insertion order, not column order.
+                renamed_locks = {self.cells.get((0, c), ""): value if is_metadata_column(value) else ""
+                                 for (r, c), value in changes.items()
+                                 if r == 0 and self.cells.get((0, c), "") in self.clipboard_locks}
         self._invalidate_frames()
         self._revision += 1
         self._preserves_record_positions = True
-        rows = max(self.height, max(r for r, _ in changes) + 21)
-        cols = max(self.width, max(c for _, c in changes) + 4)
+        rows = max(self.height, bottom + 21)
+        cols = max(self.width, right + 4)
         if rows > self.height:
             self.beginInsertRows(QModelIndex(), self.height, rows - 1)
             self.height = rows
@@ -409,20 +451,26 @@ class SheetModel(QAbstractTableModel):
             self.beginInsertColumns(QModelIndex(), self.width, cols - 1)
             self.width = cols
             self.endInsertColumns()
-        for key, value in changes.items():
-            if value:
-                self.cells[key] = value
-            else:
-                self.cells.pop(key, None)
+        if value_mode is True:
+            self.cells.update(changes)
+        elif value_mode is False and self.cells.keys() <= changes.keys():
+            self.cells.clear()
+        else:
+            for key, value in changes.items():
+                if value:
+                    self.cells[key] = value
+                else:
+                    self.cells.pop(key, None)
         if renamed_locks:
             # Undo/Redo can restore an earlier header name despite the lock.
             # Keep metadata protected on its slot; absent/nonmetadata headers
             # must not leave invisible locks or lock every reserved blank cell.
             self.set_clipboard_locks({renamed_locks.get(name, name) for name in self.clipboard_locks} - {""})
-        self._document_rows = max(self._document_rows,
-                                  max((row for (row, _), value in changes.items() if value), default=0))
-        first = self.index(min(r for r, _ in changes), min(c for _, c in changes))
-        last = self.index(max(r for r, _ in changes), max(c for _, c in changes))
+        if document_rows is None:
+            document_rows = max((row for (row, _), value in changes.items() if value), default=0)
+        self._document_rows = max(self._document_rows, document_rows)
+        first = self.index(top, left)
+        last = self.index(bottom, right)
         self.dataChanged.emit(first, last)
         self.changed.emit()
 
@@ -759,7 +807,7 @@ class DuplicateHeaderBanner(QFrame):
         return renames
 
 
-class _SheetHeader(QHeaderView):
+class _SheetHeader(RangeSelectionHeader):
     """Native header styling with range-based selection for uniform sheets.
 
     Qt's header asks isColumnSelected for each painted column, which calls
@@ -783,56 +831,7 @@ class _SheetHeader(QHeaderView):
         painter.drawLine(x, y + 3, x + 3, y)
         painter.restore()
 
-    def initStyleOptionForIndex(self, option, section):
-        model = self.model()
-        if not getattr(model, "uniform_selectable", False):
-            return super().initStyleOptionForIndex(option, section)
-        self.initStyleOption(option)
-        horizontal = self.orientation() == Qt.Orientation.Horizontal
-        count = model.rowCount() if horizontal else model.columnCount()
-        ranges = self.selectionModel().selection()
-
-        def selected(index):
-            spans = sorted((r.top(), r.bottom()) if horizontal else (r.left(), r.right())
-                           for r in ranges if (r.left() <= index <= r.right() if horizontal
-                                               else r.top() <= index <= r.bottom()))
-            end = -1
-            for low, high in spans:
-                if low > end + 1:
-                    break
-                end = max(end, high)
-            return bool(spans), end >= count - 1 and count > 0
-
-        intersects, full = selected(section)
-        if self.sectionsClickable():
-            if self.underMouse() and self.logicalIndexAt(self.mapFromGlobal(QCursor.pos())) == section:
-                option.state |= QStyle.StateFlag.State_MouseOver
-            if self.highlightSections():
-                if intersects:
-                    option.state |= QStyle.StateFlag.State_On
-                if full:
-                    option.state |= QStyle.StateFlag.State_Sunken
-        option.section = section
-        option.text = str(model.headerData(section, self.orientation(), Qt.ItemDataRole.DisplayRole) or "")
-        alignment = model.headerData(section, self.orientation(), Qt.ItemDataRole.TextAlignmentRole)
-        option.textAlignment = alignment if alignment is not None else self.defaultAlignment()
-        visual = self.visualIndex(section)
-        option.position = (QStyleOptionHeader.SectionPosition.OnlyOneSection if self.count() == 1
-                           else QStyleOptionHeader.SectionPosition.Beginning if visual == 0
-                           else QStyleOptionHeader.SectionPosition.End if visual == self.count() - 1
-                           else QStyleOptionHeader.SectionPosition.Middle)
-        before, after = selected(self.logicalIndex(visual - 1))[1], selected(self.logicalIndex(visual + 1))[1]
-        option.selectedPosition = (QStyleOptionHeader.SelectedPosition.NextAndPreviousAreSelected if before and after
-                                   else QStyleOptionHeader.SelectedPosition.PreviousIsSelected if before
-                                   else QStyleOptionHeader.SelectedPosition.NextIsSelected if after
-                                   else QStyleOptionHeader.SelectedPosition.NotAdjacent)
-        if self.isSortIndicatorShown() and self.sortIndicatorSection() == section:
-            option.sortIndicator = (QStyleOptionHeader.SortIndicator.SortDown
-                                    if self.sortIndicatorOrder() == Qt.SortOrder.AscendingOrder
-                                    else QStyleOptionHeader.SortIndicator.SortUp)
-
-
-class SheetView(QTableView):
+class SheetView(RangeSelectionTableView):
     table_pasted = pyqtSignal()
     paste_report_changed = pyqtSignal()
 

@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 from .match_groups import participation_ids, participation_source_keys, row_ids, filter_mask
 from .match_group_ui import ColumnFilterDialog
 from .table_clipboard import attach_copy_feedback
+from .table_selection import RangeSelectionTableView
 
 
 _PARTICIPATION_FLAGS = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
@@ -21,6 +22,11 @@ _USE_FLAGS = _PARTICIPATION_FLAGS | Qt.ItemFlag.ItemIsUserCheckable
 
 class ParticipationModel(QAbstractTableModel):
     changed = pyqtSignal()
+
+    @property
+    def uniform_selection_flags(self):
+        return (type(self).flags is ParticipationModel.flags
+                and type(self).headerData is ParticipationModel.headerData)
 
     def __init__(self, frame, record_ids, checked, parent=None):
         super().__init__(parent)
@@ -99,7 +105,7 @@ class ParticipationModel(QAbstractTableModel):
         self.set_rows(self.rows)
 
 
-class ParticipationView(QTableView):
+class ParticipationView(RangeSelectionTableView):
     """Click anywhere on a row; Shift applies the anchor's state to visible rows."""
     def __init__(self, parent=None):
         super().__init__(parent)

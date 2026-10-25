@@ -54,6 +54,9 @@ def selection_workflows(dialog, frame, measure, app):
     measure("bulk_check_visible", table, action=lambda: dialog.check_visible(True))
     assert model.checked == set(model.ids)
     for name, expected in (("shift_uncheck_range", set()), ("shift_check_range", set(model.ids))):
+        # Force a new selection delta for BOTH directions. The custom release
+        # handler can otherwise retain the old range and hide cold Qt cost.
+        table.clearSelection()
         first, last = model.index(0, 1), model.index(rows - 1, 1)
         table.scrollTo(first)
         app.processEvents()
@@ -96,6 +99,151 @@ def projected_edits(frame, model, projected, view, visible_rows, measure, app):
     model.undo.clear()
 
 
+def workbook_keys(frame, path, measure, app, *, stage="preview"):
+    """First keys on actual subscribed Workbook grids, not a naked SheetModel."""
+    import pandas as pd
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtTest import QTest
+    from metrology_app.matching import MatchWorkbook
+    from metrology_app.matching_window import MatchingWindow
+    from metrology_app.workspace_store import load_workspace
+
+    window = MatchingWindow()
+    try:
+        snapshot = load_workspace(path)
+        book = MatchWorkbook.from_snapshot(snapshot)
+        # Fresh analysis with the real source/mappings. Restoring the WKB's
+        # hundreds of saved individual plot widgets is a different benchmark.
+        window.match_type.setCurrentText(book.match_type)
+        window.document.timer.stop()
+        window._auto_run_enabled = False
+        window.result_mode.setCurrentText("Preview")
+        source = snapshot.frames["reference"]
+        reference = pd.concat([source]*math.ceil(len(frame)/len(source)), ignore_index=True).iloc[:len(frame)].copy()
+        window.set_reference_frame(reference)
+        window.set_raw_frame(frame)
+        window._populate_mappings(book.mappings)
+        window.group_controls.restore({"enabled": False, "mark_enabled": False, "trend_order": "original"},
+                                      pd.DataFrame({"TestFlag": [""]*len(frame)}))
+        window.run_analysis()
+        if stage == "final":
+            window.result_mode.setCurrentText("Final")
+            window.set_raw_frame(frame.copy())
+            window.run_analysis()
+        window.resize(1500, 950)
+        window.show()
+        app.processEvents()
+
+        def ready():
+            return not window._auto_run_pending and not window._raw_keyboard_timer.isActive()
+
+        def drain():
+            deadline = perf_counter()+60
+            while not ready():
+                assert perf_counter() < deadline, "Workbook analysis timed out"
+                QTest.qWait(5)
+            app.processEvents()
+
+        def exercise(name, view, model, parameter, *, analysis=True):
+            window.setup_scroll.ensureWidgetVisible(view)
+            view.setFocus()
+            app.processEvents()
+            measure(name+"_first_select_all", view, Qt.Key.Key_A)
+            bounds = model.selection_bounds()
+            actual = [(r.top(), r.left(), r.bottom(), r.right()) for r in view.selectionModel().selection()]
+            assert actual == ([bounds] if bounds else [])
+            view.clearSelection()
+            before = model.document_frame()
+            column = model.source_headers().index(parameter)
+            value = str(float(before.iat[0, column])+.001) if str(before.iat[0, column]).strip() else "1"
+            model.edit({(1, column): value})
+            drain()
+            view.setCurrentIndex(view.model().index(1, column))
+            measure(name+"_first_undo", view, Qt.Key.Key_Z, until=ready if analysis else None)
+            pd.testing.assert_frame_equal(model.document_frame(), before)
+            if analysis:
+                assert window._analysis_current
+
+        mapping = window.selected_mappings()[0]
+        if stage == "preview":
+            exercise("workbook_raw", window.raw_view, window.raw_model, mapping.raw_column)
+            exercise("workbook_reference", window.reference_view, window.reference_model, mapping.reference_column)
+            exercise("workbook_order", window.order_view, window.group_controls.order_model, "TestFlag", analysis=False)
+        else:
+            preview = window.raw_model.document_frame()
+            exercise("workbook_final", window.raw_view, window.final_raw_model, mapping.raw_column)
+            pd.testing.assert_frame_equal(window.raw_model.document_frame(), preview)
+            assert window.result.result_mode == "final"
+    finally:
+        window.document.force_close = True
+        window.document.timer.stop()
+        window.close()
+        window.deleteLater()
+        app.processEvents()
+
+
+def auxiliary_keys(rows, measure, app):
+    """Other QTableView implementations, using their own real history paths."""
+    import pandas as pd
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QAbstractItemView
+    from metrology_app.auto_weighting import Cell, step_columns
+    from metrology_app.auto_weighting_window import AutoWeightingWindow
+    from metrology_app.dynamic_page import DynamicPivotModel, DynamicPivotView
+
+    pivot = DynamicPivotModel()
+    pivot.set_frame(pd.DataFrame(1.123456789, index=[*range(rows-1), '3 Sigma'],
+                                columns=range(33)))
+    view = DynamicPivotView(pivot)
+    view.resize(850, 330)
+    view.show()
+    app.processEvents()
+    measure('dynamic_first_select_all', view, Qt.Key.Key_A)
+    span = view.selectionModel().selection()[0]
+    assert (span.bottom(), span.right()) == (rows-1, 32)
+    view.close()
+    view.deleteLater()
+
+    window = AutoWeightingWindow()
+    writer_rows = min(rows, 10000)  # WriterDocument's validated row limit.
+    window.writer.columns['steps'] = step_columns(20)
+    window.writer.tables['parameters'] = [[Cell(text=v, reviewed=True) for v in
+        (f'P{i:06}', '1.123456789000', '0', '2')] for i in range(writer_rows)]
+    window.writer.tables['steps'] = [[Cell(text=v, reviewed=True) for v in
+        [f'P{i:06}', *(['Fix', '1.123456789000']*20)]] for i in range(writer_rows)]
+    window._refresh()
+    window.resize(1000, 600)
+    window.show()
+    window.document.timer.stop()
+    window.document.mark_clean()
+    try:
+        for kind in ('parameters', 'steps'):
+            window.tabs.setCurrentIndex(0 if kind == 'parameters' else 1)
+            table = window.views[kind]
+            table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+            app.processEvents()
+            measure(f'writer_{kind}_first_select_all', table, Qt.Key.Key_A)
+            span = table.selectionModel().selection()[0]
+            assert (span.bottom(), span.right()) == (writer_rows-1, len(window.writer.columns[kind])-1)
+        baseline = window.writer.to_dict()
+        table = window.views['steps']
+        model = table.model()
+        measure('writer_steps_single_edit', table,
+                action=lambda: model.setData(model.index(0, 2), '1.987654321000'))
+        assert window.writer.tables['steps'][0][2].text == '1.987654321000'
+        measure('writer_steps_first_undo', table, action=window.undo,
+                until=lambda: not window.document.identity_timer.isActive())
+        assert window.writer.to_dict() == baseline
+        measure('writer_steps_first_redo', table, action=window.redo,
+                until=lambda: not window.document.identity_timer.isActive())
+        assert window.writer.tables['steps'][0][2].text == '1.987654321000'
+    finally:
+        window.document.closed()
+        window.hide()
+        window.deleteLater()
+        app.processEvents()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rows", nargs="+", type=int, default=[1000, 10000, 100000])
@@ -108,6 +256,12 @@ def main():
     parser.add_argument("--interactions", action="store_true", help="Also measure sort/filter/hidden-row/bulk selection workflows")
     parser.add_argument("--screenshot", type=Path)
     parser.add_argument("--projected-edits", action="store_true")
+    parser.add_argument("--accessibility", action="store_true",
+                        help="Activate native Qt accessibility with a UI Automation WM_GETOBJECT request")
+    parser.add_argument("--workbook-keys", action="store_true", help="Also probe first keys in subscribed Workbook grids (requires --wkb)")
+    parser.add_argument("--workbook-only", action="store_true", help="Probe Workbook keys in a fresh process without earlier Sheet interactions")
+    parser.add_argument("--workbook-stage", choices=("preview", "final"), default="preview")
+    parser.add_argument("--auxiliary-only", action="store_true", help="Probe Dynamic pivot and AutoWeighting Writer tables")
     parser.add_argument("--profile-actions", nargs="*", default=[],
                         help="Profile selected operations separately from acceptance timings")
     args = parser.parse_args()
@@ -189,7 +343,16 @@ def main():
                 args.screenshot.parent.mkdir(parents=True, exist_ok=True)
                 view.grab().save(str(args.screenshot.with_name(f"{args.screenshot.stem}-{rows}.png")))
 
-            def measure(name, widget, key=None, control=True, *, action=None):
+            def measure(name, widget, key=None, control=True, *, action=None, until=None):
+                if args.accessibility:
+                    if args.platform != "windows":
+                        parser.error("--accessibility requires --platform windows")
+                    import ctypes
+                    from ctypes import wintypes
+                    send = ctypes.WinDLL("user32", use_last_error=True).SendMessageW
+                    send.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+                    send.restype = ctypes.c_ssize_t
+                    send(int(widget.window().winId()), 0x003D, 0, -25)
                 ticks = []
                 timer = QTimer(interval=10)
                 timer.timeout.connect(lambda: ticks.append(perf_counter()))
@@ -204,6 +367,12 @@ def main():
                 else:
                     QTest.keyClick(widget, key, Qt.KeyboardModifier.ControlModifier
                                    if control else Qt.KeyboardModifier.NoModifier)
+                dispatch = (perf_counter() - start)*1000
+                if until is not None:
+                    deadline = perf_counter()+60
+                    while not until():
+                        assert perf_counter() < deadline, f"{name} did not complete"
+                        QTest.qWait(5)
                 app.processEvents()
                 viewport = widget.viewport() if hasattr(widget, "viewport") else widget
                 viewport.repaint()
@@ -214,15 +383,27 @@ def main():
                     profiler.disable()
                 samples.append({"rows": rows, "iteration": iteration, "operation": name,
                                 "wall_ms": (end - start) * 1000,
+                                "dispatch_ms": dispatch,
                                 "cpu_ms": (process_time() - cpu) * 1000,
                                 "max_gap_ms": max(b - a for a, b in zip(ticks, ticks[1:])) * 1000,
                                 **memory_info()})
+                if name.startswith("workbook_"):
+                    print(json.dumps({"operation": name, "wall_ms": (end-start)*1000,
+                                      "dispatch_ms": dispatch}), flush=True)
                 if profiler is not None:
                     report = args.output.with_name(f"{args.output.stem}-{rows}-{iteration}-{name}.profile.txt")
                     with report.open("w", encoding="utf-8") as stream:
                         pstats.Stats(profiler, stream=stream).strip_dirs().sort_stats("cumulative").print_stats(45)
 
             try:
+                if args.auxiliary_only:
+                    auxiliary_keys(rows, measure, app)
+                    continue
+                if args.workbook_only:
+                    if args.wkb is None:
+                        parser.error("--workbook-only requires --wkb")
+                    workbook_keys(frame, args.wkb, measure, app, stage=args.workbook_stage)
+                    continue
                 measure("select_all", view, Qt.Key.Key_A)
                 measure("copy", view, Qt.Key.Key_C)
                 copied = list(csv.reader(StringIO(app.clipboard().text()), delimiter="\t"))
@@ -252,6 +433,10 @@ def main():
                 measure("scroll_top", view, action=lambda: view.scrollTo(model.index(0, 0)))
                 if selection_dialog is not None:
                     selection_workflows(selection_dialog, frame, measure, app)
+                if args.workbook_keys and iteration == 0:
+                    if args.wkb is None:
+                        parser.error("--workbook-keys requires --wkb")
+                    workbook_keys(frame, args.wkb, measure, app, stage=args.workbook_stage)
                 print(json.dumps({"rows": rows, "iteration": iteration, "exact_text_and_undo": "pass"}), flush=True)
             finally:
                 if not args.reuse_views or iteration == args.count - 1 or sys.exc_info()[0] is not None:
@@ -266,7 +451,7 @@ def main():
     for rows, name in dict.fromkeys((row["rows"], row["operation"]) for row in samples):
         group = [row for row in samples if row["rows"] == rows and row["operation"] == name]
         result = {"rows": rows, "operation": name, "count": len(group)}
-        for key in ("wall_ms", "cpu_ms", "max_gap_ms", "rss", "private", "peak"):
+        for key in ("wall_ms", "dispatch_ms", "cpu_ms", "max_gap_ms", "rss", "private", "peak"):
             values = sorted(row[key] for row in group if row[key] is not None)
             result[key] = ({"p50": statistics.median(values),
                             "p95": values[math.ceil(len(values) * .95) - 1], "max": max(values)}
@@ -276,6 +461,12 @@ def main():
     args.output.write_text(json.dumps({"count": args.count, "columns": len(frame.columns),
                                       "environment": environment, "reuse_views": args.reuse_views,
                                       "projected_edits": args.projected_edits,
+                                      "workbook_stage": args.workbook_stage if args.workbook_only or args.workbook_keys else None,
+                                      "auxiliary_only": args.auxiliary_only,
+                                      "auxiliary_dimensions": ({"dynamic_columns": 33, "writer_rows": min(args.rows[-1], 10000),
+                                                                 "writer_parameter_columns": 4, "writer_step_columns": 41}
+                                                                if args.auxiliary_only else None),
+                                      "accessibility_requested": args.accessibility,
                                       "source_path": str(args.wkb) if args.wkb else None,
                                       "source_sha256": source_hash,
                                       "code_root": str(args.code_root.resolve()),

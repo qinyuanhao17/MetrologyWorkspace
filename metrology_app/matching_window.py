@@ -84,6 +84,7 @@ from .settings import (
 )
 from .sheet import DuplicateHeaderBanner, SheetModel, SheetView, column_letter
 from .table_clipboard import attach_copy_feedback
+from .table_selection import RangeSelectionTableView
 from .widgets import ScrollSafeComboBox
 from .workspace_store import EXTENSIONS, MATCH_FILTER, WorkspaceSnapshot, file_revision, load_workspace, save_workspace, workspace_path
 from .workspace_document import WkbDocument, commit_editors, local_snapshot, local_ui, recovery_decision, recovery_directory, writable_path
@@ -293,6 +294,11 @@ class _AnalysisWindowMenu(QMenu):
 class DataFrameModel(QAbstractTableModel):
     """Read-only, lazy Qt view over a DataFrame; no per-cell object cache."""
 
+    @property
+    def uniform_selection_flags(self):
+        return (type(self).flags is QAbstractTableModel.flags
+                and type(self).headerData is DataFrameModel.headerData)
+
     def __init__(self, frame=None, parent=None, *, quality_limits=None):
         super().__init__(parent)
         self.frame = frame if frame is not None else pd.DataFrame()
@@ -356,6 +362,11 @@ class DataFrameModel(QAbstractTableModel):
 
 class _WaferMetricsModel(DataFrameModel):
     checkedChanged = pyqtSignal(int, bool)
+
+    @property
+    def uniform_selection_flags(self):
+        return (type(self).flags is _WaferMetricsModel.flags
+                and type(self).headerData is _WaferMetricsModel.headerData)
 
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if index.isValid() and self.frame.columns[index.column()] == "Draw":
@@ -431,7 +442,7 @@ class _DrawCellDelegate(QStyledItemDelegate):
                              Qt.ItemDataRole.CheckStateRole)
 
 
-class _WaferMetricsView(QTableView):
+class _WaferMetricsView(RangeSelectionTableView):
     clearRequested = pyqtSignal()
 
     def __init__(self, *args, **kwargs):
@@ -1644,7 +1655,7 @@ class MatchingWindow(QMainWindow):
             duplicate_banner = DuplicateHeaderBanner(model)
             layout.addWidget(duplicate_banner)
         else:
-            view = QTableView()
+            view = RangeSelectionTableView()
             duplicate_banner = None
             view.setModel(model)
             attach_copy_feedback(view)
@@ -2033,12 +2044,19 @@ class MatchingWindow(QMainWindow):
                        if column < len(frame.columns)}
             for mapping in mapping_state:
                 mapping["raw_column"] = renamed.get(mapping["raw_column"], mapping["raw_column"])
-        same_raw_schema = (name != "reference" and changed is not None
-                           and all(row > 0 for row, _ in changed)
-                           and getattr(self, "_mapping_schema", None) == (tuple(self.reference_frame.columns), tuple(frame.columns)))
-        # Raw value edits do not alter Reference numeric qualification or the
-        # name-based Raw suggestions. Keep the user's existing mapping controls.
-        if not same_raw_schema:
+        same_mapping_controls = (name != "reference" and changed is not None
+                                 and all(row > 0 for row, _ in changed)
+                                 and getattr(self, "_mapping_schema", None) == (tuple(self.reference_frame.columns), tuple(frame.columns)))
+        if (name == "reference" and changed is not None
+                and all(row > 0 for row, _ in changed)
+                and getattr(self, "_mapping_schema", None) == (tuple(frame.columns), tuple(self._active_raw_frame().columns))):
+            numeric = set(inspect_table(frame)[2])
+            candidates = tuple(str(column) for column in frame
+                               if column in numeric or str(column).strip().lower().endswith(" reference"))
+            same_mapping_controls = candidates == getattr(self, "_mapping_candidates", None)
+        # Reference eligibility is rechecked on its edits. When candidates and
+        # both schemas are unchanged, value edits cannot change mapping controls.
+        if not same_mapping_controls:
             if name != "reference" and changed and any(row == 0 for row, _ in changed):
                 for mapping in mapping_state:
                     if mapping["raw_column"] in frame.columns:
@@ -2379,29 +2397,40 @@ class MatchingWindow(QMainWindow):
     @staticmethod
     def _analysis_input_frame(frame, *, headers=None, preserve_rows=True):
         """Ignore columns without measurements; never mutate the source sheet."""
-        if preserve_rows:
-            # Column presence only needs the first nonblank value. Do not
-            # rescan every cell of a wide table for each keyboard edit.
-            def nonblank(value):
-                if isinstance(value, str):
-                    return bool(value.strip())
-                missing = pd.isna(value)
-                return False if np.isscalar(missing) and missing else bool(str(value).strip())
+        def nonblank(value):
+            if isinstance(value, str):
+                return bool(value.strip())
+            missing = pd.isna(value)
+            return False if np.isscalar(missing) and missing else bool(str(value).strip())
 
+        literal_strings = (not preserve_rows and all(type(value) is str
+                           for value in frame.to_numpy(copy=False).ravel("K")))
+        if preserve_rows or literal_strings:
+            # Presence needs one nonblank value, not normalization of all cells.
             columns = np.fromiter((any(nonblank(value) for value in column)
                                    for _name, column in frame.items()), dtype=bool,
                                   count=len(frame.columns))
+            if not preserve_rows:
+                rows = np.zeros(len(frame), dtype=bool)
+                for column in np.flatnonzero(columns):
+                    pending = np.flatnonzero(~rows)
+                    if not len(pending):
+                        break
+                    values = frame.iloc[:, column].to_numpy(copy=False)
+                    rows[pending] = np.fromiter((bool(value.strip()) for value in values[pending]),
+                                               dtype=bool, count=len(pending))
         else:
             text = frame.fillna("").astype(str)
             populated = text.apply(lambda column: column.str.strip().ne(""))
             columns = populated.any(axis=0).to_numpy()
+            rows = populated.any(axis=1)
         result = frame.iloc[:, columns].copy()
         if headers is None:
             headers = [name if str(name).strip() else f"Column {column_letter(column)}"
                        for column, name in enumerate(frame.columns)]
         result.columns = [name for name, keep in zip(headers, columns) if keep]
         if not preserve_rows:
-            result = result.loc[populated.any(axis=1)]
+            result = result.loc[rows]
         return result.reset_index(drop=True)
 
     @staticmethod

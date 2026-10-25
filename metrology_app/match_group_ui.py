@@ -149,6 +149,12 @@ class ProjectedSheetModel(QAbstractProxyModel):
     def uniform_selectable(self):
         return getattr(self.sourceModel(), "uniform_selectable", False)
 
+    @property
+    def uniform_selection_flags(self):
+        return (type(self).flags is ProjectedSheetModel.flags
+                and type(self).headerData is ProjectedSheetModel.headerData
+                and getattr(self.sourceModel(), "uniform_selection_flags", False))
+
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
         if orientation == Qt.Orientation.Vertical and role == Qt.ItemDataRole.DisplayRole:
             return str(self.source_row(section) + 1)
@@ -211,6 +217,11 @@ class ProjectedSheetModel(QAbstractProxyModel):
 
 
 class OrderModel(SheetModel):
+    @property
+    def uniform_selection_flags(self):
+        return (type(self).flags is OrderModel.flags
+                and type(self).headerData is OrderModel.headerData)
+
     def __init__(self):
         super().__init__()
         self.plan = None
@@ -226,11 +237,27 @@ class OrderModel(SheetModel):
     def selection_bounds(self):
         if self._selection_bounds is None:
             # Head/Mark/Group are visible calculated cells, not stored flags.
-            rows = len(self.plan.raw) + 1 if self.plan is not None else 1
-            calculated = (((row, column), self.data(self.index(row, column)))
-                          for row in range(rows) for column in range(1, 4))
             flags = ((key, value) for key, value in self.cells.items() if key[1] == 0)
-            self._selection_bounds = nonempty_cell_bounds(chain(flags, calculated))
+            if type(self).data is not OrderModel.data:
+                rows = len(self.plan.raw) + 1 if self.plan is not None else 1
+                calculated = (((row, column), self.data(self.index(row, column)))
+                              for row in range(rows) for column in range(1, 4))
+                self._selection_bounds = nonempty_cell_bounds(chain(flags, calculated))
+            else:
+                bounds = nonempty_cell_bounds(flags)
+                top, left, bottom = (min(0, bounds[0]), 0, bounds[2]) if bounds else (0, 1, 0)
+                if self.plan is not None:
+                    flagged = np.flatnonzero(np.asarray(self.plan.flags, dtype=bool))[::-1]
+                    for column in range(1, 4):
+                        visible_unflagged = ((column == 2 and self.plan.mark_enabled)
+                                             or (column == 3 and self.plan.mark_only))
+                        rows = range(len(self.plan.raw)-1, -1, -1) if visible_unflagged else flagged
+                        values = self.plan.order_frame.iloc[:, column].to_numpy(copy=False)
+                        for row in rows:
+                            if str(values[row]).strip():
+                                bottom = max(bottom, int(row)+1)
+                                break
+                self._selection_bounds = top, left, bottom, 3
         return self._selection_bounds
 
     def rowCount(self, parent=QModelIndex()):
@@ -464,10 +491,12 @@ class GroupControls(QWidget):
             return
         self.reference, self.raw = reference, raw
         if len(raw) and len(reference) <= len(raw):
-            ids = participation_ids(raw, self.state.get("data_selection"))
+            ids = None
             for config in (self.state, self.state.get("applied", {})):
                 selection = config.get("data_selection")
                 if selection is not None and not selection["records"]:
+                    if ids is None:
+                        ids = participation_ids(raw, self.state.get("data_selection"))
                     selection["records"] = [{"key": key, "id": identifier} for key, identifier in zip(row_ids(raw), ids)]
         self.refresh()
 
@@ -479,8 +508,8 @@ class GroupControls(QWidget):
                            if ref is self.reference and raw is self.raw and saved == state), None)
             if cached is None:
                 previous = next((plan for ref, raw, saved, plan in self._source_plans
-                                 if saved == state and raw.equals(self.raw)
-                                 and (ref is self.reference or ref.equals(self.reference))), None)
+                                 if saved == state and (ref is self.reference or ref.equals(self.reference))
+                                 and (raw is self.raw or raw.equals(self.raw))), None)
                 if previous is not None:
                     # Undo can replay an exact detached snapshot. Rebind a new
                     # plan shell, never mutate the earlier result's sources or
@@ -490,7 +519,7 @@ class GroupControls(QWidget):
             self.plan = cached or GroupPlan(self.raw, self.order_model.flags_frame(len(self.raw)),
                                             state, self.reference)
             self._source_plans = [(ref, raw, saved, plan) for ref, raw, saved, plan in self._source_plans
-                                  if raw is not self.raw][-1:]
+                                  if ref is not self.reference or raw is not self.raw][-1:]
             self._source_plans.append((self.reference, self.raw, copy_group_state(state), self.plan))
             detail = "; ".join(f"{spec['table']} / {spec['column']}" for spec in self.state["filters"])
             self.status.setText(f"{len(self.plan.included_rows):,} / {len(self.raw):,} paired rows · "

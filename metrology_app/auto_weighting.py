@@ -45,11 +45,35 @@ class Cell:
         return 'uncollected' if not self.collected else ('visible_blank' if not self.text else 'value')
 
     def to_dict(self):
+        # Most table cells contain only immutable scalars and empty review
+        # lists. Preserve asdict's output and detachment without recursively
+        # inspecting the same nine dataclass fields for every plain cell.
+        if (type(self) is Cell and type(self.text) is str and type(self.source) is str
+                and type(self.raw) is str and type(self.confidence) in (float, int)
+                and type(self.collected) is bool and type(self.reviewed) is bool
+                and type(self.bbox) is tuple and all(type(v) is int for v in self.bbox)
+                and type(self.alternatives) is list and not self.alternatives
+                and type(self.history) is list and not self.history):
+            return {'text': self.text, 'source': self.source, 'bbox': self.bbox,
+                    'confidence': self.confidence, 'collected': self.collected,
+                    'reviewed': self.reviewed, 'raw': self.raw,
+                    'alternatives': [], 'history': []}
         return asdict(self)
 
     @classmethod
     def from_dict(cls, value):
-        cell = cls(**deepcopy(value))
+        if (cls is Cell and type(value) is dict and value.keys() == Cell.__dataclass_fields__.keys()
+                and type(value['text']) is str and type(value['source']) is str
+                and type(value['raw']) is str and type(value['confidence']) in (float, int)
+                and type(value['collected']) is bool and type(value['reviewed']) is bool
+                and type(value['bbox']) is tuple and all(type(v) is int for v in value['bbox'])
+                and type(value['alternatives']) is list and not value['alternatives']
+                and type(value['history']) is list and not value['history']
+                and value['alternatives'] is not value['history']):
+            detached = dict(value, alternatives=[], history=[])
+        else:
+            detached = deepcopy(value)
+        cell = cls(**detached)
         if (not isinstance(cell.text, str) or not isinstance(cell.raw, str)
                 or not isinstance(cell.source, str) or not isinstance(cell.collected, bool)
                 or not isinstance(cell.reviewed, bool)
