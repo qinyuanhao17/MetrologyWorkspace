@@ -316,7 +316,9 @@ def main():
             frame = pd.concat([source] * math.ceil(rows / len(source)), ignore_index=True).iloc[:rows].copy()
         selection_dialog = None
         for iteration in range(args.count):
-            if iteration == 0 or not args.reuse_views:
+            if args.workbook_only or args.auxiliary_only:
+                views = ()
+            elif iteration == 0 or not args.reuse_views:
                 model, target = SheetModel(), SheetModel()
                 model.load(frame)
                 view, destination = SheetView(model), SheetView(target)
@@ -339,7 +341,7 @@ def main():
             app.processEvents()
             if args.platform == "windows":
                 assert all(widget.windowHandle().isExposed() for widget in views)
-            if args.screenshot and iteration == 0:
+            if args.screenshot and iteration == 0 and views:
                 args.screenshot.parent.mkdir(parents=True, exist_ok=True)
                 view.grab().save(str(args.screenshot.with_name(f"{args.screenshot.stem}-{rows}.png")))
 
