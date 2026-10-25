@@ -55,6 +55,7 @@ DYNAMIC_WIDTH_CM = 18
 CHART_HORIZONTAL_GAP_CM = 1.0
 CHART_VERTICAL_GAP_CM = 2.0
 MARKER_HEADROOM = .03
+WAFER_PAGE_WIDTH_CM = 45.0
 FM_PICTURE_HEIGHT_CM = 30
 FM_PICTURE_WIDTH_CM = 72
 WAFER_MAP_CELL_HEIGHT_CM = 8
@@ -576,6 +577,41 @@ def sequence_export_layout(data, *, mode, captions=()):
     return dict(layout)
 
 
+def _wafer_page_specs(worksheet, first_row, data, columns, *, full=None):
+    """Split a Wafer view at wafer boundaries so each page stays readable."""
+    if full is None:
+        captions = parameter_footer(worksheet, first_row, data, columns, 'wafer')
+        full = sequence_export_layout(data, mode='wafer', captions=captions)
+    full['mode'] = 'wafer'
+    if full['width'] <= WAFER_PAGE_WIDTH_CM:
+        return [(0, len(data) - 1, data, full)]
+
+    spans = _label_spans(data['Wafer key'], limit=None)
+    widths = full['wafer_widths']
+    max_plot_px = WAFER_PAGE_WIDTH_CM * 96 / 2.54 - 110
+    pages, start_span, used = [], 0, 0.
+    for index, (start, end, key) in enumerate(spans):
+        key_text = repr(tuple(key)) if isinstance(key, (tuple, list)) else str(key)
+        width = float(widths.get(key, widths.get(key_text, 100.)))
+        if index > start_span and used + width > max_plot_px:
+            pages.append((spans[start_span][0], spans[index - 1][1],
+                          spans[start_span:index]))
+            start_span, used = index, 0.
+        used += width
+    pages.append((spans[start_span][0], spans[-1][1], spans[start_span:]))
+
+    specs = []
+    for start, end, _page_spans in pages:
+        page_data = data.iloc[start:end + 1].copy()
+        page_captions = parameter_footer(
+            worksheet, first_row + start, page_data, columns, 'wafer')
+        layout = sequence_export_layout(
+            page_data, mode='wafer', captions=page_captions)
+        layout['mode'] = 'wafer'
+        specs.append((start, end, page_data, layout))
+    return specs
+
+
 def parameter_footer(sheet, first, data, columns, mode):
     """One wafer strip and, when grouped, a separate outer Group strip."""
     grouped = mode == 'group' and 'Group' in columns
@@ -712,7 +748,7 @@ def _original_value(original, column, source_row):
 def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
                            card_source, scope, stage, *, native=True, images=None, show_percent=False, reference_label="REF", original=None, wafer_only=False, axis_mode=None, panel_widths=None,
                            start_column=1, chart_row=None, chart_column=None,
-                           chart_index=0):
+                           chart_index=0, chart_top_cm=None):
     """Compact visible measurements; chart labels/fit provenance stay internal."""
     _checkpoint(worksheet.parent, f'{stage}: {scope} — {parameter}')
     reference = data["Reference"].to_numpy(float)
@@ -910,15 +946,22 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
         for layout in layouts:
             layout['native_width'] = max(layout['native_width'], panel_widths[0])
             layout['width'] = max(layout['width'], panel_widths[1])
+    wafer_pages = None
     if axis_mode in ('group', 'wafer'):
         captions = parameter_footer(worksheet, first_row, data, columns, axis_mode)
         layout = sequence_export_layout(data, mode=axis_mode, captions=captions)
         layout['mode'] = axis_mode
         layouts = [layout]
+        if axis_mode == 'wafer':
+            page_specs = _wafer_page_specs(
+                worksheet, first_row, data, columns, full=layout)
+            if len(page_specs) > 1:
+                wafer_pages = page_specs
+                layouts = [page_specs[0][3]]
     category_columns = [(columns["Group"], data["Group label"].tolist())] if "Group" in columns and not wafer_only else None
     detailed_columns = ([(columns["Group"], data["Group label"].tolist())] if "Group" in columns and not wafer_only else []) + [
         (columns["Wafer"], data["Wafer"].tolist()), (columns["Die Seq"], data["Die Seq"].tolist())]
-    for index, layout in enumerate(layouts) if native else ():
+    for index, layout in enumerate(layouts) if native and wafer_pages is None else ():
         categories = category_columns if index == 0 and category_columns else detailed_columns
         if axis_mode == 'group' and category_columns:
             categories = category_columns + [(columns['Die Seq'], data['Die Seq'].tolist())]
@@ -929,18 +972,103 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
                     for i, value in enumerate(data['Die Seq'])]))) if count else None
         else:
             layout["categories"] = native_categories(worksheet, first_row, last_row, categories) if count else None
+    if native and wafer_pages is not None:
+        for start, end, page_data, page_layout in wafer_pages:
+            page_layout['categories'] = AxDataSource(strRef=StrRef(
+                f=str(Reference(
+                    worksheet, min_col=columns['Die Seq'],
+                    min_row=first_row + start, max_row=first_row + end)),
+                strCache=StrData(
+                    ptCount=len(page_data),
+                    pt=[StrVal(idx=i, v=str(value)) for i, value
+                        in enumerate(page_data['Die Seq'])])))
+    if count and wafer_pages is not None:
+        page_count = len(wafer_pages)
+        if native:
+            chart_left = _column_left_cm(
+                worksheet,
+                chart_column if chart_column is not None else len(headers) + 2)
+            chart_top = (
+                _row_top_cm(
+                    worksheet, chart_row if chart_row is not None else row)
+                + chart_index * (PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
+                if chart_top_cm is None else chart_top_cm)
+            for page_index, (start, end, page_data, page_layout) in enumerate(wafer_pages):
+                page_top = chart_top + page_index * (
+                    PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
+                _add_charts(
+                    worksheet, row if chart_row is None else chart_row,
+                    first_row + start, first_row + end, parameter, fit,
+                    show_percent=show_percent,
+                    raw=raw[start:end + 1],
+                    reference=reference[start:end + 1],
+                    evaluated=evaluated_values[start:end + 1],
+                    equation=equation, reference_label=reference_label,
+                    unit="" if mapping is None else _unit(mapping.reference_column),
+                    columns=columns, helper=helper, helper_row=helper_row,
+                    final=final, layouts=[page_layout],
+                    anchor_column=chart_column,
+                    chart_left_cm=chart_left, chart_top_cm=page_top,
+                    page_label=f"Page {page_index + 1}/{page_count}",
+                    bias_limit=None if mapping is None or mapping.bias_limit is None
+                    else float(mapping.bias_limit),
+                    show_bias_limit=bool(
+                        mapping is not None and mapping.show_bias_limit))
+        else:
+            from .export_rendering import embed_parameter
+            anchor = chart_column if chart_column is not None else len(headers) + 2
+            chart_left = _column_left_cm(worksheet, anchor)
+            chart_top = (
+                _row_top_cm(
+                    worksheet, chart_row if chart_row is not None else row)
+                + chart_index * (PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
+                if chart_top_cm is None else chart_top_cm)
+            for page_index, (_start, _end, page_data, page_layout) in enumerate(wafer_pages):
+                page_top = chart_top + page_index * (
+                    PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
+                page_label = f"Page {page_index + 1}/{page_count}"
+                page_left = chart_left
+                panels = [
+                    ("Match", None),
+                    ("Trend", page_layout),
+                    ("Bias", page_layout),
+                    *((("Bias %", page_layout),) if show_percent else ()),
+                ]
+                for panel, layout in panels:
+                    embed_parameter(
+                        worksheet,
+                        f"{get_column_letter(anchor)}"
+                        f"{row if chart_row is None else chart_row}",
+                        f"{parameter} {panel} {page_label} {scope} "
+                        f"{stage}{stage_suffix(stage)}",
+                        images, parameter, page_data, card, stage, scope,
+                        panel=panel, reference_label=reference_label,
+                        unit="" if mapping is None
+                        else _unit(mapping.reference_column),
+                        sequence=layout,
+                        page_label=page_label,
+                        bias_limit=None if mapping is None or mapping.bias_limit is None
+                        else float(mapping.bias_limit),
+                        show_bias_limit=bool(
+                            mapping is not None and mapping.show_bias_limit),
+                        position_cm=(page_left, page_top))
+                    width = MATCH_WIDTH_CM if panel == 'Match' else layout['width']
+                    page_left += width + CHART_HORIZONTAL_GAP_CM
+        return page_count
     if count and native:
         chart_left = _column_left_cm(
             worksheet, chart_column if chart_column is not None else len(headers) + 2)
-        chart_top = _row_top_cm(
-            worksheet, chart_row if chart_row is not None else row
-        ) + chart_index * (PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
+        chart_top = (
+            _row_top_cm(worksheet, chart_row if chart_row is None else chart_row)
+            + chart_index * (PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
+            if chart_top_cm is None else chart_top_cm)
         _add_charts(worksheet, row if chart_row is None else chart_row, first_row, last_row, parameter, fit, show_percent=show_percent,
                     raw=raw, reference=reference, evaluated=evaluated_values, equation=equation,
                     reference_label=reference_label, unit="" if mapping is None else _unit(mapping.reference_column),
                     columns=columns, helper=helper, helper_row=helper_row, final=final,
                     layouts=layouts, anchor_column=chart_column,
                     chart_left_cm=chart_left, chart_top_cm=chart_top,
+                    page_label="",
                     bias_limit=None if mapping is None or mapping.bias_limit is None
                     else float(mapping.bias_limit),
                     show_bias_limit=bool(mapping is not None and mapping.show_bias_limit))
@@ -948,9 +1076,10 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
         from .export_rendering import embed_parameter
         anchor = chart_column if chart_column is not None else len(headers) + 2
         chart_left = _column_left_cm(worksheet, anchor)
-        chart_top = _row_top_cm(
-            worksheet, chart_row if chart_row is not None else row
-        ) + chart_index * (PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
+        chart_top = (
+            _row_top_cm(worksheet, chart_row if chart_row is None else chart_row)
+            + chart_index * (PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
+            if chart_top_cm is None else chart_top_cm)
         panels = [("Match", None)] + [(panel, layout) for layout in layouts
             for panel in ("Trend", "Bias", *(("Bias %",) if show_percent else ()))]
         for panel, layout in panels:
@@ -959,19 +1088,20 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
                 f"{parameter} {panel} {layout['name'] if layout else ''} {scope} {stage}{stage_suffix(stage)}",
                 images, parameter, data, card, stage, scope, panel=panel, reference_label=reference_label,
                 unit="" if mapping is None else _unit(mapping.reference_column), sequence=layout,
+                page_label="",
                 bias_limit=None if mapping is None or mapping.bias_limit is None
                 else float(mapping.bias_limit),
                 show_bias_limit=bool(mapping is not None and mapping.show_bias_limit),
                 position_cm=position)
             width = MATCH_WIDTH_CM if panel == 'Match' else layout['width']
             chart_left += width + CHART_HORIZONTAL_GAP_CM
-    return max(first_row + count + 3, row + BLOCK_MIN_ROWS) + 3
+    return 1
 
 
 def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_percent=False,
                 raw, reference, evaluated, equation, reference_label, unit, columns, helper, helper_row,
                 final, layouts, anchor_column=None, chart_left_cm=None, chart_top_cm=None,
-                bias_limit=None, show_bias_limit=False):
+                bias_limit=None, show_bias_limit=False, page_label=""):
     anchor = len(columns) + 2 if anchor_column is None else anchor_column
     left_cm = (_column_left_cm(worksheet, anchor)
                if chart_left_cm is None else chart_left_cm)
@@ -985,7 +1115,7 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
         left_cm += chart.width + CHART_HORIZONTAL_GAP_CM
     match = ScatterChart()
     match.scatterStyle = 'marker'
-    match.title = parameter
+    match.title = f"{parameter} ({page_label})" if page_label else parameter
     match.x_axis.title = "PMISH"
     match.y_axis.title = reference_label
     match.height, match.width = PANEL_HEIGHT_CM, MATCH_WIDTH_CM
@@ -1024,7 +1154,11 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
         for panel, names, values, _baseline_column in panels:
             chart = LineChart()
             chart._identity_count = last_row - first_row + 1
-            chart.title = parameter if panel == "Trend" else panel
+            chart.title = (
+                f"{parameter} ({page_label})"
+                if panel == "Trend" and page_label
+                else f"{panel} ({page_label})" if page_label else
+                parameter if panel == "Trend" else panel)
             chart.y_axis.title = parameter if panel == "Trend" else f"Bias ({unit})" if panel == "Bias" and unit and unit != "1" else panel
             chart.height, chart.width = PANEL_HEIGHT_CM, layout["native_width"]
             chart._identity_captions = layout.get(
@@ -1189,17 +1323,23 @@ def write_parameter_sheets(book, used_titles, result, workbook, *, native=True, 
     row = 1
     wafer_data = {p: _parameter_data(result, p, labels=plot_labels, order='wafer') for p in result.parameter_names}
     chart_start = 5
+    chart_top_cm = None
     wafer.freeze_panes = 'A3'
     for index, parameter in enumerate(result.parameter_names):
         mapping = next((item for item in workbook.mappings if item.name == parameter), None)
-        _write_parameter_block(
+        page_count = _write_parameter_block(
             wafer, row, parameter, mapping, wafer_data[parameter],
             result.card(parameter), "Overall", "Wafer", stage, native=native, images=images,
             show_percent="percent" in workbook.bias_views, reference_label=workbook.match_type,
             original=original, wafer_only=True, axis_mode='wafer',
             start_column=1 + index * (block_width + 1),
             chart_row=chart_start, chart_index=index,
+            chart_top_cm=chart_top_cm,
             chart_column=1)
+        if chart_top_cm is None:
+            chart_top_cm = _row_top_cm(wafer, chart_start)
+        chart_top_cm += page_count * (
+            PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM)
     plan = result.group_plan
     if not plan.enabled:
         return sheet
@@ -1633,7 +1773,11 @@ def _embed_figure(sheet, figure, anchor, title, images):
 def picture_ratio(title, picture, shapes):
     """Whole-page PNG scaling, with an eight-centimetre Wafer Map row pitch."""
     if title.startswith(('Wafer Map', 'Radius')):
-        rows, _columns = shapes.get(title, (1, 1))
+        visual_rows = [
+            shape[0] for name, shape in shapes.items()
+            if name.startswith(('Wafer Map', 'Radius'))
+        ]
+        rows = max(visual_rows, default=1)
         return max(1, rows) * WAFER_MAP_CELL_HEIGHT_CM * 96 / 2.54 / picture.height
     return min(FM_PICTURE_HEIGHT_CM * 96 / 2.54 / picture.height,
                FM_PICTURE_WIDTH_CM * 96 / 2.54 / picture.width)
@@ -1773,7 +1917,8 @@ def set_export_font(figure):
 
 
 def parameter_figure(parameter, data, card, stage, scope, *, panel="Match", reference_label="REF", unit="",
-                     sequence=None, bias_limit=None, show_bias_limit=False):
+                     sequence=None, bias_limit=None, show_bias_limit=False,
+                     page_label=""):
     """Matplotlib report from the same software values used in the Excel areas."""
     from matplotlib.figure import Figure
     from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -1786,12 +1931,13 @@ def parameter_figure(parameter, data, card, stage, scope, *, panel="Match", refe
               card.slope * raw + card.intercept if card is not None else np.full(len(raw), np.nan))
     valid = np.isfinite(raw) & np.isfinite(reference)
     if panel == "Match":
-        style_plot_axis(axis, title=parameter, xlabel="PMISH", ylabel=reference_label)
+        title = f"{parameter} ({page_label})" if page_label else parameter
+        style_plot_axis(axis, title=title, xlabel="PMISH", ylabel=reference_label)
         axis.scatter(raw[valid], reference[valid], s=25, color="#4F8BD6", edgecolors="none")
         if valid.any() and card is not None and np.isfinite(card.slope) and np.isfinite(card.intercept):
             ends = np.array([raw[valid].min(), raw[valid].max()])
             axis.plot(ends, card.slope * ends + card.intercept, color="#E09F3E", linewidth=1.8)
-            axis.set_title(parameter, fontsize=16, fontweight='bold', pad=44)
+            axis.set_title(title, fontsize=16, fontweight='bold', pad=44)
             sign = '+' if card.intercept >= 0 else '-'
             axis.text(.5, 1.02, f"y = {card.slope:.6g}x {sign} {abs(card.intercept):.6g}\nR² = {card.r_squared:.6g}",
                 transform=axis.transAxes, va="bottom", ha="center", fontsize=10, color="#334155")
@@ -1802,7 +1948,10 @@ def parameter_figure(parameter, data, card, stage, scope, *, panel="Match", refe
         rows = np.arange(1, len(data) + 1) if sequence is None else sequence["x"]
         marker_size, line_width = TREND_MARKER_SIZE, TREND_LINE_WIDTH
         ylabel = parameter if panel == "Trend" else f"Bias ({unit})" if panel == "Bias" and unit and unit != "1" else panel
-        style_plot_axis(axis, title=parameter if panel == "Trend" else panel, xlabel="", ylabel=ylabel)
+        title = f"{parameter} ({page_label})" if panel == "Trend" and page_label else (
+            f"{panel} ({page_label})" if page_label else
+            parameter if panel == "Trend" else panel)
+        style_plot_axis(axis, title=title, xlabel="", ylabel=ylabel)
         if panel == "Trend":
             axis.plot(rows, values, marker="o", markersize=marker_size, color="#5B9BD5", linewidth=line_width, zorder=2,
                       label="PMISH")

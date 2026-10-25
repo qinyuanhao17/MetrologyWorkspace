@@ -141,9 +141,28 @@ class ExportHoverFixTests(unittest.TestCase):
     def test_map_and_radius_pictures_share_row_height(self):
         class Picture:
             width, height = 1000, 400
-        shapes = {"Wafer Map": (2, 3), "Radius": (2, 3)}
+        shapes = {"Wafer Map": (2, 3), "Radius": (1, 3)}
         self.assertEqual(picture_ratio("Wafer Map", Picture(), shapes),
                          picture_ratio("Radius", Picture(), shapes))
+
+    def test_paginated_parameter_figures_show_their_page_label(self):
+        data = pd.DataFrame({
+            "Raw": [1., 2., 3.],
+            "Reference": [2., 3., 4.],
+            "Die Seq": ["1", "2", "3"],
+        })
+        for panel, expected in (
+                ("Match", "CD (Page 1/2)"),
+                ("Trend", "CD (Page 1/2)"),
+                ("Bias", "Bias (Page 1/2)"),
+                ("Bias %", "Bias % (Page 1/2)")):
+            figure = parameter_figure(
+                "CD", data, None, "Final", "Wafer",
+                panel=panel, page_label="Page 1/2")
+            try:
+                self.assertEqual(figure.axes[0].get_title(), expected)
+            finally:
+                figure.clear()
 
     def test_dynamic_plot_title_uses_cycles_and_parameter(self):
         page = DynamicPage()

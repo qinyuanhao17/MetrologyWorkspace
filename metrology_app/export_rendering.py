@@ -109,8 +109,9 @@ class _Pictures:
         if self.cancelled is not None:
             self.cancelled.set()
         for item in self.pending:
-            if item[-1] is not None:
-                item[-1].cancel()
+            future = item[8]
+            if future is not None:
+                future.cancel()
         self.pending.clear()
         if self.pool is not None:
             self.pool.shutdown(wait=True, cancel_futures=True)
@@ -146,9 +147,10 @@ def embed_plot(sheet, plot, anchor, title, images=None, *, window=False):
 
 
 def embed_parameter(sheet, anchor, title, images, parameter, data, card, stage, scope,
-                    *, position_cm=None, **kwargs):
+                    *, position_cm=None, page_label=None, **kwargs):
     from .excel_export import _embed_figure, parameter_figure
     pictures = getattr(sheet.parent, '_export_pictures', None)
+    kwargs['page_label'] = "" if page_label is None else page_label
     if pictures is None:
         _embed_figure(sheet, parameter_figure(parameter, data, card, stage, scope, **kwargs), anchor, title, images)
     else:

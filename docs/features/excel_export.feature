@@ -78,12 +78,17 @@ Feature: Export analysis with editable Excel charts or Matplotlib pictures
     Given a NOVA Workbook has several Wafers in Head A and Head B
     When the Workbook is exported in either mode
     Then each Match panel is 15 cm wide and 11 cm high
-    And Trend and Bias panels are 11 cm high with no maximum width
+    And Trend and Bias panels are 11 cm high and expand to fit visible labels
+    And Match Wafer keeps Trend and Bias at or below 45 cm whenever one complete Wafer fits
+    And a single Wafer wider than 45 cm stays intact instead of dropping or truncating its identity labels
+    And Match Wafer pages stack without overlap and identify themselves as Page x/y
     And Match Original retains its 25 cm Die Seq baseline
     And a Group without visible Wafers scales from the tightest Group before using record proportions
     And a Group with visible Wafers scales from the complete Wafer labels inside that Group
     And visible Wafer, Lot and PAD fields are never omitted to force a narrower panel
     And Group and Wafer widths match between the two export renderers
+    And Match chart panels keep a 1 cm horizontal gap and a 2 cm vertical gap
+    And Trend and Bias axes leave marker headroom beyond every plotted value
     And Group and Wafer separator bars sit below, detached from the coordinate axes
     And Wafer views do not add a redundant Wafer axis title
     And independent panels align with the full-width parameter heading

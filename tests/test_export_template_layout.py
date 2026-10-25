@@ -169,7 +169,8 @@ class TemplateLayoutTests(unittest.TestCase):
             book = Workbook()
             sheet = book.active
             write_fullmap(sheet, frame, ['DP'], native=native,
-                          pictures=[('Wafer Map DP', contents, ''), ('Radius DP', contents, '')])
+                          pictures=[('Wafer Map DP', contents, ''), ('Radius DP', contents, '')],
+                          picture_shapes={'Wafer Map DP': (2, 3), 'Radius DP': (1, 3)})
             with tempfile.TemporaryDirectory() as folder:
                 path = Path(folder) / 'map.xlsx'
                 book.save(path)
@@ -180,6 +181,8 @@ class TemplateLayoutTests(unittest.TestCase):
                 self.assertTrue(all(i.anchor._from.row == 4 for i in [*view._charts, *view._images]))
                 self.assertEqual(view.cell(2, source + 2).value, '1.000')
                 self.assertEqual(len(view._images), 2 if native else 3)
+                wafer_map, radius = view._images[:2]
+                self.assertEqual(wafer_map.anchor.ext.cy, radius.anchor.ext.cy)
                 for image in view._images[:2]:
                     self.assertLessEqual(image.anchor.ext.cy / 360000, 30)
                     self.assertLessEqual(image.anchor.ext.cx / 360000, 72)

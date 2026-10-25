@@ -1,11 +1,13 @@
 """Report layout through the two public Workbook export commands."""
-from tests import test_excel_export as fixtures
+import math
 from pathlib import Path
 import tempfile
 import unittest
 
 import pandas as pd
 from openpyxl import load_workbook
+
+from tests import test_excel_export as fixtures
 
 
 class ExcelReportLayoutTests(unittest.TestCase):
@@ -99,6 +101,101 @@ class ExcelReportLayoutTests(unittest.TestCase):
                 self.assertTrue(all(abs(gap - CHART_HORIZONTAL_GAP_CM) < .02
                                     for gap in horizontal))
                 self.assertAlmostEqual(vertical, CHART_VERTICAL_GAP_CM, places=2)
+
+    def test_wide_match_wafer_pages_preserve_identity_and_do_not_overlap(self):
+        import re
+        from metrology_app.excel_export import WAFER_PAGE_WIDTH_CM
+
+        wafer_count = 12
+        labels = [f"WAFER-{index:02d}-IDENTITY-ABCDEFGHIJKLMN"
+                  for index in range(wafer_count)]
+        raw = pd.DataFrame({
+            "Wafer ID": labels,
+            "Lot ID": [f"LOT-{index:02d}-REFERENCE-ABCDEFGHIJKLMN"
+                       for index in range(wafer_count)],
+            "PAD Name": [f"PAD-{index:02d}-MEASUREMENT" for index in range(wafer_count)],
+            "Die Seq": [1] * wafer_count,
+            "CD": [str(index + 1) for index in range(wafer_count)],
+            "Depth": [str(index + 2) for index in range(wafer_count)],
+        })
+        reference = pd.DataFrame({
+            "CD Reference": [index + 2 for index in range(wafer_count)],
+            "Depth Reference": [index + 3 for index in range(wafer_count)],
+        })
+        self.window.percent_bias.setChecked(True)
+        self.window.set_reference_frame(reference)
+        self.window.set_raw_frame(raw)
+        self.window.run_analysis()
+
+        def title_text(chart):
+            if isinstance(chart.title, str):
+                return chart.title
+            rich = chart.title.tx.rich
+            return "".join(run.t for paragraph in rich.p for run in paragraph.r)
+
+        def rectangles(drawings, sheet):
+            result = []
+            for drawing in drawings:
+                x, y = fixtures.drawing_xy_px(drawing, sheet)
+                result.append((x, y, drawing.anchor.ext.cx / 9525,
+                               drawing.anchor.ext.cy / 9525))
+            return result
+
+        with tempfile.TemporaryDirectory() as folder:
+            for native in (True, False):
+                images = []
+                path = self.window.export_excel(
+                    Path(folder) / f"paged-{native}.xlsx",
+                    native=native, images=images)
+                sheet = load_workbook(path)["Match Wafer (WO Card)"]
+                drawings = sheet._charts if native else sheet._images
+                page_labels = set()
+                if native:
+                    page_labels = {
+                        label for chart in drawings
+                        for label in re.findall(r"Page \d+/\d+", title_text(chart))}
+                else:
+                    page_labels = {
+                        label for item in images
+                        for label in re.findall(r"Page \d+/\d+", item[0])}
+                self.assertGreater(len(page_labels), 1)
+                # Each parameter must retain Match, Trend, Bias and Bias % on
+                # every page, including the Matplotlib export path.
+                self.assertEqual(len(drawings), 2 * 4 * len(page_labels))
+                if not native:
+                    percent_pages = {
+                        label for item in images if " Bias % Page " in item[0]
+                        for label in re.findall(r"Page \d+/\d+", item[0])}
+                    self.assertEqual(percent_pages, page_labels)
+                self.assertTrue(all(
+                    drawing.anchor.ext.cx / 360000 <= WAFER_PAGE_WIDTH_CM + .02
+                    for drawing in drawings))
+
+                boxes = rectangles(drawings, sheet)
+                for index, left in enumerate(boxes):
+                    for right in boxes[index + 1:]:
+                        separated = (
+                            left[0] + left[2] <= right[0] + .5
+                            or right[0] + right[2] <= left[0] + .5
+                            or left[1] + left[3] <= right[1] + .5
+                            or right[1] + right[3] <= left[1] + .5)
+                        self.assertTrue(separated, (native, left, right))
+                if native:
+                    trend_pages = [
+                        chart for chart in drawings
+                        if "Page " in title_text(chart)
+                        and title_text(chart).startswith("CD (Page ")
+                        and len(chart.series) == 2]
+                    def category_count(chart):
+                        categories = chart.series[0].cat
+                        cache = getattr(categories, 'strCache', None)
+                        reference = getattr(categories, 'strRef', None)
+                        if cache is None and reference is not None:
+                            cache = getattr(reference, 'strCache', None)
+                        return len(cache.pt) if cache is not None else 0
+                    self.assertEqual(
+                        sum(category_count(chart) for chart in trend_pages),
+                        wafer_count)
 
     def test_child_trend_reference_stays_orange_and_above_raw_independent_of_selection_order(self):
         from metrology_app.analysis_export import plot_figure, append_report
@@ -289,11 +386,23 @@ class ExcelReportLayoutTests(unittest.TestCase):
                 self.assertTrue(all(left[0] < right[0]
                                     for left, right in zip(cells, cells[1:])))
                 if native:
-                    detail = book['Match Wafer (WO Card)']._charts[1]
-                    categories = detail.series[0].cat.strRef
-                    self.assertTrue(categories.f.startswith("'Match Wafer (WO Card)'!"))
-                    self.assertEqual([point.v for point in categories.strCache.pt], ['1', '2', '3'] * 20)
-                    self.assertEqual(detail.x_axis.tickLblSkip, 4)
+                    wafer_sheet = book['Match Wafer (WO Card)']
+                    trend_pages = [
+                        chart for chart in wafer_sheet._charts
+                        if len(chart.series) == 2]
+                    self.assertGreaterEqual(len(trend_pages), 1)
+                    category_values = []
+                    for detail in trend_pages:
+                        categories = detail.series[0].cat.strRef
+                        self.assertTrue(categories.f.startswith(
+                            "'Match Wafer (WO Card)'!"))
+                        page_values = [point.v for point in categories.strCache.pt]
+                        category_values.extend(page_values)
+                        self.assertEqual(
+                            detail.x_axis.tickLblSkip,
+                            max(1, int(math.ceil(len(page_values) / 18))))
+                    self.assertEqual(
+                        category_values, ['1', '2', '3'] * 20)
 
     def test_fullmap_matplotlib_trend_keeps_tight_ordinal_limits(self):
         from metrology_app.analysis_export import plot_figure

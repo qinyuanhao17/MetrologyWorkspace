@@ -111,8 +111,15 @@ SciPy 的 RBF 求值释放 GIL，实测 12 个 batch：串行 2.76 s、8 线程 
 - Group 显示 Wafer 时，独立按该 Group 内所有 Wafer 的完整可见标签确定宽度；
   混合显示时两类 Group 宽度直接相加。
 - Match Wafer 对全部 Wafer 应用同一紧贴规则，所有当前启用的
-  Wafer / LOT / PAD 行均保留，不省略、不分页、不设最大宽度。
+  Wafer / LOT / PAD 行均保留，不省略。超过 45 cm 时按完整 Wafer
+  分页，单个本身超过 45 cm 的标签仍保留全文；页面标题标明 `Page x/y`。
 - Excel 原生图和 Matplotlib 图片共享每个 Group/Wafer 面板计算出的物理宽度。
+- FullMap 的 Wafer Map 与 Radius 取两者可见行数的最大值统一定高，
+  保存后的图片高度一致。
+- Match 页的 Match、Trend、Bias 图改为绝对物理定位：横向图间距固定 1 cm，
+  纵向参数行间距固定 2 cm，避免 Excel 行高/列宽导致一边过疏、一边过密。
+- Trend 和 Bias 的 Y 轴在数据范围之外保留约 3% 的 marker 半径余量；实测
+  AA Trend 为 13.7–24.3，Bias 为 -0.318–0.318，边界圆点不再被图框裁切。
 - 可执行覆盖：`test_export_hover_fixes`、`test_excel_report_layout`、
   `test_export_opening_layout`、`test_analysis_plot_style`、`test_dynamic`、
   `test_dynamic_compare_export`、`test_matching_window`、`test_excel_export`。
