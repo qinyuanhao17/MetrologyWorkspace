@@ -8,6 +8,7 @@ its original two-second assertion and all fit/selection/source-data assertions.
 import argparse
 import cProfile
 import ctypes
+from functools import lru_cache
 import hashlib
 import json
 import math
@@ -28,10 +29,9 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
 
 
-def memory_info():
-    """Windows working set/private bytes without adding a runtime dependency."""
-    if sys.platform != "win32":
-        return {"rss": None, "private": None, "peak": None}
+@lru_cache(maxsize=1)
+def _windows_memory_query():
+    """One fixed counter type; ctypes caches pointer types by strong reference."""
     from ctypes import wintypes
 
     class Counters(ctypes.Structure):
@@ -40,11 +40,20 @@ def memory_info():
                 "peak", "rss", "peak_paged", "paged", "peak_nonpaged", "nonpaged",
                 "pagefile", "peak_pagefile", "private")]
 
-    counters = Counters()
-    counters.cb = ctypes.sizeof(counters)
     query = ctypes.WinDLL("psapi", use_last_error=True).GetProcessMemoryInfo
     query.argtypes = [wintypes.HANDLE, ctypes.POINTER(Counters), wintypes.DWORD]
     query.restype = wintypes.BOOL
+    return Counters, query
+
+
+def memory_info():
+    """Windows working set/private bytes without adding a runtime dependency."""
+    if sys.platform != "win32":
+        return {"rss": None, "private": None, "peak": None}
+    from ctypes import wintypes
+    Counters, query = _windows_memory_query()
+    counters = Counters()
+    counters.cb = ctypes.sizeof(counters)
     if not query(wintypes.HANDLE(-1), ctypes.byref(counters), counters.cb):
         raise ctypes.WinError(ctypes.get_last_error())
     return {name: getattr(counters, name) for name in ("rss", "private", "peak")}
