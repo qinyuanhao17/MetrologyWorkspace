@@ -16,10 +16,10 @@ Feature: Export analysis with editable Excel charts or Matplotlib pictures
     And Matplotlib Trend and Bias include real Die Seq ticks and separated identity captions
 
   Scenario: Change a native Match chart's selected data range
-    Given a Match chart contains scatter points and a software-fitted line
+    Given a Match chart contains scatter points and an Excel linear trendline
     When the analyst selects the scatter series and changes its X and Y ranges
     Then its points follow the newly selected cells on the same sheet
-    And its fit remains the software result without an Excel refit
+    And Excel recalculates its trendline from the edited series
 
   # Executable examples: tests.test_excel_report_layout.ExcelReportLayoutTests
   Scenario: Read the full numeric range without excessive X padding
@@ -195,7 +195,7 @@ Feature: Export analysis with editable Excel charts or Matplotlib pictures
     And each parameter's Cycle by Die table is stacked in the middle
     And its 3 Sigma chart aligns to that table's top on the right
     And a grouped 3 Sigma summary starts at the top farther right
-    And selected Cycle trends remain on the same sheet
+    And per-Die Cycle trends are omitted from the export while remaining available in the application
     And native tables reference the raw cells and retain sample standard deviation
 
   Scenario: Compare positive and negative Bias fairly

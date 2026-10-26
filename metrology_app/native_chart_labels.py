@@ -209,8 +209,7 @@ def _axis_tick_labels(
             default=0) + 8
         fraction = min(1., max(0., (position - low) / span))
         center_px = (left + plot_width * fraction) * width_px
-        if (tick_index == 0 or tick_index == len(axis_ticks) - 1
-                or center_px - measure / 2 > last_right + 4):
+        if tick_index == 0 or center_px - measure / 2 > last_right + 4:
             selected.append((fraction, measure / width_px, label, source))
             last_right = center_px + measure / 2
     for fraction, label_width, label, source in selected:

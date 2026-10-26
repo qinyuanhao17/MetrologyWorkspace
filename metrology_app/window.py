@@ -818,6 +818,11 @@ class MainWindow(QMainWindow):
                     self._input_plan_pending = False
                     self.update_plan()
                 pending, self._input_draw_pending = self._input_draw_pending, {}
+                # The final plan queued automatic redraws. Explicit saved draws
+                # supersede them; a slow first page may process the other page's
+                # Qt timer before its saved choices are restored below.
+                for page in pending:
+                    page.input_refresh_timer.stop()
                 for page, state in pending.items():
                     page.restore_draw_state(state)
 

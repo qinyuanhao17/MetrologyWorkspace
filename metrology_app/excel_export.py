@@ -1746,12 +1746,9 @@ def style_workbook(book):
             chart.roundedCorners = False
             chart.plot_area.spPr = GraphicalProperties(
                 ln=LineProperties(solidFill="595959", w=15240, prstDash="solid"))
-            numeric_identity = bool(
-                getattr(chart, "_numeric_identity_axis", False)
-                or any(
-                    (getattr(series, "cat", None) is not None
-                     and series.cat.numRef is not None)
-                    for series in chart.series))
+            # set_categories() also emits numRef for ordinary Row/Die charts.
+            # Only reports with explicit replacement drawings hide their axis.
+            numeric_identity = bool(getattr(chart, "_numeric_identity_axis", False))
             identity_overlay = numeric_identity or bool(getattr(chart, '_identity_axis_overlay', False))
             chart.x_axis.delete = identity_overlay
             chart.y_axis.delete = False

@@ -3585,10 +3585,28 @@ class MatchingWindow(QMainWindow):
         transaction = getattr(workspace, 'input_update', nullcontext)
         views = self._workspace_views(workspace)
         pages = self._workspace_pages(workspace)
+        previous_groups = getattr(workspace, "selection", {}).get("groups", {})
+        drawn = [(page, page.draw_state()) for page in
+                 (getattr(workspace, "plot_page", None), getattr(workspace, "radius_page", None))
+                 if kind == "map" and page is not None and page.has_drawn_once
+                 and not page.selector.pending_draw]
         with transaction():
             if book is not None and hasattr(workspace, 'set_workbook_participation'):
                 workspace.set_workbook_participation(book)
             self._commit_stage_workspace(workspace, kind, stage, reset_data=reset_data, book=book)
+            restored_pages = set(getattr(workspace, "_input_draw_pending", ()))
+        if previous_groups != getattr(workspace, "selection", {}).get("groups", {}):
+            # Participation can remove a whole wafer without changing its source
+            # table. Resume the existing draw after the input transaction, even
+            # when the unchanged-table shortcut skipped selection restoration.
+            for page, state in drawn:
+                if page in restored_pages:
+                    continue  # The source replacement already restored this page.
+                surviving = set(state["cells"]) & {
+                    (wafer, metric) for wafer in page.selector.wafers
+                    for metric in page.selector.metrics}
+                if surviving:
+                    page.restore_draw_state({**state, "cells": tuple(surviving)})
         # Deferred plan/draw restoration can switch the stacked sub-page. Keep
         # the engineer's view only after the complete input transaction commits.
         self._restore_workspace_views(views)

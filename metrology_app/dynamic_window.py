@@ -13,6 +13,10 @@ class DynamicWindow(DataWorkspaceWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Dynamic")
+        # Dynamic owns its input; its menu exposes local Data selection only.
+        # Retain the saved scope fields for existing WKB compatibility.
+        self.data_menu.removeAction(self.workbook_selection_action)
+        self.data_menu.removeAction(self.full_data_action)
         self.tabs.removeTab(2)
         self.tabs.removeTab(1)
         self.dynamic_page = DynamicPage()
