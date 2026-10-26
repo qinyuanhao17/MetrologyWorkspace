@@ -1,0 +1,3594 @@
+{
+  "date": "2026-10-27",
+  "scope": "P0 final independent audit and explicitly requested local fixes only",
+  "collector_sha256": "05ace7b050ea6e7431bae9f832c422a6eb91b929d06a407b7aba4e3f3356c709",
+  "entry_head": "fe37664403c5a585d1294359086f410d83025c97",
+  "head_at_collection": "d002f074272122ff497cf86a44a0ea0f2af3420f",
+  "code_checkpoint": "d002f074272122ff497cf86a44a0ea0f2af3420f",
+  "tag": {
+    "name": "v4.3.2",
+    "peeled_commit": "79b5910550b05f6888053a4bc0408b798b8d8f39",
+    "remote_verified_before": "79b5910550b05f6888053a4bc0408b798b8d8f39"
+  },
+  "internal_VERSION": "4.3.1",
+  "branch": "codex/auto-weighting-writer",
+  "remote_after": {
+    "Heads": [
+      "aa5281dd38bbe58688a51b27e86c70635aef7a77\trefs/heads/main"
+    ],
+    "Tag": [
+      "ef3c357540e7bfbf6c0501c50c665001d7ca5034\trefs/tags/v4.3.2",
+      "79b5910550b05f6888053a4bc0408b798b8d8f39\trefs/tags/v4.3.2^{}"
+    ],
+    "PushPerformed": false
+  },
+  "worktree_at_collection": [
+    "M .vscode/settings.json",
+    " M AGENTS.md",
+    "?? docs/plans/p0-final-audit-v4.3.2.md",
+    "?? docs/todos/",
+    "?? docs/validation/p0-final-audit-v4.3.2.json"
+  ],
+  "p1_commits_excluded": [
+    "3cb314277d51db9733fd9f7953a96664fc372f2a",
+    "fe37664403c5a585d1294359086f410d83025c97"
+  ],
+  "user_files_excluded": [
+    "AGENTS.md",
+    ".vscode/settings.json",
+    "docs/todos/"
+  ],
+  "push_performed": false,
+  "tag_moved": false,
+  "release_or_packages_created": false,
+  "worktree_created": false,
+  "runtime": {
+    "python": "3.10.20",
+    "qt": "6.11.0",
+    "native_platform": "windows",
+    "full_platform": "offscreen",
+    "python_executable": "F:/Anaconda3/envs/octs/python.exe",
+    "required_openpyxl_LXML_verified": true,
+    "heavy_runs_serial": true,
+    "model": "GPT-6.1 Sol",
+    "reasoning_effort_independently_verified": false,
+    "user_launch_environment_changed": false,
+    "user_launch_environment_verified": false
+  },
+  "source_freeze": {
+    "files": 186,
+    "manifest_sha256": "29c890982694f2112927e6a6d3c6a8472927676601320bff2ddaae9ca6c0c2b9",
+    "changed": [],
+    "full_runs_this_audit": 1,
+    "note": "Reports may be edited after source freeze; no Python edits after full starts."
+  },
+  "four_failures": {
+    "cold": {
+      "close": {
+        "samples_ms": [
+          132.49789999827044,
+          158.64570000121603,
+          160.52440000203205
+        ],
+        "p50_ms": 158.64570000121603,
+        "p95_nearest_rank_ms": 160.52440000203205,
+        "timing_passed": 3,
+        "count": 3,
+        "all_non_timing_passed": true,
+        "cpu_before": [
+          0.390625,
+          7.777777777777772,
+          0.3676470588235281
+        ],
+        "minimum_available_gib": 4.499507904052734
+      },
+      "dirty": {
+        "samples_ms": [
+          106.85270000249147,
+          106.75600000104168,
+          106.72779999731574
+        ],
+        "p50_ms": 106.75600000104168,
+        "p95_nearest_rank_ms": 106.85270000249147,
+        "timing_passed": 0,
+        "count": 3,
+        "all_non_timing_passed": true,
+        "cpu_before": [
+          0.7352941176470562,
+          0.7352941176470562,
+          1.1406844106463865
+        ],
+        "minimum_available_gib": 4.660881042480469
+      },
+      "open": {
+        "samples_ms": [
+          447.52120000339346,
+          457.735900003172,
+          443.3627999969758
+        ],
+        "p50_ms": 447.52120000339346,
+        "p95_nearest_rank_ms": 457.735900003172,
+        "timing_passed": 0,
+        "count": 3,
+        "all_non_timing_passed": true,
+        "cpu_before": [
+          0.7462686567164201,
+          0.0,
+          5.61797752808989
+        ],
+        "minimum_available_gib": 4.668941497802734
+      },
+      "writer": {
+        "samples_ms": [
+          323.9675000004354,
+          325.2839999986463,
+          342.894499997783
+        ],
+        "p50_ms": 325.2839999986463,
+        "p95_nearest_rank_ms": 342.894499997783,
+        "timing_passed": 0,
+        "count": 3,
+        "all_non_timing_passed": true,
+        "cpu_before": [
+          4.562737642585546,
+          0.7547169811320753,
+          0.38022813688213253
+        ],
+        "minimum_available_gib": 4.631282806396484
+      }
+    },
+    "warm": {
+      "close": {
+        "samples_ms": [
+          162.66030000406317,
+          139.7512000039569,
+          140.0419999990845,
+          140.40679999743588,
+          148.7660999991931
+        ],
+        "p50_ms": 140.40679999743588,
+        "p95_nearest_rank_ms": 162.66030000406317,
+        "timing_passed": 5,
+        "count": 5,
+        "all_non_timing_passed": true,
+        "cpu_before": [
+          1.5037593984962405,
+          1.9607843137254943,
+          0.7575757575757569,
+          4.411764705882348,
+          1.9305019305019266
+        ],
+        "minimum_available_gib": 4.1073455810546875
+      },
+      "dirty": {
+        "samples_ms": [
+          108.35370000131661,
+          108.6074999984703,
+          108.74109999713255,
+          107.87499999423744,
+          109.08909999852767
+        ],
+        "p50_ms": 108.6074999984703,
+        "p95_nearest_rank_ms": 109.08909999852767,
+        "timing_passed": 0,
+        "count": 5,
+        "all_non_timing_passed": true,
+        "cpu_before": [
+          1.9305019305019266,
+          2.298850574712641,
+          0.3676470588235281,
+          2.2058823529411797,
+          0.0
+        ],
+        "minimum_available_gib": 4.121551513671875
+      },
+      "open": {
+        "samples_ms": [
+          383.21559999894816,
+          391.339900001185,
+          380.34350000089034,
+          392.96940000349423,
+          433.21540000033565
+        ],
+        "p50_ms": 391.339900001185,
+        "p95_nearest_rank_ms": 433.21540000033565,
+        "timing_passed": 4,
+        "count": 5,
+        "all_non_timing_passed": true,
+        "cpu_before": [
+          3.90625,
+          6.985294117647056,
+          0.3676470588235281,
+          0.78125,
+          0.0
+        ],
+        "minimum_available_gib": 4.092449188232422
+      },
+      "writer": {
+        "samples_ms": [
+          337.28939999855356,
+          328.8033999997424,
+          334.4790999981342,
+          325.2266999988933,
+          323.9469000036479
+        ],
+        "p50_ms": 328.8033999997424,
+        "p95_nearest_rank_ms": 337.28939999855356,
+        "timing_passed": 0,
+        "count": 5,
+        "all_non_timing_passed": true,
+        "cpu_before": [
+          1.5444015444015413,
+          0.0,
+          0.3676470588235281,
+          1.1538461538461497,
+          7.352941176470584
+        ],
+        "minimum_available_gib": 4.106048583984375
+      }
+    },
+    "paired_old": {
+      "close": {
+        "samples_ms": [
+          185.29599999601487,
+          141.8383000054746,
+          164.26320000027772
+        ],
+        "p50_ms": 164.26320000027772,
+        "p95_nearest_rank_ms": 185.29599999601487,
+        "timing_passed": 3,
+        "count": 3,
+        "all_non_timing_passed": true,
+        "cpu_before": [
+          0.38022813688213253,
+          0.7692307692307665,
+          0.0
+        ],
+        "minimum_available_gib": 4.363849639892578
+      },
+      "dirty": {
+        "samples_ms": [
+          107.23929999949178,
+          107.8235000022687,
+          107.64959999505663
+        ],
+        "p50_ms": 107.64959999505663,
+        "p95_nearest_rank_ms": 107.8235000022687,
+        "timing_passed": 0,
+        "count": 3,
+        "all_non_timing_passed": true,
+        "cpu_before": [
+          1.4705882352941124,
+          1.1450381679389277,
+          0.7299270072992692
+        ],
+        "minimum_available_gib": 4.061618804931641
+      },
+      "open": {
+        "samples_ms": [
+          403.05870000156574,
+          380.7691000038176,
+          382.9752000019653
+        ],
+        "p50_ms": 382.9752000019653,
+        "p95_nearest_rank_ms": 403.05870000156574,
+        "timing_passed": 2,
+        "count": 3,
+        "all_non_timing_passed": true,
+        "cpu_before": [
+          1.4760147601476037,
+          1.1627906976744207,
+          0.0
+        ],
+        "minimum_available_gib": 3.9683151245117188
+      },
+      "writer": {
+        "samples_ms": [
+          330.0785999963409,
+          312.47650000295835,
+          312.7766999969026
+        ],
+        "p50_ms": 312.7766999969026,
+        "p95_nearest_rank_ms": 330.0785999963409,
+        "timing_passed": 0,
+        "count": 3,
+        "all_non_timing_passed": true,
+        "cpu_before": [
+          0.0,
+          0.760456273764254,
+          1.538461538461533
+        ],
+        "minimum_available_gib": 3.9966506958007812
+      }
+    },
+    "paired_current": {
+      "close": {
+        "samples_ms": [
+          160.29219999472843,
+          159.92739999637706,
+          157.13930000492837
+        ],
+        "p50_ms": 159.92739999637706,
+        "p95_nearest_rank_ms": 160.29219999472843,
+        "timing_passed": 3,
+        "count": 3,
+        "all_non_timing_passed": true,
+        "cpu_before": [
+          3.731343283582089,
+          1.132075471698113,
+          0.0
+        ],
+        "minimum_available_gib": 4.338310241699219
+      },
+      "dirty": {
+        "samples_ms": [
+          107.31390000000829,
+          107.45590000442462,
+          106.77700000087498
+        ],
+        "p50_ms": 107.31390000000829,
+        "p95_nearest_rank_ms": 107.45590000442462,
+        "timing_passed": 0,
+        "count": 3,
+        "all_non_timing_passed": true,
+        "cpu_before": [
+          0.7380073800738018,
+          5.660377358490565,
+          0.3816793893129722
+        ],
+        "minimum_available_gib": 4.074848175048828
+      },
+      "open": {
+        "samples_ms": [
+          392.9822999998578,
+          380.31149999733316,
+          387.9518000030657
+        ],
+        "p50_ms": 387.9518000030657,
+        "p95_nearest_rank_ms": 392.9822999998578,
+        "timing_passed": 3,
+        "count": 3,
+        "all_non_timing_passed": true,
+        "cpu_before": [
+          0.73260073260073,
+          0.0,
+          0.7692307692307665
+        ],
+        "minimum_available_gib": 4.061855316162109
+      },
+      "writer": {
+        "samples_ms": [
+          337.2414000041317,
+          327.2260000012466,
+          322.55569999688305
+        ],
+        "p50_ms": 327.2260000012466,
+        "p95_nearest_rank_ms": 337.2414000041317,
+        "timing_passed": 0,
+        "count": 3,
+        "all_non_timing_passed": true,
+        "cpu_before": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "minimum_available_gib": 4.081897735595703
+      }
+    }
+  },
+  "four_failure_classification": {
+    "close": {
+      "classification": "测试夹具或环境波动",
+      "evidence": "Fresh/warm/paired tests pass; long native suite fails .394646s; exact cause of long-order tail not fully isolated. Gate remains unmet in that condition."
+    },
+    "dirty": {
+      "classification": "证据不足",
+      "evidence": "Stable current threshold miss, same exact test and comparator also fail on 017c10d. No new version regression established; environment causation unproved."
+    },
+    "open": {
+      "classification": "测试夹具或环境波动",
+      "evidence": "Fresh isolated calls slower than sequence-warm calls; old revision also has a borderline paired miss. No confirmed new production regression."
+    },
+    "writer": {
+      "classification": "证据不足",
+      "evidence": "Stable current threshold miss; same serializer and test on 017c10d also miss. Scalar guards/bbox and GC measured; no unproven optimization applied."
+    }
+  },
+  "timing_diagnostics": {
+    "unprofiled_replays": 56,
+    "non_timing_assertions_passed": true,
+    "elapsed_failures_deferred_in_diagnostic_only": true,
+    "official_gates_unchanged": true,
+    "profiles_not_in_p50_p95": true,
+    "no_historical_times_used_as_current_measurements": true
+  },
+  "keyboard": {
+    "10000x30-0-undrawn": {
+      "fresh_processes": 3,
+      "operations": {
+        "redo": {
+          "samples": [
+            {
+              "operation": "redo",
+              "dispatch_ms": 88.58509999117814,
+              "complete_ms": 568.3298999938415,
+              "cpu_ms": 312.5,
+              "max_qt_gap_ms": 269.9021000007633,
+              "rss": 382439424,
+              "private": 794767360,
+              "peak": 394428416
+            },
+            {
+              "operation": "redo",
+              "dispatch_ms": 82.93599999160506,
+              "complete_ms": 497.76489999203477,
+              "cpu_ms": 312.5,
+              "max_qt_gap_ms": 229.5235999918077,
+              "rss": 382201856,
+              "private": 795279360,
+              "peak": 394764288
+            },
+            {
+              "operation": "redo",
+              "dispatch_ms": 84.64869999443181,
+              "complete_ms": 500.9942000033334,
+              "cpu_ms": 296.875,
+              "max_qt_gap_ms": 227.16729999228846,
+              "rss": 381747200,
+              "private": 794279936,
+              "peak": 393973760
+            }
+          ],
+          "p50_ms": 500.9942000033334,
+          "p95_nearest_rank_ms": 568.3298999938415,
+          "dispatch_p50_ms": 84.64869999443181,
+          "max_qt_gap_ms": 269.9021000007633
+        },
+        "undo": {
+          "samples": [
+            {
+              "operation": "undo",
+              "dispatch_ms": 76.41700000385754,
+              "complete_ms": 525.3082000126597,
+              "cpu_ms": 234.375,
+              "max_qt_gap_ms": 252.74519999220502,
+              "rss": 382263296,
+              "private": 794767360,
+              "peak": 394428416
+            },
+            {
+              "operation": "undo",
+              "dispatch_ms": 96.61549999145791,
+              "complete_ms": 523.2503999868641,
+              "cpu_ms": 328.125,
+              "max_qt_gap_ms": 233.2083000073908,
+              "rss": 382099456,
+              "private": 795275264,
+              "peak": 394764288
+            },
+            {
+              "operation": "undo",
+              "dispatch_ms": 84.58700000483077,
+              "complete_ms": 509.99039999442175,
+              "cpu_ms": 281.25,
+              "max_qt_gap_ms": 225.02849999000318,
+              "rss": 381894656,
+              "private": 794288128,
+              "peak": 393973760
+            }
+          ],
+          "p50_ms": 523.2503999868641,
+          "p95_nearest_rank_ms": 525.3082000126597,
+          "dispatch_p50_ms": 84.58700000483077,
+          "max_qt_gap_ms": 252.74519999220502
+        },
+        "whole_table_paste": {
+          "samples": [
+            {
+              "operation": "whole_table_paste",
+              "dispatch_ms": 399.83229999779724,
+              "complete_ms": 873.0359000037424,
+              "cpu_ms": 687.5,
+              "max_qt_gap_ms": 399.98970000306144,
+              "rss": 382660608,
+              "private": 794906624,
+              "peak": 394428416
+            },
+            {
+              "operation": "whole_table_paste",
+              "dispatch_ms": 434.27860000520013,
+              "complete_ms": 892.3374000005424,
+              "cpu_ms": 593.75,
+              "max_qt_gap_ms": 434.4565999926999,
+              "rss": 382894080,
+              "private": 795267072,
+              "peak": 394764288
+            },
+            {
+              "operation": "whole_table_paste",
+              "dispatch_ms": 501.0762000019895,
+              "complete_ms": 976.1749000026612,
+              "cpu_ms": 640.625,
+              "max_qt_gap_ms": 501.290300002438,
+              "rss": 381956096,
+              "private": 794284032,
+              "peak": 393973760
+            }
+          ],
+          "p50_ms": 892.3374000005424,
+          "p95_nearest_rank_ms": 976.1749000026612,
+          "dispatch_p50_ms": 434.27860000520013,
+          "max_qt_gap_ms": 501.290300002438
+        }
+      },
+      "all_exact_assertions_passed": true,
+      "rendered": {},
+      "fixture_note": "Draw counters are authoritative; original static harness prose is inaccurate for --drawn/multiple mappings. Drawn cases have manual Reference; Dynamic remains empty. Full rectangle is pasted but only first mapped column changes.",
+      "small_sample_p95_is_max_not_confidence_bound": true
+    },
+    "10000x30-3-undrawn": {
+      "fresh_processes": 3,
+      "operations": {
+        "redo": {
+          "samples": [
+            {
+              "operation": "redo",
+              "dispatch_ms": 80.72959999844898,
+              "complete_ms": 1726.4280999952462,
+              "cpu_ms": 1187.5,
+              "max_qt_gap_ms": 1211.9829000002937,
+              "rss": 606572544,
+              "private": 1513701376,
+              "peak": 645337088
+            },
+            {
+              "operation": "redo",
+              "dispatch_ms": 93.29479999723844,
+              "complete_ms": 1901.420700000017,
+              "cpu_ms": 1281.25,
+              "max_qt_gap_ms": 1366.7909999930998,
+              "rss": 606453760,
+              "private": 1513799680,
+              "peak": 645324800
+            },
+            {
+              "operation": "redo",
+              "dispatch_ms": 100.6714999966789,
+              "complete_ms": 1818.5434999904828,
+              "cpu_ms": 1093.75,
+              "max_qt_gap_ms": 1272.437899999204,
+              "rss": 607698944,
+              "private": 1514004480,
+              "peak": 646270976
+            }
+          ],
+          "p50_ms": 1818.5434999904828,
+          "p95_nearest_rank_ms": 1901.420700000017,
+          "dispatch_p50_ms": 93.29479999723844,
+          "max_qt_gap_ms": 1366.7909999930998
+        },
+        "undo": {
+          "samples": [
+            {
+              "operation": "undo",
+              "dispatch_ms": 81.90200000535697,
+              "complete_ms": 1706.585100007942,
+              "cpu_ms": 1156.25,
+              "max_qt_gap_ms": 1189.7792999952799,
+              "rss": 605888512,
+              "private": 1512120320,
+              "peak": 645337088
+            },
+            {
+              "operation": "undo",
+              "dispatch_ms": 82.50399999087676,
+              "complete_ms": 1716.602000000421,
+              "cpu_ms": 1125.0,
+              "max_qt_gap_ms": 1301.0720000020228,
+              "rss": 605696000,
+              "private": 1512251392,
+              "peak": 645324800
+            },
+            {
+              "operation": "undo",
+              "dispatch_ms": 75.64029999775812,
+              "complete_ms": 1662.5932000024477,
+              "cpu_ms": 1109.375,
+              "max_qt_gap_ms": 1154.8068999982206,
+              "rss": 606494720,
+              "private": 1513148416,
+              "peak": 646270976
+            }
+          ],
+          "p50_ms": 1706.585100007942,
+          "p95_nearest_rank_ms": 1716.602000000421,
+          "dispatch_p50_ms": 81.90200000535697,
+          "max_qt_gap_ms": 1301.0720000020228
+        },
+        "whole_table_paste": {
+          "samples": [
+            {
+              "operation": "whole_table_paste",
+              "dispatch_ms": 412.8818000026513,
+              "complete_ms": 2158.6121000000276,
+              "cpu_ms": 1500.0,
+              "max_qt_gap_ms": 1358.3974999928614,
+              "rss": 591601664,
+              "private": 1497726976,
+              "peak": 645337088
+            },
+            {
+              "operation": "whole_table_paste",
+              "dispatch_ms": 418.00180000427645,
+              "complete_ms": 2288.467699996545,
+              "cpu_ms": 1578.125,
+              "max_qt_gap_ms": 1469.7421000018949,
+              "rss": 591949824,
+              "private": 1497890816,
+              "peak": 645324800
+            },
+            {
+              "operation": "whole_table_paste",
+              "dispatch_ms": 406.5783999976702,
+              "complete_ms": 2146.512299994356,
+              "cpu_ms": 1593.75,
+              "max_qt_gap_ms": 1356.3050999946427,
+              "rss": 592191488,
+              "private": 1498411008,
+              "peak": 646270976
+            }
+          ],
+          "p50_ms": 2158.6121000000276,
+          "p95_nearest_rank_ms": 2288.467699996545,
+          "dispatch_p50_ms": 412.8818000026513,
+          "max_qt_gap_ms": 1469.7421000018949
+        }
+      },
+      "all_exact_assertions_passed": true,
+      "rendered": {},
+      "fixture_note": "Draw counters are authoritative; original static harness prose is inaccurate for --drawn/multiple mappings. Drawn cases have manual Reference; Dynamic remains empty. Full rectangle is pasted but only first mapped column changes.",
+      "small_sample_p95_is_max_not_confidence_bound": true
+    },
+    "100000x33-0-undrawn": {
+      "fresh_processes": 1,
+      "operations": {
+        "redo": {
+          "samples": [
+            {
+              "operation": "redo",
+              "dispatch_ms": 755.8397999964654,
+              "complete_ms": 2015.5491000041366,
+              "cpu_ms": 1671.875,
+              "max_qt_gap_ms": 1069.4512000045506,
+              "rss": 1620267008,
+              "private": 2057969664,
+              "peak": 1833635840
+            }
+          ],
+          "p50_ms": 2015.5491000041366,
+          "p95_nearest_rank_ms": 2015.5491000041366,
+          "dispatch_p50_ms": 755.8397999964654,
+          "max_qt_gap_ms": 1069.4512000045506
+        },
+        "undo": {
+          "samples": [
+            {
+              "operation": "undo",
+              "dispatch_ms": 603.5666999960085,
+              "complete_ms": 1842.277199990349,
+              "cpu_ms": 1546.875,
+              "max_qt_gap_ms": 1018.7528999958886,
+              "rss": 1620340736,
+              "private": 2058919936,
+              "peak": 1833635840
+            }
+          ],
+          "p50_ms": 1842.277199990349,
+          "p95_nearest_rank_ms": 1842.277199990349,
+          "dispatch_p50_ms": 603.5666999960085,
+          "max_qt_gap_ms": 1018.7528999958886
+        },
+        "whole_table_paste": {
+          "samples": [
+            {
+              "operation": "whole_table_paste",
+              "dispatch_ms": 4449.475100002019,
+              "complete_ms": 6164.482400010456,
+              "cpu_ms": 5421.875,
+              "max_qt_gap_ms": 4449.650000009569,
+              "rss": 1627742208,
+              "private": 2065502208,
+              "peak": 1833635840
+            }
+          ],
+          "p50_ms": 6164.482400010456,
+          "p95_nearest_rank_ms": 6164.482400010456,
+          "dispatch_p50_ms": 4449.475100002019,
+          "max_qt_gap_ms": 4449.650000009569
+        }
+      },
+      "all_exact_assertions_passed": true,
+      "rendered": {},
+      "fixture_note": "Draw counters are authoritative; original static harness prose is inaccurate for --drawn/multiple mappings. Drawn cases have manual Reference; Dynamic remains empty. Full rectangle is pasted but only first mapped column changes.",
+      "small_sample_p95_is_max_not_confidence_bound": true
+    },
+    "100000x33-3-undrawn": {
+      "fresh_processes": 1,
+      "operations": {
+        "redo": {
+          "samples": [
+            {
+              "operation": "redo",
+              "dispatch_ms": 742.176700005075,
+              "complete_ms": 10355.83850000694,
+              "cpu_ms": 9531.25,
+              "max_qt_gap_ms": 9246.532299992396,
+              "rss": 2429616128,
+              "private": 3773575168,
+              "peak": 2912165888
+            }
+          ],
+          "p50_ms": 10355.83850000694,
+          "p95_nearest_rank_ms": 10355.83850000694,
+          "dispatch_p50_ms": 742.176700005075,
+          "max_qt_gap_ms": 9246.532299992396
+        },
+        "undo": {
+          "samples": [
+            {
+              "operation": "undo",
+              "dispatch_ms": 641.5864000009606,
+              "complete_ms": 10155.886699998518,
+              "cpu_ms": 9328.125,
+              "max_qt_gap_ms": 9138.28719999583,
+              "rss": 2452676608,
+              "private": 3756285952,
+              "peak": 2912165888
+            }
+          ],
+          "p50_ms": 10155.886699998518,
+          "p95_nearest_rank_ms": 10155.886699998518,
+          "dispatch_p50_ms": 641.5864000009606,
+          "max_qt_gap_ms": 9138.28719999583
+        },
+        "whole_table_paste": {
+          "samples": [
+            {
+              "operation": "whole_table_paste",
+              "dispatch_ms": 5449.7665999952005,
+              "complete_ms": 16730.507899992517,
+              "cpu_ms": 14156.25,
+              "max_qt_gap_ms": 10779.017699998803,
+              "rss": 2321764352,
+              "private": 3573075968,
+              "peak": 2884390912
+            }
+          ],
+          "p50_ms": 16730.507899992517,
+          "p95_nearest_rank_ms": 16730.507899992517,
+          "dispatch_p50_ms": 5449.7665999952005,
+          "max_qt_gap_ms": 10779.017699998803
+        }
+      },
+      "all_exact_assertions_passed": true,
+      "rendered": {},
+      "fixture_note": "Draw counters are authoritative; original static harness prose is inaccurate for --drawn/multiple mappings. Drawn cases have manual Reference; Dynamic remains empty. Full rectangle is pasted but only first mapped column changes.",
+      "small_sample_p95_is_max_not_confidence_bound": true
+    },
+    "10000x30-drawn-before": {
+      "fresh_processes": 3,
+      "operations": {
+        "redo": {
+          "samples": [
+            {
+              "operation": "redo",
+              "dispatch_ms": 80.86500001081731,
+              "complete_ms": 2449.1579000023194,
+              "cpu_ms": 1421.875,
+              "max_qt_gap_ms": 985.4130000021541,
+              "rss": 654077952,
+              "private": 1627385856,
+              "peak": 690470912
+            },
+            {
+              "operation": "redo",
+              "dispatch_ms": 77.75070000207052,
+              "complete_ms": 2395.1144000020577,
+              "cpu_ms": 1343.75,
+              "max_qt_gap_ms": 935.3106000053231,
+              "rss": 653758464,
+              "private": 1627189248,
+              "peak": 690614272
+            },
+            {
+              "operation": "redo",
+              "dispatch_ms": 77.33259999076836,
+              "complete_ms": 2393.5476999904495,
+              "cpu_ms": 1328.125,
+              "max_qt_gap_ms": 933.2487000065157,
+              "rss": 654536704,
+              "private": 1628106752,
+              "peak": 689967104
+            }
+          ],
+          "p50_ms": 2395.1144000020577,
+          "p95_nearest_rank_ms": 2449.1579000023194,
+          "dispatch_p50_ms": 77.75070000207052,
+          "max_qt_gap_ms": 985.4130000021541
+        },
+        "select_all": {
+          "samples": [
+            {
+              "operation": "select_all",
+              "dispatch_ms": 0.47929999709594995,
+              "complete_ms": 88.11890000652056,
+              "cpu_ms": 15.625,
+              "max_qt_gap_ms": 79.50669999991078,
+              "rss": 608722944,
+              "private": 1581637632,
+              "peak": 608722944
+            },
+            {
+              "operation": "select_all",
+              "dispatch_ms": 0.5143999878782779,
+              "complete_ms": 83.78209998772945,
+              "cpu_ms": 15.625,
+              "max_qt_gap_ms": 77.53500000399072,
+              "rss": 608907264,
+              "private": 1581592576,
+              "peak": 608907264
+            },
+            {
+              "operation": "select_all",
+              "dispatch_ms": 0.3539000026648864,
+              "complete_ms": 82.5979999935953,
+              "cpu_ms": 0.0,
+              "max_qt_gap_ms": 76.05220000550617,
+              "rss": 608788480,
+              "private": 1581404160,
+              "peak": 608788480
+            }
+          ],
+          "p50_ms": 83.78209998772945,
+          "p95_nearest_rank_ms": 88.11890000652056,
+          "dispatch_p50_ms": 0.47929999709594995,
+          "max_qt_gap_ms": 79.50669999991078
+        },
+        "undo": {
+          "samples": [
+            {
+              "operation": "undo",
+              "dispatch_ms": 74.88440000452101,
+              "complete_ms": 2405.433700012509,
+              "cpu_ms": 1390.625,
+              "max_qt_gap_ms": 928.730200001155,
+              "rss": 652795904,
+              "private": 1625288704,
+              "peak": 690470912
+            },
+            {
+              "operation": "undo",
+              "dispatch_ms": 74.80029998987447,
+              "complete_ms": 2443.348699991475,
+              "cpu_ms": 1421.875,
+              "max_qt_gap_ms": 992.586599997594,
+              "rss": 653697024,
+              "private": 1628168192,
+              "peak": 690614272
+            },
+            {
+              "operation": "undo",
+              "dispatch_ms": 79.42130000446923,
+              "complete_ms": 2492.9690999997547,
+              "cpu_ms": 1640.625,
+              "max_qt_gap_ms": 1022.0071999938227,
+              "rss": 653557760,
+              "private": 1626292224,
+              "peak": 689967104
+            }
+          ],
+          "p50_ms": 2443.348699991475,
+          "p95_nearest_rank_ms": 2492.9690999997547,
+          "dispatch_p50_ms": 74.88440000452101,
+          "max_qt_gap_ms": 1022.0071999938227
+        },
+        "whole_table_paste": {
+          "samples": [
+            {
+              "operation": "whole_table_paste",
+              "dispatch_ms": 363.42059999878984,
+              "complete_ms": 2861.255199997686,
+              "cpu_ms": 1734.375,
+              "max_qt_gap_ms": 1055.3729999955976,
+              "rss": 637677568,
+              "private": 1610428416,
+              "peak": 690470912
+            },
+            {
+              "operation": "whole_table_paste",
+              "dispatch_ms": 358.14250000112224,
+              "complete_ms": 2809.8100000061095,
+              "cpu_ms": 1625.0,
+              "max_qt_gap_ms": 1002.0415000035428,
+              "rss": 637763584,
+              "private": 1610366976,
+              "peak": 690614272
+            },
+            {
+              "operation": "whole_table_paste",
+              "dispatch_ms": 387.6462999905925,
+              "complete_ms": 2809.6807999972953,
+              "cpu_ms": 1781.25,
+              "max_qt_gap_ms": 991.4661000075284,
+              "rss": 637419520,
+              "private": 1609584640,
+              "peak": 689967104
+            }
+          ],
+          "p50_ms": 2809.8100000061095,
+          "p95_nearest_rank_ms": 2861.255199997686,
+          "dispatch_p50_ms": 363.42059999878984,
+          "max_qt_gap_ms": 1055.3729999955976
+        }
+      },
+      "all_exact_assertions_passed": true,
+      "rendered": {
+        "plot_page": 6,
+        "radius_page": 6,
+        "correlation_page": 1,
+        "sequence_page": 2
+      },
+      "fixture_note": "Draw counters are authoritative; original static harness prose is inaccurate for --drawn/multiple mappings. Drawn cases have manual Reference; Dynamic remains empty. Full rectangle is pasted but only first mapped column changes.",
+      "small_sample_p95_is_max_not_confidence_bound": true
+    },
+    "10000x30-drawn-after": {
+      "fresh_processes": 3,
+      "operations": {
+        "redo": {
+          "samples": [
+            {
+              "operation": "redo",
+              "dispatch_ms": 76.76579999679234,
+              "complete_ms": 2301.5282999986084,
+              "cpu_ms": 1437.5,
+              "max_qt_gap_ms": 981.7999999941094,
+              "rss": 653905920,
+              "private": 1628057600,
+              "peak": 689848320
+            },
+            {
+              "operation": "redo",
+              "dispatch_ms": 86.94219999597408,
+              "complete_ms": 2356.2827999994624,
+              "cpu_ms": 1390.625,
+              "max_qt_gap_ms": 1010.9778000041842,
+              "rss": 652873728,
+              "private": 1627066368,
+              "peak": 689156096
+            },
+            {
+              "operation": "redo",
+              "dispatch_ms": 79.00610000069719,
+              "complete_ms": 2324.4105000048876,
+              "cpu_ms": 1421.875,
+              "max_qt_gap_ms": 999.4049999950221,
+              "rss": 652840960,
+              "private": 1627435008,
+              "peak": 690540544
+            }
+          ],
+          "p50_ms": 2324.4105000048876,
+          "p95_nearest_rank_ms": 2356.2827999994624,
+          "dispatch_p50_ms": 79.00610000069719,
+          "max_qt_gap_ms": 1010.9778000041842
+        },
+        "select_all": {
+          "samples": [
+            {
+              "operation": "select_all",
+              "dispatch_ms": 0.4680999991251156,
+              "complete_ms": 83.70210000430234,
+              "cpu_ms": 0.0,
+              "max_qt_gap_ms": 77.42800000414718,
+              "rss": 608346112,
+              "private": 1581051904,
+              "peak": 608346112
+            },
+            {
+              "operation": "select_all",
+              "dispatch_ms": 0.45680000039283186,
+              "complete_ms": 86.50360000319779,
+              "cpu_ms": 15.625,
+              "max_qt_gap_ms": 79.72689998860005,
+              "rss": 607625216,
+              "private": 1580568576,
+              "peak": 607625216
+            },
+            {
+              "operation": "select_all",
+              "dispatch_ms": 0.5403999966802076,
+              "complete_ms": 91.16280000307597,
+              "cpu_ms": 15.625,
+              "max_qt_gap_ms": 82.5681000133045,
+              "rss": 609009664,
+              "private": 1581830144,
+              "peak": 609009664
+            }
+          ],
+          "p50_ms": 86.50360000319779,
+          "p95_nearest_rank_ms": 91.16280000307597,
+          "dispatch_p50_ms": 0.4680999991251156,
+          "max_qt_gap_ms": 82.5681000133045
+        },
+        "undo": {
+          "samples": [
+            {
+              "operation": "undo",
+              "dispatch_ms": 78.73339999059681,
+              "complete_ms": 2270.2843000006396,
+              "cpu_ms": 1375.0,
+              "max_qt_gap_ms": 928.2416000060039,
+              "rss": 652734464,
+              "private": 1626320896,
+              "peak": 689848320
+            },
+            {
+              "operation": "undo",
+              "dispatch_ms": 124.97530000109691,
+              "complete_ms": 2382.5033999892185,
+              "cpu_ms": 1406.25,
+              "max_qt_gap_ms": 925.5303999962052,
+              "rss": 652226560,
+              "private": 1625370624,
+              "peak": 689156096
+            },
+            {
+              "operation": "undo",
+              "dispatch_ms": 75.54099999833852,
+              "complete_ms": 2357.85990000295,
+              "cpu_ms": 1578.125,
+              "max_qt_gap_ms": 946.7721999972127,
+              "rss": 652369920,
+              "private": 1625427968,
+              "peak": 690540544
+            }
+          ],
+          "p50_ms": 2357.85990000295,
+          "p95_nearest_rank_ms": 2382.5033999892185,
+          "dispatch_p50_ms": 78.73339999059681,
+          "max_qt_gap_ms": 946.7721999972127
+        },
+        "whole_table_paste": {
+          "samples": [
+            {
+              "operation": "whole_table_paste",
+              "dispatch_ms": 369.2810000065947,
+              "complete_ms": 2673.0558999988716,
+              "cpu_ms": 1968.75,
+              "max_qt_gap_ms": 1006.1299000080908,
+              "rss": 637521920,
+              "private": 1610027008,
+              "peak": 689848320
+            },
+            {
+              "operation": "whole_table_paste",
+              "dispatch_ms": 367.55139999149833,
+              "complete_ms": 2825.3185999928974,
+              "cpu_ms": 1843.75,
+              "max_qt_gap_ms": 1034.5320000051288,
+              "rss": 637624320,
+              "private": 1609764864,
+              "peak": 689156096
+            },
+            {
+              "operation": "whole_table_paste",
+              "dispatch_ms": 405.873600000632,
+              "complete_ms": 2783.736299999873,
+              "cpu_ms": 1921.875,
+              "max_qt_gap_ms": 1050.3962000075262,
+              "rss": 636706816,
+              "private": 1608896512,
+              "peak": 690540544
+            }
+          ],
+          "p50_ms": 2783.736299999873,
+          "p95_nearest_rank_ms": 2825.3185999928974,
+          "dispatch_p50_ms": 369.2810000065947,
+          "max_qt_gap_ms": 1050.3962000075262
+        }
+      },
+      "all_exact_assertions_passed": true,
+      "rendered": {
+        "plot_page": 6,
+        "radius_page": 6,
+        "correlation_page": 1,
+        "sequence_page": 2
+      },
+      "fixture_note": "Draw counters are authoritative; original static harness prose is inaccurate for --drawn/multiple mappings. Drawn cases have manual Reference; Dynamic remains empty. Full rectangle is pasted but only first mapped column changes.",
+      "small_sample_p95_is_max_not_confidence_bound": true
+    },
+    "10000x30-actual-nova-multi-final": {
+      "fresh_processes": 1,
+      "operations": {
+        "redo": {
+          "samples": [
+            {
+              "operation": "redo",
+              "dispatch_ms": 94.79670001019258,
+              "complete_ms": 3358.245200011879,
+              "cpu_ms": 2375.0,
+              "max_qt_gap_ms": 1430.9310999960871,
+              "rss": 812232704,
+              "private": 1786384384,
+              "peak": 845398016
+            }
+          ],
+          "p50_ms": 3358.245200011879,
+          "p95_nearest_rank_ms": 3358.245200011879,
+          "dispatch_p50_ms": 94.79670001019258,
+          "max_qt_gap_ms": 1430.9310999960871
+        },
+        "select_all": {
+          "samples": [
+            {
+              "operation": "select_all",
+              "dispatch_ms": 0.42600001324899495,
+              "complete_ms": 95.55690000706818,
+              "cpu_ms": 31.25,
+              "max_qt_gap_ms": 89.13759999268223,
+              "rss": 767963136,
+              "private": 1741971456,
+              "peak": 767963136
+            }
+          ],
+          "p50_ms": 95.55690000706818,
+          "p95_nearest_rank_ms": 95.55690000706818,
+          "dispatch_p50_ms": 0.42600001324899495,
+          "max_qt_gap_ms": 89.13759999268223
+        },
+        "undo": {
+          "samples": [
+            {
+              "operation": "undo",
+              "dispatch_ms": 94.56860000500455,
+              "complete_ms": 3275.7787000009557,
+              "cpu_ms": 2359.375,
+              "max_qt_gap_ms": 1340.2503999968758,
+              "rss": 813412352,
+              "private": 1787875328,
+              "peak": 845398016
+            }
+          ],
+          "p50_ms": 3275.7787000009557,
+          "p95_nearest_rank_ms": 3275.7787000009557,
+          "dispatch_p50_ms": 94.56860000500455,
+          "max_qt_gap_ms": 1340.2503999968758
+        },
+        "whole_table_paste": {
+          "samples": [
+            {
+              "operation": "whole_table_paste",
+              "dispatch_ms": 410.6501000060234,
+              "complete_ms": 3753.469100003713,
+              "cpu_ms": 2640.625,
+              "max_qt_gap_ms": 1351.3690999971004,
+              "rss": 793849856,
+              "private": 1768321024,
+              "peak": 845398016
+            }
+          ],
+          "p50_ms": 3753.469100003713,
+          "p95_nearest_rank_ms": 3753.469100003713,
+          "dispatch_p50_ms": 410.6501000060234,
+          "max_qt_gap_ms": 1351.3690999971004
+        }
+      },
+      "all_exact_assertions_passed": true,
+      "rendered": {
+        "plot_page": 18,
+        "radius_page": 18,
+        "correlation_page": 15,
+        "sequence_page": 6
+      },
+      "fixture_note": "Draw counters are authoritative; original static harness prose is inaccurate for --drawn/multiple mappings. Drawn cases have manual Reference; Dynamic remains empty. Full rectangle is pasted but only first mapped column changes.",
+      "small_sample_p95_is_max_not_confidence_bound": true
+    }
+  },
+  "local_fixes": [
+    {
+      "issue": "Whole-wafer parent participation invalidated Map/Radius without restoring prior successful draws",
+      "files": [
+        "metrology_app/matching_window.py"
+      ],
+      "source_replacement_unchanged": true,
+      "guards": [
+        "pending Draw not applied",
+        "only exact surviving boxes",
+        "no substitute wafer",
+        "restored grouped WKB",
+        "source replacement restores once"
+      ]
+    },
+    {
+      "issue": "Automatic refresh timers could draw old choices during slow explicit Correlation/Trend restoration",
+      "files": [
+        "metrology_app/window.py"
+      ],
+      "red": "double-draw-red-confirmed.log",
+      "green": "audit-final-focused.log",
+      "test_includes_real_Qt_timeout_and_rendered_updated_point": true
+    },
+    {
+      "issue": "Ordinary RSQ/Dynamic X axes hidden by generic numRef detection",
+      "files": [
+        "metrology_app/excel_export.py"
+      ],
+      "note": "All Trend helper is unused; do not claim an actual All Trend export regression."
+    },
+    {
+      "issue": "Forced final Die tick overlapped prior label",
+      "files": [
+        "metrology_app/native_chart_labels.py"
+      ]
+    },
+    {
+      "issue": "Unwanted Workbook/Full data scope menu in Dynamic",
+      "files": [
+        "metrology_app/dynamic_window.py"
+      ],
+      "saved_fields_and_protocol_preserved": true
+    },
+    {
+      "issue": "Stale native trendline and Dynamic export scenario text",
+      "files": [
+        "docs/features/excel_export.feature"
+      ]
+    }
+  ],
+  "native_excel": {
+    "OwnedProcess": 7368,
+    "ExistingProcesses": [],
+    "ExcelVersion": "16.0",
+    "Rows": [
+      {
+        "File": "qa-native.xlsx",
+        "Sheet": "Match Group (WO Card)",
+        "Chart": 1,
+        "Formula": "=SERIES('Match Group (WO Card)'!$F$2,'Match Group (WO Card)'!$D$3:$D$14,'Match Group (WO Card)'!$F$3:$F$14,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          1.0,
+          3.0,
+          2.0,
+          4.0,
+          6.0,
+          5.0,
+          7.0,
+          9.0,
+          8.0,
+          10.0,
+          12.0,
+          11.0
+        ],
+        "Values": [
+          3.0,
+          7.0,
+          5.0,
+          9.0,
+          13.0,
+          11.0,
+          15.0,
+          19.0,
+          17.0,
+          21.0,
+          25.0,
+          23.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": -4134,
+        "WidthPoints": 425.19683837890625,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-native.xlsx",
+        "Sheet": "Match Group (WO Card)",
+        "Chart": 2,
+        "Formula": "=SERIES(\"PMISH\",'Match Group (WO Card)'!$C$3:$C$14,'Match Group (WO Card)'!$E$3:$E$14,1)",
+        "SeriesCount": 2,
+        "XValues": [
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007"
+        ],
+        "Values": [
+          3.0,
+          7.0,
+          5.0,
+          9.0,
+          13.0,
+          11.0,
+          15.0,
+          19.0,
+          17.0,
+          21.0,
+          25.0,
+          23.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": 4,
+        "WidthPoints": 203.3905487060547,
+        "HeightPoints": 311.81103515625,
+        "Image": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\qa-native-3-2.png",
+        "ImageExported": true
+      },
+      {
+        "File": "qa-native.xlsx",
+        "Sheet": "Match Group (WO Card)",
+        "Chart": 3,
+        "Formula": "=SERIES('Match Group (WO Card)'!$G$2,'Match Group (WO Card)'!$C$3:$C$14,'Match Group (WO Card)'!$G$3:$G$14,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007"
+        ],
+        "Values": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": 4,
+        "WidthPoints": 203.3905487060547,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-native.xlsx",
+        "Sheet": "Match Group (WO Card)",
+        "Chart": 4,
+        "Formula": "=SERIES('Match Group (WO Card)'!$H$2,'Match Group (WO Card)'!$C$3:$C$14,'Match Group (WO Card)'!$H$3:$H$14,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007"
+        ],
+        "Values": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": 4,
+        "WidthPoints": 203.3905487060547,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-native.xlsx",
+        "Sheet": "Match Group (WO Card)",
+        "Chart": 5,
+        "Formula": "=SERIES('Match Group (WO Card)'!$O$2,'Match Group (WO Card)'!$M$3:$M$14,'Match Group (WO Card)'!$O$3:$O$14,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          21.0,
+          23.0,
+          22.0,
+          24.0,
+          26.0,
+          25.0,
+          27.0,
+          29.0,
+          28.0,
+          30.0,
+          32.0,
+          31.0
+        ],
+        "Values": [
+          5.0,
+          11.0,
+          8.0,
+          14.0,
+          20.0,
+          17.0,
+          23.0,
+          29.0,
+          26.0,
+          32.0,
+          38.0,
+          35.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": -4134,
+        "WidthPoints": 425.19683837890625,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-native.xlsx",
+        "Sheet": "Match Group (WO Card)",
+        "Chart": 6,
+        "Formula": "=SERIES(\"PMISH\",'Match Group (WO Card)'!$L$3:$L$14,'Match Group (WO Card)'!$N$3:$N$14,1)",
+        "SeriesCount": 2,
+        "XValues": [
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007"
+        ],
+        "Values": [
+          5.0,
+          11.0,
+          8.0,
+          14.0,
+          20.0,
+          17.0,
+          23.0,
+          29.0,
+          26.0,
+          32.0,
+          38.0,
+          35.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": 4,
+        "WidthPoints": 203.3905487060547,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-native.xlsx",
+        "Sheet": "Match Group (WO Card)",
+        "Chart": 7,
+        "Formula": "=SERIES('Match Group (WO Card)'!$P$2,'Match Group (WO Card)'!$L$3:$L$14,'Match Group (WO Card)'!$P$3:$P$14,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007"
+        ],
+        "Values": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": 4,
+        "WidthPoints": 203.3905487060547,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-native.xlsx",
+        "Sheet": "Match Group (WO Card)",
+        "Chart": 8,
+        "Formula": "=SERIES('Match Group (WO Card)'!$Q$2,'Match Group (WO Card)'!$L$3:$L$14,'Match Group (WO Card)'!$Q$3:$Q$14,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007"
+        ],
+        "Values": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": 4,
+        "WidthPoints": 203.3905487060547,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-native.xlsx",
+        "Sheet": "Match Group show Wafer(WO Card)",
+        "Chart": 1,
+        "Formula": "=SERIES('Match Group show Wafer(WO Card)'!$F$2,'Match Group show Wafer(WO Card)'!$D$3:$D$14,'Match Group show Wafer(WO Card)'!$F$3:$F$14,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          1.0,
+          3.0,
+          2.0,
+          4.0,
+          6.0,
+          5.0,
+          7.0,
+          9.0,
+          8.0,
+          10.0,
+          12.0,
+          11.0
+        ],
+        "Values": [
+          3.0,
+          7.0,
+          5.0,
+          9.0,
+          13.0,
+          11.0,
+          15.0,
+          19.0,
+          17.0,
+          21.0,
+          25.0,
+          23.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": -4134,
+        "WidthPoints": 425.19683837890625,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-native.xlsx",
+        "Sheet": "Match Group show Wafer(WO Card)",
+        "Chart": 2,
+        "Formula": "=SERIES(\"PMISH\",'Match Group show Wafer(WO Card)'!$C$3:$C$14,'Match Group show Wafer(WO Card)'!$E$3:$E$14,1)",
+        "SeriesCount": 2,
+        "XValues": [
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007"
+        ],
+        "Values": [
+          3.0,
+          7.0,
+          5.0,
+          9.0,
+          13.0,
+          11.0,
+          15.0,
+          19.0,
+          17.0,
+          21.0,
+          25.0,
+          23.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": 4,
+        "WidthPoints": 247.5,
+        "HeightPoints": 311.81103515625,
+        "Image": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\qa-native-4-2.png",
+        "ImageExported": true
+      },
+      {
+        "File": "qa-native.xlsx",
+        "Sheet": "Match Group show Wafer(WO Card)",
+        "Chart": 3,
+        "Formula": "=SERIES('Match Group show Wafer(WO Card)'!$G$2,'Match Group show Wafer(WO Card)'!$C$3:$C$14,'Match Group show Wafer(WO Card)'!$G$3:$G$14,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007"
+        ],
+        "Values": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": 4,
+        "WidthPoints": 247.5,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-native.xlsx",
+        "Sheet": "Match Group show Wafer(WO Card)",
+        "Chart": 4,
+        "Formula": "=SERIES('Match Group show Wafer(WO Card)'!$H$2,'Match Group show Wafer(WO Card)'!$C$3:$C$14,'Match Group show Wafer(WO Card)'!$H$3:$H$14,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007"
+        ],
+        "Values": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": 4,
+        "WidthPoints": 247.5,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-native.xlsx",
+        "Sheet": "Match Group show Wafer(WO Card)",
+        "Chart": 5,
+        "Formula": "=SERIES('Match Group show Wafer(WO Card)'!$O$2,'Match Group show Wafer(WO Card)'!$M$3:$M$14,'Match Group show Wafer(WO Card)'!$O$3:$O$14,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          21.0,
+          23.0,
+          22.0,
+          24.0,
+          26.0,
+          25.0,
+          27.0,
+          29.0,
+          28.0,
+          30.0,
+          32.0,
+          31.0
+        ],
+        "Values": [
+          5.0,
+          11.0,
+          8.0,
+          14.0,
+          20.0,
+          17.0,
+          23.0,
+          29.0,
+          26.0,
+          32.0,
+          38.0,
+          35.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": -4134,
+        "WidthPoints": 425.19683837890625,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-native.xlsx",
+        "Sheet": "Match Group show Wafer(WO Card)",
+        "Chart": 6,
+        "Formula": "=SERIES(\"PMISH\",'Match Group show Wafer(WO Card)'!$L$3:$L$14,'Match Group show Wafer(WO Card)'!$N$3:$N$14,1)",
+        "SeriesCount": 2,
+        "XValues": [
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007"
+        ],
+        "Values": [
+          5.0,
+          11.0,
+          8.0,
+          14.0,
+          20.0,
+          17.0,
+          23.0,
+          29.0,
+          26.0,
+          32.0,
+          38.0,
+          35.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": 4,
+        "WidthPoints": 247.5,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-native.xlsx",
+        "Sheet": "Match Group show Wafer(WO Card)",
+        "Chart": 7,
+        "Formula": "=SERIES('Match Group show Wafer(WO Card)'!$P$2,'Match Group show Wafer(WO Card)'!$L$3:$L$14,'Match Group show Wafer(WO Card)'!$P$3:$P$14,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007"
+        ],
+        "Values": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": 4,
+        "WidthPoints": 247.5,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-native.xlsx",
+        "Sheet": "Match Group show Wafer(WO Card)",
+        "Chart": 8,
+        "Formula": "=SERIES('Match Group show Wafer(WO Card)'!$Q$2,'Match Group show Wafer(WO Card)'!$L$3:$L$14,'Match Group show Wafer(WO Card)'!$Q$3:$Q$14,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007"
+        ],
+        "Values": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": 4,
+        "WidthPoints": 247.5,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-native.xlsx",
+        "Sheet": "RSQ (WO Card)",
+        "Chart": 1,
+        "Formula": "=SERIES('RSQ (WO Card)'!$D$1,'RSQ (WO Card)'!$A$2:$A$5,'RSQ (WO Card)'!$D$2:$D$5,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          1.0,
+          2.0,
+          3.0,
+          4.0
+        ],
+        "Values": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": -4134,
+        "WidthPoints": 453.5433044433594,
+        "HeightPoints": 226.7716522216797,
+        "Image": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\qa-native-8-1.png",
+        "ImageExported": true
+      },
+      {
+        "File": "qa-native.xlsx",
+        "Sheet": "RSQ (WO Card)",
+        "Chart": 2,
+        "Formula": "=SERIES('RSQ (WO Card)'!$E$1,'RSQ (WO Card)'!$A$2:$A$5,'RSQ (WO Card)'!$E$2:$E$5,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          1.0,
+          2.0,
+          3.0,
+          4.0
+        ],
+        "Values": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": -4134,
+        "WidthPoints": 453.5433044433594,
+        "HeightPoints": 226.7716522216797
+      },
+      {
+        "File": "qa-mixed.xlsx",
+        "Sheet": "Match Group (WO Card)",
+        "Chart": 1,
+        "Formula": "=SERIES('Match Group (WO Card)'!$F$2,'Match Group (WO Card)'!$D$3:$D$14,'Match Group (WO Card)'!$F$3:$F$14,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          1.0,
+          3.0,
+          2.0,
+          4.0,
+          6.0,
+          5.0,
+          7.0,
+          9.0,
+          8.0,
+          10.0,
+          12.0,
+          11.0
+        ],
+        "Values": [
+          3.0,
+          7.0,
+          5.0,
+          9.0,
+          13.0,
+          11.0,
+          15.0,
+          19.0,
+          17.0,
+          21.0,
+          25.0,
+          23.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": -4134,
+        "WidthPoints": 425.19683837890625,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-mixed.xlsx",
+        "Sheet": "Match Group (WO Card)",
+        "Chart": 2,
+        "Formula": "=SERIES(\"PMISH\",'Match Group (WO Card)'!$C$3:$C$14,'Match Group (WO Card)'!$E$3:$E$14,1)",
+        "SeriesCount": 2,
+        "XValues": [
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007"
+        ],
+        "Values": [
+          3.0,
+          7.0,
+          5.0,
+          9.0,
+          13.0,
+          11.0,
+          15.0,
+          19.0,
+          17.0,
+          21.0,
+          25.0,
+          23.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": 4,
+        "WidthPoints": 203.3905487060547,
+        "HeightPoints": 311.81103515625,
+        "Image": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\qa-mixed-3-2.png",
+        "ImageExported": true
+      },
+      {
+        "File": "qa-mixed.xlsx",
+        "Sheet": "Match Group (WO Card)",
+        "Chart": 3,
+        "Formula": "=SERIES('Match Group (WO Card)'!$G$2,'Match Group (WO Card)'!$C$3:$C$14,'Match Group (WO Card)'!$G$3:$G$14,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007"
+        ],
+        "Values": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": 4,
+        "WidthPoints": 203.3905487060547,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-mixed.xlsx",
+        "Sheet": "Match Group (WO Card)",
+        "Chart": 4,
+        "Formula": "=SERIES('Match Group (WO Card)'!$H$2,'Match Group (WO Card)'!$C$3:$C$14,'Match Group (WO Card)'!$H$3:$H$14,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007"
+        ],
+        "Values": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": 4,
+        "WidthPoints": 203.3905487060547,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-mixed.xlsx",
+        "Sheet": "Match Group (WO Card)",
+        "Chart": 5,
+        "Formula": "=SERIES('Match Group (WO Card)'!$O$2,'Match Group (WO Card)'!$M$3:$M$14,'Match Group (WO Card)'!$O$3:$O$14,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          21.0,
+          23.0,
+          22.0,
+          24.0,
+          26.0,
+          25.0,
+          27.0,
+          29.0,
+          28.0,
+          30.0,
+          32.0,
+          31.0
+        ],
+        "Values": [
+          5.0,
+          11.0,
+          8.0,
+          14.0,
+          20.0,
+          17.0,
+          23.0,
+          29.0,
+          26.0,
+          32.0,
+          38.0,
+          35.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": -4134,
+        "WidthPoints": 425.19683837890625,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-mixed.xlsx",
+        "Sheet": "Match Group (WO Card)",
+        "Chart": 6,
+        "Formula": "=SERIES(\"PMISH\",'Match Group (WO Card)'!$L$3:$L$14,'Match Group (WO Card)'!$N$3:$N$14,1)",
+        "SeriesCount": 2,
+        "XValues": [
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007"
+        ],
+        "Values": [
+          5.0,
+          11.0,
+          8.0,
+          14.0,
+          20.0,
+          17.0,
+          23.0,
+          29.0,
+          26.0,
+          32.0,
+          38.0,
+          35.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": 4,
+        "WidthPoints": 203.3905487060547,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-mixed.xlsx",
+        "Sheet": "Match Group (WO Card)",
+        "Chart": 7,
+        "Formula": "=SERIES('Match Group (WO Card)'!$P$2,'Match Group (WO Card)'!$L$3:$L$14,'Match Group (WO Card)'!$P$3:$P$14,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007"
+        ],
+        "Values": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": 4,
+        "WidthPoints": 203.3905487060547,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-mixed.xlsx",
+        "Sheet": "Match Group (WO Card)",
+        "Chart": 8,
+        "Formula": "=SERIES('Match Group (WO Card)'!$Q$2,'Match Group (WO Card)'!$L$3:$L$14,'Match Group (WO Card)'!$Q$3:$Q$14,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007",
+          "001",
+          "003",
+          "007"
+        ],
+        "Values": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": 4,
+        "WidthPoints": 203.3905487060547,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-mixed.xlsx",
+        "Sheet": "Match Group show Wafer(WO Card)",
+        "Chart": 1,
+        "Formula": "=SERIES('Match Group show Wafer(WO Card)'!$F$2,'Match Group show Wafer(WO Card)'!$D$3:$D$14,'Match Group show Wafer(WO Card)'!$F$3:$F$14,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          1.0,
+          3.0,
+          2.0,
+          4.0,
+          6.0,
+          5.0,
+          7.0,
+          9.0,
+          8.0,
+          10.0,
+          12.0,
+          11.0
+        ],
+        "Values": [
+          3.0,
+          7.0,
+          5.0,
+          9.0,
+          13.0,
+          11.0,
+          15.0,
+          19.0,
+          17.0,
+          21.0,
+          25.0,
+          23.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": -4134,
+        "WidthPoints": 425.19683837890625,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-mixed.xlsx",
+        "Sheet": "Match Group show Wafer(WO Card)",
+        "Chart": 2,
+        "Formula": "=SERIES(\"PMISH\",'_Plot data'!$C$80:$C$91,'Match Group show Wafer(WO Card)'!$E$3:$E$14,1)",
+        "SeriesCount": 2,
+        "XValues": [
+          6.716145833333333,
+          20.1484375,
+          33.58072916666666,
+          47.01302083333334,
+          60.4453125,
+          73.87760416666667,
+          89.76041666666667,
+          108.09375,
+          126.4270833333333,
+          144.7604166666667,
+          163.09375,
+          181.4270833333333
+        ],
+        "Values": [
+          3.0,
+          7.0,
+          5.0,
+          9.0,
+          13.0,
+          11.0,
+          15.0,
+          19.0,
+          17.0,
+          21.0,
+          25.0,
+          23.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": 4,
+        "WidthPoints": 225.44528198242188,
+        "HeightPoints": 311.81103515625,
+        "Image": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\qa-mixed-4-2.png",
+        "ImageExported": true
+      },
+      {
+        "File": "qa-mixed.xlsx",
+        "Sheet": "Match Group show Wafer(WO Card)",
+        "Chart": 3,
+        "Formula": "=SERIES('Match Group show Wafer(WO Card)'!$G$2,'_Plot data'!$C$80:$C$91,'Match Group show Wafer(WO Card)'!$G$3:$G$14,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          6.716145833333333,
+          20.1484375,
+          33.58072916666666,
+          47.01302083333334,
+          60.4453125,
+          73.87760416666667,
+          89.76041666666667,
+          108.09375,
+          126.4270833333333,
+          144.7604166666667,
+          163.09375,
+          181.4270833333333
+        ],
+        "Values": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": 4,
+        "WidthPoints": 225.44528198242188,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-mixed.xlsx",
+        "Sheet": "Match Group show Wafer(WO Card)",
+        "Chart": 4,
+        "Formula": "=SERIES('Match Group show Wafer(WO Card)'!$H$2,'_Plot data'!$C$80:$C$91,'Match Group show Wafer(WO Card)'!$H$3:$H$14,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          6.716145833333333,
+          20.1484375,
+          33.58072916666666,
+          47.01302083333334,
+          60.4453125,
+          73.87760416666667,
+          89.76041666666667,
+          108.09375,
+          126.4270833333333,
+          144.7604166666667,
+          163.09375,
+          181.4270833333333
+        ],
+        "Values": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": 4,
+        "WidthPoints": 225.44528198242188,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-mixed.xlsx",
+        "Sheet": "Match Group show Wafer(WO Card)",
+        "Chart": 5,
+        "Formula": "=SERIES('Match Group show Wafer(WO Card)'!$O$2,'Match Group show Wafer(WO Card)'!$M$3:$M$14,'Match Group show Wafer(WO Card)'!$O$3:$O$14,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          21.0,
+          23.0,
+          22.0,
+          24.0,
+          26.0,
+          25.0,
+          27.0,
+          29.0,
+          28.0,
+          30.0,
+          32.0,
+          31.0
+        ],
+        "Values": [
+          5.0,
+          11.0,
+          8.0,
+          14.0,
+          20.0,
+          17.0,
+          23.0,
+          29.0,
+          26.0,
+          32.0,
+          38.0,
+          35.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": -4134,
+        "WidthPoints": 425.19683837890625,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-mixed.xlsx",
+        "Sheet": "Match Group show Wafer(WO Card)",
+        "Chart": 6,
+        "Formula": "=SERIES(\"PMISH\",'_Plot data'!$C$96:$C$107,'Match Group show Wafer(WO Card)'!$N$3:$N$14,1)",
+        "SeriesCount": 2,
+        "XValues": [
+          6.716145833333333,
+          20.1484375,
+          33.58072916666666,
+          47.01302083333334,
+          60.4453125,
+          73.87760416666667,
+          89.76041666666667,
+          108.09375,
+          126.4270833333333,
+          144.7604166666667,
+          163.09375,
+          181.4270833333333
+        ],
+        "Values": [
+          5.0,
+          11.0,
+          8.0,
+          14.0,
+          20.0,
+          17.0,
+          23.0,
+          29.0,
+          26.0,
+          32.0,
+          38.0,
+          35.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": 4,
+        "WidthPoints": 225.44528198242188,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-mixed.xlsx",
+        "Sheet": "Match Group show Wafer(WO Card)",
+        "Chart": 7,
+        "Formula": "=SERIES('Match Group show Wafer(WO Card)'!$P$2,'_Plot data'!$C$96:$C$107,'Match Group show Wafer(WO Card)'!$P$3:$P$14,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          6.716145833333333,
+          20.1484375,
+          33.58072916666666,
+          47.01302083333334,
+          60.4453125,
+          73.87760416666667,
+          89.76041666666667,
+          108.09375,
+          126.4270833333333,
+          144.7604166666667,
+          163.09375,
+          181.4270833333333
+        ],
+        "Values": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": 4,
+        "WidthPoints": 225.44528198242188,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-mixed.xlsx",
+        "Sheet": "Match Group show Wafer(WO Card)",
+        "Chart": 8,
+        "Formula": "=SERIES('Match Group show Wafer(WO Card)'!$Q$2,'_Plot data'!$C$96:$C$107,'Match Group show Wafer(WO Card)'!$Q$3:$Q$14,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          6.716145833333333,
+          20.1484375,
+          33.58072916666666,
+          47.01302083333334,
+          60.4453125,
+          73.87760416666667,
+          89.76041666666667,
+          108.09375,
+          126.4270833333333,
+          144.7604166666667,
+          163.09375,
+          181.4270833333333
+        ],
+        "Values": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": 4,
+        "WidthPoints": 225.44528198242188,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-mixed.xlsx",
+        "Sheet": "RSQ (WO Card)",
+        "Chart": 1,
+        "Formula": "=SERIES('RSQ (WO Card)'!$D$1,'RSQ (WO Card)'!$A$2:$A$5,'RSQ (WO Card)'!$D$2:$D$5,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          1.0,
+          2.0,
+          3.0,
+          4.0
+        ],
+        "Values": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": -4134,
+        "WidthPoints": 453.5433044433594,
+        "HeightPoints": 226.7716522216797,
+        "Image": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\qa-mixed-8-1.png",
+        "ImageExported": true
+      },
+      {
+        "File": "qa-mixed.xlsx",
+        "Sheet": "RSQ (WO Card)",
+        "Chart": 2,
+        "Formula": "=SERIES('RSQ (WO Card)'!$E$1,'RSQ (WO Card)'!$A$2:$A$5,'RSQ (WO Card)'!$E$2:$E$5,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          1.0,
+          2.0,
+          3.0,
+          4.0
+        ],
+        "Values": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": -4134,
+        "WidthPoints": 453.5433044433594,
+        "HeightPoints": 226.7716522216797
+      },
+      {
+        "File": "qa-dynamic.xlsx",
+        "Sheet": "Dynamic",
+        "Chart": 1,
+        "Formula": "=SERIES(\"DP\",Dynamic!$H$2:$I$2,Dynamic!$H$6:$I$6,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          "1",
+          "2"
+        ],
+        "Values": [
+          0.0029999999999930083,
+          0.0029999999999930083
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": -4134,
+        "WidthPoints": 510.2362060546875,
+        "HeightPoints": 311.81103515625,
+        "Image": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\qa-dynamic-1-1.png",
+        "ImageExported": true
+      },
+      {
+        "File": "qa-dynamic.xlsx",
+        "Sheet": "Dynamic",
+        "Chart": 2,
+        "Formula": "=SERIES(\"EW\",Dynamic!$H$28:$I$28,Dynamic!$H$32:$I$32,1)",
+        "SeriesCount": 1,
+        "XValues": [
+          "1",
+          "2"
+        ],
+        "Values": [
+          0.29999999999999893,
+          0.29999999999999893
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": -4134,
+        "WidthPoints": 510.2362060546875,
+        "HeightPoints": 311.81103515625
+      },
+      {
+        "File": "qa-dynamic.xlsx",
+        "Sheet": "Dynamic",
+        "Chart": 3,
+        "Formula": "=SERIES(Dynamic!$T$1,Dynamic!$S$2:$S$3,Dynamic!$T$2:$T$3,1)",
+        "SeriesCount": 2,
+        "XValues": [
+          "1",
+          "2"
+        ],
+        "Values": [
+          0.0029999999999930083,
+          0.0029999999999930083
+        ],
+        "XAxisPresent": true,
+        "TickLabelPosition": -4134,
+        "WidthPoints": 510.2362060546875,
+        "HeightPoints": 311.81103515625
+      }
+    ],
+    "ReadOnly": true,
+    "UserWorkbooksOpened": false,
+    "FormulaDragAndUndo": "Historical native evidence only; not performed by this file/chart API check"
+  },
+  "tests": {
+    "four-initial.log": {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\four-initial.log",
+      "sha256": "89a732a8decc7af83f9e5092c0a74af9eac20d129a4aca59cf8d433eecd1d878",
+      "complete": true,
+      "total": 4,
+      "seconds": 13.176,
+      "failure_events": 2,
+      "error_events": 0,
+      "failures": [
+        "test_saved_wide_workbook_dirty_checks_preserve_the_accepted_state_promptly (tests.test_performance_regressions.WorkbookPerformanceTests)",
+        "test_plain_cells_avoid_generic_recursive_serialization_cost (tests.test_writer_cell_serialization.WriterCellSerializationTests)"
+      ],
+      "errors": [],
+      "all_green": false,
+      "tail": "wafer_map close seconds: 0.170861\ncorrelation_trend close seconds: 0.071140\ndynamic close seconds: 0.032337\ntest_closing_changed_analysis_state_is_responsive_and_keeps_source (tests.test_analysis_close_performance.AnalysisCloseTests) ... ok\ntest_saved_wide_workbook_dirty_checks_preserve_the_accepted_state_promptly (tests.test_performance_regressions.WorkbookPerformanceTests) ... FAIL\ntest_wafer_window_opens_with_current_cards_and_uses_new_coefficients_after_edit (tests.test_performance_regressions.WorkbookPerformanceTests) ... ok\ntest_plain_cells_avoid_generic_recursive_serialization_cost (tests.test_writer_cell_serialization.WriterCellSerializationTests) ... FAIL\n\n======================================================================\nFAIL: test_saved_wide_workbook_dirty_checks_preserve_the_accepted_state_promptly (tests.test_performance_regressions.WorkbookPerformanceTests)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"D:\\WaferMap\\tests\\test_performance_regressions.py\", line 946, in test_saved_wide_workbook_dirty_checks_preserve_the_accepted_state_promptly\n    self.assertLess(min(times), .10, f\"Dirty-title checks blocked unchanged controls: {times}\")\nAssertionError: 0.10746069999731844 not less than 0.1 : Dirty-title checks blocked unchanged controls: [0.11481900000217138, 0.10788689999753842, 0.10746069999731844]\n\n======================================================================\nFAIL: test_plain_cells_avoid_generic_recursive_serialization_cost (tests.test_writer_cell_serialization.WriterCellSerializationTests)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"D:\\WaferMap\\tests\\test_writer_cell_serialization.py\", line 73, in test_plain_cells_avoid_generic_recursive_serialization_cost\n    self.assertLess(elapsed, .3, f'Plain-cell encoding blocked for {elapsed:.3f}s')\nAssertionError: 0.32277849999809405 not less than 0.3 : Plain-cell encoding blocked for 0.323s\n\n----------------------------------------------------------------------\nRan 4 tests in 13.176s\n\nFAILED (failures=2)\n"
+    },
+    "related-native.log": {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\related-native.log",
+      "sha256": "8989d7fbc319afd36b7226e70afbcaf8ccbe645303ceacb4a2d41f811abf0407",
+      "complete": true,
+      "total": 125,
+      "seconds": 255.761,
+      "failure_events": 5,
+      "error_events": 0,
+      "failures": [
+        "test_cancel_during_large_sheet_serialization_keeps_previous_report (tests.test_excel_export.ExcelExportTests) (native=True)",
+        "test_cancel_during_large_sheet_serialization_keeps_previous_report (tests.test_excel_export.ExcelExportTests) (native=False)",
+        "test_invalid_xml_text_in_large_export_never_replaces_previous_report (tests.test_excel_export.ExcelExportTests) (invalid=\"'\\\\uffff'\")",
+        "test_invalid_xml_text_in_large_export_never_replaces_previous_report (tests.test_excel_export.ExcelExportTests)",
+        "test_large_export_preserves_literal_xml_text_precision_and_typed_values (tests.test_excel_export.ExcelExportTests)"
+      ],
+      "errors": [],
+      "all_green": false,
+      "tail": "tTests) ... ok\ntest_export_writes_native_match_charts_bound_to_cells (tests.test_excel_export.ExcelExportTests) ... ok\ntest_export_writes_one_match_sheet_per_group (tests.test_excel_export.ExcelExportTests) ... ok\ntest_failed_export_cleans_partial_file_and_keeps_previous_workbook (tests.test_excel_export.ExcelExportTests) ... ok\ntest_invalid_xml_text_in_large_export_never_replaces_previous_report (tests.test_excel_export.ExcelExportTests) ... FAIL\ntest_large_export_preserves_literal_xml_text_precision_and_typed_values (tests.test_excel_export.ExcelExportTests) ... FAIL\ntest_large_export_publish_failure_preserves_previous_file_and_cleans_private_output (tests.test_excel_export.ExcelExportTests) ... ok\ntest_large_matplotlib_report_keeps_all_panels_and_matches_serial_pixels (tests.test_excel_export.ExcelExportTests) ... ok\ntest_large_menu_export_keeps_the_gui_ticking_and_all_sources_unchanged (tests.test_excel_export.ExcelExportTests) ... ok\ntest_matplotlib_export_keeps_excel_data_and_embeds_real_pngs (tests.test_excel_export.ExcelExportTests) ... ok\ntest_matplotlib_menu_exports_one_workbook_without_png_sidecars (tests.test_excel_export.ExcelExportTests) ... ok\ntest_missing_values_stay_blank_and_source_text_is_not_a_formula (tests.test_excel_export.ExcelExportTests) ... ok\ntest_native_charts_match_the_report_palette_labels_and_ranges (tests.test_excel_export.ExcelExportTests) ... ok\ntest_native_trend_keeps_different_secondary_units_in_separate_charts (tests.test_excel_export.ExcelExportTests) ... ok\ntest_native_trendline_uses_the_measurement_series_with_missing_reference_gaps (tests.test_excel_export.ExcelExportTests) ... ok\ntest_partial_reference_export_keeps_raw_rows_and_missing_pair_gaps (tests.test_excel_export.ExcelExportTests) ... ok\ntest_radius_export_reuses_the_existing_png_in_both_modes (tests.test_excel_export.ExcelExportTests) ... ok\ntest_wafer_map_export_reuses_the_current_png_without_interpolation (tests.test_excel_export.ExcelExportTests) ... ok\ntest_all_match_sheets_stack_right_panels_with_uniform_gaps (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_both_renderers_use_physical_panel_sizes_and_full_width_parameter_heading (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_child_trend_reference_stays_orange_and_above_raw_independent_of_selection_order (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_compact_match_table_in_both_renderers (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_continuous_x_limits_follow_only_drawable_pairs_without_outer_tick_rounding (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_expanded_axis_keeps_the_true_boundary_between_unequal_wafer_spans (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_export_opens_at_match_original_plots (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_final_table_omits_second_card_column (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_fullmap_matplotlib_trend_keeps_tight_ordinal_limits (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_fullmap_reuses_only_mapped_drawn_panels_without_changing_child (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_fullmap_trend_uses_own_data_and_only_mapped_parameters (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_group_and_wafer_trend_widths_match_between_export_renderers (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_group_export_uses_independent_group_and_wafer_width_rules (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_group_overview_and_complete_wafer_detail_export_side_by_side_in_both_modes (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_group_reference_curves_overlay_later_raw_groups_without_losing_group_colours (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_group_x_axis_uses_single_line_captions_without_leader_lines (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_grouped_exports_reference_original_rows_instead_of_copying_reordered_values (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_long_identity_charts_use_tight_physical_side_margins (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_match_and_trend_use_readable_strokes_and_reference_is_solid_on_top (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_match_group_splits_group_only_and_selective_show_wafer_sheets (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_merged_wafer_captions_keep_distinct_hidden_identities_and_isolated_styles (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_native_charts_have_four_sided_frame_and_readable_solid_reference (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_native_group_captions_are_merged_and_match_series_share_the_visible_sheet (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_native_trend_uses_editable_local_ranges_square_excel_style_and_merged_wafer (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_report_axes_keep_decimal_ticks_and_signed_bias_inside_fixed_size (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_report_trend_keeps_die_sequence_and_once_per_span_identity_captions (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_show_wafer_captions_stay_centred_over_their_own_spans (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_wafer_export_keeps_every_visible_label_and_has_no_width_cap (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_wafer_sheet_references_original_in_first_appearance_order_in_both_modes (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_wide_match_wafer_is_one_complete_untitled_chart (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_wide_wafer_layout_has_dense_die_seq_ticks (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_dynamic_export_keeps_selected_second_sets_exact_source_cells (tests.test_v4_release_exports.ReleaseExportTests) ... ok\ntest_dynamic_raw_pivots_parameter_charts_and_summary_share_one_sheet (tests.test_v4_release_exports.ReleaseExportTests) ... ok\ntest_dynamic_source_derived_labels_starting_with_equals_remain_literal (tests.test_v4_release_exports.ReleaseExportTests) ... ok\ntest_fullmap_software_images_have_fixed_physical_height (tests.test_v4_release_exports.ReleaseExportTests) ... ok\ntest_match_views_and_group_names_without_redundant_sheets (tests.test_v4_release_exports.ReleaseExportTests) ... ok\ntest_native_caption_write_failure_or_cancellation_keeps_previous_report (tests.test_v4_release_exports.ReleaseExportTests) ... ok\ntest_native_die_group_and_wafer_axes_and_symmetric_bias (tests.test_v4_release_exports.ReleaseExportTests) ... ok\ntest_native_identity_captions_are_detached_editable_chart_shapes (tests.test_v4_release_exports.ReleaseExportTests) ... ok\ntest_nearly_equal_sigma_values_use_zero_based_bar_tick_spacing (tests.test_v4_release_exports.ReleaseExportTests) ... ok\ntest_short_neighboring_groups_keep_all_names_without_overlapping_captions (tests.test_v4_release_exports.ReleaseExportTests) ... ok\ntest_single_wafer_metrics_exposes_the_plotted_row_number (tests.test_v4_release_exports.ReleaseExportTests) ... ok\ntest_dynamic_native_and_matplotlib_charts_are_18_cm_wide (tests.test_export_wkb_axes.ExportWkbAxesTests) ... ok\ntest_first_pyqtgraph_map_is_exported_without_a_matplotlib_cache (tests.test_export_wkb_axes.ExportWkbAxesTests) ... ok\ntest_fm_three_visual_columns_share_eight_cm_row_height (tests.test_export_wkb_axes.ExportWkbAxesTests) ... ok\ntest_group_and_wafer_have_full_height_separate_footer_levels (tests.test_export_wkb_axes.ExportWkbAxesTests) ... ok\ntest_matplotlib_footer_keeps_wafer_then_group_and_truthful_divider_styles (tests.test_export_wkb_axes.ExportWkbAxesTests) ... ok\ntest_native_match_uses_excel_linear_trendline_without_fit_support_rows (tests.test_export_wkb_axes.ExportWkbAxesTests) ... ok\ntest_cancelled_recopy_keeps_manual_inputs_and_the_unchecked_choice (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_copy_menu_replaces_the_duplicate_file_command_but_dynamic_keeps_its_only_command (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_correlation_reference_is_manual_and_raw_copy_does_not_replace_or_clear_it (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_deleting_reference_removes_its_boxes_and_raw_still_draws (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_linked_correlation_and_trend_redraw_raw_values_and_renamed_columns (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_locked_map_selection_choices_stay_enabled_without_copy_and_do_not_replace_data (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_manual_input_ignores_workbook_selection_and_recopy_uses_its_selected_rows (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_manual_raw_edits_are_preserved_and_stop_the_copy_link (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_manual_raw_saved_before_parent_refresh_keeps_literal_edits_and_detaches_copy (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_map_copy_off_keeps_locked_positions_and_recopy_preserves_them_in_saved_workbook (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_old_nova_and_kla_copy_checked_map_follows_raw_not_saved_snapshot (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_one_copy_choice_clears_inputs_allows_manual_draw_and_recopies_current_workbook (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_rejected_workbook_copy_or_cancel_keeps_locked_manual_table_and_choices (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_reopened_full_data_scope_loads_all_rows_before_restoring_local_selection (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_saved_manual_mode_stays_empty_across_workbook_refresh_and_reopen (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_tem_map_menu_can_explicitly_copy_raw_and_protect_locked_coordinates (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_tem_map_with_copy_checked_follows_repeated_workbook_raw_edits (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_workbook_selection_stays_available_for_manual_map_input (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_changing_precision_never_rounds_the_measurements (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\ntest_export_uses_precision_even_while_map_selector_is_visible (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\ntest_immediate_export_and_copy_flush_pending_precision (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\ntest_loading_final_after_preview_selection_keeps_shared_participation (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\ntest_point_values_default_to_two_fixed_decimal_places (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\ntest_precision_changes_existing_labels_without_reinterpolation (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\ntest_precision_control_is_on_appearance_row_and_defaults_to_two (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\ntest_precision_is_an_application_preference_not_restored_from_documents (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\ntest_preview_selection_survives_switch_to_empty_final_and_back (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\ntest_report_export_flushes_pending_precision (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\ntest_restored_head_mark_selection_survives_first_final_paste (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\ntest_selection_survives_ready_stage_switches_without_setting_it_again (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\ntest_selection_survives_stage_specific_literal_id_representations (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\ntest_temporarily_empty_final_does_not_reset_preview_participation (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\nwafer_map close seconds: 0.235796\ncorrelation_trend close seconds: 0.088308\ndynamic close seconds: 0.039531\ntest_closing_changed_analysis_state_is_responsive_and_keeps_source (tests.test_analysis_close_performance.AnalysisCloseTests) ... ok\ntest_closing_during_noninterruptible_surface_work_does_not_wait_or_publish_late_results (tests.test_analysis_close_performance.AnalysisCloseTests) ... ok\nwafer_map close seconds: 0.012941\ncorrelation_trend close seconds: 0.031804\ndynamic close seconds: 0.013857\ntest_closing_unchanged_managed_analyses_is_responsive_and_keeps_source (tests.test_analysis_close_performance.AnalysisCloseTests) ... ok\ntest_compare_parameters_have_independent_y_axes_and_export_mirror (tests.test_dynamic_compare_export.DynamicCompareExportTests) ... ok\ntest_dynamic_report_exports_sigma_but_not_per_die_cycle_trends (tests.test_dynamic_compare_export.DynamicCompareExportTests) ... ok\ntest_font_change_keeps_cycle_curves_gaps_comparisons_and_views (tests.test_dynamic_compare_export.DynamicCompareExportTests) ... ok\ntest_measurement_editor_is_owned_only_by_dynamic_and_docks_without_copying (tests.test_dynamic_compare_export.DynamicCompareExportTests) ... ok\ntest_native_dynamic_sigma_charts_link_editable_pivots_and_summary_is_top_aligned (tests.test_dynamic_compare_export.DynamicCompareExportTests) ... ok\n\n======================================================================\nFAIL: test_cancel_during_large_sheet_serialization_keeps_previous_report (tests.test_excel_export.ExcelExportTests) (native=True)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"D:\\WaferMap\\tests\\test_excel_export.py\", line 733, in test_cancel_during_large_sheet_serialization_keeps_previous_report\n    with self.assertRaises(InterruptedError):\nAssertionError: InterruptedError not raised\n\n======================================================================\nFAIL: test_cancel_during_large_sheet_serialization_keeps_previous_report (tests.test_excel_export.ExcelExportTests) (native=False)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"D:\\WaferMap\\tests\\test_excel_export.py\", line 733, in test_cancel_during_large_sheet_serialization_keeps_previous_report\n    with self.assertRaises(InterruptedError):\nAssertionError: InterruptedError not raised\n\n======================================================================\nFAIL: test_invalid_xml_text_in_large_export_never_replaces_previous_report (tests.test_excel_export.ExcelExportTests) (invalid=\"'\\\\uffff'\")\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"D:\\WaferMap\\tests\\test_excel_export.py\", line 780, in test_invalid_xml_text_in_large_export_never_replaces_previous_report\n    with self.subTest(invalid=repr(invalid)), self.assertRaises(ValueError):\nAssertionError: ValueError not raised\n\n======================================================================\nFAIL: test_invalid_xml_text_in_large_export_never_replaces_previous_report (tests.test_excel_export.ExcelExportTests)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"D:\\WaferMap\\tests\\test_excel_export.py\", line 783, in test_invalid_xml_text_in_large_export_never_replaces_previous_report\n    self.assertEqual(target.read_bytes(), previous)\nAssertionError: b'PK\\[26 chars]8\\x00$\\xa7Z]F\\xc7MH\\x95\\x00\\x00\\x00\\xcd\\x00\\x0[1493758 chars]\\x00' != b'PK\\[26 chars]8\\x00#\\xa7Z]F\\xc7MH\\x95\\x00\\x00\\x00\\xcd\\x00\\x0[1492184 chars]\\x00'\n\n======================================================================\nFAIL: test_large_export_preserves_literal_xml_text_precision_and_typed_values (tests.test_excel_export.ExcelExportTests)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"D:\\WaferMap\\tests\\test_excel_export.py\", line 760, in test_large_export_preserves_literal_xml_text_precision_and_typed_values\n    self.assertEqual(source_cell(sheet, 'Note', index).value, text)\nAssertionError: ' \\n\\nA<&>\"\\' Ω中文\\t ' != ' \\r\\nA<&>\"\\' Ω中文\\t '\n-  \n+  \n\n?  +\n- \n  A<&>\"' Ω中文\t \n\n----------------------------------------------------------------------\nRan 125 tests in 255.761s\n\nFAILED (failures=5)\n"
+    },
+    "related-native-final.log": {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\related-native-final.log",
+      "sha256": "9b1548e8f9953fcea6123643eec9fe19cd093420e38ed351949b79d9ac56804d",
+      "complete": true,
+      "total": 127,
+      "seconds": 271.498,
+      "failure_events": 1,
+      "error_events": 0,
+      "failures": [
+        "test_closing_changed_analysis_state_is_responsive_and_keeps_source (tests.test_analysis_close_performance.AnalysisCloseTests)"
+      ],
+      "errors": [],
+      "all_green": false,
+      "tail": "sts) ... ok\ntest_parent_selection_does_not_draw_pending_box_changes (tests.test_p0_final_audit.FinalAuditTests) ... ok\ntest_parent_selection_does_not_replace_an_excluded_draw_with_another_wafer (tests.test_p0_final_audit.FinalAuditTests) ... ok\ntest_parent_selection_redraws_existing_maps_when_a_whole_wafer_is_excluded (tests.test_p0_final_audit.FinalAuditTests) ... ok\ntest_parent_selection_updates_existing_children_without_recopy (tests.test_p0_final_audit.FinalAuditTests) ... ok\ntest_all_expanded_uses_die_but_mixed_uses_existing_xy (tests.test_export_native_die_categories.NativeDieCategoryTests) ... ok\ntest_category_conversion_preserves_all_identity_drawing_bytes_and_sizes (tests.test_export_native_die_categories.NativeDieCategoryTests) ... ok\ntest_eligibility_rejects_nonuniform_and_mixed_even_with_uniform_points (tests.test_export_native_die_categories.NativeDieCategoryTests) ... ok\ntest_long_labels_and_unequal_missing_pairs_keep_numeric_geometry (tests.test_export_native_die_categories.NativeDieCategoryTests) ... ok\ntest_single_observation_and_invalid_positions (tests.test_export_native_die_categories.NativeDieCategoryTests) ... ok\ntest_uniform_reports_bind_each_parameter_own_die_range_in_both_stages (tests.test_export_native_die_categories.NativeDieCategoryTests) ... ok\ntest_both_stages_have_card_suffixes_and_english_times_font (tests.test_excel_export.ExcelExportTests) ... ok\ntest_cancel_at_parameter_progress_stops_both_renderers_before_publishing (tests.test_excel_export.ExcelExportTests) ... ok\ntest_cancel_during_excel_write_preserves_the_previous_export (tests.test_excel_export.ExcelExportTests) ... ok\ntest_cancel_during_large_sheet_serialization_keeps_previous_report (tests.test_excel_export.ExcelExportTests) ... ok\ntest_correlation_and_trend_export_independent_sources_and_draw_choices (tests.test_excel_export.ExcelExportTests) ... ok\ntest_dynamic_exports_own_cycle_values_and_software_three_sigma (tests.test_excel_export.ExcelExportTests) ... ok\ntest_excel_menu_exports_in_background_and_reports_completion (tests.test_excel_export.ExcelExportTests) ... ok\ntest_export_failure_preserves_existing_file_and_cleans_partial_output (tests.test_excel_export.ExcelExportTests) ... ok\ntest_export_writes_native_match_charts_bound_to_cells (tests.test_excel_export.ExcelExportTests) ... ok\ntest_export_writes_one_match_sheet_per_group (tests.test_excel_export.ExcelExportTests) ... ok\ntest_failed_export_cleans_partial_file_and_keeps_previous_workbook (tests.test_excel_export.ExcelExportTests) ... ok\ntest_invalid_xml_text_in_large_export_never_replaces_previous_report (tests.test_excel_export.ExcelExportTests) ... ok\ntest_large_export_preserves_literal_xml_text_precision_and_typed_values (tests.test_excel_export.ExcelExportTests) ... ok\ntest_large_export_publish_failure_preserves_previous_file_and_cleans_private_output (tests.test_excel_export.ExcelExportTests) ... ok\ntest_large_matplotlib_report_keeps_all_panels_and_matches_serial_pixels (tests.test_excel_export.ExcelExportTests) ... ok\ntest_large_menu_export_keeps_the_gui_ticking_and_all_sources_unchanged (tests.test_excel_export.ExcelExportTests) ... ok\ntest_matplotlib_export_keeps_excel_data_and_embeds_real_pngs (tests.test_excel_export.ExcelExportTests) ... ok\ntest_matplotlib_menu_exports_one_workbook_without_png_sidecars (tests.test_excel_export.ExcelExportTests) ... ok\ntest_missing_values_stay_blank_and_source_text_is_not_a_formula (tests.test_excel_export.ExcelExportTests) ... ok\ntest_native_charts_match_the_report_palette_labels_and_ranges (tests.test_excel_export.ExcelExportTests) ... ok\ntest_native_trend_keeps_different_secondary_units_in_separate_charts (tests.test_excel_export.ExcelExportTests) ... ok\ntest_native_trendline_uses_the_measurement_series_with_missing_reference_gaps (tests.test_excel_export.ExcelExportTests) ... ok\ntest_partial_reference_export_keeps_raw_rows_and_missing_pair_gaps (tests.test_excel_export.ExcelExportTests) ... ok\ntest_radius_export_reuses_the_existing_png_in_both_modes (tests.test_excel_export.ExcelExportTests) ... ok\ntest_wafer_map_export_reuses_the_current_png_without_interpolation (tests.test_excel_export.ExcelExportTests) ... ok\ntest_all_match_sheets_stack_right_panels_with_uniform_gaps (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_both_renderers_use_physical_panel_sizes_and_full_width_parameter_heading (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_child_trend_reference_stays_orange_and_above_raw_independent_of_selection_order (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_compact_match_table_in_both_renderers (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_continuous_x_limits_follow_only_drawable_pairs_without_outer_tick_rounding (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_expanded_axis_keeps_the_true_boundary_between_unequal_wafer_spans (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_export_opens_at_match_original_plots (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_final_table_omits_second_card_column (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_fullmap_matplotlib_trend_keeps_tight_ordinal_limits (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_fullmap_reuses_only_mapped_drawn_panels_without_changing_child (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_fullmap_trend_uses_own_data_and_only_mapped_parameters (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_group_and_wafer_trend_widths_match_between_export_renderers (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_group_export_uses_independent_group_and_wafer_width_rules (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_group_overview_and_complete_wafer_detail_export_side_by_side_in_both_modes (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_group_reference_curves_overlay_later_raw_groups_without_losing_group_colours (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_group_x_axis_uses_single_line_captions_without_leader_lines (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_grouped_exports_reference_original_rows_instead_of_copying_reordered_values (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_long_identity_charts_use_tight_physical_side_margins (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_match_and_trend_use_readable_strokes_and_reference_is_solid_on_top (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_match_group_splits_group_only_and_selective_show_wafer_sheets (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_merged_wafer_captions_keep_distinct_hidden_identities_and_isolated_styles (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_native_charts_have_four_sided_frame_and_readable_solid_reference (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_native_group_captions_are_merged_and_match_series_share_the_visible_sheet (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_native_trend_uses_editable_local_ranges_square_excel_style_and_merged_wafer (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_report_axes_keep_decimal_ticks_and_signed_bias_inside_fixed_size (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_report_trend_keeps_die_sequence_and_once_per_span_identity_captions (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_show_wafer_captions_stay_centred_over_their_own_spans (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_wafer_export_keeps_every_visible_label_and_has_no_width_cap (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_wafer_sheet_references_original_in_first_appearance_order_in_both_modes (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_wide_match_wafer_is_one_complete_untitled_chart (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_wide_wafer_layout_has_dense_die_seq_ticks (tests.test_excel_report_layout.ExcelReportLayoutTests) ... ok\ntest_dynamic_export_keeps_selected_second_sets_exact_source_cells (tests.test_v4_release_exports.ReleaseExportTests) ... ok\ntest_dynamic_raw_pivots_parameter_charts_and_summary_share_one_sheet (tests.test_v4_release_exports.ReleaseExportTests) ... ok\ntest_dynamic_source_derived_labels_starting_with_equals_remain_literal (tests.test_v4_release_exports.ReleaseExportTests) ... ok\ntest_fullmap_software_images_have_fixed_physical_height (tests.test_v4_release_exports.ReleaseExportTests) ... ok\ntest_match_views_and_group_names_without_redundant_sheets (tests.test_v4_release_exports.ReleaseExportTests) ... ok\ntest_native_caption_write_failure_or_cancellation_keeps_previous_report (tests.test_v4_release_exports.ReleaseExportTests) ... ok\ntest_native_die_group_and_wafer_axes_and_symmetric_bias (tests.test_v4_release_exports.ReleaseExportTests) ... ok\ntest_native_identity_captions_are_detached_editable_chart_shapes (tests.test_v4_release_exports.ReleaseExportTests) ... ok\ntest_nearly_equal_sigma_values_use_zero_based_bar_tick_spacing (tests.test_v4_release_exports.ReleaseExportTests) ... ok\ntest_short_neighboring_groups_keep_all_names_without_overlapping_captions (tests.test_v4_release_exports.ReleaseExportTests) ... ok\ntest_single_wafer_metrics_exposes_the_plotted_row_number (tests.test_v4_release_exports.ReleaseExportTests) ... ok\ntest_dynamic_native_and_matplotlib_charts_are_18_cm_wide (tests.test_export_wkb_axes.ExportWkbAxesTests) ... ok\ntest_first_pyqtgraph_map_is_exported_without_a_matplotlib_cache (tests.test_export_wkb_axes.ExportWkbAxesTests) ... ok\ntest_fm_three_visual_columns_share_eight_cm_row_height (tests.test_export_wkb_axes.ExportWkbAxesTests) ... ok\ntest_group_and_wafer_have_full_height_separate_footer_levels (tests.test_export_wkb_axes.ExportWkbAxesTests) ... ok\ntest_matplotlib_footer_keeps_wafer_then_group_and_truthful_divider_styles (tests.test_export_wkb_axes.ExportWkbAxesTests) ... ok\ntest_native_match_uses_excel_linear_trendline_without_fit_support_rows (tests.test_export_wkb_axes.ExportWkbAxesTests) ... ok\ntest_cancelled_recopy_keeps_manual_inputs_and_the_unchecked_choice (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_copy_menu_replaces_the_duplicate_file_command_but_dynamic_keeps_its_only_command (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_correlation_reference_is_manual_and_raw_copy_does_not_replace_or_clear_it (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_deleting_reference_removes_its_boxes_and_raw_still_draws (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_linked_correlation_and_trend_redraw_raw_values_and_renamed_columns (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_locked_map_selection_choices_stay_enabled_without_copy_and_do_not_replace_data (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_manual_input_ignores_workbook_selection_and_recopy_uses_its_selected_rows (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_manual_raw_edits_are_preserved_and_stop_the_copy_link (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_manual_raw_saved_before_parent_refresh_keeps_literal_edits_and_detaches_copy (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_map_copy_off_keeps_locked_positions_and_recopy_preserves_them_in_saved_workbook (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_old_nova_and_kla_copy_checked_map_follows_raw_not_saved_snapshot (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_one_copy_choice_clears_inputs_allows_manual_draw_and_recopies_current_workbook (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_rejected_workbook_copy_or_cancel_keeps_locked_manual_table_and_choices (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_reopened_full_data_scope_loads_all_rows_before_restoring_local_selection (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_saved_manual_mode_stays_empty_across_workbook_refresh_and_reopen (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_tem_map_menu_can_explicitly_copy_raw_and_protect_locked_coordinates (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_tem_map_with_copy_checked_follows_repeated_workbook_raw_edits (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_workbook_selection_stays_available_for_manual_map_input (tests.test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_changing_precision_never_rounds_the_measurements (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\ntest_export_uses_precision_even_while_map_selector_is_visible (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\ntest_immediate_export_and_copy_flush_pending_precision (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\ntest_loading_final_after_preview_selection_keeps_shared_participation (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\ntest_point_values_default_to_two_fixed_decimal_places (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\ntest_precision_changes_existing_labels_without_reinterpolation (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\ntest_precision_control_is_on_appearance_row_and_defaults_to_two (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\ntest_precision_is_an_application_preference_not_restored_from_documents (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\ntest_preview_selection_survives_switch_to_empty_final_and_back (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\ntest_report_export_flushes_pending_precision (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\ntest_restored_head_mark_selection_survives_first_final_paste (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\ntest_selection_survives_ready_stage_switches_without_setting_it_again (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\ntest_selection_survives_stage_specific_literal_id_representations (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\ntest_temporarily_empty_final_does_not_reset_preview_participation (tests.test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok\nwafer_map close seconds: 0.394646\ntest_closing_changed_analysis_state_is_responsive_and_keeps_source (tests.test_analysis_close_performance.AnalysisCloseTests) ... FAIL\ntest_closing_during_noninterruptible_surface_work_does_not_wait_or_publish_late_results (tests.test_analysis_close_performance.AnalysisCloseTests) ... ok\nwafer_map close seconds: 0.020006\ncorrelation_trend close seconds: 0.039457\ndynamic close seconds: 0.021196\ntest_closing_unchanged_managed_analyses_is_responsive_and_keeps_source (tests.test_analysis_close_performance.AnalysisCloseTests) ... ok\ntest_compare_parameters_have_independent_y_axes_and_export_mirror (tests.test_dynamic_compare_export.DynamicCompareExportTests) ... ok\ntest_dynamic_report_exports_sigma_but_not_per_die_cycle_trends (tests.test_dynamic_compare_export.DynamicCompareExportTests) ... ok\ntest_font_change_keeps_cycle_curves_gaps_comparisons_and_views (tests.test_dynamic_compare_export.DynamicCompareExportTests) ... ok\ntest_measurement_editor_is_owned_only_by_dynamic_and_docks_without_copying (tests.test_dynamic_compare_export.DynamicCompareExportTests) ... ok\ntest_native_dynamic_sigma_charts_link_editable_pivots_and_summary_is_top_aligned (tests.test_dynamic_compare_export.DynamicCompareExportTests) ... ok\n\n======================================================================\nFAIL: test_closing_changed_analysis_state_is_responsive_and_keeps_source (tests.test_analysis_close_performance.AnalysisCloseTests)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"D:\\WaferMap\\tests\\test_analysis_close_performance.py\", line 68, in test_closing_changed_analysis_state_is_responsive_and_keeps_source\n    self.close_children(dirty=True)\n  File \"D:\\WaferMap\\tests\\test_analysis_close_performance.py\", line 100, in close_children\n    self.assertLess(elapsed, .25, f\"{child.workspace_type} close blocks the GUI\")\nAssertionError: 0.3946460000006482 not less than 0.25 : wafer_map close blocks the GUI\n\n----------------------------------------------------------------------\nRan 127 tests in 271.498s\n\nFAILED (failures=1)\n"
+    },
+    "audit-final-focused.log": {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\audit-final-focused.log",
+      "sha256": "8f2ed4e232b4ee3aa6b7f4d15798fb45ca7f2b1a526b4cecfd3ee1a1536680b1",
+      "complete": true,
+      "total": 18,
+      "seconds": 29.418,
+      "failure_events": 0,
+      "error_events": 0,
+      "failures": [],
+      "errors": [],
+      "all_green": true,
+      "tail": "test_child_local_selection_updates_immediately_without_recopy (tests.test_p0_final_audit.FinalAuditTests) ... ok\ntest_dynamic_data_menu_has_only_local_selection_scope (tests.test_p0_final_audit.FinalAuditTests) ... ok\ntest_linked_refresh_draws_trend_once_even_if_correlation_processes_events (tests.test_p0_final_audit.FinalAuditTests) ... ok\ntest_native_last_die_tick_does_not_overlap_prior_label (tests.test_p0_final_audit.FinalAuditTests) ... ok\ntest_ordinary_export_axes_survive_workbook_styling (tests.test_p0_final_audit.FinalAuditTests) ... ok\ntest_parent_selection_does_not_draw_pending_box_changes (tests.test_p0_final_audit.FinalAuditTests) ... ok\ntest_parent_selection_does_not_replace_an_excluded_draw_with_another_wafer (tests.test_p0_final_audit.FinalAuditTests) ... ok\ntest_parent_selection_redraws_existing_maps_when_a_whole_wafer_is_excluded (tests.test_p0_final_audit.FinalAuditTests) ... ok\ntest_parent_selection_redraws_restored_grouped_map_without_recopy (tests.test_p0_final_audit.FinalAuditTests) ... ok\ntest_parent_selection_updates_existing_children_without_recopy (tests.test_p0_final_audit.FinalAuditTests) ... ok\ntest_source_and_membership_change_restores_map_choices_only_once (tests.test_p0_final_audit.FinalAuditTests) ... ok\ntest_empty_draft_and_applied_selections_receive_the_same_identifiers (tests.test_group_control_source_reuse.GroupControlSourceReuseTests) ... ok\ntest_no_unused_participation_ids_without_an_empty_selection (tests.test_group_control_source_reuse.GroupControlSourceReuseTests) ... ok\ntest_reference_undo_rebinds_exact_plan_without_mutating_prior_sources_promptly (tests.test_group_control_source_reuse.GroupControlSourceReuseTests) ... ok\ntest_data_selection_and_full_data_keep_reference_rows_aligned_with_raw (tests.test_reference_source_columns.ReferenceSourceColumnTests) ... ok\ntest_legacy_linked_reference_aliases_reopen_as_source_names_without_losing_draw_choices (tests.test_reference_source_columns.ReferenceSourceColumnTests) ... ok\ntest_original_reference_names_keep_workbook_head_classification (tests.test_reference_source_columns.ReferenceSourceColumnTests) ... ok\ntest_ref_data_uses_raw_identity_and_complete_original_reference_columns_not_mapping_names (tests.test_reference_source_columns.ReferenceSourceColumnTests) ... ok\n\n----------------------------------------------------------------------\nRan 18 tests in 29.418s\n\nOK\n"
+    },
+    "double-draw-red-confirmed.log": {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\double-draw-red-confirmed.log",
+      "sha256": "e27dd9914cd564ccd5b251fc288d56f59d6d8d671abc5749534fa4184fcdd512",
+      "complete": true,
+      "total": 1,
+      "seconds": 3.233,
+      "failure_events": 1,
+      "error_events": 0,
+      "failures": [
+        "test_linked_refresh_draws_trend_once_even_if_correlation_processes_events (tests.test_p0_final_audit.FinalAuditTests)"
+      ],
+      "errors": [],
+      "all_green": false,
+      "tail": "test_linked_refresh_draws_trend_once_even_if_correlation_processes_events (tests.test_p0_final_audit.FinalAuditTests) ... FAIL\n\n======================================================================\nFAIL: test_linked_refresh_draws_trend_once_even_if_correlation_processes_events (tests.test_p0_final_audit.FinalAuditTests)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"D:\\WaferMap\\tests\\test_p0_final_audit.py\", line 111, in test_linked_refresh_draws_trend_once_even_if_correlation_processes_events\n    self.assertEqual(fits.call_count, 1)\nAssertionError: 2 != 1\n\n----------------------------------------------------------------------\nRan 1 test in 3.233s\n\nFAILED (failures=1)\n"
+    },
+    "source-membership-red.log": {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\source-membership-red.log",
+      "sha256": "8d7ee20e4cb2b40d25e4edd4c4fab853229a7a3a038c60af960b350cedd689dc",
+      "complete": true,
+      "total": 1,
+      "seconds": 1.555,
+      "failure_events": 1,
+      "error_events": 0,
+      "failures": [
+        "test_source_and_membership_change_restores_map_choices_only_once (tests.test_p0_final_audit.FinalAuditTests)"
+      ],
+      "errors": [],
+      "all_green": false,
+      "tail": "test_source_and_membership_change_restores_map_choices_only_once (tests.test_p0_final_audit.FinalAuditTests) ... FAIL\n\n======================================================================\nFAIL: test_source_and_membership_change_restores_map_choices_only_once (tests.test_p0_final_audit.FinalAuditTests)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"D:\\WaferMap\\tests\\test_p0_final_audit.py\", line 143, in test_source_and_membership_change_restores_map_choices_only_once\n    self.assertEqual(maps.call_count, 1)\nAssertionError: 2 != 1\n\n----------------------------------------------------------------------\nRan 1 test in 1.555s\n\nFAILED (failures=1)\n"
+    },
+    "native-clipboard-current.log": {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\native-clipboard-current.log",
+      "sha256": "e09cb11363be71825cfb7af322f9538382d5b4dff48ee77c128c491f2cf389cc",
+      "complete": true,
+      "total": 2,
+      "seconds": 0.734,
+      "failure_events": 2,
+      "error_events": 0,
+      "failures": [
+        "test_copy_animates_the_range_without_editing_and_escape_cancels_only_feedback (tests.test_table_clipboard.TableClipboardTests)",
+        "test_reload_model_switch_hidden_view_and_clipboard_replacement_stop_animation (tests.test_table_clipboard.TableClipboardTests)"
+      ],
+      "errors": [],
+      "all_green": false,
+      "tail": "test_copy_animates_the_range_without_editing_and_escape_cancels_only_feedback (tests.test_table_clipboard.TableClipboardTests) ... FAIL\ntest_reload_model_switch_hidden_view_and_clipboard_replacement_stop_animation (tests.test_table_clipboard.TableClipboardTests) ... FAIL\n\n======================================================================\nFAIL: test_copy_animates_the_range_without_editing_and_escape_cancels_only_feedback (tests.test_table_clipboard.TableClipboardTests)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"D:\\WaferMap\\tests\\test_table_clipboard.py\", line 111, in test_copy_animates_the_range_without_editing_and_escape_cancels_only_feedback\n    self.assertTrue(ticks.wait(160), \"copy animation timer did not fire\")\nAssertionError: False is not true : copy animation timer did not fire\n\n======================================================================\nFAIL: test_reload_model_switch_hidden_view_and_clipboard_replacement_stop_animation (tests.test_table_clipboard.TableClipboardTests)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"D:\\WaferMap\\tests\\test_table_clipboard.py\", line 217, in test_reload_model_switch_hidden_view_and_clipboard_replacement_stop_animation\n    self.assertTrue(view.clipboard_outline.timer.isActive())\nAssertionError: False is not true\n\n----------------------------------------------------------------------\nRan 2 tests in 0.734s\n\nFAILED (failures=2)\n"
+    },
+    "full-final.log": {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\full-final.log",
+      "sha256": "7d9ed3bff571e4014b19d9a83b038b9d856b0f2494b0b2eb557943c3db160f9f",
+      "complete": true,
+      "total": 1115,
+      "seconds": 1124.3,
+      "failure_events": 2,
+      "error_events": 0,
+      "failures": [
+        "test_saved_wide_workbook_dirty_checks_preserve_the_accepted_state_promptly (test_performance_regressions.WorkbookPerformanceTests)",
+        "test_plain_cells_avoid_generic_recursive_serialization_cost (test_writer_cell_serialization.WriterCellSerializationTests)"
+      ],
+      "errors": [],
+      "all_green": false,
+      "tail": "_wafer_spacing_and_zoom (test_trend_wafer_labels.TrendWaferLabelTests) ... ok\ntest_expanded_comparison_uses_identical_spacing_on_both_y_axes (test_trend_wafer_labels.TrendWaferLabelTests) ... ok\ntest_group_wafer_expansion_keeps_classification_and_card_spacing (test_trend_wafer_labels.TrendWaferLabelTests) ... ok\ntest_reopened_linked_trend_keeps_boxes_when_classification_is_enabled (test_trend_wafer_labels.TrendWaferLabelTests) ... ok\ntest_reopened_linked_trend_uses_current_workbook_classification (test_trend_wafer_labels.TrendWaferLabelTests) ... ok\ntest_map_and_both_correlation_sources_float_without_replacing_models (test_v411_float_scope.FloatScopeTests) ... ok\ntest_raw_editor_is_not_a_system_topmost_window (test_v411_float_scope.FloatScopeTests) ... ok\ntest_unpinned_raw_raise_is_parent_only_and_never_covers_modal_prompts (test_v411_float_scope.FloatScopeTests) ... ok\ntest_analysis_counts_include_blank_source_rows_and_survive_invalid_headers (test_v41_workflows.V41Workflows) ... ok\ntest_analysis_table_sizes_refresh_on_edits_without_waiting_for_recognition (test_v41_workflows.V41Workflows) ... ok\ntest_child_table_obeys_hidden_workbook_scope_and_full_data_restores_rows (test_v41_workflows.V41Workflows) ... ok\ntest_classified_boundaries_distinguish_group_from_wafer_in_child (test_v41_workflows.V41Workflows) ... ok\ntest_correlation_reference_size_refreshes_on_edits_replacement_and_undo (test_v41_workflows.V41Workflows) ... ok\ntest_decimals_round_half_up_and_are_global_not_workspace_state (test_v41_workflows.V41Workflows) ... ok\ntest_group_and_all_parameter_trend_cards_are_exclusive_and_use_distinct_fits (test_v41_workflows.V41Workflows) ... ok\ntest_hidden_participation_is_reversible_and_edits_only_visible_source_rows (test_v41_workflows.V41Workflows) ... ok\ntest_hidden_selection_survives_workspace_restore_and_unhide_in_child (test_v41_workflows.V41Workflows) ... ok\ntest_hidden_table_captions_report_visible_and_total_rows (test_v41_workflows.V41Workflows) ... ok\ntest_leaving_a_measurement_point_restores_statistics_tooltip (test_v41_workflows.V41Workflows) ... ok\ntest_linked_analysis_captions_distinguish_visible_rows_from_total (test_v41_workflows.V41Workflows) ... ok\ntest_order_caption_keeps_actual_rows_when_a_draft_has_more_flags_than_raw (test_v41_workflows.V41Workflows) ... ok\ntest_partial_exclusion_refreshes_map_and_radius_membership_without_reloading_sources (test_v41_workflows.V41Workflows) ... ok\ntest_partial_paste_maps_noncontiguous_visible_rows_and_undo_restores_them (test_v41_workflows.V41Workflows) ... ok\ntest_partial_visible_paste_keeps_counts_and_unhide_restores_untouched_rows (test_v41_workflows.V41Workflows) ... ok\ntest_projected_paste_overflow_and_replace_cannot_touch_hidden_rows (test_v41_workflows.V41Workflows) ... ok\ntest_raw_card_floats_and_returns_with_the_same_live_editor (test_v41_workflows.V41Workflows) ... ok\ntest_statistics_are_default_hover_not_a_checkbox_or_title (test_v41_workflows.V41Workflows) ... ok\ntest_wafer_boundaries_are_thin_grey_and_behind_measurements (test_v41_workflows.V41Workflows) ... ok\ntest_workbook_captions_follow_replacement_growth_and_undo (test_v41_workflows.V41Workflows) ... ok\ntest_dynamic_export_keeps_selected_second_sets_exact_source_cells (test_v4_release_exports.ReleaseExportTests) ... ok\ntest_dynamic_raw_pivots_parameter_charts_and_summary_share_one_sheet (test_v4_release_exports.ReleaseExportTests) ... ok\ntest_dynamic_source_derived_labels_starting_with_equals_remain_literal (test_v4_release_exports.ReleaseExportTests) ... ok\ntest_fullmap_software_images_have_fixed_physical_height (test_v4_release_exports.ReleaseExportTests) ... ok\ntest_match_views_and_group_names_without_redundant_sheets (test_v4_release_exports.ReleaseExportTests) ... ok\ntest_native_caption_write_failure_or_cancellation_keeps_previous_report (test_v4_release_exports.ReleaseExportTests) ... ok\ntest_native_die_group_and_wafer_axes_and_symmetric_bias (test_v4_release_exports.ReleaseExportTests) ... ok\ntest_native_identity_captions_are_detached_editable_chart_shapes (test_v4_release_exports.ReleaseExportTests) ... ok\ntest_nearly_equal_sigma_values_use_zero_based_bar_tick_spacing (test_v4_release_exports.ReleaseExportTests) ... ok\ntest_short_neighboring_groups_keep_all_names_without_overlapping_captions (test_v4_release_exports.ReleaseExportTests) ... ok\ntest_single_wafer_metrics_exposes_the_plotted_row_number (test_v4_release_exports.ReleaseExportTests) ... ok\ntest_map_die_identity_stays_positional_with_duplicate_source_index_and_missing_coordinates (test_wafer_hover.WaferHoverTests) ... ok\ntest_noninteractive_map_retains_measured_die_after_invalid_rows_and_source_strings (test_wafer_hover.WaferHoverTests) ... ok\ntest_copy_png_matches_unchanged_matplotlib_renderer_and_updated_controls (test_wafer_static.StaticWaferTests) ... ok\ntest_prepared_maps_do_not_block_the_ui (test_wafer_static.StaticWaferTests)\nInstaller: C:\\Users\\qinyu\\AppData\\Local\\Temp\\tmpfios2zan\\Setup.exe\nBytes: 17\nSHA256: bb43c2e945e913600f618f98b7fd78b997fe3a87a4f342d22b6dcab611e290cb\nwafer UI seconds: [0.15431710000848398, 0.1566745999880368, 0.15699819999281317] median: 0.1566745999880368\nTen prepared maps should present within a 250 ms UI blocking budget. ... ok\ntest_repeated_data_changes_keep_only_current_scene_items (test_wafer_static.StaticWaferTests) ... ok\ntest_screen_geometry_pixels_and_contours_match_export (test_wafer_static.StaticWaferTests) ... ok\ntest_screen_zoom_scales_the_grid_without_matplotlib_or_individual_plot_navigation (test_wafer_static.StaticWaferTests) ... ok\ntest_skip_error_and_replacement_do_not_leave_old_maps (test_wafer_static.StaticWaferTests) ... ok\ntest_cancelled_recopy_keeps_manual_inputs_and_the_unchecked_choice (test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_copy_menu_replaces_the_duplicate_file_command_but_dynamic_keeps_its_only_command (test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_correlation_reference_is_manual_and_raw_copy_does_not_replace_or_clear_it (test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_deleting_reference_removes_its_boxes_and_raw_still_draws (test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_linked_correlation_and_trend_redraw_raw_values_and_renamed_columns (test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_locked_map_selection_choices_stay_enabled_without_copy_and_do_not_replace_data (test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_manual_input_ignores_workbook_selection_and_recopy_uses_its_selected_rows (test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_manual_raw_edits_are_preserved_and_stop_the_copy_link (test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_manual_raw_saved_before_parent_refresh_keeps_literal_edits_and_detaches_copy (test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_map_copy_off_keeps_locked_positions_and_recopy_preserves_them_in_saved_workbook (test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_old_nova_and_kla_copy_checked_map_follows_raw_not_saved_snapshot (test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_one_copy_choice_clears_inputs_allows_manual_draw_and_recopies_current_workbook (test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_rejected_workbook_copy_or_cancel_keeps_locked_manual_table_and_choices (test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_reopened_full_data_scope_loads_all_rows_before_restoring_local_selection (test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_saved_manual_mode_stays_empty_across_workbook_refresh_and_reopen (test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_tem_map_menu_can_explicitly_copy_raw_and_protect_locked_coordinates (test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_tem_map_with_copy_checked_follows_repeated_workbook_raw_edits (test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_workbook_selection_stays_available_for_manual_map_input (test_workbook_copy_data.WorkbookCopyDataTests) ... ok\ntest_cancelled_launch_does_not_leave_a_workbook_window (test_workbook_startup.WorkbookStartupTests) ... ok\ntest_confirmed_new_workbook_resets_the_window_without_rewriting_its_old_file (test_workbook_startup.WorkbookStartupTests) ... ok\ntest_existing_no_bias_draft_opens_clean_and_can_add_a_view_after (test_workbook_startup.WorkbookStartupTests) ... ok\ntest_new_cancel_and_unsaved_prompt_cancel_keep_the_active_document (test_workbook_startup.WorkbookStartupTests) ... ok\ntest_new_workbook_settings_page_starts_from_the_saved_defaults (test_workbook_startup.WorkbookStartupTests)\nOnly New asks for launch settings, and it validates them first. ... ok\ntest_new_workbook_uses_confirmed_settings_before_the_window_opens (test_workbook_startup.WorkbookStartupTests) ... ok\ntest_open_settings_are_unsaved_until_the_workbook_is_saved (test_workbook_startup.WorkbookStartupTests) ... ok\ntest_opened_complete_draft_can_launch_each_analysis_without_running_it_first (test_workbook_startup.WorkbookStartupTests) ... ok\ntest_opened_final_raw_only_draft_keeps_the_final_editor_editable (test_workbook_startup.WorkbookStartupTests) ... ok\ntest_opened_raw_only_draft_allows_paste_and_undo_without_enabling_invalid_analysis (test_workbook_startup.WorkbookStartupTests) ... ok\ntest_opening_a_workbook_skips_the_settings_page (test_workbook_startup.WorkbookStartupTests)\nOpen WKB loads the file's own choices; no launch page appears. ... ok\ntest_recent_list_only_offers_match_workbooks_and_opens_the_clicked_one (test_workbook_startup.WorkbookStartupTests) ... ok\ntest_saved_bias_choices_are_reflected_in_the_analysis_menu (test_workbook_startup.WorkbookStartupTests) ... ok\ntest_saved_choices_open_clean_and_missing_final_inputs_open_as_a_draft (test_workbook_startup.WorkbookStartupTests) ... ok\ntest_shell_open_uses_the_saved_choices_without_a_settings_page (test_workbook_startup.WorkbookStartupTests) ... ok\ntest_shell_recent_choice_opens_the_workbook_straight_away (test_workbook_startup.WorkbookStartupTests)\nPicking a recent workbook never shows the settings page again. ... ok\ntest_auto_rename_starts_at_one_and_skips_reserved_suffixes (test_workspace.SheetTests) ... ok\ntest_default_parameter_exclusions_ignore_formatting (test_workspace.SheetTests) ... ok\ntest_header_letters_and_undo (test_workspace.SheetTests) ... ok\ntest_text_import_preserves_ids (test_workspace.SheetTests) ... ok\ntest_auto_rename_numbers_duplicate_headers_in_column_order (test_workspace.WorkspaceTests)\nThe Auto rename button fixes repeated row-1 names without touching data. ... ok\ntest_card_option_stays_disabled_without_match_workbook_cards (test_workspace.WorkspaceTests)\nA stand-alone table has no Cards, so the Data-tab option is inert. ... ok\ntest_child_window_radio_switches_between_workbook_and_full_data_selection (test_workspace.WorkspaceTests) ... ok\ntest_clicking_anywhere_on_a_row_toggles_it (test_workspace.WorkspaceTests) ... ok\ntest_default_paste_at_a1_keeps_cells_outside_the_pasted_range (test_workspace.WorkspaceTests)\nCtrl+V only overwrites the pasted rectangle; it never clears the table. ... ok\ntest_duplicate_headers_and_unsaved_cancel (test_workspace.WorkspaceTests) ... ok\ntest_edits_reidentify_wafers_and_headers (test_workspace.WorkspaceTests) ... ok\ntest_filter_keeps_selection (test_workspace.WorkspaceTests) ... ok\ntest_first_cell_paste_auto_identifies_wafers (test_workspace.WorkspaceTests) ... ok\ntest_frame_selection_dialog_shows_order_and_reference_columns (test_workspace.WorkspaceTests) ... ok\ntest_frame_selection_keeps_its_filter_rows_when_reopened (test_workspace.WorkspaceTests) ... ok\ntest_full_table_paste_xlsx_and_save (test_workspace.WorkspaceTests) ... ok\ntest_grid_paste_and_keyboard_undo (test_workspace.WorkspaceTests) ... ok\ntest_grouping_fields_are_multiselect (test_workspace.WorkspaceTests) ... ok\ntest_linked_header_refresh_keeps_current_cells_and_exact_values (test_workspace.WorkspaceTests) ... ok\ntest_page_size_reads_two_digit_values (test_workspace.WorkspaceTests) ... ok\ntest_paste_size_reminder_cancel_leaves_the_table_untouched (test_workspace.WorkspaceTests) ... ok\ntest_paste_size_reminder_lists_both_sizes_and_can_replace (test_workspace.WorkspaceTests) ... ok\ntest_quality_columns_are_numeric_in_correlation_and_dynamic_parameter_lists (test_workspace.WorkspaceTests) ... ok\ntest_radius_pages_keep_all_metrics_of_a_wafer_together (test_workspace.WorkspaceTests) ... ok\ntest_recognition_and_array_selection (test_workspace.WorkspaceTests) ... ok\ntest_replace_paste_ignores_an_empty_clipboard (test_workspace.WorkspaceTests) ... ok\ntest_replace_paste_shortcut_clears_the_table_and_reidentifies (test_workspace.WorkspaceTests) ... ok\ntest_replacing_table_keeps_available_wafer_and_parameter_selections (test_workspace.WorkspaceTests) ... ok\ntest_section_guidance_is_available_from_titles_not_inline_comments (test_workspace.WorkspaceTests) ... ok\ntest_selection_show_modes_keep_all_rows_and_can_filter_rows (test_workspace.WorkspaceTests) ... ok\ntest_sequence_axis_keeps_labels_until_the_plot_is_laid_out (test_workspace.WorkspaceTests) ... ok\ntest_sidebar_keeps_its_scroll_position_when_the_table_is_rebuilt (test_workspace.WorkspaceTests) ... ok\ntest_standalone_dirty_workspace_still_confirms_before_closing (test_workspace.WorkspaceTests) ... ok\ntest_wafer_map_pages_keep_all_metrics_of_a_wafer_together (test_workspace.WorkspaceTests) ... ok\ntest_wafer_map_quality_columns_are_selectable_numeric_not_metadata (test_workspace.WorkspaceTests) ... ok\ntest_wafer_record_filter_hides_and_unchecks_small_measurement_sets (test_workspace.WorkspaceTests) ... ok\ntest_workspace_data_selection_limits_plots_and_restores_with_the_document (test_workspace.WorkspaceTests) ... ok\ntest_backup_and_conflict_keep_the_latest_accepted_file (test_workspace_store.WorkspaceStoreTests) ... ok\ntest_backup_failure_preserves_the_formal_document (test_workspace_store.WorkspaceStoreTests) ... ok\ntest_complete_payload_is_written_in_one_durable_transaction (test_workspace_store.WorkspaceStoreTests) ... ok\ntest_destination_changed_during_backup_is_not_overwritten (test_workspace_store.WorkspaceStoreTests) ... ok\ntest_each_document_uses_its_own_extension (test_workspace_store.WorkspaceStoreTests) ... ok\ntest_failed_write_leaves_original_and_removes_temporary_files (test_workspace_store.WorkspaceStoreTests) ... ok\ntest_final_fsync_failure_never_publishes_the_private_candidate (test_workspace_store.WorkspaceStoreTests) ... ok\ntest_lock_cleanup_failure_after_commit_does_not_report_unsaved (test_workspace_store.WorkspaceStoreTests) ... Workspace saved, but write lock could not be removed: C:\\Users\\qinyu\\AppData\\Local\\Temp\\tmpsl8q7o8p\\dynamic.wdyn.lock\nok\ntest_private_database_pragmas_do_not_disable_future_connection_durability (test_workspace_store.WorkspaceStoreTests) ... ok\ntest_round_trip_keeps_measurement_text_duplicate_headers_and_state (test_workspace_store.WorkspaceStoreTests) ... ok\ntest_wrong_extension_and_wrong_existing_type_are_refused (test_workspace_store.WorkspaceStoreTests) ... ok\ntest_wrong_type_newer_version_and_missing_file_are_rejected (test_workspace_store.WorkspaceStoreTests) ... ok\ntest_deserialization_retains_validation_and_does_not_take_input_lists (test_writer_cell_serialization.WriterCellSerializationTests) ... ok\ntest_plain_and_nested_cells_match_asdict_with_independent_mutable_values (test_writer_cell_serialization.WriterCellSerializationTests) ... ok\ntest_plain_cells_avoid_generic_recursive_serialization_cost (test_writer_cell_serialization.WriterCellSerializationTests) ... FAIL\n\n======================================================================\nFAIL: test_saved_wide_workbook_dirty_checks_preserve_the_accepted_state_promptly (test_performance_regressions.WorkbookPerformanceTests)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"D:\\WaferMap\\tests\\test_performance_regressions.py\", line 946, in test_saved_wide_workbook_dirty_checks_preserve_the_accepted_state_promptly\n    self.assertLess(min(times), .10, f\"Dirty-title checks blocked unchanged controls: {times}\")\nAssertionError: 0.11006260001158807 not less than 0.1 : Dirty-title checks blocked unchanged controls: [0.11006260001158807, 0.11659959999087732, 0.1119334999966668]\n\n======================================================================\nFAIL: test_plain_cells_avoid_generic_recursive_serialization_cost (test_writer_cell_serialization.WriterCellSerializationTests)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"D:\\WaferMap\\tests\\test_writer_cell_serialization.py\", line 73, in test_plain_cells_avoid_generic_recursive_serialization_cost\n    self.assertLess(elapsed, .3, f'Plain-cell encoding blocked for {elapsed:.3f}s')\nAssertionError: 0.3103713000018615 not less than 0.3 : Plain-cell encoding blocked for 0.310s\n\n----------------------------------------------------------------------\nRan 1115 tests in 1124.300s\n\nFAILED (failures=2)\n"
+    }
+  },
+  "full_unmet_gates": [
+    {
+      "name": "Dirty",
+      "observed_ms": 110.06260001158807,
+      "limit_ms": 100
+    },
+    {
+      "name": "Writer encoding",
+      "observed_ms": 310.3713000018615,
+      "limit_ms": 300
+    }
+  ],
+  "native_clipboard": {
+    "current_tests": 2,
+    "failures": 2,
+    "classification": "证据不足以区分实际工作流与夹具/环境",
+    "symptoms": [
+      "Copy animation timeout160ms",
+      "Outline timer inactive after reshow"
+    ],
+    "production_clipboard_code_changed": false,
+    "offscreen_full_does_not_clear_native_failures": true
+  },
+  "safety": {
+    "protected_initial": [
+      {
+        "Path": "D:\\WaferMap\\config\\settings.yaml",
+        "Hash": "CB419604AC0620206BAA212AC3C527DEE022D8D98C1FF1E23DD7DB580683014F"
+      },
+      {
+        "Path": "C:\\Users\\qinyu\\Desktop\\test_workspace\\matching-analysis_nova_multi_param.wkb",
+        "Hash": "9C0B9437EEF660D3BFFC9C007515C1875F24CBC25C60CA2E8235032B9272FB65"
+      },
+      {
+        "Path": "C:\\Users\\qinyu\\Desktop\\test_workspace\\matching-analysis_nova.wkb",
+        "Hash": "D0BE4D9F07120FAFCB3E979C4D3E2A28B08010B8096B1198F26768F9F9CC5C0F"
+      }
+    ],
+    "protected_resume": [
+      {
+        "Path": "D:\\WaferMap\\config\\settings.yaml",
+        "Hash": "4CBA2BE14B7A1F0BCC2E50710CA29D382A17C8BAC2900A595A5FC63FB9C6B1B7"
+      },
+      {
+        "Path": "C:\\Users\\qinyu\\Desktop\\test_workspace\\matching-analysis_nova_multi_param.wkb",
+        "Hash": "9C0B9437EEF660D3BFFC9C007515C1875F24CBC25C60CA2E8235032B9272FB65"
+      },
+      {
+        "Path": "C:\\Users\\qinyu\\Desktop\\test_workspace\\matching-analysis_nova.wkb",
+        "Hash": "D0BE4D9F07120FAFCB3E979C4D3E2A28B08010B8096B1198F26768F9F9CC5C0F"
+      }
+    ],
+    "protected_final": [
+      {
+        "Path": "D:\\WaferMap\\config\\settings.yaml",
+        "Hash": "4CBA2BE14B7A1F0BCC2E50710CA29D382A17C8BAC2900A595A5FC63FB9C6B1B7"
+      },
+      {
+        "Path": "C:\\Users\\qinyu\\Desktop\\test_workspace\\matching-analysis_nova_multi_param.wkb",
+        "Hash": "9C0B9437EEF660D3BFFC9C007515C1875F24CBC25C60CA2E8235032B9272FB65"
+      },
+      {
+        "Path": "C:\\Users\\qinyu\\Desktop\\test_workspace\\matching-analysis_nova.wkb",
+        "Hash": "D0BE4D9F07120FAFCB3E979C4D3E2A28B08010B8096B1198F26768F9F9CC5C0F"
+      }
+    ],
+    "all_resume_hashes_unchanged": true,
+    "settings_changed_while_paused_preserved": true,
+    "user_excel_paths_absent": [
+      "C:/Users/qinyu/Desktop/test_workspace/matching-preview.xlsx",
+      "C:/Users/qinyu/Desktop/test_workspace/matching-final.xlsx"
+    ],
+    "all_fault_injection_and_output_on_owned_files": true,
+    "wkb_recovery_settings_protocol_changed": false
+  },
+  "historical_evidence_only": {
+    "full_1083": "docs/validation/p0-final-quality-audit-2026-10-25.json",
+    "native_68_dirty_240_map_120": true,
+    "initialization": "b3fe61b fixture fix retained; no production workaround",
+    "die_range_drag_and_undo": "docs/validation/native-die-categories-2026-10-26.json",
+    "tag_stage_full": "1095 total,1091 passed,4 timing failures,1062.839s",
+    "p1_full": "1104 total,1102 passed,2 timing failures,1090.725s; separate stage",
+    "wafer_pagination": "Intentionally superseded by one complete wide chart in 991431d; current Bias% path tested."
+  },
+  "deferred": [
+    {
+      "scope": "P0 remaining latency",
+      "functions": [
+        "MatchingWindow._commit_stage_workspace",
+        "MainWindow.set_table",
+        "CorrelationWindow.set_sources",
+        "CorrelationWindow._rebuild_source_analysis",
+        "WorkspaceDocument.refresh_identity",
+        "Cell.to_dict"
+      ],
+      "constraint": "Further shared-frame,Undo transaction or async publication changes require reviewed ownership/ordering design."
+    },
+    {
+      "scope": "P1 handoff only",
+      "issues": [
+        "Settings nested mutable alias probe",
+        "Crash orphan private YAML candidate",
+        "Unattributed Private Bytes trend"
+      ],
+      "source": "docs/plans/p1-memory-storage-baseline.md",
+      "modified_this_audit": false
+    }
+  ],
+  "decision": {
+    "exact_tag_correctness": "不通过",
+    "local_correctness": "证据不足",
+    "local_core_data_and_excel": "已执行核心路径通过；原生剪贴板反馈失败仍待定性",
+    "common_smoothness": "部分达标",
+    "extreme_performance": "不通过",
+    "p0": "暂不可封版",
+    "reasons": [
+      "Exact tag lacks verified local correctness fixes",
+      "Existing elapsed gates not all met",
+      "Seconds-long parent/child refresh remains",
+      "Internal VERSION still4.3.1",
+      "Two native clipboard feedback failures remain unclassified"
+    ],
+    "residual_performance_acceptance_not_assumed": true
+  },
+  "rollback": "Revert this audit code checkpoint only; never reset user work or restore old settings.",
+  "stop_after_audit": true,
+  "artifacts": [
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\audit-final-focused.log",
+      "sha256": "8f2ed4e232b4ee3aa6b7f4d15798fb45ca7f2b1a526b4cecfd3ee1a1536680b1",
+      "bytes": 2417
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\audit-green.log",
+      "sha256": "3f8e01e63c61ed3f6f3a272180b905f41e4ad001fdf777b93402f19a3a7cc343",
+      "bytes": 775
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\audit-red.log",
+      "sha256": "b3ecdd95d072bd7b765d1c7341059455472960b260b4b64f8da4846fef69f647",
+      "bytes": 5961
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\audit-resume-green.log",
+      "sha256": "894bcc7bf3bab6f970466612eb63cdae0d459dfb06aff6c15046aef0d09eb1a0",
+      "bytes": 1833
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\cold-close-1.json",
+      "sha256": "223d13aa49f2fae305360176148a01e401d331c1b1db749808f1d1fc87beabd4",
+      "bytes": 1526
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\cold-close-1.log",
+      "sha256": "fd4a7d19cc2fda2ee353450cf825f8ac500f1de4420c3df60426b0251284165d",
+      "bytes": 682
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\cold-close-2.json",
+      "sha256": "c9df03fb3e415a1424dea5c0af2bc3e07f28c88b950a70e724708004a0fdad92",
+      "bytes": 1533
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\cold-close-2.log",
+      "sha256": "b99bdf85e0847f385651bc62f2d4b361f75617335dba64aac5fe024cbd8ca7dd",
+      "bytes": 689
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\cold-close-3.json",
+      "sha256": "d9bc554e3bc7221fa16b1eef4aa7b493449cbecbfe3e993a114e0413f2894fe6",
+      "bytes": 1535
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\cold-close-3.log",
+      "sha256": "0089db0b925c2a3c14b9a6d87f5e750bb27440b889d4c3b97c3085c77d483007",
+      "bytes": 691
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\cold-dirty-1.json",
+      "sha256": "016cb011073b7034ee23fe2b894c4eb62d8e5f8aeccea652376d4eb29f4a9e2b",
+      "bytes": 1272
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\cold-dirty-1.log",
+      "sha256": "85718a86640b0f48b1ca781d661e6c443691cd835205abd12b10c2751b75c2d0",
+      "bytes": 434
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\cold-dirty-2.json",
+      "sha256": "95b3001c17aabd0b0a42c5c6541d0e1ac9e2bff30ca6880026f13330dd24f13f",
+      "bytes": 1271
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\cold-dirty-2.log",
+      "sha256": "fad04aecee9e98c2ab0f65f2c6cd401a55d8ff81839cb3988793a3631c2b8561",
+      "bytes": 433
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\cold-dirty-3.json",
+      "sha256": "91d8322ae0f22b570c5d46d4969b202409e03248b62e28437bbcbb536eea9894",
+      "bytes": 1272
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\cold-dirty-3.log",
+      "sha256": "229a7f465754f79cefcafc5db1f25b3071e271c1b4a66eaae261f3f01d689819",
+      "bytes": 434
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\cold-open-1.json",
+      "sha256": "6f1987f9503d06587a26b5d4a04ad689dc7bf024b11a7ec0966a6bbe34cfb742",
+      "bytes": 1200
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\cold-open-1.log",
+      "sha256": "f8aa1c7295bff6c51a47ee62b2a7a7a89ec05b5fc92378526f781d0b3019dbbe",
+      "bytes": 359
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\cold-open-2.json",
+      "sha256": "f78348ffa286db07b20cba9b3fb9d413ef141a7d3b533f40f2b0ea4dc296c0e1",
+      "bytes": 1184
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\cold-open-2.log",
+      "sha256": "37eeb28c6898a6168a7a39da52126f041b6eba9c1d6e1121cd3b4fe4674e48d8",
+      "bytes": 342
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\cold-open-3.json",
+      "sha256": "f597bc44b867275006881db16f728cafa793022f657d07c4de932f8b4602a332",
+      "bytes": 1198
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\cold-open-3.log",
+      "sha256": "e284e2e8d179e4a1a8372153372cd2ffa8d68885f2e0782f1911d61dd7d494c3",
+      "bytes": 356
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\cold-writer-1.json",
+      "sha256": "fbbb69f843dcf4953789831956ede21c2b9b23cc37a4961c266d63e8804cb20f",
+      "bytes": 1192
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\cold-writer-1.log",
+      "sha256": "ac58b86b687a62ffda5db4b1a70b7b9c52f4552a58b42e12aa29df245ab3de17",
+      "bytes": 362
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\cold-writer-2.json",
+      "sha256": "d1757adea954aec2b08fe28ce91d0d2fe89c700c296580e9c051223aa75b2d7a",
+      "bytes": 1193
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\cold-writer-2.log",
+      "sha256": "df71a075a4617ef76b5cb1cce53cf3f45c23104f9acea54bf68ab297928b8490",
+      "bytes": 363
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\cold-writer-3.json",
+      "sha256": "259f9ee28302e08e662c8d09b8d3f2c383e010c28276e788c3b4c12ba9ead103",
+      "bytes": 1193
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\cold-writer-3.log",
+      "sha256": "555c8ea372f1c4e5a41b0ba412481f6dbe1307379e9e35af5ad3d20912d991dd",
+      "bytes": 363
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\collected-complete-precommit.json",
+      "sha256": "045d5e12d1dd4bbd588c5c920bac790b428022b848428272c043efc4e1cb3624",
+      "bytes": 174131
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\collected-pending.json",
+      "sha256": "620df5a3bce2121d3f023ae77d11bcb9a387e8bed62b227c15903ffd72bfd952",
+      "bytes": 149332
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\double-draw-red-confirmed.log",
+      "sha256": "e27dd9914cd564ccd5b251fc288d56f59d6d8d671abc5749534fa4184fcdd512",
+      "bytes": 759
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\double-draw-red.log",
+      "sha256": "9bb4f8086f0762436993ed3062b862c44f4a2a74654dc5d830b909c352c8117e",
+      "bytes": 228
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\drawn-after-1.json",
+      "sha256": "039c4622da16a3ff4639db68c1ae54988964154bc25b666203c13389cc9049cb",
+      "bytes": 1659
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\drawn-after-1.log",
+      "sha256": "5a9c311b8ac294225d252a7c77ac508eaf1e183861e01e374cd393716d2cd674",
+      "bytes": 1329
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\drawn-after-2.json",
+      "sha256": "70b7371ae565b645e6ac25f20fc9fb3fcb2f09498395f8d1ad24246e9743435e",
+      "bytes": 1669
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\drawn-after-2.log",
+      "sha256": "81c7cf575beb51ae3edb1855c137c9034ced078cf6f9746b8dcae622d1b79b15",
+      "bytes": 1339
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\drawn-after-3.json",
+      "sha256": "cd3048f0b8c6e102df50f610527a2ac15725528c8304bed236e3b7a4f6b0f40f",
+      "bytes": 1662
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\drawn-after-3.log",
+      "sha256": "fccc548b494bfc6e3bd211f216e317dccf0ad58423204e692b96396381118dfd",
+      "bytes": 1332
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\drawn-before-1.json",
+      "sha256": "0ff5cdd45b6029816947ec8e573a9cb42b1add90250adf4818e6a8914be20839",
+      "bytes": 1666
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\drawn-before-1.log",
+      "sha256": "7d5315f5e06cdc3eeb4fb3260b441c62f0dee7379d11e0220e079ed3f33d903b",
+      "bytes": 1336
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\drawn-before-2.json",
+      "sha256": "d376c658ea9c93e00ba3b2381ab10f43c7f6865407290c21aa404b4a102d217b",
+      "bytes": 1663
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\drawn-before-2.log",
+      "sha256": "5021a6fdd8cb78f9280b9099ae9e30190032eb55e03e684a786046edc0ceef6a",
+      "bytes": 1333
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\drawn-before-3.json",
+      "sha256": "a3363628ff02618539a93af6647c0c8d5415584a885b4e98de47344fae0ab46e",
+      "bytes": 1662
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\drawn-before-3.log",
+      "sha256": "c0c3b37952a40fa8163de88c4ee55e91c76bfca08cb46f6891fcc89e00b58ff9",
+      "bytes": 1332
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\drawn-nova-multi-final.json",
+      "sha256": "010de23d8a255c6d3c192a1d3f2b4c84629048f678cb7a2c60de0f98b5c9b460",
+      "bytes": 1668
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\drawn-nova-multi-final.log",
+      "sha256": "5942557b7a1f8a04f204482bcb1352686603e372e0a8b7ed3937cfd0717f0222",
+      "bytes": 1338
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\drawn-profile-after-redo.profile.txt",
+      "sha256": "b21286930b763afaa2bdc7938a624461d73808d4e14a5f4d3d7715b01478bbce",
+      "bytes": 7635
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\drawn-profile-after-select_all.profile.txt",
+      "sha256": "0bdd3d919090564a5c2de36587a26737664fd681aa8c1c4192c05f6b2ef45b9e",
+      "bytes": 7032
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\drawn-profile-after-undo.profile.txt",
+      "sha256": "6b45f35f7db595045a81a827bf95f75a3445d5ba7a7e1441baf319ff3f509260",
+      "bytes": 7635
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\drawn-profile-after-whole_table_paste.profile.txt",
+      "sha256": "78b857bcd2390b35661d0e6eb847b887067d1f6b553bc118164147d47e63f3ee",
+      "bytes": 7471
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\drawn-profile-after.json",
+      "sha256": "f3fc85b7fdbdbc253e7ef27e062f7d22bdb42933a63e4bff799adad2aa43be37",
+      "bytes": 1662
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\drawn-profile-after.log",
+      "sha256": "78abca20b6bacf126dfd5de8b233fb15caa54085a27b4a8b0fdf1c1e8192992c",
+      "bytes": 1332
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\drawn-profile-before-confirmed.log",
+      "sha256": "5ebdb0d0f2c9365759ca71fc3e16cb7024b6f5f78dcc41f0e7274208c4b67e99",
+      "bytes": 1338
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\drawn-profile-before-redo.profile.txt",
+      "sha256": "6bda5e57d332a5cf7f617111225e09a3134f955f5915fcafc49a8c01af236ff0",
+      "bytes": 7740
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\drawn-profile-before-select_all.profile.txt",
+      "sha256": "cc37c3de1e53e95d4c99e727d5c7a213814a8e22c481d3d9e4c37937d6fcbf47",
+      "bytes": 6871
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\drawn-profile-before-undo.profile.txt",
+      "sha256": "24734af9f0134ec305e0c97a5aa23a051d3ebe1ef35cdc1d749754d8326e2e65",
+      "bytes": 7741
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\drawn-profile-before-whole_table_paste.profile.txt",
+      "sha256": "f8b48bafbb5ff848c8fbd795148a44a082120e30b363c10f5fd6033bc283ab7c",
+      "bytes": 7602
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\drawn-profile-before.json",
+      "sha256": "8b0a5e597ff798976929903a1b1190463478a612f76a61c88991fcd75a3b0b42",
+      "bytes": 1668
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\drawn-profile-before.log",
+      "sha256": "9a1abfab520b572d94898107d02b0a6ed133aa8d8974d56263d617e5e3f3b246",
+      "bytes": 162294
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\export-red-confirmed.log",
+      "sha256": "16424c0142a1fc3aca8c673f9864aa7e9463f5663787fe02863d9f0a4fee4a53",
+      "bytes": 3266
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\four-initial.log",
+      "sha256": "89a732a8decc7af83f9e5092c0a74af9eac20d129a4aca59cf8d433eecd1d878",
+      "bytes": 2174
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\four-summary.json",
+      "sha256": "89052c1b0745c0cd5bb3be589cb867fa8d8a50f581503eb1728a4aa0d2a867dd",
+      "bytes": 8017
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\four-warm-sequence.json",
+      "sha256": "21a37a848a7507fa8d8cbfd944e2c29d1844be377075fc0e93c91ecb540c8735",
+      "bytes": 17710
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\four-warm-sequence.log",
+      "sha256": "aab804dc3b79a7217c1cad6122a7773352b69e989190429d1fa485e62f1d4ef3",
+      "bytes": 9145
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\freeze_sources.py",
+      "sha256": "ac1edc1e94b3d6c6ffcb2cae325e3900c6fe8f4b90bf3bc580f9a7b1540e7de4",
+      "bytes": 621
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\full-final.log",
+      "sha256": "7d9ed3bff571e4014b19d9a83b038b9d856b0f2494b0b2eb557943c3db160f9f",
+      "bytes": 138040
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\generate-qa.log",
+      "sha256": "5cdae7bdf03e39cf628b57d9a42963f36ede8b584b18fd1794c4ff80875e5b7b",
+      "bytes": 42
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\generate_qa.py",
+      "sha256": "718c8152ea0584e6a7d31e221642dc62a378e9d177f799c93b81653060f77b2b",
+      "bytes": 848
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\inspect_selection.py",
+      "sha256": "5cf546c6ce0b63ef4da5959d47d77c1e3962c325383d64114bfdcff6d359e7af",
+      "bytes": 683
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\keys-10000-0-1.json",
+      "sha256": "c01c4e57bbf0f4dbc8d2d95c7c1c7320eab3a7c4429337dad09af9e495650ecb",
+      "bytes": 1238
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\keys-10000-0-1.log",
+      "sha256": "9cd077d2ea0dea08262fdcd77a69a73b40b5ab0358d7fe84cc291d77c44b659d",
+      "bytes": 1007
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\keys-10000-0-2.json",
+      "sha256": "dbdb4aac3a0a44043c46932a66b773d2efc1763776df8a014866f095872c4139",
+      "bytes": 1238
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\keys-10000-0-2.log",
+      "sha256": "0f281f704c5581fa47896786a7931723cdcf5dde54565faf097e6b0c01c9b48b",
+      "bytes": 1007
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\keys-10000-0-3.json",
+      "sha256": "ca5e422481da6f054418ab8dbe0babb918ef7457e41e41294f48d5b522f205e1",
+      "bytes": 1240
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\keys-10000-0-3.log",
+      "sha256": "ff2a51a3f4593cf27cf53380bf28453525b626ef6fd578002cee73b271c3599a",
+      "bytes": 1009
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\keys-10000-3-1.json",
+      "sha256": "d0547a1ae3e9596f70d34a2446e94b43f4e2f88f2790c1b65ca8feed89e6f3ff",
+      "bytes": 1245
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\keys-10000-3-1.log",
+      "sha256": "5e2721ab8b31144a7c963e38768a6e959d0cf811a308d9337cc74e56e9c54bca",
+      "bytes": 1014
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\keys-10000-3-2.json",
+      "sha256": "d29f51822ba5c71ec911a9e58bf8895cba5753425eec3a53a9b03bc0bb614689",
+      "bytes": 1246
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\keys-10000-3-2.log",
+      "sha256": "6da556b37fc1ad3acc281c6ecf12792ad2e39f888b703e8c1a2371c60a25a6cb",
+      "bytes": 1015
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\keys-10000-3-3.json",
+      "sha256": "0d27a1833a21033bc3c243781fb6cb162506d7a4d18754054686ab60262f58a6",
+      "bytes": 1247
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\keys-10000-3-3.log",
+      "sha256": "5f3aee8bd57f53445515ed5af82a0d3fb7d04c8e403215fcf8bc3390f886006e",
+      "bytes": 1016
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\keys-100000-0-1.json",
+      "sha256": "5d0448f2a67b6edf2a1b391e756d8e3206f72467f717f3d662299f5aa8c60f19",
+      "bytes": 1255
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\keys-100000-0-1.log",
+      "sha256": "dd57587d57512096376703e5f137a15d64128a998c7a5ddb565e7a1116bc3f3b",
+      "bytes": 1024
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\keys-100000-3-1.json",
+      "sha256": "2f516185adc91db2bf1e8ba4e30f5c00cd4a6825f8b2a779f6ab7f51b9719f83",
+      "bytes": 1253
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\keys-100000-3-1.log",
+      "sha256": "ff34d2c358d47ae9081c2ec900a2a764db9bbf954b6b744474b23837617d7bca",
+      "bytes": 1022
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\native-clipboard-current.log",
+      "sha256": "e09cb11363be71825cfb7af322f9538382d5b4dff48ee77c128c491f2cf389cc",
+      "bytes": 1557
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\native-excel-current-confirmed.log",
+      "sha256": "14c04d6ca10ef574283c30d66ec8b5d860812fef9e9796d2db9a85e41421a920",
+      "bytes": 51
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\native-excel-current.json",
+      "sha256": "20c1c6b4dcbee112d329000371e918bb32433ec28703cfb47073c481019eeacb",
+      "bytes": 31955
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\native-excel-current.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\native-excel-qa.ps1",
+      "sha256": "b845662290bc2bc171f93ebdd6c2e3ba29e7d3894a9b0932046ff673352f05c4",
+      "bytes": 4779
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\pair-current-1.json",
+      "sha256": "2da36c79a2bf9b8c58a4f6d142b14d7e1b82612b6df8f1334bd0955aafbe1a87",
+      "bytes": 3888
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\pair-current-1.log",
+      "sha256": "5b4ba22d9f8dd93a50b3a9be905fdf155729515dd82b063f107a0a9d8ac4d291",
+      "bytes": 1827
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\pair-current-2.json",
+      "sha256": "3f3d756718c6c021ca7fee3f67388362c6a1ac5a54983bd9f45438623144a218",
+      "bytes": 3873
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\pair-current-2.log",
+      "sha256": "a5ff915b7a620b29e5d87add823c2ab98daf98404b4cd94874eadf5edf33d842",
+      "bytes": 1812
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\pair-current-3.json",
+      "sha256": "5e86692b1dd4c02a29e8ea4bb16aa12832aa5cccbaffe15665ae0d2cad5fc580",
+      "bytes": 3876
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\pair-current-3.log",
+      "sha256": "317516f9d7cf4c213dcf56c7fdf77c460f3fe3584b0e0e6ae4b542baa4d29326",
+      "bytes": 1815
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\pair-old-1.json",
+      "sha256": "d6780f1b4a50ae5b14c8810c68d9419cb32718da82eb606317fe8295031ffc7f",
+      "bytes": 3942
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\pair-old-1.log",
+      "sha256": "9eb5da4cdef9d95bddf3991e700d4b27c4b95b8d1dd5464eb671c8ac722963ca",
+      "bytes": 1831
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\pair-old-2.json",
+      "sha256": "faa7dda3c2766f9099a04390500d5f28e0cdadf875b656cf4c0982244dbf14fd",
+      "bytes": 3951
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\pair-old-2.log",
+      "sha256": "c04246c05086ee5cb16e03942793784cdc4017d03e34e70733c7b59dcc461c5b",
+      "bytes": 1840
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\pair-old-3.json",
+      "sha256": "839a1ad0c2385cbb98080db2423bf189ca272f2e139e7f1deed426d6ca7239aa",
+      "bytes": 3923
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\pair-old-3.log",
+      "sha256": "ff1b6342027e6d0b6ac4d6275110399abc6654458c136ba88a0b4fb5e777caa6",
+      "bytes": 1812
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\probe_four.py",
+      "sha256": "b9f4597de883d5680517c1ec0a9125781789fa2932ab404315c8286fc99961bb",
+      "bytes": 5645
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\profile-close.json",
+      "sha256": "0914852fbca7b3d43fe80c7ae0d1c89678a611e8cd6f972a0d71c13b7ca35f8f",
+      "bytes": 1533
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\profile-close.log",
+      "sha256": "a28421b9679657d4229f1b10e4196329837453312d6b562df85d2ef38d5e5076",
+      "bytes": 689
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\profile-close.profile.txt",
+      "sha256": "ac0e4ab5eb549d1ca8518633517f39f407d902874aecdf33988b35e6551db870",
+      "bytes": 5377
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\profile-dirty.json",
+      "sha256": "a00ba856cbcd7308400cdac1b2c6ee55d74854a678c18cdd40298886e11d69a1",
+      "bytes": 1273
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\profile-dirty.log",
+      "sha256": "1366e235e9ab78a75de9979bb940cb52310651d6ff998cbc89f1407d0b2cccc8",
+      "bytes": 434
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\profile-dirty.profile.txt",
+      "sha256": "a92676711029a2fc7c885e4e29cdf26ee1820420bc6b010577564f5587d72d68",
+      "bytes": 5565
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\profile-open.json",
+      "sha256": "1b3ff76cc32ed583b5314eeebd095618dfdf161fcedcd3ddafb75d56f8b638b8",
+      "bytes": 1199
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\profile-open.log",
+      "sha256": "ded8f17160dd12df74d4524deb34050f7fa17b594ca462200a346efd0b3257a3",
+      "bytes": 357
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\profile-open.profile.txt",
+      "sha256": "e61ad3d293dd96496e00e7cb5626a8d50f3fb16ecd451b16bbb9b2b1d04d5690",
+      "bytes": 5154
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\profile_writer.py",
+      "sha256": "6a6dbca470290f809a6653f460910bf6264e77851dc5acb1d1b8dac5d7397b85",
+      "bytes": 1179
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\protected-before.json",
+      "sha256": "058e42fbf4ff6824fcb2752fca25ee80c6bd674abe0b2183b300247a03e7e1ab",
+      "bytes": 514
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\protected-resume-0200.json",
+      "sha256": "b07669d0903d1fee51846038161aa318881e64b28f5a442d30844034c8b18b5c",
+      "bytes": 514
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\qa-dynamic-1-1.png",
+      "sha256": "10dac22a787ed29a18049e907ddbd1e8a0cfdd3d821b005bb285c0cc258c50e6",
+      "bytes": 9023
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\qa-mixed-3-2.png",
+      "sha256": "6b3c38a4544d938c538e4586a9fa7efe66a1d5cd1b8bd9d3ec716483c72c3724",
+      "bytes": 7823
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\qa-mixed-4-2.png",
+      "sha256": "49f2bc96a58f3f791c9a3fe3c7e08db123b69facedcc23b5fbbeaf65d587ce8e",
+      "bytes": 8732
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\qa-mixed-8-1.png",
+      "sha256": "f9d209cbde85c1c685329887e0129686cf644e34426c0d0ad7bfbf2d00c15316",
+      "bytes": 4960
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\qa-native-3-2.png",
+      "sha256": "6b3c38a4544d938c538e4586a9fa7efe66a1d5cd1b8bd9d3ec716483c72c3724",
+      "bytes": 7823
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\qa-native-4-2.png",
+      "sha256": "3eef5dc2f3d978af2f409b0214d0d8e9134966f99000251367407ad6f74f3839",
+      "bytes": 9260
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\qa-native-8-1.png",
+      "sha256": "f9d209cbde85c1c685329887e0129686cf644e34426c0d0ad7bfbf2d00c15316",
+      "bytes": 4960
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\related-native-final.log",
+      "sha256": "9b1548e8f9953fcea6123643eec9fe19cd093420e38ed351949b79d9ac56804d",
+      "bytes": 17560
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\related-native.log",
+      "sha256": "8989d7fbc319afd36b7226e70afbcaf8ccbe645303ceacb4a2d41f811abf0407",
+      "bytes": 19579
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\remote-final.json",
+      "sha256": "76543aebfb38d6c48f3b5cf4b8ebb21f1de6c0234994a0780614e0423ab55ffd",
+      "bytes": 271
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\selection-red.log",
+      "sha256": "cb0a647b9c01d3c142b711f009a6069dca64c54c8f26880e4b06955f0b59a080",
+      "bytes": 811
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\selection-saved-states.log",
+      "sha256": "b5711f060c76ef2a35dd700e2a481ed625edf833e5f4ac34fd3b12974347c214",
+      "bytes": 521
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\selection-survivor-red.log",
+      "sha256": "1131fe4525764167717e776573fff878f6cf4652059856718b640f52ff85906d",
+      "bytes": 4391
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\source-membership-red.log",
+      "sha256": "8d7ee20e4cb2b40d25e4edd4c4fab853229a7a3a038c60af960b350cedd689dc",
+      "bytes": 732
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\summarize_four.py",
+      "sha256": "6a9320529b87f4bcd21eff1177d34450fbbf98d9051e30438edd29b5a93bceb5",
+      "bytes": 1413
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\workbook_child_keys.py",
+      "sha256": "06a76600f03cc5b88f43af88c28ba8385c9b8bde91f3df4f038c342945d57304",
+      "bytes": 8276
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\write_report.py",
+      "sha256": "2449c0f501325e2765cdbb728a4d083ae40107d1b500ee06480b7e2510ed8172",
+      "bytes": 21350
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\writer-boundary.json",
+      "sha256": "fa0de47954b5096c850c3c6d32d42d54e2e1837a30a38bbf0cd39ad02528211a",
+      "bytes": 34361
+    },
+    {
+      "path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\writer-boundary.profile.txt",
+      "sha256": "f3ea8e0a381cf66694d1faa9beafee0ecc536c5f6ed2d3bcc712c480b69b7d05",
+      "bytes": 951
+    }
+  ]
+}
