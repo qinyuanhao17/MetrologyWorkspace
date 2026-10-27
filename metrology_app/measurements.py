@@ -1,4 +1,5 @@
 """Identify measurement sets without modifying, dropping or averaging samples."""
+from threading import current_thread, main_thread, local
 from dataclasses import dataclass, replace
 import json
 
@@ -96,6 +97,20 @@ def default_identity_columns(frame, wafer_column, lot_column=None, pad_column=No
     return columns
 
 
+
+_THREAD_CACHE = local()
+
+
+def _thread_cache():
+    # GUI cache behavior stays unchanged. Worker snapshots never reorder or
+    # retain entries owned by another thread during pandas/NumPy calls.
+    if current_thread() is main_thread():
+        return _MEASUREMENT_CACHE
+    if not hasattr(_THREAD_CACHE, "entries"):
+        _THREAD_CACHE.entries = []
+    return _THREAD_CACHE.entries
+
+
 def detect_measurements(frame, wafer_column, group_columns=None, use_die_seq=True):
     """Group by selected columns; a string wafer column keeps legacy auto Lot/PAD grouping."""
     if wafer_column not in frame:
@@ -111,6 +126,7 @@ def detect_measurements(frame, wafer_column, group_columns=None, use_die_seq=Tru
     if not columns:
         return []
     signature = (wafer_column, tuple(columns), lot_col, pad_col, seq_col, use_die_seq)
+    cache = _thread_cache()
     # These are every input used below: normalized grouping strings and parsed
     # Die Seq. Numeric parameter edits do not change measurement membership or
     # labels. Compare owned input values, so in-place caller edits cannot hit an
@@ -119,9 +135,9 @@ def detect_measurements(frame, wafer_column, group_columns=None, use_die_seq=Tru
                              for index, column in enumerate(columns)})
     if seq_col:
         metadata[len(columns)] = number(sequence).reset_index(drop=True)
-    for index, (saved_signature, saved, measurements) in enumerate(_MEASUREMENT_CACHE):
+    for index, (saved_signature, saved, measurements) in enumerate(cache):
         if signature == saved_signature and metadata.equals(saved):
-            _MEASUREMENT_CACHE.insert(0, _MEASUREMENT_CACHE.pop(index))
+            cache.insert(0, cache.pop(index))
             return [replace(measurement) for measurement in measurements]
     identity = [frame[column].fillna("").astype(str).str.strip().tolist() for column in columns]
     buckets = {}
@@ -161,6 +177,6 @@ def detect_measurements(frame, wafer_column, group_columns=None, use_die_seq=Tru
             if len(runs) > 1:
                 details.append(f"Run {ordinal} / {len(runs)} inferred from an increasing Die Seq restart.")
             result.append(Measurement(key, wafer, lot, pad, rows, "\n".join(lines), "\n".join(details)))
-    _MEASUREMENT_CACHE.insert(0, (signature, metadata, tuple(replace(item) for item in result)))
-    del _MEASUREMENT_CACHE[4:]
+    cache.insert(0, (signature, metadata, tuple(replace(item) for item in result)))
+    del cache[4:]
     return result

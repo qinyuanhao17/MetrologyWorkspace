@@ -1,0 +1,152 @@
+{
+  "schema_version": 2,
+  "date": "2026-10-27",
+  "base_head": "5833cbb7dff6816cd37a704f6c62f4aa56edac8a",
+  "checkpoint_tag": "v4.3.3",
+  "checkpoint_scope": "Existing implementation before view-driven plot refresh; user requested snapshot first",
+  "async_plan_authorized": true,
+  "view_driven_refresh_implemented": false,
+  "outcome": "partial_improvement_not_resolved; complete valid-many-Map benchmark still pending",
+  "runtime": "F:/Anaconda3/envs/octs/python.exe; Python 3.10.20; Qt 6.11.0; native Windows benchmarks",
+  "source_sha256": {
+    "metrology_app/background_task.py": "a117787b3731d9e36d7f25312c106c7c8e026e07d506a2ca830c68b9c379a5ae",
+    "metrology_app/linked_refresh.py": "78f245a65745129f91623388f5e71d2ea7554d691deebb416008c9419d0dbd9a",
+    "metrology_app/correlation_data.py": "f7d5f00e7c61d1d2f9edb72237cac3c958f2a225986e96566288a8beaffaab7c",
+    "metrology_app/correlation_groups.py": "e03ce99edbfa5a57b1cbe18c0d6a2f74dde66f8392f3723ad5ecda78c7973b26",
+    "metrology_app/sequence_data.py": "ad2db868130f0c5b1b67d39c78d7072c29f1f5f0659d726d40b52429a6b34dc3",
+    "metrology_app/input_planning.py": "fc03d5db36fe603e2dd513cedb4a74ae4fd01c522b9c0886dc4ce5f52e35cf4d",
+    "metrology_app/matching_window.py": "d31a352b4178b7c380a8c4357527e6fa3bc5c25dc7a7ac4c0621a09700ddc774",
+    "metrology_app/window.py": "63116589846c6c16c58168356e7305b23ffe0e6f2f8bf2a7a887e50620b4c666",
+    "metrology_app/correlation_window.py": "18e1bab6c98eb701df393b49a27c5ed43d2a43924afab5fbb38596286a487b56",
+    "metrology_app/analysis_export.py": "b735fbb1a10de9f379ac42c4abd77c4f4b6dd1a9ba47a2ae74eafce6297e730c",
+    "metrology_app/sheet.py": "05890051b12bbef0d5a1d0016c0f6eb0dee82fee33b9125fc5cb2daf16644def",
+    "metrology_app/measurements.py": "e7ae525451bcf2b8006298015d6775bfe0a9d39f5d293cbef35e852371e38a0a",
+    "metrology_app/match_groups.py": "93957d09f3ba4339722669de1d8442bc361369d490c5cdbf403b24df87f740ea",
+    "metrology_app/correlation_page.py": "55082b12e990b689c8f9871e2beaf5aab8897eeb8c58d498b7109c4af3e808a1",
+    "metrology_app/sequence_page.py": "4bd917bedf0070aa0790034654673462b4a94d76615922975ee0d8fcdbed759f",
+    "metrology_app/radius_graphics.py": "bdefc14a28d0b9dba10169aa1da51892860fa1b2311ead5100b87e04d639bf45",
+    "benchmarks/benchmark_memory_storage.py": "a820442409c1aefda3ac01fe66f26c17caf073172b8c82c349173dda2e24580c",
+    "tests/test_async_analysis_refresh.py": "26355a77ef21a4876223e8228fb7d5727fcc44e700517819f5eabe46abc7bb80",
+    "tests/test_linked_plot_refresh.py": "fb67125a08ef41d5ecbd10a6feb98a9ccb24d621a0cbccebfcd2866aaa9d966a"
+  },
+  "protected_settings": {
+    "path": "config/settings.yaml",
+    "before_sha256": "4cba2be14b7a1f0bcc2e50710ca29d382a17c8bac2900a595a5fc63fb9c6b1b7",
+    "current_sha256": "4cba2be14b7a1f0bcc2e50710ca29d382a17c8bac2900a595a5fc63fb9c6b1b7"
+  },
+  "owned_fixture": {
+    "path": "D:/WaferMap/.cache/p0-final-v432-20261026/owned-nova-multi.wkb",
+    "sha256": "9c0b9437eef660d3bffc9c007515c1875f24cbc25c60ca2e8235032b9272fb65"
+  },
+  "baseline_overlay": {
+    "analysis_export.py": {
+      "sha256": "5d066297c41c3f1d11f3ff1756f1d9d6ff108f579e4c0414159d62773167abb2",
+      "equals_5833cbb_text": true
+    },
+    "correlation_page.py": {
+      "sha256": "2fb862d9e309ef96fd549abd7d812b3b5feedc54714e21521e49127e5318a6a7",
+      "equals_5833cbb_text": true
+    },
+    "correlation_window.py": {
+      "sha256": "50506644673a8602a350c745225eb57cbf16f8330582c614b7ce30d7856c1ea6",
+      "equals_5833cbb_text": true
+    },
+    "matching_window.py": {
+      "sha256": "f5f7405419c0c0c6f093dcec73019f9f4e238dcf6bf62cee8cca46e2691f7867",
+      "equals_5833cbb_text": true
+    },
+    "match_groups.py": {
+      "sha256": "efcd955d34c93cebd9441198d372b112d54e8e990a0f8149e1328f5e4f8e53f0",
+      "equals_5833cbb_text": true
+    },
+    "measurements.py": {
+      "sha256": "e091652b813dbadaf0f3dedb21d26c4772990fd0732a0de8cb42ea83b6fceea3",
+      "equals_5833cbb_text": true
+    },
+    "radius_graphics.py": {
+      "sha256": "f236328d447c1576e9dc51304c00671439ce8aac2827d4b8a7ce6679481b8285",
+      "equals_5833cbb_text": true
+    },
+    "sequence_page.py": {
+      "sha256": "04fba223cf175eea62c527c9866e1bc12c821a8974d78b1f35bfe2a6ce1584e2",
+      "equals_5833cbb_text": true
+    },
+    "sheet.py": {
+      "sha256": "28aa11e38e66608c21d429fbb76c3a7f317dc6935df1d61c7f25d7650d3b22bf",
+      "equals_5833cbb_text": true
+    },
+    "window.py": {
+      "sha256": "47afcf898dd77df9cdd48f97a79ad297c641485e94cfccad8bba05dc29f082fe",
+      "equals_5833cbb_text": true
+    }
+  },
+  "tests": {
+    "checkpoint_targeted": {
+      "total": 37,
+      "passed": 37,
+      "seconds": 67.963,
+      "log": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\v433-checkpoint-tests.log"
+    },
+    "source_presentation_and_coordinate_followup": {
+      "total": 40,
+      "passed": 40,
+      "seconds": 68.799,
+      "log": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\async-followup-green.log"
+    },
+    "radius_ownership_and_pixel_equivalence": {
+      "total": 3,
+      "passed": 3,
+      "seconds": 0.079,
+      "log": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\radius-ownership-green.log"
+    },
+    "integration_before_last_boundary_fixes": {
+      "valid_tests_passed": 99,
+      "loader_errors": 2,
+      "log": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\async-final-targeted.log",
+      "loader_error_cause": "Two mistyped test module names; correct source presentation/row-number modules rerun in followup"
+    },
+    "full_suite": {
+      "run_for_this_checkpoint": false,
+      "reason": "User requested freezing and tagging current code before continuing the new view-driven behavior"
+    }
+  },
+  "benchmark_validity": {
+    "all_final_repeated_fixture_runs_invalid_for_many_wafer_maps": true,
+    "evidence": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\map-validity-red.log",
+    "actual_valid_maps": 0,
+    "map_slots": 48,
+    "reason": "Repeated original identities produce duplicate XY; Map panels are errors, not valid interpolations",
+    "preserved_raw_records": [
+      "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\final-100k-after.json",
+      "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\final-100k-before.json",
+      "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\final-10k-after-1.json",
+      "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\final-10k-after-2.json",
+      "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\final-10k-after-3.json",
+      "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\final-10k-before-1.json",
+      "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\final-10k-before-2.json",
+      "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\final-10k-before-3.json",
+      "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\final-10k-no-children.json"
+    ],
+    "interpretation": "Actual timing and source/Undo checks remain recorded, but cannot substantiate performance for 48 valid Maps or a fully resolved UI"
+  },
+  "risks_and_pending": [
+    "GUI child commit and painting still block input; complete refresh remains seconds",
+    "100k repeated-fixture paste became slower in one pair; no broad speed claim",
+    "Replace repeated-identity benchmark fixture and assert all maps contain surfaces",
+    "Implement newly requested view-driven rendering while retaining the last viewed child across Workbook Raw Data floating editor focus",
+    "Run relevant regressions, corrected representative benchmarks and one isolated full suite after that implementation stabilizes"
+  ],
+  "future_request_red_tests": {
+    "tests": 4,
+    "failures": 4,
+    "log": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\viewed-plots-red.log",
+    "status": "Unimplemented new request; tests archived in QA and intentionally excluded from this pre-change tag"
+  },
+  "isolation": "run_tests.isolate_settings before app imports; owned WKB copies; clipboard MIME restored; all heavy runs serial",
+  "remote_heads_before": {
+    "refs/heads/main": "aa5281dd38bbe58688a51b27e86c70635aef7a77"
+  },
+  "push_scope": "Only refs/tags/v4.3.3; no main/branch push or Release",
+  "qa_directory": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027",
+  "superseded_record": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\superseded-local-optimization-record.json"
+}

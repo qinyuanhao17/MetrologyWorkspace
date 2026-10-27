@@ -117,14 +117,23 @@ def settle(app, windows=(), *, timeout=120, idle_ms=50):
         pending = False
         for window in windows:
             pending |= bool(getattr(window, '_auto_run_pending', False))
+            pending |= bool(getattr(window, 'linked_updates_pending', False))
             document = getattr(window, 'document', None)
             pending |= bool(document is not None and document.recovery_pending)
             for name in ('refresh_timer', '_raw_keyboard_timer'):
                 timer = getattr(window, name, None)
                 pending |= bool(timer is not None and timer.isActive())
+            # Screen curve rasterization is asynchronous too. Completion
+            # includes every currently drawn primary/secondary curve.
+            import pyqtgraph as pg
+            for plot in window.findChildren(pg.PlotWidget):
+                items = plot.listDataItems() + [item
+                    for view in getattr(plot, 'secondary_views', ()) for item in view.addedItems]
+                pending |= any(getattr(item, 'render_pending', False) for item in items)
             for name in ('plot_page', 'radius_page', 'sequence_page', 'correlation_page'):
                 page = getattr(window, name, None)
                 if page is not None:
+                    pending |= bool(getattr(page, 'background_render_pending', False))
                     pending |= getattr(page, 'worker', None) is not None
                     for timer_name in ('input_refresh_timer', 'update_timer'):
                         timer = getattr(page, timer_name, None)

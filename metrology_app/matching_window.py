@@ -795,6 +795,20 @@ class MatchingWindow(QMainWindow):
         self._stage_windows = []
         self._syncing_stage_windows = False
         self._stage_sync_inputs = None
+        from .background_task import LatestTask
+        from .linked_refresh import prepare_linked_sources
+        self._linked_generation = 0
+        self._linked_result = None
+        self._linked_queue = []
+        self._queued_stage_inputs = None
+        self._linked_update_pending = False
+        self._background_stage_refresh = False
+        self._linked_prepare_timer = QTimer(self, interval=10, singleShot=True)
+        self._linked_prepare_timer.timeout.connect(self.queue_stage_refresh)
+        self._linked_commit_timer = QTimer(self, interval=5, singleShot=True)
+        self._linked_commit_timer.timeout.connect(self._commit_linked_step)
+        self._linked_task = LatestTask(prepare_linked_sources, self._publish_linked_refresh,
+                                       self._linked_refresh_error, self)
         self._stage_plot_cache = {}
         self._stage_window_context = {}
         self._workspace_states = {}
@@ -1455,6 +1469,8 @@ class MatchingWindow(QMainWindow):
         self._update_mode_actions()
 
     def _result_mode_changed(self, index):
+        if hasattr(self, "_linked_task"):
+            self._cancel_linked_refresh()
         had_result = self.result is not None
         mapping_state = self._mapping_state()
         splitter_sizes = (
@@ -1492,6 +1508,22 @@ class MatchingWindow(QMainWindow):
                     f"Could not update {self.result_mode.currentText()}: {error}",
                     warning=True,
                 )
+        else:
+            # No new stage was accepted. Keep the child's accepted data usable
+            # while rejecting work queued for the stage just left.
+            for child in self._stage_windows:
+                if not getattr(child, "_source_refresh_pending", False):
+                    continue
+                self._set_child_refresh_pending(child, False)
+                child.statusBar().clearMessage()
+                for name in ("correlation_page", "sequence_page"):
+                    page = getattr(child, name, None)
+                    if (page is not None and page.has_drawn_once and not page.ready
+                            and not page.selector.pending_draw):
+                        page.request_background_draw()
+                page = getattr(child, "plot_page", None)
+                if page is not None and page.has_drawn_once and page.dirty and not page.selector.pending_draw:
+                    page.queue_input_refresh()
 
     def _update_mode_actions(self):
         preview = self.result_mode.currentText().lower() == "preview"
@@ -2272,6 +2304,16 @@ class MatchingWindow(QMainWindow):
 
     def _analysis_input_changed(self, *_, view_state=None, prepare_groups=True):
         """Refresh valid post-run edits without blanking plots or layout first."""
+        self._cancel_linked_refresh()
+        for child in self._stage_windows:
+            context = self._stage_window_context.get(child)
+            if context is None or not isinstance(child, QWidget):
+                continue
+            kind, _stage = context
+            follows = kind == "correlation" or (kind == "map" and (
+                self._workspace_data_follows_workbook() or getattr(child, "_copy_from_wkb", False)))
+            if follows and getattr(child, "_copy_from_wkb", True):
+                self._set_child_refresh_pending(child, True)
         self._analysis_current = False
         self._group_only_pending = False
         if prepare_groups:
@@ -2285,10 +2327,12 @@ class MatchingWindow(QMainWindow):
                 )
             self._update_state()
             self._queue_auto_analysis()
-            if self._stage_windows:
-                QTimer.singleShot(0, self.sync_stage_windows)
         else:
             self._invalidate_analysis()
+        if self._stage_windows:
+            generation = self._linked_generation
+            QTimer.singleShot(0, lambda: self.queue_stage_refresh()
+                              if generation == self._linked_generation else None)
 
     def _raw_table_pasted(self):
         """Re-run a valid workbook after the user has opted in by running once."""
@@ -2327,7 +2371,11 @@ class MatchingWindow(QMainWindow):
                 self._restore_setup_view_state(sizes, scroll_value)
             return
         try:
-            self.run_analysis(apply_groups=False)
+            self._background_stage_refresh = True
+            try:
+                self.run_analysis(apply_groups=False)
+            finally:
+                self._background_stage_refresh = False
             if view_state is not None:
                 sizes, scroll_value = view_state
                 self._restore_setup_splitter_layout(sizes)
@@ -2876,6 +2924,8 @@ class MatchingWindow(QMainWindow):
         self.wafer_groups_layout.addWidget(self.empty_wafer_hint)
 
     def _invalidate_analysis(self, *_):
+        if hasattr(self, "_linked_task"):
+            self._cancel_linked_refresh()
         if self.result is None and self.workbook is None:
             self._update_state()
             return
@@ -3355,6 +3405,19 @@ class MatchingWindow(QMainWindow):
                     workspace.restore_workspace(recovered["draft"])
                     workspace._use_workbook_data = bool(recovered.get("follow_source"))
                     workspace.document.baseline = deepcopy(recovered["baseline"])
+                    if (kind in ("map", "correlation") and book is not None
+                            and getattr(workspace, "_copy_from_wkb", False)):
+                        # Recovery may freeze a linked table while a newer
+                        # Workbook version is still being prepared. Compare
+                        # against its own accepted source before reconnecting;
+                        # independent Raw edits and manual Ref remain protected.
+                        workspace._workbook_source_frames = deepcopy(workspace.document.baseline.frames)
+                        syncing = self._syncing_stage_windows
+                        self._syncing_stage_windows = True
+                        try:
+                            self._refresh_stage_workspace(workspace, kind, stage, book=book)
+                        finally:
+                            self._syncing_stage_windows = syncing
                     if kind == "correlation":
                         self._offer_second_axis_settings(workspace)
                 if self.document.untrusted_recovery or recovered:
@@ -3532,6 +3595,176 @@ class MatchingWindow(QMainWindow):
         """Mark the workbook tables the open windows were built from."""
         self._stage_sync_inputs = self._stage_window_inputs()
 
+    @property
+    def linked_updates_pending(self):
+        return (self._linked_update_pending or self._linked_task.busy
+                or self._linked_prepare_timer.isActive() or self._linked_commit_timer.isActive())
+
+    def _cancel_linked_refresh(self):
+        self._linked_generation += 1
+        self._linked_task.cancel()
+        self._linked_prepare_timer.stop()
+        self._linked_commit_timer.stop()
+        self._linked_result = None
+        self._linked_queue = []
+        self._queued_stage_inputs = None
+        self._linked_update_pending = False
+
+    def queue_stage_refresh(self):
+        """Prepare one owned source version; newer edits replace its request."""
+        if not self._stage_windows or self._syncing_stage_windows:
+            return
+        if any(not isinstance(child, QWidget) for child in self._stage_windows):
+            self.sync_stage_windows()
+            return
+        # Small inputs are cheaper than scheduling/copying a worker request;
+        # retain their existing one-event-loop source update behavior.
+        if self._active_raw_frame().size < 8192:
+            self.sync_stage_windows()
+            return
+        if self.raw_view.keyboard_editing or self._raw_keyboard_timer.isActive():
+            self._linked_prepare_timer.start()
+            return
+        inputs = self._stage_window_inputs()
+        if self._same_stage_inputs(inputs, self._queued_stage_inputs):
+            return
+        if (self._same_stage_inputs(inputs, self._stage_sync_inputs)
+                and not any(getattr(child, "_source_refresh_pending", False)
+                            for child in self._stage_windows)):
+            return
+        book = self._analysis_workspace_workbook()
+        descriptors = []
+        for child in tuple(self._stage_windows):
+            context = self._stage_window_context.get(child)
+            if context is None:
+                continue
+            kind, stage = context
+            follows = kind == "correlation" or (kind == "map" and (
+                self._workspace_data_follows_workbook() or getattr(child, "_copy_from_wkb", False)))
+            follows = follows and getattr(child, "_copy_from_wkb", True)
+            options = {"include_fit_quality": getattr(child, "include_fit_quality", True),
+                       "carded": bool(getattr(child, "card_check", None) and child.card_check.isChecked()),
+                       "applies": getattr(child, "_workbook_selection_applies", True)}
+            if kind == "correlation":
+                options["reference"] = child.reference_model.frame().copy(deep=True)
+                options["trend_groups"] = deepcopy(child.selection.get("groups", {}))
+            descriptors.append((id(child), kind, stage, follows,
+                                bool(getattr(child.model, "clipboard_locks", ())), options))
+            if follows:
+                self._set_child_refresh_pending(child, True)
+                child.statusBar().showMessage("Updating from Match Workbook…")
+        self._linked_update_pending = True
+        self._queued_stage_inputs = inputs
+        self._linked_task.submit({"generation": self._linked_generation,
+            "inputs": inputs, "book": deepcopy(book), "raw": inputs[1], "children": tuple(descriptors)})
+
+    def _publish_linked_refresh(self, result):
+        if result is None or result["generation"] != self._linked_generation:
+            return
+        self._linked_result = result
+        self._linked_queue = list(self._stage_windows)
+        self._linked_commit_timer.start()
+
+    def _commit_linked_step(self):
+        result = self._linked_result
+        if result is None or result["generation"] != self._linked_generation:
+            return
+        if not self._linked_queue:
+            self._stage_sync_inputs = result["inputs"]
+            self._queued_stage_inputs = None
+            self._linked_update_pending = False
+            self._linked_result = None
+            return
+        child = self._linked_queue.pop(0)
+        context = self._stage_window_context.get(child)
+        if context is not None and child in self._stage_windows and not sip.isdeleted(child):
+            kind, stage = context
+            book = result["book"]
+            if book is None and kind != "correlation":
+                self._linked_commit_timer.start()
+                return
+            follows = kind == "correlation" or (kind == "map" and (
+                self._workspace_data_follows_workbook() or getattr(child, "_copy_from_wkb", False)))
+            try:
+                self._syncing_stage_windows = True
+                child._defer_plot_refresh = True
+                table = result["tables"].pop(id(child), None)
+                child.model._linked_prepared_load = table
+                child._prepared_recognition = table.get("recognition") if table else None
+                child._prepared_group_result = table.get("group_result") if table else None
+                if follows:
+                    self._refresh_stage_workspace(child, kind, stage, book=book)
+                elif book is not None:
+                    child.set_workbook_participation(book)
+                self._set_child_refresh_pending(child, False)
+            except Exception as error:
+                self._linked_refresh_error(str(error))
+                return
+            finally:
+                child.model._linked_prepared_load = None
+                child._prepared_recognition = None
+                child._prepared_group_result = None
+                child._defer_plot_refresh = False
+                self._syncing_stage_windows = False
+        if result["generation"] == self._linked_generation:
+            self._linked_commit_timer.start()
+
+    def _linked_refresh_error(self, message):
+        self._linked_update_pending = False
+        self._queued_stage_inputs = None
+        self._linked_result = None
+        self._linked_queue = []
+        LOGGER.warning("Background Workbook update failed: %s", message)
+        for child in self._stage_windows:
+            if getattr(child, "_source_refresh_pending", False):
+                child.statusBar().showMessage(f"Workbook update failed: {message}")
+
+    @staticmethod
+    def _set_child_refresh_pending(child, pending):
+        was_pending = getattr(child, "_source_refresh_pending", False)
+        child._source_refresh_pending = pending
+        for name in ("plot_page", "radius_page", "correlation_page", "sequence_page"):
+            page = getattr(child, name, None)
+            if page is None:
+                continue
+            if pending:
+                if not was_pending:
+                    page._linked_was_enabled = page.isEnabled()
+                page.setEnabled(False)
+                page.input_refresh_timer.stop()
+                if hasattr(page, "pending_input_refresh"):
+                    page.pending_input_refresh = False
+                if hasattr(page, "revision") and hasattr(page, "worker"):
+                    page.revision += 1  # Reject an already queued Map result.
+                    if page.worker is not None:
+                        page.worker.requestInterruption()
+                cancel = getattr(page, "_cancel_background_draw", None)
+                if callable(cancel):
+                    cancel()
+            elif was_pending:
+                page.setEnabled(getattr(page, "_linked_was_enabled", True))
+            available = (getattr(page, "ready", False) or
+                         (getattr(page, "result", None) is not None and not getattr(page, "dirty", True)))
+            available = available and not pending and not getattr(page, "background_render_pending", False)
+            for control in ("export_button", "export_all_button", "copy_button"):
+                button = getattr(page, control, None)
+                if button is not None:
+                    button.setEnabled(bool(available))
+
+    def finish_linked_updates(self):
+        """Explicit save/export materializes current inputs before capture."""
+        inputs_changed = self._stage_windows and not self._same_stage_inputs(
+            self._stage_window_inputs(), self._stage_sync_inputs)
+        if inputs_changed or self.linked_updates_pending or any(
+                getattr(child, "_source_refresh_pending", False) for child in self._stage_windows):
+            self.sync_stage_windows()
+        for child in self._stage_windows:
+            for name in ("correlation_page", "sequence_page"):
+                page = getattr(child, name, None)
+                finish = getattr(page, "finish_background_draw", None)
+                if callable(finish):
+                    finish()
+
     def sync_stage_windows(self):
         """Refresh open analysis windows from the Match Workbook tables.
 
@@ -3541,8 +3774,13 @@ class MatchingWindow(QMainWindow):
         """
         if not self._stage_windows or self._syncing_stage_windows:
             return
+        self._cancel_linked_refresh()
         inputs = self._stage_window_inputs()
-        if self._same_stage_inputs(inputs, self._stage_sync_inputs):
+        if (self._same_stage_inputs(inputs, self._stage_sync_inputs)
+                and not any(getattr(child, "_source_refresh_pending", False)
+                            for child in self._stage_windows)):
+            for workspace in self._stage_windows:
+                self._set_child_refresh_pending(workspace, False)
             return
         self._syncing_stage_windows = True
         try:
@@ -3567,6 +3805,7 @@ class MatchingWindow(QMainWindow):
                     continue
                 try:
                     self._refresh_stage_workspace(workspace, kind, stage, book=book)
+                    self._set_child_refresh_pending(workspace, False)
                 except Exception as error:
                     complete = False
                     LOGGER.warning(
@@ -4194,10 +4433,12 @@ class MatchingWindow(QMainWindow):
         if not self.document.confirm_close():
             event.ignore()
             return
+        self._cancel_linked_refresh()
         self.group_settings_dialog.hide()
         self.raw_floating_editor.dock()
         workspaces = tuple(self._stage_windows)
         if not workspaces:
+            self._linked_task.close()
             self._auto_run_pending = False
             self._raw_keyboard_timer.stop()
             self._plot_layout_identity_timer.stop()
@@ -4217,6 +4458,7 @@ class MatchingWindow(QMainWindow):
             event.ignore()
             return
         event.accept()
+        self._linked_task.close()
         self._auto_run_pending = False
         self._raw_keyboard_timer.stop()
         self._plot_layout_identity_timer.stop()
@@ -4385,7 +4627,10 @@ class MatchingWindow(QMainWindow):
         self._update_state()
         # Open analysis windows mirror the workbook tables they were built from.
         try:
-            self.sync_stage_windows()
+            if self._background_stage_refresh:
+                self.queue_stage_refresh()
+            else:
+                self.sync_stage_windows()
         except Exception as error:
             LOGGER.warning("Could not refresh the analysis windows: %s", error)
         QTimer.singleShot(
@@ -5335,6 +5580,7 @@ class MatchingWindow(QMainWindow):
             self.run_analysis(apply_groups=False)
         else:
             self.workbook = self.current_workbook()
+        self.finish_linked_updates()
         from copy import copy
         stages = []
         extra_frames = []
@@ -5446,6 +5692,7 @@ class MatchingWindow(QMainWindow):
     @recovery_decision
     def save_workbook(self, path, *, capture_children=True, child=None):
         commit_editors(self)
+        self.finish_linked_updates()
         previous = self._accepted_workspace_state()
         children = tuple(self._stage_windows) if capture_children else (() if child is None else (child,))
         baselines = {}

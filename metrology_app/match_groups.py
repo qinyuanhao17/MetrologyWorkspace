@@ -2,6 +2,8 @@
 from collections import Counter
 from decimal import Decimal, InvalidOperation
 from functools import lru_cache
+from threading import current_thread, main_thread, local
+
 import json
 from uuid import uuid4
 import weakref
@@ -213,23 +215,39 @@ _ROW_IDS_CACHE = []
 _ROW_IDS_CACHE_LIMIT = 6
 
 
+
+_THREAD_CACHE = local()
+
+
+def _thread_cache():
+    # GUI cache behavior stays unchanged. Worker snapshots never reorder or
+    # retain entries owned by another thread during pandas/NumPy calls.
+    if current_thread() is main_thread():
+        return _ROW_IDS_CACHE
+    if not hasattr(_THREAD_CACHE, "entries"):
+        _THREAD_CACHE.entries = []
+    return _THREAD_CACHE.entries
+
+
 def _cached_row_ids(frame):
+    cache = _thread_cache()
     length, columns = len(frame), tuple(frame.columns)
-    for index, (reference, cached_length, cached_columns, ids) in enumerate(_ROW_IDS_CACHE):
+    for index, (reference, cached_length, cached_columns, ids) in enumerate(cache):
         if reference() is frame and cached_length == length and cached_columns == columns:
             if index:
-                _ROW_IDS_CACHE.insert(0, _ROW_IDS_CACHE.pop(index))
+                cache.insert(0, cache.pop(index))
             return ids
     return None
 
 
 def _remember_row_ids(frame, ids):
+    cache = _thread_cache()
     try:
         reference = weakref.ref(frame)
     except TypeError:  # pragma: no cover - pandas frames always allow weak refs
         return
-    _ROW_IDS_CACHE.insert(0, (reference, len(frame), tuple(frame.columns), ids))
-    del _ROW_IDS_CACHE[_ROW_IDS_CACHE_LIMIT:]
+    cache.insert(0, (reference, len(frame), tuple(frame.columns), ids))
+    del cache[_ROW_IDS_CACHE_LIMIT:]
 
 
 def wafer_identity_keys(raw):

@@ -27,6 +27,17 @@ def _series(name, x, y, *, line=True, markers=True, **metadata):
 
 def capture_window(window):
     """Detach source tables and successful plot choices without changing the UI."""
+    owner = getattr(window, "_managed_owner", None)
+    finish_sources = getattr(owner, "finish_linked_updates", None)
+    if callable(finish_sources):
+        finish_sources()
+    if getattr(window, "_source_refresh_pending", False):
+        raise ValueError("The Workbook source update has not completed.")
+    for name in ("correlation_page", "sequence_page"):
+        page = getattr(window, name, None)
+        finish = getattr(page, "finish_background_draw", None)
+        if callable(finish):
+            finish()
     if window.refresh_timer.isActive():
         window.recognize()
     scope = str(getattr(window, "_managed_scope", ""))

@@ -18,7 +18,8 @@ class RadiusPanel(pg.GraphicsObject):
 
     def __init__(self, source, parent):
         super().__init__(parent)
-        self.source = source
+        self.source = self._owned_source(source)
+        self._source_geometry_changed = True
         self.box = QRectF()
         self.base = 10
         self.identity_labels = {"pad": True, "lot": True}
@@ -48,10 +49,48 @@ class RadiusPanel(pg.GraphicsObject):
             self.scatter.setParentItem(self.clip)
             self.scatter.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
 
+    @staticmethod
+    def _owned_source(source):
+        # Cache comparisons must describe the previous draw even if a caller
+        # later reuses its dict or edits an array in place.
+        owned = dict(source)
+        for key in ("radius", "value"):
+            if key in owned:
+                owned[key] = np.array(owned[key], copy=True)
+        if "die" in owned:
+            owned["die"] = list(owned["die"])
+        return owned
+
+    def update_source(self, source):
+        """Reuse identical graphics roles; coordinates are rebuilt by relayout."""
+        populated = not source.get("skip") and bool(len(source["value"]))
+        if populated != (self.scatter is not None):
+            return False
+        previous = self.source
+        self._source_geometry_changed = (populated and (previous["limit"] != source["limit"]
+            or not np.array_equal(previous["radius"], source["radius"])
+            or not np.array_equal(previous["value"], source["value"])))
+        self.source = self._owned_source(source)
+        if populated:
+            values = source["value"]
+            low, high = AutoLocator().nonsingular(float(values.min()), float(values.max()))
+            margin = .05*(high-low)
+            self.y_limits = low-margin, high+margin
+            colour = QColor.fromRgbF(*to_rgba(source["color"]))
+            colour.setAlphaF(.78)
+            if previous["color"] != source["color"]:
+                self.scatter.setBrush(colour)
+        self.update()
+        return True
+
     def boundingRect(self):
         return self.box.adjusted(-90, -85, 40, 65)
 
     def set_geometry(self, box, base, identity_labels):
+        if (not self._source_geometry_changed and self.box == box and self.base == base
+                and self.identity_labels == identity_labels):
+            return
+        self._source_geometry_changed = False
         self.prepareGeometryChange()
         self.box, self.base, self.identity_labels = QRectF(box), base, identity_labels
         if self.scatter is not None:
@@ -180,14 +219,22 @@ class RadiusGrid(pg.GraphicsObject):
         pass
 
     def set_result(self, sources, shape, base, labels):
-        for panel in self.panels:
-            panel.setParentItem(None)
-            if panel.scene() is not None:
-                panel.scene().removeItem(panel)
+        previous, self.panels = self.panels, []
         self.prepareGeometryChange()
         rows, columns = shape
         self.rect = QRectF(0, 0, columns*460, rows*420+30)
-        self.panels = [RadiusPanel(source, self) for source in sources]
+        for index, source in enumerate(sources):
+            panel = previous[index] if index < len(previous) else None
+            if panel is not None and panel.update_source(source):
+                self.panels.append(panel)
+            else:
+                self.panels.append(RadiusPanel(source, self))
+        retained = set(self.panels)
+        for panel in previous:
+            if panel not in retained:
+                panel.setParentItem(None)
+                if panel.scene() is not None:
+                    panel.scene().removeItem(panel)
         for panel in self.panels:
             panel.status_callback = self.status_callback
         self.relayout(shape, base, labels)

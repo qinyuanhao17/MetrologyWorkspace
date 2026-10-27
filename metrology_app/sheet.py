@@ -475,16 +475,47 @@ class SheetModel(QAbstractTableModel):
         self.changed.emit()
 
     def load(self, frame, *, report_paste=False):
+        prepared = getattr(self, "_linked_prepared_load", None)
+        self._linked_prepared_load = None
+        if (not report_paste and prepared is not None
+                and (prepared["document"].equals(frame)
+                     or prepared["document"].equals(frame.fillna("").astype(str).reset_index(drop=True)))):
+            self._load_prepared_frame(prepared)
+            return
         document = frame.fillna("").astype(str).reset_index(drop=True)
         document.columns = [str(name) for name in document.columns]
         matrix = [list(document.columns)] + document.values.tolist() if len(document.columns) else []
         self._load_matrix(matrix, report_paste=report_paste,
                           document=None if report_paste else document)
 
+    def _load_prepared_frame(self, prepared):
+        """Transfer an owned, data-only load result on the GUI thread."""
+        document = prepared["document"]
+        if type(self).restore is not SheetModel.restore:
+            self.load(document)  # Subclass restore hooks retain the general seam.
+            return
+        self._restore_owned(prepared.pop("cells"), prepared["height"], prepared["width"],
+                            prepared["rows"], emit_changed=False)
+        if prepared["exact_extent"]:
+            self._extent = (prepared["rows"] + 1, len(document.columns))
+        if self.cells:
+            self._frames["document"] = document.iloc[:, :self._cell_extent()[1]].copy()
+            if prepared.get("analysis") is not None:
+                self._frames["analysis"] = prepared["analysis"].copy()
+        self.undo.clear()
+        self.undo.setClean()
+        self._prepared_load = True
+        try:
+            self.changed.emit()
+        finally:
+            self._prepared_load = False
+
     def update_headers(self, frame):
         """Refresh linked aliases only when every literal data cell is unchanged."""
         current = self.document_frame()
-        incoming = frame.fillna("").astype(str).reset_index(drop=True)
+        prepared = getattr(self, "_linked_prepared_load", None)
+        incoming = (prepared["document"] if prepared is not None and prepared["document"].equals(frame)
+                    else frame.fillna("").astype(str).reset_index(drop=True))
         if current.shape != incoming.shape or not current.set_axis(incoming.columns, axis=1).equals(incoming):
             return False
         changes = {(0, column): str(name) for column, name in enumerate(incoming.columns)
@@ -1189,3 +1220,31 @@ class PasteFeedbackBar(QFrame):
         self.message.setToolTip(
             f"{escape(columns).replace(chr(10), '<br>')}<br>Only pasted values are reported, not analysis completion."
             "<br>Feedback clears on the next edit, Undo, table reload, or ×.")
+
+
+def prepare_sheet_frame(frame):
+    """Build detached literal-cell storage without constructing a Qt object.
+
+    Kept equivalent to load/_load_matrix, including blank trailing row markers.
+    Only a GUI-thread load may consume the resulting owned cell dictionary.
+    """
+    document = frame.fillna("").astype(str).reset_index(drop=True)
+    document.columns = [str(name) for name in document.columns]
+    matrix = [list(document.columns)] + document.values.tolist() if len(document.columns) else []
+    if matrix and all(chain.from_iterable(matrix)):
+        cells = dict(zip(product(range(len(matrix)), range(len(matrix[0]))), chain.from_iterable(matrix)))
+        height, width = max(100, len(matrix) + 20), max(26, len(matrix[0]) + 3)
+    else:
+        cells, height, width = SheetModel.state_from_matrix(matrix)
+    headers = [name.strip() or f"Column {column_letter(column)}"
+               for column, name in enumerate(document.columns)]
+    analysis = None
+    if len(set(headers)) == len(headers):
+        if len(document.columns) and document.iloc[:, 0].str.strip().ne("").all():
+            analysis = document.set_axis(headers, axis=1)
+        else:
+            analysis = pd.DataFrame([row for row in matrix[1:] if any(value.strip() for value in row)],
+                                    columns=headers)
+    return {"document": document, "analysis": analysis, "cells": cells, "height": height, "width": width,
+            "rows": max(0, len(matrix) - 1),
+            "exact_extent": bool(matrix and len(matrix[0]) and str(matrix[0][-1]))}

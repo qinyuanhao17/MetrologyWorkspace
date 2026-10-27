@@ -8,6 +8,7 @@ backend for Export / Copy PNG.
 """
 
 from html import escape
+from copy import deepcopy
 from math import ceil
 from pathlib import Path
 
@@ -294,7 +295,7 @@ class SequencePage(QWidget):
             "cells": tuple(sorted(cells)),
         }
 
-    def restore_draw_state(self, state):
+    def restore_draw_state(self, state, *, background=False):
         """Restore surviving curve boxes and redraw without another click."""
         if not isinstance(state, dict) or state.get("enabled") is not True:
             return
@@ -311,8 +312,11 @@ class SequencePage(QWidget):
         self.has_drawn_once = True
         self.cells = set(cells)
         self.selector.set_selected_cells(cells, notify=False)
-        self.invalidate()
-        self.draw_plot()
+        self.invalidate(preserve_plot=True)
+        if background:
+            self.request_background_draw()
+        else:
+            self.draw_plot()
 
     def axis_ratio_limit(self):
         """Return the automatic second-axis threshold as a decimal number."""
@@ -356,18 +360,22 @@ class SequencePage(QWidget):
         self.selection = selection.copy()
         self.wafer_column = find_column(frame, ("waferid", "wafer", "waferno"))
         self.die_column = find_column(frame, ("dieseq", "diesequence", "diesequenceno", "dieid"))
-        self.selector.set_array(
-            selection.get("wafers", []), selection.get("metrics", []),
-            selection.get("labels"), selection.get("available_cells"),
-        )
-        self.invalidate()
+        self._updating_input = True
+        try:
+            self.selector.set_array(
+                selection.get("wafers", []), selection.get("metrics", []),
+                selection.get("labels"), selection.get("available_cells"),
+            )
+        finally:
+            self._updating_input = False
+        self.invalidate(preserve_plot=True)
         if (self.has_drawn_once and not self.selector.pending_draw
                 and self.selector.selected_cells()):
             self.input_refresh_timer.start()
 
     def selector_changed(self):
         """Changed curve boxes wait for the explicit Draw selected click."""
-        self.invalidate()
+        self.invalidate(preserve_plot=getattr(self, "_updating_input", False))
 
     def show_selector(self):
         """Return to the box grid so another set of curves can be chosen."""
@@ -375,7 +383,8 @@ class SequencePage(QWidget):
         self.empty.clear()
         self.stack.setCurrentWidget(self.selector_panel if available else self.empty)
 
-    def invalidate(self):
+    def invalidate(self, *, preserve_plot=False):
+        self._cancel_background_draw()
         self.input_refresh_timer.stop()
         self.parameter_filter.set_parameters(
             [name for name in self.parameter_filter.names if name in self.frame.columns]
@@ -390,7 +399,9 @@ class SequencePage(QWidget):
         self.export_button.setEnabled(False)
         self.copy_button.setEnabled(False)
         self.figure.clear()
-        self.clear_interactive()
+        if (not preserve_plot or self.frame.empty
+                or not self.selector.rowCount() or not self.selector.columnCount()):
+            self.clear_interactive()
         wafers = self.selection.get("wafers", [])
         metrics = self.selection.get("metrics", [])
         rows, columns = len(wafers), len(metrics)
@@ -416,90 +427,8 @@ class SequencePage(QWidget):
         return [(key, self.frame[ids == key]) for key in wafers]
 
     def _sequence_groups(self, cells):
-        """Append every measurement set to one axis; nothing is split off."""
-        groups, cursor = [], 0
-        spans = {}
-        labels = self.selection.get("labels", {})
-        sources = self.selection.get("sources", ())
-        source_by_key = {key: source for source in sources for key in source.get("keys", ())}
-        drawn_keys = {key for key, _metric in cells}
-        if 'groups' in self.selection:
-            parts = [(key, np.asarray(self.selection['groups'].get(key, ()), dtype=int))
-                     for key in self.selection.get('wafers', ()) if key in drawn_keys]
-        else:
-            ids = self.frame[self.selection['wafer_column']].astype(str).str.strip().to_numpy()
-            parts = [(key, np.flatnonzero(ids == key))
-                     for key in self.selection.get('wafers', ()) if key in drawn_keys]
-        parts = [(key, positions) for key, positions in parts if len(positions)]
-        # A missing column falls back to the visible sheet row, not the
-        # concatenated analysis row or a renumbered selection. Explicit blank
-        # Die Seq cells keep their existing missing-value semantics.
-        die = np.arange(len(self.frame), dtype=float) + 2
-        coordinate_labels = {}
-        if sources:
-            for source in sources:
-                rows = np.asarray(source["rows"], dtype=int)
-                column = source.get("die_column", self.die_column)
-                if column is None:
-                    die[rows] = np.arange(len(rows), dtype=float) + 2
-                else:
-                    die[rows] = number(self.frame[column].iloc[rows]).to_numpy()
-                coordinate_labels[source["name"]] = "Die Seq" if column is not None else "Row Number"
-        elif self.die_column is not None:
-            die = number(self.frame[self.die_column]).to_numpy()
-        if sources and not self.selection.get("preserve_group_order"):
-            # Keep table order even when the two tabs select different wafers.
-            parts.sort(key=lambda pair: self.frame.index.take(pair[1]).min() - min(
-                source_by_key.get(pair[0], {}).get("rows") or (0,)
-            ))
-        ordered_parts = []
-        for key, source_positions in parts:
-            values = die[source_positions]
-            # Select/sort positional indices first; avoid copying a wide source
-            # table for assign, dropna and sort separately for every wafer.
-            positions_in_part = np.flatnonzero(~pd.isna(values))
-            if not self.selection.get("preserve_group_order"):
-                order = np.argsort(values[positions_in_part], kind="stable")
-                positions_in_part = positions_in_part[order]
-            if not len(positions_in_part):
-                continue
-            ordered_parts.append((key, source_positions[positions_in_part]))
-        if not ordered_parts:
-            return groups, cursor
-        # Detach all selected literal rows once, then slice this owned result.
-        # Hundreds of small wide-frame takes otherwise repeat the same copying.
-        all_positions = np.concatenate([positions for _key, positions in ordered_parts])
-        ordered_frame = self.frame.iloc[all_positions].copy(deep=False)
-        ordered_frame["__die"] = die[all_positions]
-        wafer_values = self.frame[self.wafer_column].fillna("").astype(str).str.strip().to_numpy()
-        offset = 0
-        for key, source_positions in ordered_parts:
-            ordered = ordered_frame.iloc[offset:offset + len(source_positions)].copy(deep=False)
-            offset += len(source_positions)
-            source = source_by_key.get(key)
-            # Ref and Raw are row-aligned tables. The same measurement must
-            # occupy the same span in both sources, not overlap other wafers.
-            span_key = key[1] if source is not None else key
-            if span_key not in spans:
-                spans[span_key] = cursor
-                cursor += len(ordered)
-            start = spans[span_key]
-            positions = np.arange(start, start + len(ordered), dtype=float)
-            wafer_id = next((wafer_values[row] for row in source_positions if wafer_values[row]), "")
-            if not wafer_id:
-                wafer_id = str(labels.get(key, key)).splitlines()[0]
-            groups.append({"key": key, "wafer": wafer_id, "frame": ordered,
-                           "coordinate_label": coordinate_labels.get(
-                               (source or {}).get("name"),
-                               "Die Seq" if self.die_column is not None else "Row Number"),
-                           "source_positions": source_positions,
-                           "group_label": self.selection.get("group_labels", {}).get(
-                               key, str(labels.get(key, wafer_id)).split(" · ", 1)[-1]),
-                           "positions": positions, "center": float(positions.mean()),
-                           "start": float(np.min(positions)),
-                           "stop": float(np.max(positions)),
-                           "source": source})
-        return groups, cursor
+        from .sequence_data import prepare_sequence_groups
+        return prepare_sequence_groups(self.frame, self.selection, cells, self.wafer_column, self.die_column)
 
     def _label_spans(self):
         grouped = bool(self.selection.get("show_group_labels", self.selection.get("preserve_group_order")))
@@ -916,9 +845,74 @@ class SequencePage(QWidget):
         layout.addStretch(1)
         return control
 
-    def draw_plot(self, *_):
+    @property
+    def background_render_pending(self):
+        task = getattr(self, "_draw_task", None)
+        return bool(getattr(self, "_background_requested", False)
+                    or (task is not None and task.busy) or getattr(self, "_batch_state", None))
+
+    def _cancel_background_draw(self):
+        self._render_generation = getattr(self, "_render_generation", 0) + 1
+        task = getattr(self, "_draw_task", None)
+        if task is not None:
+            task.cancel()
+        self._background_requested = False
+        timer = getattr(self, "_render_timer", None)
+        if timer is not None:
+            timer.stop()
+        pending, self._batch_state = getattr(self, "_batch_state", None), None
+        if pending is not None:
+            pending["grid"].deleteLater()
+            self.plot_widgets = []
+            self.panel_hosts = []
+            self.home_views = []
+
+    def request_background_draw(self):
+        from .background_task import LatestTask
+        from .sequence_data import prepare_sequence_values
+        if not self.selector.selected_cells() or self.frame.empty:
+            self.draw_plot()
+            return
+        if not hasattr(self, "_draw_task"):
+            self._draw_task = LatestTask(prepare_sequence_values, self._accept_background_draw,
+                                         self._background_draw_error, self)
         self.input_refresh_timer.stop()
-        self._numeric_columns = {}
+        self._background_requested = True
+        self.ready = False
+        self.export_button.setEnabled(False)
+        self.copy_button.setEnabled(False)
+        names = set(self.selection.get("metrics", ()))
+        for values in self.overlay.values():
+            names.update(values)
+        for values in self.source_overlay.values():
+            names.update(name for _source, name in values)
+        self.status.setText("Updating Trend…")
+        self._draw_task.submit({"frame": self.frame.copy(deep=True), "selection": deepcopy(self.selection),
+            "cells": frozenset(self.selector.selected_cells()), "wafer_column": self.wafer_column,
+            "die_column": self.die_column, "metrics": tuple(names)})
+
+    def _accept_background_draw(self, prepared):
+        if prepared is not None:
+            self.draw_plot(prepared=prepared, background_render=True)
+
+    def _background_draw_error(self, message):
+        self.invalidate()
+        self.status.setText(f"Trend update failed: {message}")
+
+    def finish_background_draw(self):
+        if getattr(self, "_background_requested", False) or getattr(self, "_batch_state", None):
+            self.draw_plot()
+
+    def stop_background_draw(self):
+        self._cancel_background_draw()
+        task = getattr(self, "_draw_task", None)
+        if task is not None:
+            task.close()
+
+    def draw_plot(self, *_, prepared=None, background_render=False):
+        self._cancel_background_draw()
+        self.input_refresh_timer.stop()
+        self._numeric_columns = prepared["numeric"] if prepared is not None else {}
         try:
             metrics = self.selection.get("metrics", [])
             wafers = self.selection.get("wafers", [])
@@ -931,7 +925,8 @@ class SequencePage(QWidget):
             cells = self.selector.selected_cells()
             if not cells:
                 raise ValueError("Select at least one curve box before drawing.")
-            groups, extent = self._sequence_groups(cells)
+            groups, extent = ((prepared["groups"], prepared["extent"]) if prepared is not None
+                              else self._sequence_groups(cells))
             if not groups:
                 raise ValueError("The selected measurement sets contain no valid Die Seq values.")
 
@@ -966,39 +961,42 @@ class SequencePage(QWidget):
             self._export_dirty = True
             self._copy_image = None
             self._copy_dpi = None
-            self.render_interactive(self.panel_specs, groups, columns, rows)
-            self.ready = True
-            self.has_drawn_once = True
-            self.selector.pending_draw = False
-            self.export_button.setEnabled(True)
-            self.copy_button.setEnabled(True)
-            self.stack.setCurrentWidget(self.interactive_scroll)
-            comparison_state = (
-                self.source_overlay
-                if self.selection.get("sources") else self.overlay
-            )
-            comparison_count = sum(map(len, comparison_state.values()))
-            comparison = (f" · {comparison_count} comparison"
-                          if comparison_count else "")
-            self.status.setText(f"{len(self.metrics)} of {len(metrics)} parameters · "
-                                f"{len(drawn_wafers)} of {len(wafers)} measurement sets · "
-                                f"{total_points} positions{comparison}.")
-            if self._uses_second_axis():
-                self.status.setText(
-                    self.status.text()
-                    + " 已使用第二根 Y 轴，交叉点无物理含义。"
+            def finished():
+                self.ready = True
+                self.has_drawn_once = True
+                self.selector.pending_draw = False
+                self.export_button.setEnabled(True)
+                self.copy_button.setEnabled(True)
+                if not background_render:
+                    self.stack.setCurrentWidget(self.interactive_scroll)
+                comparison_state = (
+                    self.source_overlay
+                    if self.selection.get("sources") else self.overlay
                 )
-            if self._has_mixed_units():
-                self.status.setText(
-                    self.status.text()
-                    + " 单 Y 轴包含不同单位，仅供查看，不可直接比较数值。"
-                )
-            missing = self._missing_overlay_metrics()
-            if missing:
-                self.status.setText(
-                    self.status.text()
-                    + f" No valid values for: {', '.join(missing)}."
-                )
+                comparison_count = sum(map(len, comparison_state.values()))
+                comparison = (f" · {comparison_count} comparison"
+                              if comparison_count else "")
+                self.status.setText(f"{len(self.metrics)} of {len(metrics)} parameters · "
+                                    f"{len(drawn_wafers)} of {len(wafers)} measurement sets · "
+                                    f"{total_points} positions{comparison}.")
+                if self._uses_second_axis():
+                    self.status.setText(
+                        self.status.text()
+                        + " 已使用第二根 Y 轴，交叉点无物理含义。"
+                    )
+                if self._has_mixed_units():
+                    self.status.setText(
+                        self.status.text()
+                        + " 单 Y 轴包含不同单位，仅供查看，不可直接比较数值。"
+                    )
+                missing = self._missing_overlay_metrics()
+                if missing:
+                    self.status.setText(
+                        self.status.text()
+                        + f" No valid values for: {', '.join(missing)}."
+                    )
+            self.render_interactive(self.panel_specs, groups, columns, rows,
+                                    batch=background_render, finished=finished)
         except (ValueError, KeyError) as error:
             self.invalidate()
             self.status.setText(str(error))
@@ -1293,6 +1291,7 @@ class SequencePage(QWidget):
                     text.set_text(label)
 
     def clear_interactive(self, message=None):
+        self._single_curve_layout = None
         if self.plot_host is not None:
             self.plot_host.setParent(None)
             self.plot_host.deleteLater()
@@ -1425,8 +1424,57 @@ class SequencePage(QWidget):
             # pass. Shrink the existing grid now, without rebuilding its plots.
             self.plot_host.resize(self.interactive_scroll.viewport().width(), self.plot_host.height())
 
-    def render_interactive(self, panels, groups, columns, rows):
+    def _single_curve_geometry(self, panels, groups, columns, rows):
+        """Prove axes/controls are identical before updating only curve values.
+
+        Comparison axes and expanded wafer spacing retain the complete renderer.
+        This describes only the current draw, without retaining source tables.
+        """
+        if self.expand_wafer_ids.isChecked() or any(panel.get("comparisons") for panel in panels):
+            return None
+        return (
+            int(self.font_size.currentText()), columns, rows, self.x_range,
+            tuple(self._label_spans()),
+            tuple(tuple(edges) for edges in self._boundary_positions()),
+            tuple((panel["metric"], (panel["source"] or {}).get("name"),
+                   (panel["source"] or {}).get("color"),
+                   self._coordinate_label(self._chosen_groups(panel, groups)),
+                   tuple(self._coordinate_ticks(self._chosen_groups(panel, groups))))
+                  for panel in panels),
+        )
+
+    def _refresh_single_curves(self, geometry, panels, groups):
+        if (geometry is None or geometry != getattr(self, "_single_curve_layout", None)
+                or len(self.plot_widgets) != len(panels)):
+            return False
+        curves = [widget.listDataItems() for widget in self.plot_widgets]
+        if any(len(items) != 1 or widget.secondary_views
+               for widget, items in zip(self.plot_widgets, curves)):
+            return False
+        for panel, widget, items in zip(panels, self.plot_widgets, curves):
+            chosen = self._chosen_groups(panel, groups)
+            positions = np.concatenate([group["positions"] for group in chosen])
+            values = self._metric_values(panel["metric"], chosen)
+            item, = items
+            if not (np.array_equal(item.xData, positions) and np.array_equal(item.yData, values, equal_nan=True)):
+                item.setData(x=positions, y=values)
+            set_plot_statistics(widget, [(item.name() or widget.getAxis("left").labelText, values)], True)
+            view = widget.getViewBox()
+            view.autoRange(padding=HOME_PADDING)
+            view.setXRange(*self.x_range, padding=0)
+        QTimer.singleShot(0, self.remember_home_views)
+        if self.parameter_filter.parameter is not None:
+            self.set_parameter_filter(self.parameter_filter.parameter)
+        return True
+
+    def render_interactive(self, panels, groups, columns, rows, *, batch=False, finished=None):
         """Render every base panel plus any explicit comparison curves."""
+        self.wafer_ticks = [(group["center"], group["group_label"] if self.selection.get("show_group_labels", self.selection.get("preserve_group_order")) else group["wafer"]) for group in self.axis_groups]
+        geometry = self._single_curve_geometry(panels, groups, columns, rows)
+        if self._refresh_single_curves(geometry, panels, groups):
+            if finished is not None:
+                finished()
+            return
         # Read the offset before the old grid is detached; replacing the grid
         # resets the scroll bar.
         previous_scroll = self.interactive_scroll.verticalScrollBar().value()
@@ -1436,173 +1484,21 @@ class SequencePage(QWidget):
         panel_height = 320
         grid = PanelGrid(columns)
         grid.set_minimum_row_height(rows, panel_height)
-        self.wafer_ticks = [(group["center"], group["group_label"] if self.selection.get("show_group_labels", self.selection.get("preserve_group_order")) else group["wafer"]) for group in self.axis_groups]
+        if batch:
+            if not hasattr(self, "_render_timer"):
+                self._render_timer = QTimer(self, interval=5, singleShot=True)
+                self._render_timer.timeout.connect(self._render_next_panels)
+            self._batch_state = {"panels": iter(panels), "groups": groups, "grid": grid,
+                "spans": label_spans, "base": base, "height": panel_height,
+                "generation": self._render_generation,
+                "finish": lambda: self._finish_interactive(grid, previous_scroll, geometry, panels, finished)}
+            self._render_timer.start()
+            return
         for panel in panels:
-            metric, panel_source = panel["metric"], panel["source"]
-            comparisons = panel.get("comparisons", ())
-            chosen = self._chosen_groups(panel, groups)
-            widget = InteractivePlotWidget(background="w", auto_x_range=self.x_range)
-            widget.setMinimumSize(360, 280)
-            widget.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
-            widget.setToolTip("Ctrl+scroll to zoom · Drag a box to zoom · Right-drag to pan · "
-                              "Ordinary scrolling moves the page · "
-                              "Double-click to fit this curve · Reset views restores all curves")
-            plot = widget.getPlotItem()
-            die_ticks = self._coordinate_ticks(chosen)
-            plot.setAxisItems({"bottom": DieSequenceAxis(die_ticks, font=widget.font())})
-            plot.setTitle(None)   # the QLabel above the plot owns the heading
-            plot.showGrid(x=False, y=True, alpha=.18)
-            plot.setLabel("bottom", self._coordinate_label(chosen), color="#30343b",
-                          size=f"{max(7, base - 1)}pt")
-            title = self._legend_label(panel_source, metric)
-            plot.setLabel("left", title, color="#30343b", size=f"{max(7, base - 1)}pt")
-            heading = panel_title_label(f"<b>{escape(title)}</b>", base + 1)
-            container = PlotPanel(
-                heading, widget,
-                side_widget=self.build_overlay_control(
-                    metric, comparisons, panel_source
-                ),
-            )
-            container.setFixedHeight(panel_height)
-            chosen = self._chosen_groups(panel, groups)
-            axis = plot.getAxis("bottom")
-            source_mode = bool(self.selection.get("sources"))
+            self._append_interactive_panel(panel, groups, grid, label_spans, panel_height, base)
+        self._finish_interactive(grid, previous_scroll, geometry, panels, finished)
 
-            def curve(target, name, color, legend, label, curve_groups):
-                if not curve_groups:
-                    return None
-                positions = np.concatenate([group["positions"] for group in curve_groups])
-                values = self._metric_values(name, curve_groups)
-                pen = pg.mkPen(color, width=TREND_LINE_WIDTH)
-                item = ResponsivePlotDataItem(
-                    positions, values, connect="finite", pen=pen,
-                    symbol="o", symbolSize=TREND_MARKER_SIZE, symbolPen=None,
-                    symbolBrush=pg.mkBrush(color), name=label,
-                )
-                target.addItem(item)
-                attach_point_hover(item, [die if group.get("coordinate_label") != "Row Number" else None
-                                         for group in curve_groups for die in group["frame"]["__die"]])
-                item.rendering_changed.connect(widget._render_status_changed)
-                if legend is not None and target is not plot:
-                    legend.addItem(item, label)
-                return item
-
-            if comparisons:
-                primary_color = (panel_source["color"]
-                                 if source_mode and panel_source is not None
-                                 else LINE_COLOR)
-                primary_values = self._metric_values(metric, chosen)
-                plot.setLabel(
-                    "left", title,
-                    color=primary_color, size=f"{max(7, base - 1)}pt",
-                )
-                left = plot.getAxis("left")
-                left.setPen(pg.mkPen(primary_color))
-                left.setTextPen(pg.mkPen(primary_color))
-                legend = plot.addLegend(offset=(10, 8), colCount=3)
-                mixed_units = set()
-                curve(
-                    plot, metric, primary_color, legend,
-                    self._legend_label(panel_source, metric), chosen,
-                )
-                for compare_index, comparison in enumerate(comparisons):
-                    compare_source, secondary = self._comparison_series(
-                        panel, comparison
-                    )
-                    secondary_groups = self._series_groups(
-                        compare_source, secondary, groups
-                    )
-                    secondary_color = self._compare_color(compare_index)
-                    secondary_values = self._metric_values(
-                        secondary, secondary_groups
-                    )
-                    spec = overlay_spec(
-                        metric, secondary, primary_values, secondary_values,
-                        ratio_limit=self.axis_ratio_limit(),
-                        axis_mode=self.axis_mode_value(),
-                    )
-                    if spec["mixed_units"]:
-                        mixed_units.update((spec["unit"], spec["secondary_unit"]))
-                    target = plot
-                    if spec["kind"] == "second-axis":
-                        target = widget.add_secondary_axis(
-                            self._legend_label(compare_source, self._axis_label(secondary, spec["secondary_unit"])),
-                            secondary_color,
-                        )
-                    secondary_label = self._legend_label(compare_source, secondary)
-                    curve(
-                        target, secondary, secondary_color, legend,
-                        secondary_label, secondary_groups,
-                    )
-                if mixed_units:
-                    title += " · Mixed units (" + " / ".join(sorted(mixed_units)) + ")"
-                    heading.setText(f"<b>{escape(title)}</b>")
-                    plot.setLabel(
-                        "left", title,
-                        color="#30343b", size=f"{max(7, base - 1)}pt",
-                    )
-            elif source_mode:
-                legend = plot.addLegend(offset=(10, 8))
-                color = panel_source["color"] if panel_source else LINE_COLOR
-                curve(
-                    plot, metric, color, legend,
-                    self._legend_label(panel_source, metric), chosen,
-                )
-            else:
-                curve(plot, metric, LINE_COLOR, None, None, chosen)
-
-            if self.axis_groups:
-                group_edges, wafer_edges = self._boundary_positions()
-                widget.group_boundaries = widget.add_vertical_boundaries(
-                    group_edges, pg.mkPen("#000000", width=2, style=Qt.PenStyle.DashLine))
-                widget.wafer_boundaries = widget.add_vertical_boundaries(
-                    wafer_edges,
-                    pg.mkPen(BOUNDARY_COLOR, width=1, style=Qt.PenStyle.DashLine),
-                )
-            axis.setStyle(tickFont=widget.font(), tickTextOffset=0)
-            axis.setPen(pg.mkPen("#30343b"))
-            axis.setTextPen(pg.mkPen("#30343b"))
-            if self.axis_groups:
-                # A second, linked axis carries the wafer name under each span,
-                # so the curve itself stays one continuous line.
-                wafer_axis = SpanLabelAxis(
-                    label_spans, font=widget.font(),
-                    optional_fields=not self.selection.get("show_group_labels", self.selection.get("preserve_group_order")),
-                )
-                wafer_axis.setStyle(tickLength=0, tickTextOffset=4, tickFont=widget.font())
-                wafer_axis.setPen(pg.mkPen(QColor(0, 0, 0, 0)))
-                wafer_axis.setTextPen(pg.mkPen("#5f6368"))
-                plot.layout.addItem(wafer_axis, 4, 1)
-                wafer_axis.linkToView(plot.getViewBox())
-                widget._wafer_axis = wafer_axis
-                wafer_axis.refresh()
-            left = plot.getAxis("left")
-            if not comparisons:
-                left.setPen(pg.mkPen("#30343b"))
-                left.setTextPen(pg.mkPen("#30343b"))
-            left.setStyle(tickFont=widget.font())
-            plain_y_axes(widget)
-            all_curves = widget.listDataItems() + [item for view in widget.secondary_views for item in view.addedItems
-                                                  if isinstance(item, pg.PlotDataItem)]
-            set_plot_statistics(widget, [(item.name() or title, item.yData) for item in all_curves],
-                                True)
-            view = plot.getViewBox()
-            # Left drag selects a region to zoom into; right drag pans.
-            view.setMouseMode(pg.ViewBox.RectMode)
-            view.setDefaultPadding(HOME_PADDING)
-            view.autoRange(padding=HOME_PADDING)
-            # The concatenated curves fill the axis in the export too; without
-            # this the auto-range padding left a wide blank on both sides.
-            view.setXRange(*self.x_range, padding=0)
-            for secondary_view in widget.secondary_views:
-                secondary_view.setMouseMode(pg.ViewBox.RectMode)
-                secondary_view.setDefaultPadding(HOME_PADDING)
-                secondary_view.autoRange(padding=HOME_PADDING)
-                secondary_view.setXRange(*self.x_range, padding=0)
-            widget.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-            grid.add_panel(container)
-            self.plot_widgets.append(widget)
-            self.panel_hosts.append(container)
+    def _finish_interactive(self, grid, previous_scroll, geometry, panels, finished):
         self.plot_host = grid
         # Swapping the grid resets the scroll bar. Rebuild with painting off and
         # put the offset back before anything is drawn, so the panel list never
@@ -1614,6 +1510,7 @@ class SequencePage(QWidget):
         finally:
             self.interactive_scroll.setUpdatesEnabled(True)
         self.expand_layout()
+        self._single_curve_layout = geometry
         QTimer.singleShot(0, self.remember_home_views)
         choices = [key for panel in panels for key in self.panel_parameters(panel)]
         if self.selection.get("sources"):
@@ -1624,6 +1521,193 @@ class SequencePage(QWidget):
             self.parameter_filter.set_parameters(choices)
         if self.parameter_filter.parameter is not None:
             self.set_parameter_filter(self.parameter_filter.parameter)
+
+        if finished is not None:
+            finished()
+
+    def _render_next_panels(self):
+        state = self._batch_state
+        if state is None or state["generation"] != self._render_generation:
+            return
+        try:
+            for _ in range(2):
+                panel = next(state["panels"], None)
+                if panel is None:
+                    self._batch_state = None
+                    state["finish"]()
+                    return
+                self._append_interactive_panel(panel, state["groups"], state["grid"],
+                    state["spans"], state["height"], state["base"])
+            self._render_timer.start()
+        except Exception as error:
+            self._background_draw_error(str(error))
+
+    def _append_interactive_panel(self, panel, groups, grid, label_spans, panel_height, base):
+        metric, panel_source = panel["metric"], panel["source"]
+        comparisons = panel.get("comparisons", ())
+        chosen = self._chosen_groups(panel, groups)
+        widget = InteractivePlotWidget(background="w", auto_x_range=self.x_range)
+        widget.setMinimumSize(360, 280)
+        widget.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
+        widget.setToolTip("Ctrl+scroll to zoom · Drag a box to zoom · Right-drag to pan · "
+                          "Ordinary scrolling moves the page · "
+                          "Double-click to fit this curve · Reset views restores all curves")
+        plot = widget.getPlotItem()
+        die_ticks = self._coordinate_ticks(chosen)
+        plot.setAxisItems({"bottom": DieSequenceAxis(die_ticks, font=widget.font())})
+        plot.setTitle(None)   # the QLabel above the plot owns the heading
+        plot.showGrid(x=False, y=True, alpha=.18)
+        plot.setLabel("bottom", self._coordinate_label(chosen), color="#30343b",
+                      size=f"{max(7, base - 1)}pt")
+        title = self._legend_label(panel_source, metric)
+        plot.setLabel("left", title, color="#30343b", size=f"{max(7, base - 1)}pt")
+        heading = panel_title_label(f"<b>{escape(title)}</b>", base + 1)
+        container = PlotPanel(
+            heading, widget,
+            side_widget=self.build_overlay_control(
+                metric, comparisons, panel_source
+            ),
+        )
+        container.setFixedHeight(panel_height)
+        chosen = self._chosen_groups(panel, groups)
+        axis = plot.getAxis("bottom")
+        source_mode = bool(self.selection.get("sources"))
+
+        def curve(target, name, color, legend, label, curve_groups):
+            if not curve_groups:
+                return None
+            positions = np.concatenate([group["positions"] for group in curve_groups])
+            values = self._metric_values(name, curve_groups)
+            pen = pg.mkPen(color, width=TREND_LINE_WIDTH)
+            item = ResponsivePlotDataItem(
+                positions, values, connect="finite", pen=pen,
+                symbol="o", symbolSize=TREND_MARKER_SIZE, symbolPen=None,
+                symbolBrush=pg.mkBrush(color), name=label,
+            )
+            target.addItem(item)
+            attach_point_hover(item, [die if group.get("coordinate_label") != "Row Number" else None
+                                     for group in curve_groups for die in group["frame"]["__die"]])
+            item.rendering_changed.connect(widget._render_status_changed)
+            if legend is not None and target is not plot:
+                legend.addItem(item, label)
+            return item
+
+        if comparisons:
+            primary_color = (panel_source["color"]
+                             if source_mode and panel_source is not None
+                             else LINE_COLOR)
+            primary_values = self._metric_values(metric, chosen)
+            plot.setLabel(
+                "left", title,
+                color=primary_color, size=f"{max(7, base - 1)}pt",
+            )
+            left = plot.getAxis("left")
+            left.setPen(pg.mkPen(primary_color))
+            left.setTextPen(pg.mkPen(primary_color))
+            legend = plot.addLegend(offset=(10, 8), colCount=3)
+            mixed_units = set()
+            curve(
+                plot, metric, primary_color, legend,
+                self._legend_label(panel_source, metric), chosen,
+            )
+            for compare_index, comparison in enumerate(comparisons):
+                compare_source, secondary = self._comparison_series(
+                    panel, comparison
+                )
+                secondary_groups = self._series_groups(
+                    compare_source, secondary, groups
+                )
+                secondary_color = self._compare_color(compare_index)
+                secondary_values = self._metric_values(
+                    secondary, secondary_groups
+                )
+                spec = overlay_spec(
+                    metric, secondary, primary_values, secondary_values,
+                    ratio_limit=self.axis_ratio_limit(),
+                    axis_mode=self.axis_mode_value(),
+                )
+                if spec["mixed_units"]:
+                    mixed_units.update((spec["unit"], spec["secondary_unit"]))
+                target = plot
+                if spec["kind"] == "second-axis":
+                    target = widget.add_secondary_axis(
+                        self._legend_label(compare_source, self._axis_label(secondary, spec["secondary_unit"])),
+                        secondary_color,
+                    )
+                secondary_label = self._legend_label(compare_source, secondary)
+                curve(
+                    target, secondary, secondary_color, legend,
+                    secondary_label, secondary_groups,
+                )
+            if mixed_units:
+                title += " · Mixed units (" + " / ".join(sorted(mixed_units)) + ")"
+                heading.setText(f"<b>{escape(title)}</b>")
+                plot.setLabel(
+                    "left", title,
+                    color="#30343b", size=f"{max(7, base - 1)}pt",
+                )
+        elif source_mode:
+            legend = plot.addLegend(offset=(10, 8))
+            color = panel_source["color"] if panel_source else LINE_COLOR
+            curve(
+                plot, metric, color, legend,
+                self._legend_label(panel_source, metric), chosen,
+            )
+        else:
+            curve(plot, metric, LINE_COLOR, None, None, chosen)
+
+        if self.axis_groups:
+            group_edges, wafer_edges = self._boundary_positions()
+            widget.group_boundaries = widget.add_vertical_boundaries(
+                group_edges, pg.mkPen("#000000", width=2, style=Qt.PenStyle.DashLine))
+            widget.wafer_boundaries = widget.add_vertical_boundaries(
+                wafer_edges,
+                pg.mkPen(BOUNDARY_COLOR, width=1, style=Qt.PenStyle.DashLine),
+            )
+        axis.setStyle(tickFont=widget.font(), tickTextOffset=0)
+        axis.setPen(pg.mkPen("#30343b"))
+        axis.setTextPen(pg.mkPen("#30343b"))
+        if self.axis_groups:
+            # A second, linked axis carries the wafer name under each span,
+            # so the curve itself stays one continuous line.
+            wafer_axis = SpanLabelAxis(
+                label_spans, font=widget.font(),
+                optional_fields=not self.selection.get("show_group_labels", self.selection.get("preserve_group_order")),
+            )
+            wafer_axis.setStyle(tickLength=0, tickTextOffset=4, tickFont=widget.font())
+            wafer_axis.setPen(pg.mkPen(QColor(0, 0, 0, 0)))
+            wafer_axis.setTextPen(pg.mkPen("#5f6368"))
+            plot.layout.addItem(wafer_axis, 4, 1)
+            wafer_axis.linkToView(plot.getViewBox())
+            widget._wafer_axis = wafer_axis
+            wafer_axis.refresh()
+        left = plot.getAxis("left")
+        if not comparisons:
+            left.setPen(pg.mkPen("#30343b"))
+            left.setTextPen(pg.mkPen("#30343b"))
+        left.setStyle(tickFont=widget.font())
+        plain_y_axes(widget)
+        all_curves = widget.listDataItems() + [item for view in widget.secondary_views for item in view.addedItems
+                                              if isinstance(item, pg.PlotDataItem)]
+        set_plot_statistics(widget, [(item.name() or title, item.yData) for item in all_curves],
+                            True)
+        view = plot.getViewBox()
+        # Left drag selects a region to zoom into; right drag pans.
+        view.setMouseMode(pg.ViewBox.RectMode)
+        view.setDefaultPadding(HOME_PADDING)
+        view.autoRange(padding=HOME_PADDING)
+        # The concatenated curves fill the axis in the export too; without
+        # this the auto-range padding left a wide blank on both sides.
+        view.setXRange(*self.x_range, padding=0)
+        for secondary_view in widget.secondary_views:
+            secondary_view.setMouseMode(pg.ViewBox.RectMode)
+            secondary_view.setDefaultPadding(HOME_PADDING)
+            secondary_view.autoRange(padding=HOME_PADDING)
+            secondary_view.setXRange(*self.x_range, padding=0)
+        widget.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        grid.add_panel(container)
+        self.plot_widgets.append(widget)
+        self.panel_hosts.append(container)
 
     def restore_page_scroll(self, value):
         """Put the panel list back where the engineer left it."""

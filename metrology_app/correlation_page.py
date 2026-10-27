@@ -5,6 +5,7 @@ Matplotlib stays behind the Export / Copy PNG buttons as the print backend.
 """
 
 from dataclasses import dataclass
+from copy import deepcopy
 from html import escape
 from itertools import combinations
 from math import ceil
@@ -130,7 +131,7 @@ def swap_fit_axes(fit):
     return _fit_numeric_values(fit.y, fit.x, fit.y_name, fit.x_name)
 
 
-def pairwise_linear_fits(frame, metrics, groups=None, cells=None):
+def pairwise_linear_fits(frame, metrics, groups=None, cells=None, *, cancelled=None):
     """Return valid lmfit results ordered from strongest to weakest linear fit.
 
     ``groups`` maps a measurement set to its row indices and ``cells`` holds the
@@ -147,6 +148,8 @@ def pairwise_linear_fits(frame, metrics, groups=None, cells=None):
     model = LinearModel()
     row_cache = {}
     for x_name, y_name in combinations(metrics, 2):
+        if cancelled is not None and cancelled():
+            raise InterruptedError("Correlation update cancelled")
         positions = None
         if groups is not None and cells is not None:
             selected_keys = tuple(key for key in groups
@@ -165,7 +168,7 @@ def pairwise_linear_fits(frame, metrics, groups=None, cells=None):
     return fits, errors
 
 
-def source_pairwise_linear_fits(frame, metrics, sources, groups, cells):
+def source_pairwise_linear_fits(frame, metrics, sources, groups, cells, *, cancelled=None):
     """Fit within-source and row-aligned cross-source parameter pairs.
 
     Within-source panels remain Reference-first/Raw-second. Cross-source
@@ -176,17 +179,20 @@ def source_pairwise_linear_fits(frame, metrics, sources, groups, cells):
     panels, errors = [], []
     for source in sources:
         source_panels = []
+        row_cache = {}
         for x_name, y_name in combinations(metrics, 2):
-            selected_rows = {
-                row
-                for key, rows in groups.items()
-                if (key, x_name) in cells and (key, y_name) in cells
-                for row in rows
-            }
-            positions = np.asarray(
-                [row for row in source["rows"] if row in selected_rows],
-                dtype=int,
-            )
+            if cancelled is not None and cancelled():
+                raise InterruptedError("Correlation update cancelled")
+            selected_keys = tuple(key for key in groups
+                                  if (key, x_name) in cells and (key, y_name) in cells)
+            if selected_keys not in row_cache:
+                selected_rows = {row for key in selected_keys for row in groups[key]}
+                # Most parameter pairs use identical measurement boxes. Walk
+                # this source once per distinct selection, retaining its exact
+                # order and repeated positions, rather than once per fit.
+                row_cache[selected_keys] = np.asarray(
+                    [row for row in source["rows"] if row in selected_rows], dtype=int)
+            positions = row_cache[selected_keys]
             try:
                 fit = _fit_numeric_values(
                     numeric[x_name][positions], numeric[y_name][positions],
@@ -220,6 +226,8 @@ def source_pairwise_linear_fits(frame, metrics, sources, groups, cells):
             if not x_rows:
                 continue
             for y_name in metrics:
+                if cancelled is not None and cancelled():
+                    raise InterruptedError("Correlation update cancelled")
                 y_rows = selected[(right["name"], y_name)]
                 if not y_rows:
                     continue
@@ -423,7 +431,7 @@ class CorrelationPage(QWidget):
             "cells": tuple(sorted(cells)),
         }
 
-    def restore_draw_state(self, state):
+    def restore_draw_state(self, state, *, background=False):
         """Restore surviving fit boxes and redraw without another click."""
         if not isinstance(state, dict) or state.get("enabled") is not True:
             return
@@ -440,7 +448,10 @@ class CorrelationPage(QWidget):
         self.has_drawn_once = True
         self.drawn_cells = set(cells)
         self.selector.set_selected_cells(cells, notify=False)
-        self.redraw_keeping_page()
+        if background:
+            self.request_background_draw()
+        else:
+            self.redraw_keeping_page()
 
     def redraw_keeping_page(self, saved=None):
         """Redraw a refresh in place: same ranked page, same visible sub-page."""
@@ -458,18 +469,22 @@ class CorrelationPage(QWidget):
     def set_input(self, frame, selection):
         self.frame = frame
         self.selection = selection.copy()
-        self.selector.set_array(
-            selection.get("wafers", []), selection.get("metrics", []),
-            selection.get("labels"), selection.get("available_cells"),
-        )
-        self.invalidate()
+        self._updating_input = True
+        try:
+            self.selector.set_array(
+                selection.get("wafers", []), selection.get("metrics", []),
+                selection.get("labels"), selection.get("available_cells"),
+            )
+        finally:
+            self._updating_input = False
+        self.invalidate(preserve_panels=True)
         if (self.has_drawn_once and not self.selector.pending_draw
                 and self.selector.selected_cells()):
             self.input_refresh_timer.start()
 
     def selector_changed(self):
         """Changed fit boxes wait for the explicit Draw selected click."""
-        self.invalidate()
+        self.invalidate(preserve_panels=getattr(self, "_updating_input", False))
 
     def show_selector(self):
         """Return to the box grid so another set of fits can be chosen."""
@@ -491,7 +506,8 @@ class CorrelationPage(QWidget):
         else:
             self.stack.setCurrentWidget(self.interactive_scroll)
 
-    def invalidate(self):
+    def invalidate(self, *, preserve_panels=False):
+        self._cancel_background_draw()
         self.input_refresh_timer.stop()
         self.update_timer.stop()
         self.parameter_filter.set_parameters(
@@ -513,7 +529,8 @@ class CorrelationPage(QWidget):
         self._copy_dpi = None
         self.update_pagination()
         self.figure.clear()
-        self.clear_interactive()
+        self.clear_interactive(preserve_panels=preserve_panels and not self.frame.empty
+                               and bool(self.selector.rowCount() and self.selector.columnCount()))
         wafers = self.selection.get("wafers", [])
         metrics = self.selection.get("metrics", [])
         rows, columns = len(wafers), len(metrics)
@@ -544,7 +561,76 @@ class CorrelationPage(QWidget):
         ids = self.frame[column].astype(str).str.strip()
         return {key: list(np.flatnonzero(ids == key)) for key in wafers}
 
+    @property
+    def background_render_pending(self):
+        task = getattr(self, "_draw_task", None)
+        return bool(getattr(self, "_background_requested", False) or (task is not None and task.busy))
+
+    def _cancel_background_draw(self):
+        task = getattr(self, "_draw_task", None)
+        if task is not None:
+            task.cancel()
+        self._background_requested = False
+
+    def request_background_draw(self):
+        from .background_task import LatestTask
+        from .correlation_data import prepare_correlations
+        metrics = self.selection.get("metrics", ())
+        cells = self.selector.selected_cells()
+        wafers, metrics = drawn_axes(self.selection.get("wafers", ()), metrics, cells)
+        groups = {key: rows for key, rows in self.row_groups().items() if key in set(wafers)}
+        if not cells or not metrics or not any(groups.values()):
+            self.draw_plot()
+            return
+        if not hasattr(self, "_draw_task"):
+            self._draw_task = LatestTask(prepare_correlations, self._accept_background_draw,
+                                         self._background_draw_error, self)
+        self.input_refresh_timer.stop()
+        self.update_timer.stop()
+        self._background_requested = True
+        self.ready = False
+        self.cells = set(cells)
+        for button in (self.export_button, self.export_all_button, self.copy_button):
+            button.setEnabled(False)
+        self.status.setText("Updating Correlation…")
+        self._draw_task.submit({"frame": self.frame.copy(deep=True), "metrics": tuple(metrics),
+            "cells": frozenset(cells), "groups": deepcopy(groups),
+            "sources": deepcopy(self.selection.get("sources"))})
+
+    def _accept_background_draw(self, prepared):
+        if prepared is None:
+            return
+        self._background_requested = False
+        self.all_fits, errors, metrics, cells = prepared
+        self._reversed_fits.clear()
+        self.skipped_count = len(errors)
+        if not self.all_fits:
+            self._background_draw_error("No selected pair has enough varying numeric data for a linear fit.")
+            return
+        self.drawn_metrics, self.drawn_cells = list(metrics), set(cells)
+        self.has_drawn_once = True
+        self.selector.pending_draw = False
+        self.apply_rsq_filter()
+        if self.ready:
+            self.set_page(self.user_page)
+            self.apply_page_intent()
+
+    def _background_draw_error(self, message):
+        self.invalidate()
+        self.status.setText(f"Correlation update failed: {message}")
+
+    def finish_background_draw(self):
+        if getattr(self, "_background_requested", False):
+            self.redraw_keeping_page()
+
+    def stop_background_draw(self):
+        self._cancel_background_draw()
+        task = getattr(self, "_draw_task", None)
+        if task is not None:
+            task.close()
+
     def draw_plot(self):
+        self._cancel_background_draw()
         self.input_refresh_timer.stop()
         self.update_timer.stop()
         self._pending_updates.clear()
@@ -693,7 +779,7 @@ class CorrelationPage(QWidget):
             self._axis_directions.pop(key, None)
         updated = self.oriented_fit(fit)
         base = int(self.font_size.currentText())
-        cache_key = (id(fit), base)
+        cache_key = self._panel_key(fit, base)
         if cache_key in self._visible_panel_keys:
             index = self._visible_panel_keys.index(cache_key)
             rank = self.page_index * int(self.page_size.currentText()) + index + 1
@@ -703,7 +789,11 @@ class CorrelationPage(QWidget):
         self._copy_image = self._copy_dpi = None
         self.axes_changed.emit()
 
-    def update_panel_direction(self, cached, fit, rank, base):
+    @classmethod
+    def _panel_key(cls, fit, base):
+        return (cls.axis_key(fit), tuple(getattr(fit, "parameter_keys", ())), base)
+
+    def update_panel_direction(self, cached, fit, rank, base, *, swap_view=True):
         widget = cached["widget"]
         plot, view = widget.getPlotItem(), widget.getViewBox()
         previous = view.viewRange()
@@ -711,15 +801,20 @@ class CorrelationPage(QWidget):
         plot.setLabel("bottom", fit.x_name, color="#30343b", size=f"{max(7, base - 1)}pt")
         plot.setLabel("left", fit.y_name, color="#30343b", size=f"{max(7, base - 1)}pt")
         values = [source.fit for source in fit.sources] if isinstance(fit, SourcePairFit) else [fit]
-        for (points, line), source in zip(cached["items"], values):
-            points.setData(source.x, source.y)
+        previous_values = ([source.fit for source in cached["fit"].sources]
+                           if isinstance(cached["fit"], SourcePairFit) else [cached["fit"]])
+        for (points, line), source, previous_source in zip(cached["items"], values, previous_values):
+            if not (np.array_equal(previous_source.x, source.x) and np.array_equal(previous_source.y, source.y)):
+                points.setData(source.x, source.y)
             order = np.argsort(source.x)
-            line.setData(source.x[order], source.predicted[order])
+            x, y = source.x[order], source.predicted[order]
+            if not (np.array_equal(line.xData, x) and np.array_equal(line.yData, y)):
+                line.setData(x, y)
         cached["heading"].setText(self.panel_heading(fit, rank, base))
         cached["fit"] = fit
         view.autoRange(padding=HOME_PADDING)
         cached["home"] = view.viewRange()
-        if not at_home:
+        if not at_home and swap_view:
             view.setRange(xRange=previous[1], yRange=previous[0], padding=0)
 
     def set_parameter_filter(self, _parameter):
@@ -975,12 +1070,14 @@ class CorrelationPage(QWidget):
         grid = PanelGrid(columns)
         grid.set_fixed_row_height(rows, panel_height)
         for rank, original in enumerate(visible_fits, start=start_rank):
-            key = (id(original), base)
+            key = self._panel_key(original, base)
             fit = self.oriented_fit(original)
             cached = self._panel_cache.get(key)
             if cached is not None:
                 if cached["fit"] is not fit:
-                    self.update_panel_direction(cached, fit, rank, base)
+                    changed_direction = (cached["fit"].x_name, cached["fit"].y_name) != (fit.x_name, fit.y_name)
+                    self.update_panel_direction(cached, fit, rank, base, swap_view=changed_direction)
+                cached["original"] = original
                 cached["heading"].setText(self.panel_heading(fit, rank, base))
                 grid.add_panel(cached["panel"])
                 cached["panel"].show()
@@ -1018,7 +1115,8 @@ class CorrelationPage(QWidget):
             policy = swap_button.sizePolicy()
             policy.setRetainSizeWhenHidden(True)
             swap_button.setSizePolicy(policy)
-            swap_button.clicked.connect(lambda _checked=False, target=original: self.swap_axes(target))
+            swap_button.clicked.connect(lambda _checked=False, target=key:
+                self.swap_axes(self._panel_cache[target]["original"]) if target in self._panel_cache else None)
             title_layout.addWidget(swap_button)
             # A QLabel keeps every title line in its own space; pyqtgraph's own
             # title reserves one line and printed the second over the plot.
@@ -1068,7 +1166,7 @@ class CorrelationPage(QWidget):
             self.panel_hosts.append(container)
             self._visible_panel_keys.append(key)
             self._panel_cache[key] = {"widget": widget, "panel": container, "heading": heading,
-                                      "fit": fit, "items": items, "home": None, "swap_button": swap_button}
+                                      "fit": fit, "original": original, "items": items, "home": None, "swap_button": swap_button}
         # Bound retained widgets to two pages. Unseen fits are created lazily;
         # parameter/ALL toggles reuse existing curves without rerunning lmfit.
         limit = max(24, 2 * int(self.page_size.currentText()))

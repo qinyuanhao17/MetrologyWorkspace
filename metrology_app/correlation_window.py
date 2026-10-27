@@ -163,52 +163,26 @@ class CorrelationWindow(DataWorkspaceWindow):
 
     def set_workbook_groups(self, book):
         """Classification belongs to exact source records, not just wafer names."""
-        from .match_groups import applied_state, participation_rows, wafer_identity_keys
-        effective = applied_state(book.grouping_state)
+        from .correlation_groups import prepare_group_context
+        raw = self.raw_model.frame()
         applies = getattr(self, "_workbook_selection_applies", True)
-        if (not (effective["enabled"] or effective["mark_enabled"])
-                and effective["trend_order"] == "groups"
-                and (effective["data_selection"] is None or not applies)):
-            self._match_groups = None
-            self._group_plan = None
-            self._group_result_cache = None
+        prepared = getattr(self, "_prepared_group_result", None)
+        if (prepared is not None and prepared["book_state"] is book.grouping_state
+                and prepared["applies"] == applies and prepared["raw"].equals(raw)
+                and prepared["reference"].equals(self.reference_model.frame())):
+            self._match_groups, self._group_plan = prepared["context"], prepared["plan"]
+            self._trend_parts_cache = prepared.get("trend_parts")
+            self._group_result_cache = ((self.reference_model.revision, self.raw_model.revision),
+                                        prepared["comparison"], self._group_plan)
+            if prepared["error"]:
+                self.statusBar().showMessage(f"Group analysis unavailable: {prepared['error']}")
             self.update_plan()
             return
-        state = deepcopy(book.grouping_state)
-        raw = self.raw_model.frame()
-        identities = list(row_ids(raw))
-        flags = (book.test_flags.iloc[:, 0].astype(object).reset_index(drop=True).reindex(range(len(book.raw)))
-                 if book.test_flags is not None and len(book.test_flags.columns) else pd.Series([""] * len(book.raw)))
-        flags = flags.where(flags.notna(), "")
-        if applies and len(raw) != len(book.raw):
-            rows = list(participation_rows(book.raw, effective["data_selection"]))
-            source = book.raw.iloc[rows].reset_index(drop=True).fillna("").astype(str)
-            if raw.equals(source):
-                flags = flags.iloc[rows]
-        full_selection = None
-        if not applies and (effective["data_selection"] is not None or effective["filters"]):
-            known_ids = {record["key"]: record["id"] for record in
-                         (effective["data_selection"] or {}).get("records", ())}
-            full_selection = {"records": [{"id": known_ids.get(key, key), "key": key}
-                                          for key in identities], "excluded": []}
-        for config in (state, state.get("applied", {})):
-            if config.get("trend_order") == "wafers":
-                # Selected child tables omit rows, not the parent's original
-                # first-appearance order. Retain only identity metadata here.
-                config["wafer_source_order"] = list(dict.fromkeys(wafer_identity_keys(book.raw) or ()))
-            if "flags" in config:
-                config["flags"] = flags.tolist()
-            if not applies:
-                # Full data ignores the parent's participation restriction, not
-                # its classification. Explicit all-record participation also
-                # keeps legacy display filters from excluding plotted rows.
-                config["data_selection"] = deepcopy(full_selection)
-        self._match_groups = {"grouping": state,
-                              "flags": flags.tolist(),
-                              "identities": identities,
-                              "provenance": list(participation_source_keys(raw)),
-                              "mappings": [{"name": m.name, "reference_column": m.reference_column, "raw_column": m.raw_column} for m in book.mappings],
-                              "result_mode": book.result_mode, "match_type": book.match_type}
+        self._match_groups = prepare_group_context(book, raw, applies)
+        if self._match_groups is None:
+            self._group_plan = self._group_result_cache = None
+            self.update_plan()
+            return
         self._refresh_group_results()
         self.update_plan()
 
@@ -398,28 +372,8 @@ class CorrelationWindow(DataWorkspaceWindow):
         groups = selection["groups"]
         if cached is not None and cached[:2] == (plan, split) and cached[2] == groups:
             return cached[3]
-        spans = plan.trend_spans()
-        labels = {key: plan.label(key, multiline=True) for key in {span["group"] for span in spans}}
-        sources = {}
-        for name, offset in (("Reference", 0), ("Raw Data", split)):
-            keys = [key for key in groups if key[0] == name]
-            order = {key: index for index, key in enumerate(keys)}
-            owners = {}
-            for key in keys:
-                for row in set(groups[key]):
-                    owners.setdefault(row, []).append(key)
-            parts = []
-            for n, span in enumerate(spans):
-                matches = {}
-                for row in span["rows"]:
-                    position = offset + row
-                    for key in owners.get(position, ()):
-                        matches.setdefault(key, []).append(position)
-                parts.append((n, span, [(key, tuple(matches[key]))
-                                       for key in sorted(matches, key=order.__getitem__)]))
-            occurrences = Counter(key for _, _, matches in parts for key, _ in matches)
-            sources[name] = (parts, occurrences)
-        result = sources, labels
+        from .correlation_groups import prepare_trend_parts
+        result = prepare_trend_parts(plan, split, groups)
         self._trend_parts_cache = (plan, split, groups.copy(), result)
         return result
 
@@ -895,7 +849,8 @@ class CorrelationWindow(DataWorkspaceWindow):
         # them again after the new window becomes usable; later edits restart
         # this same timer normally.
         self.refresh_timer.stop()
-        self.tabs.setCurrentIndex(0)
+        if not getattr(self, "_defer_plot_refresh", False):
+            self.tabs.setCurrentIndex(0)
         self.setWindowTitle(f"{mode} Correlation and Trend")
         self.document.identity_timer.stop()
         self.document.refresh_identity()

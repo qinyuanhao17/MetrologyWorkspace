@@ -824,7 +824,11 @@ class MainWindow(QMainWindow):
                 for page in pending:
                     page.input_refresh_timer.stop()
                 for page, state in pending.items():
-                    page.restore_draw_state(state)
+                    if (getattr(self, "_defer_plot_refresh", False)
+                            and hasattr(page, "request_background_draw")):
+                        page.restore_draw_state(state, background=True)
+                    else:
+                        page.restore_draw_state(state)
 
     def _restore_page_draw(self, page, state):
         if self._input_update_depth:
@@ -878,39 +882,19 @@ class MainWindow(QMainWindow):
             # The table keeps the loaded values; the Card option only changes
             # what the plots and their statistics are computed from.
             frame = self.carded_frame(frame)
-            detected_wafer, counts, metrics = inspect_table(
-                frame, include_fit_quality=self.include_fit_quality
-            )
-            normalize = lambda name: "".join(ch.lower() for ch in str(name) if ch.isalnum())
-            excluded = {"fieldx", "fieldy", "x", "y", "xmm", "ymm", "diex", "diey",
-                        "dieseq", "diesequence", "diesequenceno"}
-            hints = ("wafer", "lot", "pad", "sample", "id", "name", "tool", "recipe", "group", "run", "batch")
-            candidates = [c for c in frame if (c not in metrics or any(h in normalize(c) for h in hints))
-                          and normalize(c) not in excluded and "path" not in c.lower()]
-            if reset:
-                defaults = {"waferid", "wafer", "waferno", "lotid", "lot", "lotno", "padname", "pad"}
-                lot_column = next((c for c in candidates if normalize(c) in {"lotid", "lot", "lotno"}), None)
-                pad_column = next((c for c in candidates if normalize(c) in {"padname", "pad"}), None)
-                identity = default_identity_columns(frame, detected_wafer, lot_column, pad_column)
-                if identity:
-                    # One wafer ID is enough when PAD/Lot stay constant; PAD joins
-                    # the identity only when it really splits the same wafer.
-                    chosen_groups = [c for c in candidates if c in identity]
-                else:
-                    chosen_groups = [c for c in candidates if normalize(c) in defaults]
-                if detected_wafer and detected_wafer not in chosen_groups:
-                    chosen_groups.insert(0, detected_wafer)
+            from .input_planning import prepare_measurement_choices
+            prepared = getattr(self, "_prepared_recognition", None)
+            if (reset and prepared is not None
+                    and not (getattr(self, "card_check", None) and self.card_check.isChecked())
+                    and prepared["include_fit_quality"] == self.include_fit_quality
+                    and prepared["frame"].equals(frame)):
+                choices = prepared["choices"]
             else:
-                chosen_groups = [c for c in candidates if c in previous_groups]
+                choices = prepare_measurement_choices(frame, reset, previous_groups,
+                                                       include_fit_quality=self.include_fit_quality)
+            counts, metrics, candidates, chosen_groups, primary, self.measurements = choices
             if reset or list(self.group_checks) != candidates:
                 self.set_group_columns([(c, c in chosen_groups) for c in candidates])
-            primary = next((c for c in chosen_groups if normalize(c) in {"waferid", "wafer", "waferno"}),
-                           chosen_groups[0] if chosen_groups else None)
-            if not primary:
-                counts = {}
-            elif primary != detected_wafer:
-                _, counts, _ = inspect_table(frame, primary)
-            self.measurements = detect_measurements(frame, primary, chosen_groups, use_die_seq=False)
             self._frame = frame
             self.warning_banner.hide()
             self.message.hide()
@@ -1224,7 +1208,8 @@ class MainWindow(QMainWindow):
                 self.sheet.setCurrentIndex(self.model.index(0, 0))
             if report_paste and len(frame.columns):
                 self.sheet.mark_pasted_range((0, 0, len(frame), len(frame.columns) - 1))
-            self.tabs.setCurrentIndex(0)
+            if not getattr(self, "_defer_plot_refresh", False):
+                self.tabs.setCurrentIndex(0)
             self.recognize()
             if keep_local_selection and previous_keys and previous_excluded:
                 # Keep this window's own selection when the Workbook refreshes its
@@ -1320,6 +1305,10 @@ class MainWindow(QMainWindow):
             self.refresh_timer.stop()
             self.plot_page.stop()
             self.radius_page.stop()
+            for name in ("correlation_page", "sequence_page"):
+                page = getattr(self, name, None)
+                if page is not None:
+                    page.stop_background_draw()
             callback = getattr(self, "_managed_after_close_handler", None)
             if callable(callback):
                 callback()
