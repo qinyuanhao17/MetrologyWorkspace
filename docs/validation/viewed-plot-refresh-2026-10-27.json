@@ -1,0 +1,5646 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-27",
+  "repository": "D:/WaferMap",
+  "tag": {
+    "name": "v4.3.3",
+    "object": "51b6149b973b990f4c18e0dc69b6eab7bd5af9e4",
+    "commit": "199164aba7811e6283bd28ecbc174517fc6e7407",
+    "release_created": false,
+    "remote_heads_unchanged": true,
+    "main": "aa5281dd38bbe58688a51b27e86c70635aef7a77"
+  },
+  "code_base_head": "199164aba7811e6283bd28ecbc174517fc6e7407",
+  "current_feature_local_only": true,
+  "environment": {
+    "python": "3.10.20",
+    "qt": "6.11.0",
+    "platform": "Windows",
+    "native_Qt_backend": "windows",
+    "heavy_processes_serial": true,
+    "fresh_process_pairs": true,
+    "input": "QTest and posted Qt events; not physical OS keyboard / DWM FPS"
+  },
+  "measurement_boundary": "Key dispatch + current parent analysis + all child data + watched current plot ready + actual canvas visible + Qt paints/raster futures; hidden plots intentionally pending and explicit catch-up separate",
+  "statistics_note": "n=3 per condition. P95 nearest rank is max sample, not a confidence bound. 100k and all-eight synthetic are single pairs, not P50/P95.",
+  "equivalence": [
+    {
+      "before": "visible-final-100k-trend-before.json",
+      "after": "visible-final-100k-trend-after.json",
+      "fixture_and_all_five_plot_digests_equal": true
+    },
+    {
+      "before": "visible-final-10k-map-before-1.json",
+      "after": "visible-final-10k-map-after-1.json",
+      "fixture_and_all_five_plot_digests_equal": true
+    },
+    {
+      "before": "visible-final-10k-map-before-2.json",
+      "after": "visible-final-10k-map-after-2.json",
+      "fixture_and_all_five_plot_digests_equal": true
+    },
+    {
+      "before": "visible-final-10k-map-before-3.json",
+      "after": "visible-final-10k-map-after-3.json",
+      "fixture_and_all_five_plot_digests_equal": true
+    },
+    {
+      "before": "visible-final-10k-trend-before-1.json",
+      "after": "visible-final-10k-trend-after-1.json",
+      "fixture_and_all_five_plot_digests_equal": true
+    },
+    {
+      "before": "visible-final-10k-trend-before-2.json",
+      "after": "visible-final-10k-trend-after-2.json",
+      "fixture_and_all_five_plot_digests_equal": true
+    },
+    {
+      "before": "visible-final-10k-trend-before-3.json",
+      "after": "visible-final-10k-trend-after-3.json",
+      "fixture_and_all_five_plot_digests_equal": true
+    },
+    {
+      "before": "visible-all8-10k-map-before.json",
+      "after": "visible-all8-10k-map-after.json",
+      "fixture_and_all_five_plot_digests_equal": true
+    },
+    {
+      "before": "visible-all8-10k-trend-before.json",
+      "after": "visible-all8-10k-trend-after.json",
+      "fixture_and_all_five_plot_digests_equal": true
+    }
+  ],
+  "ten_k_three_round_summary": {
+    "trend": {
+      "select_all": {
+        "before": {
+          "n": 3,
+          "complete_ms": [
+            56.695800012676045,
+            62.4969000054989,
+            53.06999999447726
+          ],
+          "p50_ms": 56.695800012676045,
+          "p95_nearest_rank_ms": 62.4969000054989,
+          "dispatch_ms": [
+            0.7578000077046454,
+            0.7815000135451555,
+            0.8489000028930604
+          ],
+          "max_qt_gap_ms": [
+            39.58250000141561,
+            41.83999999077059,
+            37.37489998457022
+          ],
+          "input_delivery": [
+            null,
+            null,
+            null
+          ]
+        },
+        "after": {
+          "n": 3,
+          "complete_ms": [
+            55.304800014710054,
+            56.735699996352196,
+            57.11399999563582
+          ],
+          "p50_ms": 56.735699996352196,
+          "p95_nearest_rank_ms": 57.11399999563582,
+          "dispatch_ms": [
+            0.5777000042144209,
+            0.6849000055808574,
+            0.6350000039674342
+          ],
+          "max_qt_gap_ms": [
+            37.45529998559505,
+            39.54060000251047,
+            41.52759999851696
+          ],
+          "input_delivery": [
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      "click_after_select_all": {
+        "before": {
+          "n": 3,
+          "complete_ms": [
+            45.58580002048984,
+            45.751199999358505,
+            44.5606000139378
+          ],
+          "p50_ms": 45.58580002048984,
+          "p95_nearest_rank_ms": 45.751199999358505,
+          "dispatch_ms": [
+            0.9475999977439642,
+            0.7866999949328601,
+            0.6780000112485141
+          ],
+          "max_qt_gap_ms": [
+            31.39940000255592,
+            34.243599977344275,
+            33.84399999049492
+          ],
+          "input_delivery": [
+            null,
+            null,
+            null
+          ]
+        },
+        "after": {
+          "n": 3,
+          "complete_ms": [
+            41.56780001358129,
+            168.72269997838885,
+            43.67500002263114
+          ],
+          "p50_ms": 43.67500002263114,
+          "p95_nearest_rank_ms": 168.72269997838885,
+          "dispatch_ms": [
+            0.5914999928791076,
+            1.1708999809343368,
+            0.9050000226125121
+          ],
+          "max_qt_gap_ms": [
+            31.286600016755983,
+            156.95810000761412,
+            32.49320000759326
+          ],
+          "input_delivery": [
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      "whole_table_paste": {
+        "before": {
+          "n": 3,
+          "complete_ms": [
+            5136.044400016544,
+            5114.965799992206,
+            5113.399199995911
+          ],
+          "p50_ms": 5114.965799992206,
+          "p95_nearest_rank_ms": 5136.044400016544,
+          "dispatch_ms": [
+            404.42770000663586,
+            395.2227999980096,
+            395.48870001453906
+          ],
+          "max_qt_gap_ms": [
+            1278.5252999747172,
+            1325.9795999911148,
+            1260.4747999866959
+          ],
+          "input_delivery": [
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 198.52890001493506
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 198.6670000187587
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 1110.1383999921381
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 1110.460099996999
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151426746.4535,
+                  "posting_late_ms": 6.113699986599386
+                },
+                {
+                  "scheduled_ms": 151427196.45349997,
+                  "posting_late_ms": 2.4363000120501965
+                }
+              ]
+            },
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 188.65720002213493
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 188.79700000979938
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 1080.6651999882888
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 1080.9940999897663
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151522300.20240003,
+                  "posting_late_ms": 6.757799972547218
+                },
+                {
+                  "scheduled_ms": 151522750.2024,
+                  "posting_late_ms": 19.777400011662394
+                }
+              ]
+            },
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 189.90209998446517
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 190.0333999947179
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 1074.215100001311
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 1074.5348999917042
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151555865.9582,
+                  "posting_late_ms": 5.790499999420717
+                },
+                {
+                  "scheduled_ms": 151556315.9582,
+                  "posting_late_ms": 11.84550000471063
+                }
+              ]
+            }
+          ]
+        },
+        "after": {
+          "n": 3,
+          "complete_ms": [
+            3335.592799994629,
+            3338.2930000079796,
+            3334.984999994049
+          ],
+          "p50_ms": 3335.592799994629,
+          "p95_nearest_rank_ms": 3338.2930000079796,
+          "dispatch_ms": [
+            397.97309998539276,
+            402.11230001295917,
+            425.5414000072051
+          ],
+          "max_qt_gap_ms": [
+            1275.3444999980275,
+            1287.3371999885421,
+            1292.0949000108521
+          ],
+          "input_delivery": [
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 193.41259999782778
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 193.5423999966588
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 1082.1716999926139
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 1082.4965999927372
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151460780.98950002,
+                  "posting_late_ms": 4.777899972395971
+                },
+                {
+                  "scheduled_ms": 151461230.98950002,
+                  "posting_late_ms": 22.119300003396347
+                }
+              ]
+            },
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 196.30209999741055
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 196.44080000580288
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 1095.094699994661
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 1095.4248000052758
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151491794.4864,
+                  "posting_late_ms": 6.014799990225583
+                },
+                {
+                  "scheduled_ms": 151492244.48639998,
+                  "posting_late_ms": 26.692000014008954
+                }
+              ]
+            },
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 219.59870000137016
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 219.7724000143353
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 1079.507599992212
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 1080.3467000077944
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151589496.62600002,
+                  "posting_late_ms": 6.179399992106482
+                },
+                {
+                  "scheduled_ms": 151589946.626,
+                  "posting_late_ms": 6.786200014175847
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "undo": {
+        "before": {
+          "n": 3,
+          "complete_ms": [
+            4814.8677999852225,
+            4734.794999996666,
+            4736.379599984502
+          ],
+          "p50_ms": 4736.379599984502,
+          "p95_nearest_rank_ms": 4814.8677999852225,
+          "dispatch_ms": [
+            110.48479998135008,
+            111.13599999225698,
+            110.78779998933896
+          ],
+          "max_qt_gap_ms": [
+            1228.5349000012502,
+            1211.640699999407,
+            1230.1567000104114
+          ],
+          "input_delivery": [
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 33.52530000847764
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 33.85869998601265
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 791.1731000058353
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 791.5002000227105
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151432163.66030002,
+                  "posting_late_ms": 1.1747999815270305
+                },
+                {
+                  "scheduled_ms": 151432613.66030002,
+                  "posting_late_ms": 14.158799982396886
+                }
+              ]
+            },
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 33.596199995372444
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 33.959000022150576
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 773.9161000063177
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 774.2492000106722
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151527694.0112,
+                  "posting_late_ms": 1.1776999745052308
+                },
+                {
+                  "scheduled_ms": 151528144.0112,
+                  "posting_late_ms": 4.058599995914847
+                }
+              ]
+            },
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 33.41319999890402
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 33.74169999733567
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 710.4089999920689
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 710.7686999952421
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151561258.4602,
+                  "posting_late_ms": 0.6726999999955297
+                },
+                {
+                  "scheduled_ms": 151561708.46019998,
+                  "posting_late_ms": 71.83820000500418
+                }
+              ]
+            }
+          ]
+        },
+        "after": {
+          "n": 3,
+          "complete_ms": [
+            2917.0677000074647,
+            3119.380399992224,
+            2987.456300004851
+          ],
+          "p50_ms": 2987.456300004851,
+          "p95_nearest_rank_ms": 3119.380399992224,
+          "dispatch_ms": [
+            111.89689999446273,
+            112.00449999887496,
+            110.66370000480674
+          ],
+          "max_qt_gap_ms": [
+            736.8634000013117,
+            1187.3188000172377,
+            1129.1057000053115
+          ],
+          "input_delivery": [
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 19.249599979957566
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 19.57629999378696
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 800.9406999917701
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 801.5898000157904
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151464399.66210002,
+                  "posting_late_ms": 9.138299996266142
+                },
+                {
+                  "scheduled_ms": 151464849.6621,
+                  "posting_late_ms": 2.3967000015545636
+                }
+              ]
+            },
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 32.38779999082908
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 32.75240000220947
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 847.1964999916963
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 847.5323999882676
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151495413.3102,
+                  "posting_late_ms": 1.3196000072639436
+                },
+                {
+                  "scheduled_ms": 151495863.31019998,
+                  "posting_late_ms": 5.185400019399822
+                }
+              ]
+            },
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 19.64729998144321
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 19.964899984188378
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 768.2338999875356
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 768.560399999842
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151593117.1038,
+                  "posting_late_ms": 9.927000006427988
+                },
+                {
+                  "scheduled_ms": 151593567.1038,
+                  "posting_late_ms": 1.6491000133100897
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "redo": {
+        "before": {
+          "n": 3,
+          "complete_ms": [
+            4864.0517000167165,
+            4948.914799984777,
+            4794.7918999998365
+          ],
+          "p50_ms": 4864.0517000167165,
+          "p95_nearest_rank_ms": 4948.914799984777,
+          "dispatch_ms": [
+            120.92079999274574,
+            114.4606999878306,
+            112.98040000838228
+          ],
+          "max_qt_gap_ms": [
+            824.1696000040974,
+            1213.3419000019785,
+            1281.3281000126153
+          ],
+          "input_delivery": [
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 44.826800003647804
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 45.34000001149252
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 797.5286000000779
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 797.8501000034157
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151437362.1968,
+                  "posting_late_ms": 8.747799991397187
+                },
+                {
+                  "scheduled_ms": 151437812.1968,
+                  "posting_late_ms": 6.329600000753999
+                }
+              ]
+            },
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 35.97969998372719
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 36.46719999960624
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 965.5415999877732
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 966.1170000035781
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151532788.0604,
+                  "posting_late_ms": 0.318199978210032
+                },
+                {
+                  "scheduled_ms": 151533238.0604,
+                  "posting_late_ms": 1.2349000026006252
+                }
+              ]
+            },
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 31.505800026934594
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 31.837400019867346
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 792.9652000020724
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 793.3277999982238
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151566349.2405,
+                  "posting_late_ms": 1.9342999730724841
+                },
+                {
+                  "scheduled_ms": 151566799.2405,
+                  "posting_late_ms": 2.300199994351715
+                }
+              ]
+            }
+          ]
+        },
+        "after": {
+          "n": 3,
+          "complete_ms": [
+            3087.099800002761,
+            2964.5216000208165,
+            2917.366100009531
+          ],
+          "p50_ms": 2964.5216000208165,
+          "p95_nearest_rank_ms": 3087.099800002761,
+          "dispatch_ms": [
+            112.02260002028197,
+            114.49040001025423,
+            113.21500001940876
+          ],
+          "max_qt_gap_ms": [
+            932.8488000028301,
+            985.424000013154,
+            947.8350999997929
+          ],
+          "input_delivery": [
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 27.304200018988922
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 27.948200004175305
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 915.392900002189
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 915.716399991652
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151467670.5716,
+                  "posting_late_ms": 6.446799990953878
+                },
+                {
+                  "scheduled_ms": 151468120.5716,
+                  "posting_late_ms": 5.95310001517646
+                }
+              ]
+            },
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 37.996399973053485
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 38.34939998341724
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 721.4058999961708
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 721.774200006621
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151498888.0949,
+                  "posting_late_ms": 0.8730000117793679
+                },
+                {
+                  "scheduled_ms": 151499338.09489998,
+                  "posting_late_ms": 107.88990001310594
+                }
+              ]
+            },
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 23.866400006227195
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 24.19140000711195
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 789.1034999920521
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 789.4246999931056
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151596463.6891,
+                  "posting_late_ms": 8.23179999133572
+                },
+                {
+                  "scheduled_ms": 151596913.68909997,
+                  "posting_late_ms": 0.6035000260453671
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "map": {
+      "select_all": {
+        "before": {
+          "n": 3,
+          "complete_ms": [
+            59.86119998851791,
+            56.78959999931976,
+            63.4585999941919
+          ],
+          "p50_ms": 59.86119998851791,
+          "p95_nearest_rank_ms": 63.4585999941919,
+          "dispatch_ms": [
+            0.6173999863676727,
+            0.6799999973736703,
+            0.592500000493601
+          ],
+          "max_qt_gap_ms": [
+            40.78310000477359,
+            39.44639998371713,
+            45.48419997445308
+          ],
+          "input_delivery": [
+            null,
+            null,
+            null
+          ]
+        },
+        "after": {
+          "n": 3,
+          "complete_ms": [
+            55.33329999889247,
+            57.83419997896999,
+            54.94659999385476
+          ],
+          "p50_ms": 55.33329999889247,
+          "p95_nearest_rank_ms": 57.83419997896999,
+          "dispatch_ms": [
+            0.6440999859478325,
+            0.6114999996498227,
+            0.6978999881539494
+          ],
+          "max_qt_gap_ms": [
+            38.37059999932535,
+            40.36630000337027,
+            38.9603000076022
+          ],
+          "input_delivery": [
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      "click_after_select_all": {
+        "before": {
+          "n": 3,
+          "complete_ms": [
+            44.788300001528114,
+            41.143400012515485,
+            42.7579999959562
+          ],
+          "p50_ms": 42.7579999959562,
+          "p95_nearest_rank_ms": 44.788300001528114,
+          "dispatch_ms": [
+            0.8434000192210078,
+            0.5547000037040561,
+            0.5130000063218176
+          ],
+          "max_qt_gap_ms": [
+            32.22960000857711,
+            31.389699986902997,
+            31.216400006087497
+          ],
+          "input_delivery": [
+            null,
+            null,
+            null
+          ]
+        },
+        "after": {
+          "n": 3,
+          "complete_ms": [
+            45.27929998585023,
+            45.09450000477955,
+            44.77259999839589
+          ],
+          "p50_ms": 45.09450000477955,
+          "p95_nearest_rank_ms": 45.27929998585023,
+          "dispatch_ms": [
+            0.998099974822253,
+            1.2752999900840223,
+            1.1086999729741365
+          ],
+          "max_qt_gap_ms": [
+            34.501399990404025,
+            34.24290000111796,
+            33.88099998119287
+          ],
+          "input_delivery": [
+            null,
+            null,
+            null
+          ]
+        }
+      },
+      "whole_table_paste": {
+        "before": {
+          "n": 3,
+          "complete_ms": [
+            5216.057199984789,
+            5079.725999996299,
+            5065.497899980983
+          ],
+          "p50_ms": 5079.725999996299,
+          "p95_nearest_rank_ms": 5216.057199984789,
+          "dispatch_ms": [
+            411.76389998872764,
+            395.3425999789033,
+            400.5993999890052
+          ],
+          "max_qt_gap_ms": [
+            1347.1906000049785,
+            1272.3781999957282,
+            1290.018700005021
+          ],
+          "input_delivery": [
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 205.30209998833016
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 205.43459997861646
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 1121.6235999891069
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 1122.0584000111558
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151620451.5597,
+                  "posting_late_ms": 6.673299998510629
+                },
+                {
+                  "scheduled_ms": 151620901.55969998,
+                  "posting_late_ms": 7.515300007071346
+                }
+              ]
+            },
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 189.48160001309589
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 189.61480000871234
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 1073.5397999815177
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 1073.8724999828264
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151721439.58210003,
+                  "posting_late_ms": 6.066799978725612
+                },
+                {
+                  "scheduled_ms": 151721889.5821,
+                  "posting_late_ms": 24.377800000365824
+                }
+              ]
+            },
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 195.30190000659786
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 195.43540000449866
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 1073.4166000038385
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 1073.875100002624
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151755438.79430002,
+                  "posting_late_ms": 5.502399988472462
+                },
+                {
+                  "scheduled_ms": 151755888.7943,
+                  "posting_late_ms": 1.590200001373887
+                }
+              ]
+            }
+          ]
+        },
+        "after": {
+          "n": 3,
+          "complete_ms": [
+            4808.748100011144,
+            4737.148099986371,
+            4774.598799995147
+          ],
+          "p50_ms": 4774.598799995147,
+          "p95_nearest_rank_ms": 4808.748100011144,
+          "dispatch_ms": [
+            399.10169999348,
+            407.0999999821652,
+            396.7568000080064
+          ],
+          "max_qt_gap_ms": [
+            1282.831199991051,
+            1286.291500000516,
+            1282.0153000066057
+          ],
+          "input_delivery": [
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 193.90350001049228
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 194.05429999460466
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 1108.37360000005
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 1108.7053999945056
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151654745.16230002,
+                  "posting_late_ms": 5.487099988386035
+                },
+                {
+                  "scheduled_ms": 151655195.1623,
+                  "posting_late_ms": 2.286600007209927
+                }
+              ]
+            },
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 201.59320000675507
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 201.72640000237152
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 1101.2811999826226
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 1101.611399993999
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151688240.0879,
+                  "posting_late_ms": 5.700099980458617
+                },
+                {
+                  "scheduled_ms": 151688690.0879,
+                  "posting_late_ms": 1.8475000106263906
+                }
+              ]
+            },
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 191.6283999744337
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 191.7698999750428
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 1102.5211000232957
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 1102.8402000083588
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151789084.9535,
+                  "posting_late_ms": 5.339199997251853
+                },
+                {
+                  "scheduled_ms": 151789534.9535,
+                  "posting_late_ms": 4.619299987098202
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "undo": {
+        "before": {
+          "n": 3,
+          "complete_ms": [
+            4695.131300017238,
+            4643.897200003266,
+            4644.006100017577
+          ],
+          "p50_ms": 4644.006100017577,
+          "p95_nearest_rank_ms": 4695.131300017238,
+          "dispatch_ms": [
+            119.23450001631863,
+            113.74450000585057,
+            108.97500001010485
+          ],
+          "max_qt_gap_ms": [
+            1185.6477999826893,
+            1183.9591999887489,
+            1161.6652000229806
+          ],
+          "input_delivery": [
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 44.13409999688156
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 44.66849999153055
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 777.5244999793358
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 777.8503999870736
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151625953.9284,
+                  "posting_late_ms": 0.04270000499673188
+                },
+                {
+                  "scheduled_ms": 151626403.92839998,
+                  "posting_late_ms": 19.454200024483725
+                }
+              ]
+            },
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 29.247699974803254
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 29.610300000058487
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 772.2745999926701
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 772.5979999813717
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151726793.5695,
+                  "posting_late_ms": 2.6343000063207
+                },
+                {
+                  "scheduled_ms": 151727243.5695,
+                  "posting_late_ms": 8.357600017916411
+                }
+              ]
+            },
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 18.111500015947968
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 18.470000009983778
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 780.961299984483
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 781.2910999928135
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151760774.06419998,
+                  "posting_late_ms": 8.251199993537739
+                },
+                {
+                  "scheduled_ms": 151761224.06419998,
+                  "posting_late_ms": 3.6618000303860754
+                }
+              ]
+            }
+          ]
+        },
+        "after": {
+          "n": 3,
+          "complete_ms": [
+            4550.196500000311,
+            4364.835999993375,
+            4246.819499996491
+          ],
+          "p50_ms": 4364.835999993375,
+          "p95_nearest_rank_ms": 4550.196500000311,
+          "dispatch_ms": [
+            176.86030000913888,
+            109.6819999802392,
+            111.59109999425709
+          ],
+          "max_qt_gap_ms": [
+            1309.000700013712,
+            1233.7094000249635,
+            835.1970000076108
+          ],
+          "input_delivery": [
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 1257.3836999945343
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 1257.9007000022102
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 942.0747999974992
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 942.446300003212
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151659840.6516,
+                  "posting_late_ms": 60.43919999501668
+                },
+                {
+                  "scheduled_ms": 151660290.6516,
+                  "posting_late_ms": 4.775700013851747
+                }
+              ]
+            },
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 18.735799996647984
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 19.06220000819303
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 871.0871000075713
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 871.416500012856
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151693256.52310002,
+                  "posting_late_ms": 10.545399971306324
+                },
+                {
+                  "scheduled_ms": 151693706.5231,
+                  "posting_late_ms": 5.349499988369644
+                }
+              ]
+            },
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 30.704200005857274
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 31.275499990442768
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 790.7795000064652
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 791.112000006251
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151794152.56030002,
+                  "posting_late_ms": 1.8979999877046794
+                },
+                {
+                  "scheduled_ms": 151794602.5603,
+                  "posting_late_ms": 0.45479999971576035
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "redo": {
+        "before": {
+          "n": 3,
+          "complete_ms": [
+            4746.275799989235,
+            4768.234699993627,
+            4864.005900017219
+          ],
+          "p50_ms": 4768.234699993627,
+          "p95_nearest_rank_ms": 4864.005900017219,
+          "dispatch_ms": [
+            113.04679999011569,
+            112.76049999287352,
+            112.88490000879392
+          ],
+          "max_qt_gap_ms": [
+            1085.3422000072896,
+            1285.9127999981865,
+            1322.3693000036292
+          ],
+          "input_delivery": [
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 23.290299985092133
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 23.623899993253872
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 846.2278999795672
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 846.5553999994881
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151631006.2515,
+                  "posting_late_ms": 7.910399988759309
+                },
+                {
+                  "scheduled_ms": 151631456.2515,
+                  "posting_late_ms": 0.15410000924021006
+                }
+              ]
+            },
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 22.036800015484914
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 22.358100017299876
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 796.469499997329
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 796.7925000120886
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151731783.4686,
+                  "posting_late_ms": 9.238499973434955
+                },
+                {
+                  "scheduled_ms": 151732233.4686,
+                  "posting_late_ms": 0.9858999983407557
+                }
+              ]
+            },
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 32.36019998439588
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 32.72170000127517
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 804.7380000061821
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 805.0626000040211
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151765767.3497,
+                  "posting_late_ms": 2.587800001492724
+                },
+                {
+                  "scheduled_ms": 151766217.3497,
+                  "posting_late_ms": 3.0123000033199787
+                }
+              ]
+            }
+          ]
+        },
+        "after": {
+          "n": 3,
+          "complete_ms": [
+            4544.446399988374,
+            4303.510099998675,
+            4658.228499989491
+          ],
+          "p50_ms": 4544.446399988374,
+          "p95_nearest_rank_ms": 4658.228499989491,
+          "dispatch_ms": [
+            118.59880000702105,
+            113.77190001076087,
+            112.52910000621341
+          ],
+          "max_qt_gap_ms": [
+            923.5659000114538,
+            1005.495699995663,
+            1068.5012000030838
+          ],
+          "input_delivery": [
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 41.40479999477975
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 41.7625000118278
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 788.797599991085
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 789.1212000104133
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151664744.0275,
+                  "posting_late_ms": 0.7353999826591462
+                },
+                {
+                  "scheduled_ms": 151665194.0275,
+                  "posting_late_ms": 3.444900008616969
+                }
+              ]
+            },
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 32.43859999929555
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 32.770999998319894
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 851.1389000050258
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 851.4585999946576
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151697972.1495,
+                  "posting_late_ms": 3.9710999990347773
+                },
+                {
+                  "scheduled_ms": 151698422.14949998,
+                  "posting_late_ms": 3.14990000333637
+                }
+              ]
+            },
+            {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 23.457100003724918
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 23.787599988281727
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 774.7784999955911
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 775.1031999941915
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 151798747.5396,
+                  "posting_late_ms": 10.903599992161617
+                },
+                {
+                  "scheduled_ms": 151799197.53959998,
+                  "posting_late_ms": 1.1027000145986676
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  "raw_runs": {
+    "visible-final-100k-trend-after.json": {
+      "rows": 100000,
+      "columns": 33,
+      "children": 3,
+      "drawn": {
+        "valid_maps": 48,
+        "plot_page": 48,
+        "radius_page": 48,
+        "correlation_page": 45,
+        "sequence_page": 11
+      },
+      "profiled": false,
+      "baseline_all": false,
+      "baseline_v433": false,
+      "fixture_raw_sha256": "35ff4cd1c27c8d4c9f2a2c92c511a6c529b45ec80d72daed77a48b6e3aefec7f",
+      "fixture_reference_sha256": "d4b0e1a49233018d480fdc7d030b6405d7745aaa28e3e3aa9d529d3c626279cc",
+      "watched": "trend",
+      "floating": true,
+      "plot_evidence": {
+        "deferred_before_catchup": 3,
+        "explicit_catchup_ms": 2940.177800017409,
+        "digests": {
+          "map_layers_surfaces_options": "adf12ab622fe815aafdad902df27d50ceba7089bea2e93c0136d317b94082f7a",
+          "radius_sources": "5d4673b07ded4f0133d8a105e8828f05f297bba8e299cb24ecb5a2b986b46be4",
+          "correlation_all_fits": "32f94ab55c9f783ae83e02f6dfa81820a6195cf93cd65b77121678c8083299c4",
+          "correlation_visible_points_lines": "9e6328b4041ce8d834294ac4abea35982fb7214942a4f36a74bf6c5c2ffa6264",
+          "trend_all_primary_points": "2236599f417466fa33853835c30375fd03b77653fbc0e1be911b6deaedfa9b68"
+        }
+      },
+      "input_probe": true,
+      "samples": [
+        {
+          "operation": "select_all",
+          "dispatch_ms": 0.6187999970279634,
+          "complete_ms": 57.620500010671094,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 38.98729998036288,
+          "rss": 3419054080,
+          "private": 4533354496,
+          "peak": 3583385600
+        },
+        {
+          "operation": "click_after_select_all",
+          "dispatch_ms": 1.0799999872688204,
+          "complete_ms": 48.244599980534986,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 35.980199987534434,
+          "rss": 3419086848,
+          "private": 4533354496,
+          "peak": 3583385600
+        },
+        {
+          "operation": "whole_table_paste",
+          "dispatch_ms": 4188.930299977073,
+          "complete_ms": 19894.226599979447,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 3598.701800015988
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 3598.8374000007752
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 3534.1876999882516
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 3534.3704000115395
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 152044570.36130002,
+                "posting_late_ms": 390.43339996715076
+              },
+              {
+                "scheduled_ms": 152045020.3613,
+                "posting_late_ms": 5.55299999541603
+              }
+            ]
+          },
+          "cpu_ms": 15750.0,
+          "max_qt_gap_ms": 8728.120199986733,
+          "rss": 3560964096,
+          "private": 4666613760,
+          "peak": 4626624512
+        },
+        {
+          "operation": "undo",
+          "dispatch_ms": 680.93790000421,
+          "complete_ms": 15377.445900026942,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 472.3869000154082
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 472.76200001942925
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 29.914600017946213
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 30.094699992332608
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 152066361.8705,
+                "posting_late_ms": 8.713499992154539
+              },
+              {
+                "scheduled_ms": 152066811.87049997,
+                "posting_late_ms": 1.8711000157054514
+              }
+            ]
+          },
+          "cpu_ms": 11859.375,
+          "max_qt_gap_ms": 3498.4451000054833,
+          "rss": 3956830208,
+          "private": 5065895936,
+          "peak": 4646801408
+        },
+        {
+          "operation": "redo",
+          "dispatch_ms": 849.1017000051215,
+          "complete_ms": 26983.083400002215,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 646.627800015267
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 647.0396000077017
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 194.4608999765478
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 194.64489998063073
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 152084026.9779,
+                "posting_late_ms": 2.9337999876588583
+              },
+              {
+                "scheduled_ms": 152084476.9779,
+                "posting_late_ms": 5.789400020148605
+              }
+            ]
+          },
+          "cpu_ms": 12703.125,
+          "max_qt_gap_ms": 4469.908099999884,
+          "rss": 3321880576,
+          "private": 4771581952,
+          "peak": 5022171136
+        }
+      ],
+      "exact_assertions_passed": true,
+      "fixture": "Original NOVA measurements; unique Wafer identity per repeated synthetic block; 8 selected Raw parameters, six wafers, Original order; full Map/Correlation tables; Dynamic independent empty. Actual rendered counts in drawn.",
+      "includes": "Key dispatch, queued Workbook analysis, all child data sync, watched page render and Qt paint. Unviewed plots intentionally deferred; explicit catch-up measured separately. Not DWM FPS"
+    },
+    "visible-final-100k-trend-before.json": {
+      "rows": 100000,
+      "columns": 33,
+      "children": 3,
+      "drawn": {
+        "valid_maps": 48,
+        "plot_page": 48,
+        "radius_page": 48,
+        "correlation_page": 45,
+        "sequence_page": 11
+      },
+      "profiled": false,
+      "baseline_all": false,
+      "baseline_v433": true,
+      "fixture_raw_sha256": "35ff4cd1c27c8d4c9f2a2c92c511a6c529b45ec80d72daed77a48b6e3aefec7f",
+      "fixture_reference_sha256": "d4b0e1a49233018d480fdc7d030b6405d7745aaa28e3e3aa9d529d3c626279cc",
+      "watched": "trend",
+      "floating": true,
+      "plot_evidence": {
+        "deferred_before_catchup": 0,
+        "explicit_catchup_ms": 30.926200008252636,
+        "digests": {
+          "map_layers_surfaces_options": "adf12ab622fe815aafdad902df27d50ceba7089bea2e93c0136d317b94082f7a",
+          "radius_sources": "5d4673b07ded4f0133d8a105e8828f05f297bba8e299cb24ecb5a2b986b46be4",
+          "correlation_all_fits": "32f94ab55c9f783ae83e02f6dfa81820a6195cf93cd65b77121678c8083299c4",
+          "correlation_visible_points_lines": "9e6328b4041ce8d834294ac4abea35982fb7214942a4f36a74bf6c5c2ffa6264",
+          "trend_all_primary_points": "2236599f417466fa33853835c30375fd03b77653fbc0e1be911b6deaedfa9b68"
+        }
+      },
+      "input_probe": true,
+      "samples": [
+        {
+          "operation": "select_all",
+          "dispatch_ms": 0.6239000067580491,
+          "complete_ms": 55.445300007704645,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 37.19020000426099,
+          "rss": 3417673728,
+          "private": 4530798592,
+          "peak": 3573071872
+        },
+        {
+          "operation": "click_after_select_all",
+          "dispatch_ms": 0.9540999890305102,
+          "complete_ms": 42.084199987584725,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 31.601800001226366,
+          "rss": 3417702400,
+          "private": 4530798592,
+          "peak": 3573071872
+        },
+        {
+          "operation": "whole_table_paste",
+          "dispatch_ms": 4475.840099999914,
+          "complete_ms": 23075.575300026685,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 3701.153100002557
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 3701.289699994959
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 3701.5356000047177
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 3701.8133000237867
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151885092.393,
+                "posting_late_ms": 574.9020999937784
+              },
+              {
+                "scheduled_ms": 151885542.39299998,
+                "posting_late_ms": 125.1652000064496
+              }
+            ]
+          },
+          "cpu_ms": 18281.25,
+          "max_qt_gap_ms": 9999.892799998634,
+          "rss": 3601907712,
+          "private": 4723535872,
+          "peak": 4626714624
+        },
+        {
+          "operation": "undo",
+          "dispatch_ms": 703.3885999990162,
+          "complete_ms": 18846.269900008338,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 501.13150000106543
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 501.47210000432096
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 53.21189999813214
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 53.40100001194514
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151910093.1347,
+                "posting_late_ms": 2.3999999975785613
+              },
+              {
+                "scheduled_ms": 151910543.13469997,
+                "posting_late_ms": 0.9577000164426863
+              }
+            ]
+          },
+          "cpu_ms": 14812.5,
+          "max_qt_gap_ms": 4364.952300005825,
+          "rss": 3996684288,
+          "private": 5118701568,
+          "peak": 4696428544
+        },
+        {
+          "operation": "redo",
+          "dispatch_ms": 822.4598999950103,
+          "complete_ms": 29318.670599983307,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 615.1586000050884
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 615.5288000009023
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 172.05560000729747
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 172.32059998787008
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151931237.77170002,
+                "posting_late_ms": 7.483599969418719
+              },
+              {
+                "scheduled_ms": 151931687.7717,
+                "posting_late_ms": 1.281000004382804
+              }
+            ]
+          },
+          "cpu_ms": 13718.75,
+          "max_qt_gap_ms": 11978.468699991936,
+          "rss": 3527045120,
+          "private": 4827639808,
+          "peak": 4950069248
+        }
+      ],
+      "exact_assertions_passed": true,
+      "fixture": "Original NOVA measurements; unique Wafer identity per repeated synthetic block; 8 selected Raw parameters, six wafers, Original order; full Map/Correlation tables; Dynamic independent empty. Actual rendered counts in drawn.",
+      "includes": "Key dispatch, queued Workbook analysis, all child data sync, watched page render and Qt paint. Unviewed plots intentionally deferred; explicit catch-up measured separately. Not DWM FPS"
+    },
+    "visible-final-10k-map-after-1.json": {
+      "rows": 10000,
+      "columns": 30,
+      "children": 3,
+      "drawn": {
+        "valid_maps": 48,
+        "plot_page": 48,
+        "radius_page": 48,
+        "correlation_page": 36,
+        "sequence_page": 11
+      },
+      "profiled": false,
+      "baseline_all": false,
+      "baseline_v433": false,
+      "fixture_raw_sha256": "6e13df6ccab486164cfe7ddb424958fcdff626ac983d80dcefce8b5974c66084",
+      "fixture_reference_sha256": "3cc23e4ff7cf1d9c9b2679c79165c2e74899c4bd69572358c9042fb6abfc93f7",
+      "watched": "map",
+      "floating": true,
+      "plot_evidence": {
+        "deferred_before_catchup": 3,
+        "explicit_catchup_ms": 970.4835999873467,
+        "digests": {
+          "map_layers_surfaces_options": "6a902e4a9d1b084cfe32c70230ce6be3b46b9f0fe591b9eb52e0f5894956aed9",
+          "radius_sources": "669f43d83f3745dc43b6ce602f70dd55abf3067d2f0f5368bc4c5bbc8f955ba1",
+          "correlation_all_fits": "e5dacb93518962883782d15b62a9e5c4cbe555416d2f4cadbe8102cf9df9f539",
+          "correlation_visible_points_lines": "9eff7882c94e03a87e991f645262e432530367a9a41400f917bc0eed28a37db3",
+          "trend_all_primary_points": "287cd3187a798bcacd6a617085de75f25e3256c3160c5b522609b238211ab6e0"
+        }
+      },
+      "input_probe": true,
+      "samples": [
+        {
+          "operation": "select_all",
+          "dispatch_ms": 0.6440999859478325,
+          "complete_ms": 55.33329999889247,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 38.37059999932535,
+          "rss": 919793664,
+          "private": 2014613504,
+          "peak": 919793664
+        },
+        {
+          "operation": "click_after_select_all",
+          "dispatch_ms": 0.998099974822253,
+          "complete_ms": 45.27929998585023,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 34.501399990404025,
+          "rss": 919830528,
+          "private": 2014613504,
+          "peak": 919830528
+        },
+        {
+          "operation": "whole_table_paste",
+          "dispatch_ms": 399.10169999348,
+          "complete_ms": 4808.748100011144,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 193.90350001049228
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 194.05429999460466
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 1108.37360000005
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 1108.7053999945056
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151654745.16230002,
+                "posting_late_ms": 5.487099988386035
+              },
+              {
+                "scheduled_ms": 151655195.1623,
+                "posting_late_ms": 2.286600007209927
+              }
+            ]
+          },
+          "cpu_ms": 3156.25,
+          "max_qt_gap_ms": 1282.831199991051,
+          "rss": 992309248,
+          "private": 2089840640,
+          "peak": 1087090688
+        },
+        {
+          "operation": "undo",
+          "dispatch_ms": 176.86030000913888,
+          "complete_ms": 4550.196500000311,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 1257.3836999945343
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 1257.9007000022102
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 942.0747999974992
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 942.446300003212
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151659840.6516,
+                "posting_late_ms": 60.43919999501668
+              },
+              {
+                "scheduled_ms": 151660290.6516,
+                "posting_late_ms": 4.775700013851747
+              }
+            ]
+          },
+          "cpu_ms": 2781.25,
+          "max_qt_gap_ms": 1309.000700013712,
+          "rss": 1024745472,
+          "private": 2124660736,
+          "peak": 1161863168
+        },
+        {
+          "operation": "redo",
+          "dispatch_ms": 118.59880000702105,
+          "complete_ms": 4544.446399988374,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 41.40479999477975
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 41.7625000118278
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 788.797599991085
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 789.1212000104133
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151664744.0275,
+                "posting_late_ms": 0.7353999826591462
+              },
+              {
+                "scheduled_ms": 151665194.0275,
+                "posting_late_ms": 3.444900008616969
+              }
+            ]
+          },
+          "cpu_ms": 2796.875,
+          "max_qt_gap_ms": 923.5659000114538,
+          "rss": 994889728,
+          "private": 2096279552,
+          "peak": 1161863168
+        }
+      ],
+      "exact_assertions_passed": true,
+      "fixture": "Original NOVA measurements; unique Wafer identity per repeated synthetic block; 8 selected Raw parameters, six wafers, Original order; full Map/Correlation tables; Dynamic independent empty. Actual rendered counts in drawn.",
+      "includes": "Key dispatch, queued Workbook analysis, all child data sync, watched page render and Qt paint. Unviewed plots intentionally deferred; explicit catch-up measured separately. Not DWM FPS"
+    },
+    "visible-final-10k-map-after-2.json": {
+      "rows": 10000,
+      "columns": 30,
+      "children": 3,
+      "drawn": {
+        "valid_maps": 48,
+        "plot_page": 48,
+        "radius_page": 48,
+        "correlation_page": 36,
+        "sequence_page": 11
+      },
+      "profiled": false,
+      "baseline_all": false,
+      "baseline_v433": false,
+      "fixture_raw_sha256": "6e13df6ccab486164cfe7ddb424958fcdff626ac983d80dcefce8b5974c66084",
+      "fixture_reference_sha256": "3cc23e4ff7cf1d9c9b2679c79165c2e74899c4bd69572358c9042fb6abfc93f7",
+      "watched": "map",
+      "floating": true,
+      "plot_evidence": {
+        "deferred_before_catchup": 3,
+        "explicit_catchup_ms": 964.1101000015624,
+        "digests": {
+          "map_layers_surfaces_options": "6a902e4a9d1b084cfe32c70230ce6be3b46b9f0fe591b9eb52e0f5894956aed9",
+          "radius_sources": "669f43d83f3745dc43b6ce602f70dd55abf3067d2f0f5368bc4c5bbc8f955ba1",
+          "correlation_all_fits": "e5dacb93518962883782d15b62a9e5c4cbe555416d2f4cadbe8102cf9df9f539",
+          "correlation_visible_points_lines": "9eff7882c94e03a87e991f645262e432530367a9a41400f917bc0eed28a37db3",
+          "trend_all_primary_points": "287cd3187a798bcacd6a617085de75f25e3256c3160c5b522609b238211ab6e0"
+        }
+      },
+      "input_probe": true,
+      "samples": [
+        {
+          "operation": "select_all",
+          "dispatch_ms": 0.6114999996498227,
+          "complete_ms": 57.83419997896999,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 40.36630000337027,
+          "rss": 919375872,
+          "private": 2048880640,
+          "peak": 919375872
+        },
+        {
+          "operation": "click_after_select_all",
+          "dispatch_ms": 1.2752999900840223,
+          "complete_ms": 45.09450000477955,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 34.24290000111796,
+          "rss": 919408640,
+          "private": 2048880640,
+          "peak": 919408640
+        },
+        {
+          "operation": "whole_table_paste",
+          "dispatch_ms": 407.0999999821652,
+          "complete_ms": 4737.148099986371,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 201.59320000675507
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 201.72640000237152
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 1101.2811999826226
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 1101.611399993999
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151688240.0879,
+                "posting_late_ms": 5.700099980458617
+              },
+              {
+                "scheduled_ms": 151688690.0879,
+                "posting_late_ms": 1.8475000106263906
+              }
+            ]
+          },
+          "cpu_ms": 2968.75,
+          "max_qt_gap_ms": 1286.291500000516,
+          "rss": 995508224,
+          "private": 2126512128,
+          "peak": 1082368000
+        },
+        {
+          "operation": "undo",
+          "dispatch_ms": 109.6819999802392,
+          "complete_ms": 4364.835999993375,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 18.735799996647984
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 19.06220000819303
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 871.0871000075713
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 871.416500012856
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151693256.52310002,
+                "posting_late_ms": 10.545399971306324
+              },
+              {
+                "scheduled_ms": 151693706.5231,
+                "posting_late_ms": 5.349499988369644
+              }
+            ]
+          },
+          "cpu_ms": 2937.5,
+          "max_qt_gap_ms": 1233.7094000249635,
+          "rss": 1023320064,
+          "private": 2155642880,
+          "peak": 1162596352
+        },
+        {
+          "operation": "redo",
+          "dispatch_ms": 113.77190001076087,
+          "complete_ms": 4303.510099998675,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 32.43859999929555
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 32.770999998319894
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 851.1389000050258
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 851.4585999946576
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151697972.1495,
+                "posting_late_ms": 3.9710999990347773
+              },
+              {
+                "scheduled_ms": 151698422.14949998,
+                "posting_late_ms": 3.14990000333637
+              }
+            ]
+          },
+          "cpu_ms": 2828.125,
+          "max_qt_gap_ms": 1005.495699995663,
+          "rss": 995274752,
+          "private": 2131525632,
+          "peak": 1162596352
+        }
+      ],
+      "exact_assertions_passed": true,
+      "fixture": "Original NOVA measurements; unique Wafer identity per repeated synthetic block; 8 selected Raw parameters, six wafers, Original order; full Map/Correlation tables; Dynamic independent empty. Actual rendered counts in drawn.",
+      "includes": "Key dispatch, queued Workbook analysis, all child data sync, watched page render and Qt paint. Unviewed plots intentionally deferred; explicit catch-up measured separately. Not DWM FPS"
+    },
+    "visible-final-10k-map-after-3.json": {
+      "rows": 10000,
+      "columns": 30,
+      "children": 3,
+      "drawn": {
+        "valid_maps": 48,
+        "plot_page": 48,
+        "radius_page": 48,
+        "correlation_page": 36,
+        "sequence_page": 11
+      },
+      "profiled": false,
+      "baseline_all": false,
+      "baseline_v433": false,
+      "fixture_raw_sha256": "6e13df6ccab486164cfe7ddb424958fcdff626ac983d80dcefce8b5974c66084",
+      "fixture_reference_sha256": "3cc23e4ff7cf1d9c9b2679c79165c2e74899c4bd69572358c9042fb6abfc93f7",
+      "watched": "map",
+      "floating": true,
+      "plot_evidence": {
+        "deferred_before_catchup": 3,
+        "explicit_catchup_ms": 954.7867999935988,
+        "digests": {
+          "map_layers_surfaces_options": "6a902e4a9d1b084cfe32c70230ce6be3b46b9f0fe591b9eb52e0f5894956aed9",
+          "radius_sources": "669f43d83f3745dc43b6ce602f70dd55abf3067d2f0f5368bc4c5bbc8f955ba1",
+          "correlation_all_fits": "e5dacb93518962883782d15b62a9e5c4cbe555416d2f4cadbe8102cf9df9f539",
+          "correlation_visible_points_lines": "9eff7882c94e03a87e991f645262e432530367a9a41400f917bc0eed28a37db3",
+          "trend_all_primary_points": "287cd3187a798bcacd6a617085de75f25e3256c3160c5b522609b238211ab6e0"
+        }
+      },
+      "input_probe": true,
+      "samples": [
+        {
+          "operation": "select_all",
+          "dispatch_ms": 0.6978999881539494,
+          "complete_ms": 54.94659999385476,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 38.9603000076022,
+          "rss": 920084480,
+          "private": 2015121408,
+          "peak": 920084480
+        },
+        {
+          "operation": "click_after_select_all",
+          "dispatch_ms": 1.1086999729741365,
+          "complete_ms": 44.77259999839589,
+          "input_delivery": null,
+          "cpu_ms": 15.625,
+          "max_qt_gap_ms": 33.88099998119287,
+          "rss": 920113152,
+          "private": 2015121408,
+          "peak": 920113152
+        },
+        {
+          "operation": "whole_table_paste",
+          "dispatch_ms": 396.7568000080064,
+          "complete_ms": 4774.598799995147,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 191.6283999744337
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 191.7698999750428
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 1102.5211000232957
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 1102.8402000083588
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151789084.9535,
+                "posting_late_ms": 5.339199997251853
+              },
+              {
+                "scheduled_ms": 151789534.9535,
+                "posting_late_ms": 4.619299987098202
+              }
+            ]
+          },
+          "cpu_ms": 3015.625,
+          "max_qt_gap_ms": 1282.0153000066057,
+          "rss": 992727040,
+          "private": 2090573824,
+          "peak": 1086566400
+        },
+        {
+          "operation": "undo",
+          "dispatch_ms": 111.59109999425709,
+          "complete_ms": 4246.819499996491,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 30.704200005857274
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 31.275499990442768
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 790.7795000064652
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 791.112000006251
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151794152.56030002,
+                "posting_late_ms": 1.8979999877046794
+              },
+              {
+                "scheduled_ms": 151794602.5603,
+                "posting_late_ms": 0.45479999971576035
+              }
+            ]
+          },
+          "cpu_ms": 2687.5,
+          "max_qt_gap_ms": 835.1970000076108,
+          "rss": 1024212992,
+          "private": 2124238848,
+          "peak": 1158316032
+        },
+        {
+          "operation": "redo",
+          "dispatch_ms": 112.52910000621341,
+          "complete_ms": 4658.228499989491,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 23.457100003724918
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 23.787599988281727
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 774.7784999955911
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 775.1031999941915
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151798747.5396,
+                "posting_late_ms": 10.903599992161617
+              },
+              {
+                "scheduled_ms": 151799197.53959998,
+                "posting_late_ms": 1.1027000145986676
+              }
+            ]
+          },
+          "cpu_ms": 2687.5,
+          "max_qt_gap_ms": 1068.5012000030838,
+          "rss": 995917824,
+          "private": 2165723136,
+          "peak": 1158316032
+        }
+      ],
+      "exact_assertions_passed": true,
+      "fixture": "Original NOVA measurements; unique Wafer identity per repeated synthetic block; 8 selected Raw parameters, six wafers, Original order; full Map/Correlation tables; Dynamic independent empty. Actual rendered counts in drawn.",
+      "includes": "Key dispatch, queued Workbook analysis, all child data sync, watched page render and Qt paint. Unviewed plots intentionally deferred; explicit catch-up measured separately. Not DWM FPS"
+    },
+    "visible-final-10k-map-before-1.json": {
+      "rows": 10000,
+      "columns": 30,
+      "children": 3,
+      "drawn": {
+        "valid_maps": 48,
+        "plot_page": 48,
+        "radius_page": 48,
+        "correlation_page": 36,
+        "sequence_page": 11
+      },
+      "profiled": false,
+      "baseline_all": false,
+      "baseline_v433": true,
+      "fixture_raw_sha256": "6e13df6ccab486164cfe7ddb424958fcdff626ac983d80dcefce8b5974c66084",
+      "fixture_reference_sha256": "3cc23e4ff7cf1d9c9b2679c79165c2e74899c4bd69572358c9042fb6abfc93f7",
+      "watched": "map",
+      "floating": true,
+      "plot_evidence": {
+        "deferred_before_catchup": 0,
+        "explicit_catchup_ms": 30.400100018596277,
+        "digests": {
+          "map_layers_surfaces_options": "6a902e4a9d1b084cfe32c70230ce6be3b46b9f0fe591b9eb52e0f5894956aed9",
+          "radius_sources": "669f43d83f3745dc43b6ce602f70dd55abf3067d2f0f5368bc4c5bbc8f955ba1",
+          "correlation_all_fits": "e5dacb93518962883782d15b62a9e5c4cbe555416d2f4cadbe8102cf9df9f539",
+          "correlation_visible_points_lines": "9eff7882c94e03a87e991f645262e432530367a9a41400f917bc0eed28a37db3",
+          "trend_all_primary_points": "287cd3187a798bcacd6a617085de75f25e3256c3160c5b522609b238211ab6e0"
+        }
+      },
+      "input_probe": true,
+      "samples": [
+        {
+          "operation": "select_all",
+          "dispatch_ms": 0.6173999863676727,
+          "complete_ms": 59.86119998851791,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 40.78310000477359,
+          "rss": 915111936,
+          "private": 1944711168,
+          "peak": 915111936
+        },
+        {
+          "operation": "click_after_select_all",
+          "dispatch_ms": 0.8434000192210078,
+          "complete_ms": 44.788300001528114,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 32.22960000857711,
+          "rss": 915140608,
+          "private": 1944711168,
+          "peak": 915140608
+        },
+        {
+          "operation": "whole_table_paste",
+          "dispatch_ms": 411.76389998872764,
+          "complete_ms": 5216.057199984789,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 205.30209998833016
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 205.43459997861646
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 1121.6235999891069
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 1122.0584000111558
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151620451.5597,
+                "posting_late_ms": 6.673299998510629
+              },
+              {
+                "scheduled_ms": 151620901.55969998,
+                "posting_late_ms": 7.515300007071346
+              }
+            ]
+          },
+          "cpu_ms": 3203.125,
+          "max_qt_gap_ms": 1347.1906000049785,
+          "rss": 982044672,
+          "private": 2019778560,
+          "peak": 1075036160
+        },
+        {
+          "operation": "undo",
+          "dispatch_ms": 119.23450001631863,
+          "complete_ms": 4695.131300017238,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 44.13409999688156
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 44.66849999153055
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 777.5244999793358
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 777.8503999870736
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151625953.9284,
+                "posting_late_ms": 0.04270000499673188
+              },
+              {
+                "scheduled_ms": 151626403.92839998,
+                "posting_late_ms": 19.454200024483725
+              }
+            ]
+          },
+          "cpu_ms": 2562.5,
+          "max_qt_gap_ms": 1185.6477999826893,
+          "rss": 1013792768,
+          "private": 2086371328,
+          "peak": 1156300800
+        },
+        {
+          "operation": "redo",
+          "dispatch_ms": 113.04679999011569,
+          "complete_ms": 4746.275799989235,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 23.290299985092133
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 23.623899993253872
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 846.2278999795672
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 846.5553999994881
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151631006.2515,
+                "posting_late_ms": 7.910399988759309
+              },
+              {
+                "scheduled_ms": 151631456.2515,
+                "posting_late_ms": 0.15410000924021006
+              }
+            ]
+          },
+          "cpu_ms": 2843.75,
+          "max_qt_gap_ms": 1085.3422000072896,
+          "rss": 985849856,
+          "private": 2060640256,
+          "peak": 1156300800
+        }
+      ],
+      "exact_assertions_passed": true,
+      "fixture": "Original NOVA measurements; unique Wafer identity per repeated synthetic block; 8 selected Raw parameters, six wafers, Original order; full Map/Correlation tables; Dynamic independent empty. Actual rendered counts in drawn.",
+      "includes": "Key dispatch, queued Workbook analysis, all child data sync, watched page render and Qt paint. Unviewed plots intentionally deferred; explicit catch-up measured separately. Not DWM FPS"
+    },
+    "visible-final-10k-map-before-2.json": {
+      "rows": 10000,
+      "columns": 30,
+      "children": 3,
+      "drawn": {
+        "valid_maps": 48,
+        "plot_page": 48,
+        "radius_page": 48,
+        "correlation_page": 36,
+        "sequence_page": 11
+      },
+      "profiled": false,
+      "baseline_all": false,
+      "baseline_v433": true,
+      "fixture_raw_sha256": "6e13df6ccab486164cfe7ddb424958fcdff626ac983d80dcefce8b5974c66084",
+      "fixture_reference_sha256": "3cc23e4ff7cf1d9c9b2679c79165c2e74899c4bd69572358c9042fb6abfc93f7",
+      "watched": "map",
+      "floating": true,
+      "plot_evidence": {
+        "deferred_before_catchup": 0,
+        "explicit_catchup_ms": 29.32989998953417,
+        "digests": {
+          "map_layers_surfaces_options": "6a902e4a9d1b084cfe32c70230ce6be3b46b9f0fe591b9eb52e0f5894956aed9",
+          "radius_sources": "669f43d83f3745dc43b6ce602f70dd55abf3067d2f0f5368bc4c5bbc8f955ba1",
+          "correlation_all_fits": "e5dacb93518962883782d15b62a9e5c4cbe555416d2f4cadbe8102cf9df9f539",
+          "correlation_visible_points_lines": "9eff7882c94e03a87e991f645262e432530367a9a41400f917bc0eed28a37db3",
+          "trend_all_primary_points": "287cd3187a798bcacd6a617085de75f25e3256c3160c5b522609b238211ab6e0"
+        }
+      },
+      "input_probe": true,
+      "samples": [
+        {
+          "operation": "select_all",
+          "dispatch_ms": 0.6799999973736703,
+          "complete_ms": 56.78959999931976,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 39.44639998371713,
+          "rss": 916688896,
+          "private": 1944956928,
+          "peak": 916688896
+        },
+        {
+          "operation": "click_after_select_all",
+          "dispatch_ms": 0.5547000037040561,
+          "complete_ms": 41.143400012515485,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 31.389699986902997,
+          "rss": 916725760,
+          "private": 1944956928,
+          "peak": 916725760
+        },
+        {
+          "operation": "whole_table_paste",
+          "dispatch_ms": 395.3425999789033,
+          "complete_ms": 5079.725999996299,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 189.48160001309589
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 189.61480000871234
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 1073.5397999815177
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 1073.8724999828264
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151721439.58210003,
+                "posting_late_ms": 6.066799978725612
+              },
+              {
+                "scheduled_ms": 151721889.5821,
+                "posting_late_ms": 24.377800000365824
+              }
+            ]
+          },
+          "cpu_ms": 3453.125,
+          "max_qt_gap_ms": 1272.3781999957282,
+          "rss": 992575488,
+          "private": 2021449728,
+          "peak": 1085730816
+        },
+        {
+          "operation": "undo",
+          "dispatch_ms": 113.74450000585057,
+          "complete_ms": 4643.897200003266,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 29.247699974803254
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 29.610300000058487
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 772.2745999926701
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 772.5979999813717
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151726793.5695,
+                "posting_late_ms": 2.6343000063207
+              },
+              {
+                "scheduled_ms": 151727243.5695,
+                "posting_late_ms": 8.357600017916411
+              }
+            ]
+          },
+          "cpu_ms": 3171.875,
+          "max_qt_gap_ms": 1183.9591999887489,
+          "rss": 1021366272,
+          "private": 2052108288,
+          "peak": 1171771392
+        },
+        {
+          "operation": "redo",
+          "dispatch_ms": 112.76049999287352,
+          "complete_ms": 4768.234699993627,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 22.036800015484914
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 22.358100017299876
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 796.469499997329
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 796.7925000120886
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151731783.4686,
+                "posting_late_ms": 9.238499973434955
+              },
+              {
+                "scheduled_ms": 151732233.4686,
+                "posting_late_ms": 0.9858999983407557
+              }
+            ]
+          },
+          "cpu_ms": 2796.875,
+          "max_qt_gap_ms": 1285.9127999981865,
+          "rss": 995368960,
+          "private": 2029649920,
+          "peak": 1171771392
+        }
+      ],
+      "exact_assertions_passed": true,
+      "fixture": "Original NOVA measurements; unique Wafer identity per repeated synthetic block; 8 selected Raw parameters, six wafers, Original order; full Map/Correlation tables; Dynamic independent empty. Actual rendered counts in drawn.",
+      "includes": "Key dispatch, queued Workbook analysis, all child data sync, watched page render and Qt paint. Unviewed plots intentionally deferred; explicit catch-up measured separately. Not DWM FPS"
+    },
+    "visible-final-10k-map-before-3.json": {
+      "rows": 10000,
+      "columns": 30,
+      "children": 3,
+      "drawn": {
+        "valid_maps": 48,
+        "plot_page": 48,
+        "radius_page": 48,
+        "correlation_page": 36,
+        "sequence_page": 11
+      },
+      "profiled": false,
+      "baseline_all": false,
+      "baseline_v433": true,
+      "fixture_raw_sha256": "6e13df6ccab486164cfe7ddb424958fcdff626ac983d80dcefce8b5974c66084",
+      "fixture_reference_sha256": "3cc23e4ff7cf1d9c9b2679c79165c2e74899c4bd69572358c9042fb6abfc93f7",
+      "watched": "map",
+      "floating": true,
+      "plot_evidence": {
+        "deferred_before_catchup": 0,
+        "explicit_catchup_ms": 32.28750001289882,
+        "digests": {
+          "map_layers_surfaces_options": "6a902e4a9d1b084cfe32c70230ce6be3b46b9f0fe591b9eb52e0f5894956aed9",
+          "radius_sources": "669f43d83f3745dc43b6ce602f70dd55abf3067d2f0f5368bc4c5bbc8f955ba1",
+          "correlation_all_fits": "e5dacb93518962883782d15b62a9e5c4cbe555416d2f4cadbe8102cf9df9f539",
+          "correlation_visible_points_lines": "9eff7882c94e03a87e991f645262e432530367a9a41400f917bc0eed28a37db3",
+          "trend_all_primary_points": "287cd3187a798bcacd6a617085de75f25e3256c3160c5b522609b238211ab6e0"
+        }
+      },
+      "input_probe": true,
+      "samples": [
+        {
+          "operation": "select_all",
+          "dispatch_ms": 0.592500000493601,
+          "complete_ms": 63.4585999941919,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 45.48419997445308,
+          "rss": 916422656,
+          "private": 1979240448,
+          "peak": 916422656
+        },
+        {
+          "operation": "click_after_select_all",
+          "dispatch_ms": 0.5130000063218176,
+          "complete_ms": 42.7579999959562,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 31.216400006087497,
+          "rss": 916455424,
+          "private": 1979240448,
+          "peak": 916455424
+        },
+        {
+          "operation": "whole_table_paste",
+          "dispatch_ms": 400.5993999890052,
+          "complete_ms": 5065.497899980983,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 195.30190000659786
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 195.43540000449866
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 1073.4166000038385
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 1073.875100002624
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151755438.79430002,
+                "posting_late_ms": 5.502399988472462
+              },
+              {
+                "scheduled_ms": 151755888.7943,
+                "posting_late_ms": 1.590200001373887
+              }
+            ]
+          },
+          "cpu_ms": 3296.875,
+          "max_qt_gap_ms": 1290.018700005021,
+          "rss": 992374784,
+          "private": 2090131456,
+          "peak": 1090564096
+        },
+        {
+          "operation": "undo",
+          "dispatch_ms": 108.97500001010485,
+          "complete_ms": 4644.006100017577,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 18.111500015947968
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 18.470000009983778
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 780.961299984483
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 781.2910999928135
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151760774.06419998,
+                "posting_late_ms": 8.251199993537739
+              },
+              {
+                "scheduled_ms": 151761224.06419998,
+                "posting_late_ms": 3.6618000303860754
+              }
+            ]
+          },
+          "cpu_ms": 2890.625,
+          "max_qt_gap_ms": 1161.6652000229806,
+          "rss": 1021038592,
+          "private": 2125148160,
+          "peak": 1173323776
+        },
+        {
+          "operation": "redo",
+          "dispatch_ms": 112.88490000879392,
+          "complete_ms": 4864.005900017219,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 32.36019998439588
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 32.72170000127517
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 804.7380000061821
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 805.0626000040211
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151765767.3497,
+                "posting_late_ms": 2.587800001492724
+              },
+              {
+                "scheduled_ms": 151766217.3497,
+                "posting_late_ms": 3.0123000033199787
+              }
+            ]
+          },
+          "cpu_ms": 2953.125,
+          "max_qt_gap_ms": 1322.3693000036292,
+          "rss": 995319808,
+          "private": 2099425280,
+          "peak": 1173323776
+        }
+      ],
+      "exact_assertions_passed": true,
+      "fixture": "Original NOVA measurements; unique Wafer identity per repeated synthetic block; 8 selected Raw parameters, six wafers, Original order; full Map/Correlation tables; Dynamic independent empty. Actual rendered counts in drawn.",
+      "includes": "Key dispatch, queued Workbook analysis, all child data sync, watched page render and Qt paint. Unviewed plots intentionally deferred; explicit catch-up measured separately. Not DWM FPS"
+    },
+    "visible-final-10k-trend-after-1.json": {
+      "rows": 10000,
+      "columns": 30,
+      "children": 3,
+      "drawn": {
+        "valid_maps": 48,
+        "plot_page": 48,
+        "radius_page": 48,
+        "correlation_page": 36,
+        "sequence_page": 11
+      },
+      "profiled": false,
+      "baseline_all": false,
+      "baseline_v433": false,
+      "fixture_raw_sha256": "6e13df6ccab486164cfe7ddb424958fcdff626ac983d80dcefce8b5974c66084",
+      "fixture_reference_sha256": "3cc23e4ff7cf1d9c9b2679c79165c2e74899c4bd69572358c9042fb6abfc93f7",
+      "watched": "trend",
+      "floating": true,
+      "plot_evidence": {
+        "deferred_before_catchup": 3,
+        "explicit_catchup_ms": 2145.939800015185,
+        "digests": {
+          "map_layers_surfaces_options": "6a902e4a9d1b084cfe32c70230ce6be3b46b9f0fe591b9eb52e0f5894956aed9",
+          "radius_sources": "669f43d83f3745dc43b6ce602f70dd55abf3067d2f0f5368bc4c5bbc8f955ba1",
+          "correlation_all_fits": "e5dacb93518962883782d15b62a9e5c4cbe555416d2f4cadbe8102cf9df9f539",
+          "correlation_visible_points_lines": "9eff7882c94e03a87e991f645262e432530367a9a41400f917bc0eed28a37db3",
+          "trend_all_primary_points": "287cd3187a798bcacd6a617085de75f25e3256c3160c5b522609b238211ab6e0"
+        }
+      },
+      "input_probe": true,
+      "samples": [
+        {
+          "operation": "select_all",
+          "dispatch_ms": 0.5777000042144209,
+          "complete_ms": 55.304800014710054,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 37.45529998559505,
+          "rss": 922759168,
+          "private": 1984233472,
+          "peak": 922759168
+        },
+        {
+          "operation": "click_after_select_all",
+          "dispatch_ms": 0.5914999928791076,
+          "complete_ms": 41.56780001358129,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 31.286600016755983,
+          "rss": 922787840,
+          "private": 1984233472,
+          "peak": 922787840
+        },
+        {
+          "operation": "whole_table_paste",
+          "dispatch_ms": 397.97309998539276,
+          "complete_ms": 3335.592799994629,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 193.41259999782778
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 193.5423999966588
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 1082.1716999926139
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 1082.4965999927372
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151460780.98950002,
+                "posting_late_ms": 4.777899972395971
+              },
+              {
+                "scheduled_ms": 151461230.98950002,
+                "posting_late_ms": 22.119300003396347
+              }
+            ]
+          },
+          "cpu_ms": 1984.375,
+          "max_qt_gap_ms": 1275.3444999980275,
+          "rss": 960385024,
+          "private": 2022539264,
+          "peak": 1029971968
+        },
+        {
+          "operation": "undo",
+          "dispatch_ms": 111.89689999446273,
+          "complete_ms": 2917.0677000074647,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 19.249599979957566
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 19.57629999378696
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 800.9406999917701
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 801.5898000157904
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151464399.66210002,
+                "posting_late_ms": 9.138299996266142
+              },
+              {
+                "scheduled_ms": 151464849.6621,
+                "posting_late_ms": 2.3967000015545636
+              }
+            ]
+          },
+          "cpu_ms": 1609.375,
+          "max_qt_gap_ms": 736.8634000013117,
+          "rss": 990146560,
+          "private": 2052288512,
+          "peak": 1036664832
+        },
+        {
+          "operation": "redo",
+          "dispatch_ms": 112.02260002028197,
+          "complete_ms": 3087.099800002761,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 27.304200018988922
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 27.948200004175305
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 915.392900002189
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 915.716399991652
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151467670.5716,
+                "posting_late_ms": 6.446799990953878
+              },
+              {
+                "scheduled_ms": 151468120.5716,
+                "posting_late_ms": 5.95310001517646
+              }
+            ]
+          },
+          "cpu_ms": 1750.0,
+          "max_qt_gap_ms": 932.8488000028301,
+          "rss": 963366912,
+          "private": 2024693760,
+          "peak": 1036664832
+        }
+      ],
+      "exact_assertions_passed": true,
+      "fixture": "Original NOVA measurements; unique Wafer identity per repeated synthetic block; 8 selected Raw parameters, six wafers, Original order; full Map/Correlation tables; Dynamic independent empty. Actual rendered counts in drawn.",
+      "includes": "Key dispatch, queued Workbook analysis, all child data sync, watched page render and Qt paint. Unviewed plots intentionally deferred; explicit catch-up measured separately. Not DWM FPS"
+    },
+    "visible-final-10k-trend-after-2.json": {
+      "rows": 10000,
+      "columns": 30,
+      "children": 3,
+      "drawn": {
+        "valid_maps": 48,
+        "plot_page": 48,
+        "radius_page": 48,
+        "correlation_page": 36,
+        "sequence_page": 11
+      },
+      "profiled": false,
+      "baseline_all": false,
+      "baseline_v433": false,
+      "fixture_raw_sha256": "6e13df6ccab486164cfe7ddb424958fcdff626ac983d80dcefce8b5974c66084",
+      "fixture_reference_sha256": "3cc23e4ff7cf1d9c9b2679c79165c2e74899c4bd69572358c9042fb6abfc93f7",
+      "watched": "trend",
+      "floating": true,
+      "plot_evidence": {
+        "deferred_before_catchup": 3,
+        "explicit_catchup_ms": 2114.5658000023104,
+        "digests": {
+          "map_layers_surfaces_options": "6a902e4a9d1b084cfe32c70230ce6be3b46b9f0fe591b9eb52e0f5894956aed9",
+          "radius_sources": "669f43d83f3745dc43b6ce602f70dd55abf3067d2f0f5368bc4c5bbc8f955ba1",
+          "correlation_all_fits": "e5dacb93518962883782d15b62a9e5c4cbe555416d2f4cadbe8102cf9df9f539",
+          "correlation_visible_points_lines": "9eff7882c94e03a87e991f645262e432530367a9a41400f917bc0eed28a37db3",
+          "trend_all_primary_points": "287cd3187a798bcacd6a617085de75f25e3256c3160c5b522609b238211ab6e0"
+        }
+      },
+      "input_probe": true,
+      "samples": [
+        {
+          "operation": "select_all",
+          "dispatch_ms": 0.6849000055808574,
+          "complete_ms": 56.735699996352196,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 39.54060000251047,
+          "rss": 924401664,
+          "private": 2018676736,
+          "peak": 924401664
+        },
+        {
+          "operation": "click_after_select_all",
+          "dispatch_ms": 1.1708999809343368,
+          "complete_ms": 168.72269997838885,
+          "input_delivery": null,
+          "cpu_ms": 15.625,
+          "max_qt_gap_ms": 156.95810000761412,
+          "rss": 924434432,
+          "private": 2018676736,
+          "peak": 924434432
+        },
+        {
+          "operation": "whole_table_paste",
+          "dispatch_ms": 402.11230001295917,
+          "complete_ms": 3338.2930000079796,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 196.30209999741055
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 196.44080000580288
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 1095.094699994661
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 1095.4248000052758
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151491794.4864,
+                "posting_late_ms": 6.014799990225583
+              },
+              {
+                "scheduled_ms": 151492244.48639998,
+                "posting_late_ms": 26.692000014008954
+              }
+            ]
+          },
+          "cpu_ms": 2140.625,
+          "max_qt_gap_ms": 1287.3371999885421,
+          "rss": 960745472,
+          "private": 2055692288,
+          "peak": 1030262784
+        },
+        {
+          "operation": "undo",
+          "dispatch_ms": 112.00449999887496,
+          "complete_ms": 3119.380399992224,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 32.38779999082908
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 32.75240000220947
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 847.1964999916963
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 847.5323999882676
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151495413.3102,
+                "posting_late_ms": 1.3196000072639436
+              },
+              {
+                "scheduled_ms": 151495863.31019998,
+                "posting_late_ms": 5.185400019399822
+              }
+            ]
+          },
+          "cpu_ms": 1750.0,
+          "max_qt_gap_ms": 1187.3188000172377,
+          "rss": 990924800,
+          "private": 2085908480,
+          "peak": 1037119488
+        },
+        {
+          "operation": "redo",
+          "dispatch_ms": 114.49040001025423,
+          "complete_ms": 2964.5216000208165,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 37.996399973053485
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 38.34939998341724
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 721.4058999961708
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 721.774200006621
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151498888.0949,
+                "posting_late_ms": 0.8730000117793679
+              },
+              {
+                "scheduled_ms": 151499338.09489998,
+                "posting_late_ms": 107.88990001310594
+              }
+            ]
+          },
+          "cpu_ms": 1828.125,
+          "max_qt_gap_ms": 985.424000013154,
+          "rss": 964362240,
+          "private": 2058670080,
+          "peak": 1037119488
+        }
+      ],
+      "exact_assertions_passed": true,
+      "fixture": "Original NOVA measurements; unique Wafer identity per repeated synthetic block; 8 selected Raw parameters, six wafers, Original order; full Map/Correlation tables; Dynamic independent empty. Actual rendered counts in drawn.",
+      "includes": "Key dispatch, queued Workbook analysis, all child data sync, watched page render and Qt paint. Unviewed plots intentionally deferred; explicit catch-up measured separately. Not DWM FPS"
+    },
+    "visible-final-10k-trend-after-3.json": {
+      "rows": 10000,
+      "columns": 30,
+      "children": 3,
+      "drawn": {
+        "valid_maps": 48,
+        "plot_page": 48,
+        "radius_page": 48,
+        "correlation_page": 36,
+        "sequence_page": 11
+      },
+      "profiled": false,
+      "baseline_all": false,
+      "baseline_v433": false,
+      "fixture_raw_sha256": "6e13df6ccab486164cfe7ddb424958fcdff626ac983d80dcefce8b5974c66084",
+      "fixture_reference_sha256": "3cc23e4ff7cf1d9c9b2679c79165c2e74899c4bd69572358c9042fb6abfc93f7",
+      "watched": "trend",
+      "floating": true,
+      "plot_evidence": {
+        "deferred_before_catchup": 3,
+        "explicit_catchup_ms": 2140.878000005614,
+        "digests": {
+          "map_layers_surfaces_options": "6a902e4a9d1b084cfe32c70230ce6be3b46b9f0fe591b9eb52e0f5894956aed9",
+          "radius_sources": "669f43d83f3745dc43b6ce602f70dd55abf3067d2f0f5368bc4c5bbc8f955ba1",
+          "correlation_all_fits": "e5dacb93518962883782d15b62a9e5c4cbe555416d2f4cadbe8102cf9df9f539",
+          "correlation_visible_points_lines": "9eff7882c94e03a87e991f645262e432530367a9a41400f917bc0eed28a37db3",
+          "trend_all_primary_points": "287cd3187a798bcacd6a617085de75f25e3256c3160c5b522609b238211ab6e0"
+        }
+      },
+      "input_probe": true,
+      "samples": [
+        {
+          "operation": "select_all",
+          "dispatch_ms": 0.6350000039674342,
+          "complete_ms": 57.11399999563582,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 41.52759999851696,
+          "rss": 924323840,
+          "private": 2018697216,
+          "peak": 924323840
+        },
+        {
+          "operation": "click_after_select_all",
+          "dispatch_ms": 0.9050000226125121,
+          "complete_ms": 43.67500002263114,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 32.49320000759326,
+          "rss": 924352512,
+          "private": 2018697216,
+          "peak": 924352512
+        },
+        {
+          "operation": "whole_table_paste",
+          "dispatch_ms": 425.5414000072051,
+          "complete_ms": 3334.984999994049,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 219.59870000137016
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 219.7724000143353
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 1079.507599992212
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 1080.3467000077944
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151589496.62600002,
+                "posting_late_ms": 6.179399992106482
+              },
+              {
+                "scheduled_ms": 151589946.626,
+                "posting_late_ms": 6.786200014175847
+              }
+            ]
+          },
+          "cpu_ms": 2000.0,
+          "max_qt_gap_ms": 1292.0949000108521,
+          "rss": 961257472,
+          "private": 2056511488,
+          "peak": 1030602752
+        },
+        {
+          "operation": "undo",
+          "dispatch_ms": 110.66370000480674,
+          "complete_ms": 2987.456300004851,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 19.64729998144321
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 19.964899984188378
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 768.2338999875356
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 768.560399999842
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151593117.1038,
+                "posting_late_ms": 9.927000006427988
+              },
+              {
+                "scheduled_ms": 151593567.1038,
+                "posting_late_ms": 1.6491000133100897
+              }
+            ]
+          },
+          "cpu_ms": 1671.875,
+          "max_qt_gap_ms": 1129.1057000053115,
+          "rss": 991408128,
+          "private": 2086739968,
+          "peak": 1037529088
+        },
+        {
+          "operation": "redo",
+          "dispatch_ms": 113.21500001940876,
+          "complete_ms": 2917.366100009531,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 23.866400006227195
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 24.19140000711195
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 789.1034999920521
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 789.4246999931056
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151596463.6891,
+                "posting_late_ms": 8.23179999133572
+              },
+              {
+                "scheduled_ms": 151596913.68909997,
+                "posting_late_ms": 0.6035000260453671
+              }
+            ]
+          },
+          "cpu_ms": 1609.375,
+          "max_qt_gap_ms": 947.8350999997929,
+          "rss": 965931008,
+          "private": 2060222464,
+          "peak": 1037529088
+        }
+      ],
+      "exact_assertions_passed": true,
+      "fixture": "Original NOVA measurements; unique Wafer identity per repeated synthetic block; 8 selected Raw parameters, six wafers, Original order; full Map/Correlation tables; Dynamic independent empty. Actual rendered counts in drawn.",
+      "includes": "Key dispatch, queued Workbook analysis, all child data sync, watched page render and Qt paint. Unviewed plots intentionally deferred; explicit catch-up measured separately. Not DWM FPS"
+    },
+    "visible-final-10k-trend-before-1.json": {
+      "rows": 10000,
+      "columns": 30,
+      "children": 3,
+      "drawn": {
+        "valid_maps": 48,
+        "plot_page": 48,
+        "radius_page": 48,
+        "correlation_page": 36,
+        "sequence_page": 11
+      },
+      "profiled": false,
+      "baseline_all": false,
+      "baseline_v433": true,
+      "fixture_raw_sha256": "6e13df6ccab486164cfe7ddb424958fcdff626ac983d80dcefce8b5974c66084",
+      "fixture_reference_sha256": "3cc23e4ff7cf1d9c9b2679c79165c2e74899c4bd69572358c9042fb6abfc93f7",
+      "watched": "trend",
+      "floating": true,
+      "plot_evidence": {
+        "deferred_before_catchup": 0,
+        "explicit_catchup_ms": 32.04739998909645,
+        "digests": {
+          "map_layers_surfaces_options": "6a902e4a9d1b084cfe32c70230ce6be3b46b9f0fe591b9eb52e0f5894956aed9",
+          "radius_sources": "669f43d83f3745dc43b6ce602f70dd55abf3067d2f0f5368bc4c5bbc8f955ba1",
+          "correlation_all_fits": "e5dacb93518962883782d15b62a9e5c4cbe555416d2f4cadbe8102cf9df9f539",
+          "correlation_visible_points_lines": "9eff7882c94e03a87e991f645262e432530367a9a41400f917bc0eed28a37db3",
+          "trend_all_primary_points": "287cd3187a798bcacd6a617085de75f25e3256c3160c5b522609b238211ab6e0"
+        }
+      },
+      "input_probe": true,
+      "samples": [
+        {
+          "operation": "select_all",
+          "dispatch_ms": 0.7578000077046454,
+          "complete_ms": 56.695800012676045,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 39.58250000141561,
+          "rss": 920633344,
+          "private": 1983516672,
+          "peak": 920633344
+        },
+        {
+          "operation": "click_after_select_all",
+          "dispatch_ms": 0.9475999977439642,
+          "complete_ms": 45.58580002048984,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 31.39940000255592,
+          "rss": 920662016,
+          "private": 1983516672,
+          "peak": 920662016
+        },
+        {
+          "operation": "whole_table_paste",
+          "dispatch_ms": 404.42770000663586,
+          "complete_ms": 5136.044400016544,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 198.52890001493506
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 198.6670000187587
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 1110.1383999921381
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 1110.460099996999
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151426746.4535,
+                "posting_late_ms": 6.113699986599386
+              },
+              {
+                "scheduled_ms": 151427196.45349997,
+                "posting_late_ms": 2.4363000120501965
+              }
+            ]
+          },
+          "cpu_ms": 3734.375,
+          "max_qt_gap_ms": 1278.5252999747172,
+          "rss": 995459072,
+          "private": 2060066816,
+          "peak": 1094590464
+        },
+        {
+          "operation": "undo",
+          "dispatch_ms": 110.48479998135008,
+          "complete_ms": 4814.8677999852225,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 33.52530000847764
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 33.85869998601265
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 791.1731000058353
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 791.5002000227105
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151432163.66030002,
+                "posting_late_ms": 1.1747999815270305
+              },
+              {
+                "scheduled_ms": 151432613.66030002,
+                "posting_late_ms": 14.158799982396886
+              }
+            ]
+          },
+          "cpu_ms": 3250.0,
+          "max_qt_gap_ms": 1228.5349000012502,
+          "rss": 1026535424,
+          "private": 2093572096,
+          "peak": 1172639744
+        },
+        {
+          "operation": "redo",
+          "dispatch_ms": 120.92079999274574,
+          "complete_ms": 4864.0517000167165,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 44.826800003647804
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 45.34000001149252
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 797.5286000000779
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 797.8501000034157
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151437362.1968,
+                "posting_late_ms": 8.747799991397187
+              },
+              {
+                "scheduled_ms": 151437812.1968,
+                "posting_late_ms": 6.329600000753999
+              }
+            ]
+          },
+          "cpu_ms": 3031.25,
+          "max_qt_gap_ms": 824.1696000040974,
+          "rss": 999645184,
+          "private": 2103328768,
+          "peak": 1172639744
+        }
+      ],
+      "exact_assertions_passed": true,
+      "fixture": "Original NOVA measurements; unique Wafer identity per repeated synthetic block; 8 selected Raw parameters, six wafers, Original order; full Map/Correlation tables; Dynamic independent empty. Actual rendered counts in drawn.",
+      "includes": "Key dispatch, queued Workbook analysis, all child data sync, watched page render and Qt paint. Unviewed plots intentionally deferred; explicit catch-up measured separately. Not DWM FPS"
+    },
+    "visible-final-10k-trend-before-2.json": {
+      "rows": 10000,
+      "columns": 30,
+      "children": 3,
+      "drawn": {
+        "valid_maps": 48,
+        "plot_page": 48,
+        "radius_page": 48,
+        "correlation_page": 36,
+        "sequence_page": 11
+      },
+      "profiled": false,
+      "baseline_all": false,
+      "baseline_v433": true,
+      "fixture_raw_sha256": "6e13df6ccab486164cfe7ddb424958fcdff626ac983d80dcefce8b5974c66084",
+      "fixture_reference_sha256": "3cc23e4ff7cf1d9c9b2679c79165c2e74899c4bd69572358c9042fb6abfc93f7",
+      "watched": "trend",
+      "floating": true,
+      "plot_evidence": {
+        "deferred_before_catchup": 0,
+        "explicit_catchup_ms": 32.19830000307411,
+        "digests": {
+          "map_layers_surfaces_options": "6a902e4a9d1b084cfe32c70230ce6be3b46b9f0fe591b9eb52e0f5894956aed9",
+          "radius_sources": "669f43d83f3745dc43b6ce602f70dd55abf3067d2f0f5368bc4c5bbc8f955ba1",
+          "correlation_all_fits": "e5dacb93518962883782d15b62a9e5c4cbe555416d2f4cadbe8102cf9df9f539",
+          "correlation_visible_points_lines": "9eff7882c94e03a87e991f645262e432530367a9a41400f917bc0eed28a37db3",
+          "trend_all_primary_points": "287cd3187a798bcacd6a617085de75f25e3256c3160c5b522609b238211ab6e0"
+        }
+      },
+      "input_probe": true,
+      "samples": [
+        {
+          "operation": "select_all",
+          "dispatch_ms": 0.7815000135451555,
+          "complete_ms": 62.4969000054989,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 41.83999999077059,
+          "rss": 918315008,
+          "private": 1981218816,
+          "peak": 918315008
+        },
+        {
+          "operation": "click_after_select_all",
+          "dispatch_ms": 0.7866999949328601,
+          "complete_ms": 45.751199999358505,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 34.243599977344275,
+          "rss": 918343680,
+          "private": 1981218816,
+          "peak": 918343680
+        },
+        {
+          "operation": "whole_table_paste",
+          "dispatch_ms": 395.2227999980096,
+          "complete_ms": 5114.965799992206,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 188.65720002213493
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 188.79700000979938
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 1080.6651999882888
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 1080.9940999897663
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151522300.20240003,
+                "posting_late_ms": 6.757799972547218
+              },
+              {
+                "scheduled_ms": 151522750.2024,
+                "posting_late_ms": 19.777400011662394
+              }
+            ]
+          },
+          "cpu_ms": 3500.0,
+          "max_qt_gap_ms": 1325.9795999911148,
+          "rss": 992919552,
+          "private": 2056478720,
+          "peak": 1092767744
+        },
+        {
+          "operation": "undo",
+          "dispatch_ms": 111.13599999225698,
+          "complete_ms": 4734.794999996666,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 33.596199995372444
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 33.959000022150576
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 773.9161000063177
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 774.2492000106722
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151527694.0112,
+                "posting_late_ms": 1.1776999745052308
+              },
+              {
+                "scheduled_ms": 151528144.0112,
+                "posting_late_ms": 4.058599995914847
+              }
+            ]
+          },
+          "cpu_ms": 3234.375,
+          "max_qt_gap_ms": 1211.640699999407,
+          "rss": 1025036288,
+          "private": 2091909120,
+          "peak": 1171648512
+        },
+        {
+          "operation": "redo",
+          "dispatch_ms": 114.4606999878306,
+          "complete_ms": 4948.914799984777,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 35.97969998372719
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 36.46719999960624
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 965.5415999877732
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 966.1170000035781
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151532788.0604,
+                "posting_late_ms": 0.318199978210032
+              },
+              {
+                "scheduled_ms": 151533238.0604,
+                "posting_late_ms": 1.2349000026006252
+              }
+            ]
+          },
+          "cpu_ms": 3421.875,
+          "max_qt_gap_ms": 1213.3419000019785,
+          "rss": 996216832,
+          "private": 2064211968,
+          "peak": 1171648512
+        }
+      ],
+      "exact_assertions_passed": true,
+      "fixture": "Original NOVA measurements; unique Wafer identity per repeated synthetic block; 8 selected Raw parameters, six wafers, Original order; full Map/Correlation tables; Dynamic independent empty. Actual rendered counts in drawn.",
+      "includes": "Key dispatch, queued Workbook analysis, all child data sync, watched page render and Qt paint. Unviewed plots intentionally deferred; explicit catch-up measured separately. Not DWM FPS"
+    },
+    "visible-final-10k-trend-before-3.json": {
+      "rows": 10000,
+      "columns": 30,
+      "children": 3,
+      "drawn": {
+        "valid_maps": 48,
+        "plot_page": 48,
+        "radius_page": 48,
+        "correlation_page": 36,
+        "sequence_page": 11
+      },
+      "profiled": false,
+      "baseline_all": false,
+      "baseline_v433": true,
+      "fixture_raw_sha256": "6e13df6ccab486164cfe7ddb424958fcdff626ac983d80dcefce8b5974c66084",
+      "fixture_reference_sha256": "3cc23e4ff7cf1d9c9b2679c79165c2e74899c4bd69572358c9042fb6abfc93f7",
+      "watched": "trend",
+      "floating": true,
+      "plot_evidence": {
+        "deferred_before_catchup": 0,
+        "explicit_catchup_ms": 30.859499995131046,
+        "digests": {
+          "map_layers_surfaces_options": "6a902e4a9d1b084cfe32c70230ce6be3b46b9f0fe591b9eb52e0f5894956aed9",
+          "radius_sources": "669f43d83f3745dc43b6ce602f70dd55abf3067d2f0f5368bc4c5bbc8f955ba1",
+          "correlation_all_fits": "e5dacb93518962883782d15b62a9e5c4cbe555416d2f4cadbe8102cf9df9f539",
+          "correlation_visible_points_lines": "9eff7882c94e03a87e991f645262e432530367a9a41400f917bc0eed28a37db3",
+          "trend_all_primary_points": "287cd3187a798bcacd6a617085de75f25e3256c3160c5b522609b238211ab6e0"
+        }
+      },
+      "input_probe": true,
+      "samples": [
+        {
+          "operation": "select_all",
+          "dispatch_ms": 0.8489000028930604,
+          "complete_ms": 53.06999999447726,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 37.37489998457022,
+          "rss": 920055808,
+          "private": 1982771200,
+          "peak": 920055808
+        },
+        {
+          "operation": "click_after_select_all",
+          "dispatch_ms": 0.6780000112485141,
+          "complete_ms": 44.5606000139378,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 33.84399999049492,
+          "rss": 920100864,
+          "private": 1982771200,
+          "peak": 920100864
+        },
+        {
+          "operation": "whole_table_paste",
+          "dispatch_ms": 395.48870001453906,
+          "complete_ms": 5113.399199995911,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 189.90209998446517
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 190.0333999947179
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 1074.215100001311
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 1074.5348999917042
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151555865.9582,
+                "posting_late_ms": 5.790499999420717
+              },
+              {
+                "scheduled_ms": 151556315.9582,
+                "posting_late_ms": 11.84550000471063
+              }
+            ]
+          },
+          "cpu_ms": 3531.25,
+          "max_qt_gap_ms": 1260.4747999866959,
+          "rss": 994131968,
+          "private": 2058764288,
+          "peak": 1099608064
+        },
+        {
+          "operation": "undo",
+          "dispatch_ms": 110.78779998933896,
+          "complete_ms": 4736.379599984502,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 33.41319999890402
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 33.74169999733567
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 710.4089999920689
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 710.7686999952421
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151561258.4602,
+                "posting_late_ms": 0.6726999999955297
+              },
+              {
+                "scheduled_ms": 151561708.46019998,
+                "posting_late_ms": 71.83820000500418
+              }
+            ]
+          },
+          "cpu_ms": 3046.875,
+          "max_qt_gap_ms": 1230.1567000104114,
+          "rss": 1025413120,
+          "private": 2126704640,
+          "peak": 1176354816
+        },
+        {
+          "operation": "redo",
+          "dispatch_ms": 112.98040000838228,
+          "complete_ms": 4794.7918999998365,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 31.505800026934594
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 31.837400019867346
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 792.9652000020724
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 793.3277999982238
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 151566349.2405,
+                "posting_late_ms": 1.9342999730724841
+              },
+              {
+                "scheduled_ms": 151566799.2405,
+                "posting_late_ms": 2.300199994351715
+              }
+            ]
+          },
+          "cpu_ms": 3015.625,
+          "max_qt_gap_ms": 1281.3281000126153,
+          "rss": 999137280,
+          "private": 2103336960,
+          "peak": 1176354816
+        }
+      ],
+      "exact_assertions_passed": true,
+      "fixture": "Original NOVA measurements; unique Wafer identity per repeated synthetic block; 8 selected Raw parameters, six wafers, Original order; full Map/Correlation tables; Dynamic independent empty. Actual rendered counts in drawn.",
+      "includes": "Key dispatch, queued Workbook analysis, all child data sync, watched page render and Qt paint. Unviewed plots intentionally deferred; explicit catch-up measured separately. Not DWM FPS"
+    },
+    "visible-all8-10k-map-after.json": {
+      "rows": 10000,
+      "columns": 30,
+      "children": 3,
+      "drawn": {
+        "valid_maps": 48,
+        "plot_page": 48,
+        "radius_page": 48,
+        "correlation_page": 45,
+        "sequence_page": 10
+      },
+      "profiled": false,
+      "baseline_all": false,
+      "baseline_v433": false,
+      "fixture_raw_sha256": "5b9386de4aef7f522bd8034815686c5a6cdab3eb5971d874127c5a1ead721436",
+      "fixture_reference_sha256": "2bb589a88fba756789e66a597e88c3b98a3ddb2eaf7c949aa7236893245c6cff",
+      "watched": "map",
+      "floating": true,
+      "changed_parameters": [
+        "P0",
+        "P1",
+        "P2",
+        "P3",
+        "P4",
+        "P5",
+        "P6",
+        "P7"
+      ],
+      "plot_evidence": {
+        "deferred_before_catchup": 3,
+        "explicit_catchup_ms": 1089.2614999902435,
+        "digests": {
+          "map_layers_surfaces_options": "3c5d5657a54a5b51a1ebda2c564e6e573db25d865aa6fe99e2709d8903ef6a9a",
+          "radius_sources": "306197e146ee28aca15c0d26c80a7ac1effafe8916c9f23fdaf6f33303c98692",
+          "correlation_all_fits": "e1097a0981f5fb7b5100b0875a12ee3030a3c68e48f992a33a9ed047846ede4b",
+          "correlation_visible_points_lines": "e0a44a02281817cd7c7b8f2f6b74fd8cca9743ea6b0499da538020bbab10478e",
+          "trend_all_primary_points": "a527016f685f3e6362b02571016e510bb549da140a313162fff2fef15ca1e17c"
+        }
+      },
+      "input_probe": true,
+      "samples": [
+        {
+          "operation": "select_all",
+          "dispatch_ms": 0.819500011857599,
+          "complete_ms": 50.24159999447875,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 35.548799991374835,
+          "rss": 817668096,
+          "private": 1988907008,
+          "peak": 817668096
+        },
+        {
+          "operation": "click_after_select_all",
+          "dispatch_ms": 0.4802999901585281,
+          "complete_ms": 44.109399983426556,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 30.413900007260963,
+          "rss": 817696768,
+          "private": 1988907008,
+          "peak": 817696768
+        },
+        {
+          "operation": "whole_table_paste",
+          "dispatch_ms": 879.8344999959227,
+          "complete_ms": 4862.754000001587,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 673.8015000009909
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 673.9499999966938
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 144.49400000739843
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 144.74560000235215
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 152249771.7996,
+                "posting_late_ms": 6.200099975103512
+              },
+              {
+                "scheduled_ms": 152250221.7996,
+                "posting_late_ms": 86.18509999359958
+              }
+            ]
+          },
+          "cpu_ms": 4296.875,
+          "max_qt_gap_ms": 1124.1564999800175,
+          "rss": 916549632,
+          "private": 2156163072,
+          "peak": 1021194240
+        },
+        {
+          "operation": "undo",
+          "dispatch_ms": 406.9947999960277,
+          "complete_ms": 4277.758400014136,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 201.77260000491515
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 202.2028999926988
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 841.4315000118222
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 841.7847000237089
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 152254878.92310002,
+                "posting_late_ms": 5.371999985072762
+              },
+              {
+                "scheduled_ms": 152255328.9231,
+                "posting_late_ms": 53.39129999629222
+              }
+            ]
+          },
+          "cpu_ms": 3984.375,
+          "max_qt_gap_ms": 1086.7515999998432,
+          "rss": 935489536,
+          "private": 2175991808,
+          "peak": 1089261568
+        },
+        {
+          "operation": "redo",
+          "dispatch_ms": 487.2911999991629,
+          "complete_ms": 4391.2134999991395,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 272.3981000017375
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 272.7532999997493
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 871.0198999906424
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 871.5693000121973
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 152259418.8035,
+                "posting_late_ms": 15.068699984112754
+              },
+              {
+                "scheduled_ms": 152259868.8035,
+                "posting_late_ms": 2.5619000080041587
+              }
+            ]
+          },
+          "cpu_ms": 3812.5,
+          "max_qt_gap_ms": 1022.1853999828454,
+          "rss": 916054016,
+          "private": 2156019712,
+          "peak": 1089261568
+        }
+      ],
+      "exact_assertions_passed": true,
+      "fixture": "Existing deterministic synthetic fixture; unique wafer per 100 source points; all eight plotted parameters edited; 8 selected Raw parameters, six wafers, Original order; full Map/Correlation tables; Dynamic independent empty. Actual rendered counts in drawn.",
+      "includes": "Key dispatch, queued Workbook analysis, all child data sync, watched page render and Qt paint. Unviewed plots intentionally deferred; explicit catch-up measured separately. Not DWM FPS"
+    },
+    "visible-all8-10k-map-before.json": {
+      "rows": 10000,
+      "columns": 30,
+      "children": 3,
+      "drawn": {
+        "valid_maps": 48,
+        "plot_page": 48,
+        "radius_page": 48,
+        "correlation_page": 45,
+        "sequence_page": 10
+      },
+      "profiled": false,
+      "baseline_all": false,
+      "baseline_v433": true,
+      "fixture_raw_sha256": "5b9386de4aef7f522bd8034815686c5a6cdab3eb5971d874127c5a1ead721436",
+      "fixture_reference_sha256": "2bb589a88fba756789e66a597e88c3b98a3ddb2eaf7c949aa7236893245c6cff",
+      "watched": "map",
+      "floating": true,
+      "changed_parameters": [
+        "P0",
+        "P1",
+        "P2",
+        "P3",
+        "P4",
+        "P5",
+        "P6",
+        "P7"
+      ],
+      "plot_evidence": {
+        "deferred_before_catchup": 0,
+        "explicit_catchup_ms": 30.235700018238276,
+        "digests": {
+          "map_layers_surfaces_options": "3c5d5657a54a5b51a1ebda2c564e6e573db25d865aa6fe99e2709d8903ef6a9a",
+          "radius_sources": "306197e146ee28aca15c0d26c80a7ac1effafe8916c9f23fdaf6f33303c98692",
+          "correlation_all_fits": "e1097a0981f5fb7b5100b0875a12ee3030a3c68e48f992a33a9ed047846ede4b",
+          "correlation_visible_points_lines": "e0a44a02281817cd7c7b8f2f6b74fd8cca9743ea6b0499da538020bbab10478e",
+          "trend_all_primary_points": "a527016f685f3e6362b02571016e510bb549da140a313162fff2fef15ca1e17c"
+        }
+      },
+      "input_probe": true,
+      "samples": [
+        {
+          "operation": "select_all",
+          "dispatch_ms": 0.6040000007487833,
+          "complete_ms": 57.230800011893734,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 40.80499999690801,
+          "rss": 814469120,
+          "private": 2017128448,
+          "peak": 814469120
+        },
+        {
+          "operation": "click_after_select_all",
+          "dispatch_ms": 0.6227999983821064,
+          "complete_ms": 43.562799983192235,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 31.418200000189245,
+          "rss": 814497792,
+          "private": 2017128448,
+          "peak": 814497792
+        },
+        {
+          "operation": "whole_table_paste",
+          "dispatch_ms": 882.5336000008974,
+          "complete_ms": 5411.692399997264,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 675.8984999905806
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 676.0437999910209
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 232.0674000075087
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 232.25749999983236
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 152218444.9199,
+                "posting_late_ms": 6.800100003601983
+              },
+              {
+                "scheduled_ms": 152218894.9199,
+                "posting_late_ms": 1.2761999969370663
+              }
+            ]
+          },
+          "cpu_ms": 4218.75,
+          "max_qt_gap_ms": 1169.8513999872375,
+          "rss": 916893696,
+          "private": 2120114176,
+          "peak": 1015062528
+        },
+        {
+          "operation": "undo",
+          "dispatch_ms": 410.71240001474507,
+          "complete_ms": 4688.577000022633,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 205.75709998956881
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 206.1217000009492
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 908.5897999757435
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 908.9209999947343
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 152224106.9705,
+                "posting_late_ms": 5.114200001116842
+              },
+              {
+                "scheduled_ms": 152224556.9705,
+                "posting_late_ms": 5.882500030566007
+              }
+            ]
+          },
+          "cpu_ms": 4156.25,
+          "max_qt_gap_ms": 1094.0239999908954,
+          "rss": 934748160,
+          "private": 2139344896,
+          "peak": 1081565184
+        },
+        {
+          "operation": "redo",
+          "dispatch_ms": 493.75780002446845,
+          "complete_ms": 4905.291700008092,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 274.9484999803826
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 275.3171999938786
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 759.2569999978878
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 860.9525999927428
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 152229045.6137,
+                "posting_late_ms": 18.963600014103577
+              },
+              {
+                "scheduled_ms": 152229495.61369997,
+                "posting_late_ms": 4.259900015313178
+              }
+            ]
+          },
+          "cpu_ms": 3734.375,
+          "max_qt_gap_ms": 1239.3663999973796,
+          "rss": 914452480,
+          "private": 2119467008,
+          "peak": 1081565184
+        }
+      ],
+      "exact_assertions_passed": true,
+      "fixture": "Existing deterministic synthetic fixture; unique wafer per 100 source points; all eight plotted parameters edited; 8 selected Raw parameters, six wafers, Original order; full Map/Correlation tables; Dynamic independent empty. Actual rendered counts in drawn.",
+      "includes": "Key dispatch, queued Workbook analysis, all child data sync, watched page render and Qt paint. Unviewed plots intentionally deferred; explicit catch-up measured separately. Not DWM FPS"
+    },
+    "visible-all8-10k-trend-after.json": {
+      "rows": 10000,
+      "columns": 30,
+      "children": 3,
+      "drawn": {
+        "valid_maps": 48,
+        "plot_page": 48,
+        "radius_page": 48,
+        "correlation_page": 45,
+        "sequence_page": 10
+      },
+      "profiled": false,
+      "baseline_all": false,
+      "baseline_v433": false,
+      "fixture_raw_sha256": "5b9386de4aef7f522bd8034815686c5a6cdab3eb5971d874127c5a1ead721436",
+      "fixture_reference_sha256": "2bb589a88fba756789e66a597e88c3b98a3ddb2eaf7c949aa7236893245c6cff",
+      "watched": "trend",
+      "floating": true,
+      "changed_parameters": [
+        "P0",
+        "P1",
+        "P2",
+        "P3",
+        "P4",
+        "P5",
+        "P6",
+        "P7"
+      ],
+      "plot_evidence": {
+        "deferred_before_catchup": 3,
+        "explicit_catchup_ms": 2293.142899987288,
+        "digests": {
+          "map_layers_surfaces_options": "3c5d5657a54a5b51a1ebda2c564e6e573db25d865aa6fe99e2709d8903ef6a9a",
+          "radius_sources": "306197e146ee28aca15c0d26c80a7ac1effafe8916c9f23fdaf6f33303c98692",
+          "correlation_all_fits": "e1097a0981f5fb7b5100b0875a12ee3030a3c68e48f992a33a9ed047846ede4b",
+          "correlation_visible_points_lines": "e0a44a02281817cd7c7b8f2f6b74fd8cca9743ea6b0499da538020bbab10478e",
+          "trend_all_primary_points": "a527016f685f3e6362b02571016e510bb549da140a313162fff2fef15ca1e17c"
+        }
+      },
+      "input_probe": true,
+      "samples": [
+        {
+          "operation": "select_all",
+          "dispatch_ms": 0.7362000178545713,
+          "complete_ms": 48.64809999708086,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 34.21740001067519,
+          "rss": 820178944,
+          "private": 2024579072,
+          "peak": 820178944
+        },
+        {
+          "operation": "click_after_select_all",
+          "dispatch_ms": 0.9403000003658235,
+          "complete_ms": 47.666999977082014,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 36.05220001190901,
+          "rss": 820207616,
+          "private": 2024579072,
+          "peak": 820207616
+        },
+        {
+          "operation": "whole_table_paste",
+          "dispatch_ms": 879.5040000113659,
+          "complete_ms": 3413.3292000042275,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 673.7649000133388
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 673.902900016401
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 145.7403999811504
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 145.95259999623522
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 152191343.9107,
+                "posting_late_ms": 5.900799995288253
+              },
+              {
+                "scheduled_ms": 152191793.9107,
+                "posting_late_ms": 84.61820002412423
+              }
+            ]
+          },
+          "cpu_ms": 2187.5,
+          "max_qt_gap_ms": 1104.8423000029288,
+          "rss": 879960064,
+          "private": 2084892672,
+          "peak": 947531776
+        },
+        {
+          "operation": "undo",
+          "dispatch_ms": 410.03859997726977,
+          "complete_ms": 2749.4793999940157,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 204.77650000248104
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 205.1367000094615
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 911.1526000197046
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 911.4778000221122
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 152194982.5166,
+                "posting_late_ms": 5.412499973317608
+              },
+              {
+                "scheduled_ms": 152195432.5166,
+                "posting_late_ms": 5.123499984620139
+              }
+            ]
+          },
+          "cpu_ms": 1750.0,
+          "max_qt_gap_ms": 975.3593999776058,
+          "rss": 896110592,
+          "private": 2100142080,
+          "peak": 947531776
+        },
+        {
+          "operation": "redo",
+          "dispatch_ms": 485.34559999825433,
+          "complete_ms": 2843.8532000000123,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 269.57689999835566
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 269.9475999979768
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 927.2303000034299
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 927.7648999996018
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 152197957.45610002,
+                "posting_late_ms": 16.2175000004936
+              },
+              {
+                "scheduled_ms": 152198407.4561,
+                "posting_late_ms": 5.937800015090033
+              }
+            ]
+          },
+          "cpu_ms": 1671.875,
+          "max_qt_gap_ms": 965.7153000007384,
+          "rss": 878563328,
+          "private": 2082824192,
+          "peak": 947531776
+        }
+      ],
+      "exact_assertions_passed": true,
+      "fixture": "Existing deterministic synthetic fixture; unique wafer per 100 source points; all eight plotted parameters edited; 8 selected Raw parameters, six wafers, Original order; full Map/Correlation tables; Dynamic independent empty. Actual rendered counts in drawn.",
+      "includes": "Key dispatch, queued Workbook analysis, all child data sync, watched page render and Qt paint. Unviewed plots intentionally deferred; explicit catch-up measured separately. Not DWM FPS"
+    },
+    "visible-all8-10k-trend-before.json": {
+      "rows": 10000,
+      "columns": 30,
+      "children": 3,
+      "drawn": {
+        "valid_maps": 48,
+        "plot_page": 48,
+        "radius_page": 48,
+        "correlation_page": 45,
+        "sequence_page": 10
+      },
+      "profiled": false,
+      "baseline_all": false,
+      "baseline_v433": true,
+      "fixture_raw_sha256": "5b9386de4aef7f522bd8034815686c5a6cdab3eb5971d874127c5a1ead721436",
+      "fixture_reference_sha256": "2bb589a88fba756789e66a597e88c3b98a3ddb2eaf7c949aa7236893245c6cff",
+      "watched": "trend",
+      "floating": true,
+      "changed_parameters": [
+        "P0",
+        "P1",
+        "P2",
+        "P3",
+        "P4",
+        "P5",
+        "P6",
+        "P7"
+      ],
+      "plot_evidence": {
+        "deferred_before_catchup": 0,
+        "explicit_catchup_ms": 29.601699992781505,
+        "digests": {
+          "map_layers_surfaces_options": "3c5d5657a54a5b51a1ebda2c564e6e573db25d865aa6fe99e2709d8903ef6a9a",
+          "radius_sources": "306197e146ee28aca15c0d26c80a7ac1effafe8916c9f23fdaf6f33303c98692",
+          "correlation_all_fits": "e1097a0981f5fb7b5100b0875a12ee3030a3c68e48f992a33a9ed047846ede4b",
+          "correlation_visible_points_lines": "e0a44a02281817cd7c7b8f2f6b74fd8cca9743ea6b0499da538020bbab10478e",
+          "trend_all_primary_points": "a527016f685f3e6362b02571016e510bb549da140a313162fff2fef15ca1e17c"
+        }
+      },
+      "input_probe": true,
+      "samples": [
+        {
+          "operation": "select_all",
+          "dispatch_ms": 0.6908999930601567,
+          "complete_ms": 50.398799998220056,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 35.378300002776086,
+          "rss": 816152576,
+          "private": 1919598592,
+          "peak": 816152576
+        },
+        {
+          "operation": "click_after_select_all",
+          "dispatch_ms": 0.6712999893352389,
+          "complete_ms": 44.67079997994006,
+          "input_delivery": null,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 33.15959998872131,
+          "rss": 816181248,
+          "private": 1919598592,
+          "peak": 816181248
+        },
+        {
+          "operation": "whole_table_paste",
+          "dispatch_ms": 880.7768000115175,
+          "complete_ms": 5373.975199996494,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 674.8880999803077
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 675.0248000025749
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 143.44250000431202
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 143.63949999096803
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 152159114.0165,
+                "posting_late_ms": 6.0391000006347895
+              },
+              {
+                "scheduled_ms": 152159564.0165,
+                "posting_late_ms": 88.12790000229143
+              }
+            ]
+          },
+          "cpu_ms": 3843.75,
+          "max_qt_gap_ms": 1203.9261999889277,
+          "rss": 916668416,
+          "private": 2121646080,
+          "peak": 1025351680
+        },
+        {
+          "operation": "undo",
+          "dispatch_ms": 409.02309998637065,
+          "complete_ms": 4686.510200001067,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 203.9269999950193
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 204.2817999899853
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 871.8365999811795
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 872.2368000017013
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 152164718.64880002,
+                "posting_late_ms": 5.2491999813355505
+              },
+              {
+                "scheduled_ms": 152165168.6488,
+                "posting_late_ms": 5.818400008138269
+              }
+            ]
+          },
+          "cpu_ms": 3859.375,
+          "max_qt_gap_ms": 1127.0720000029542,
+          "rss": 936165376,
+          "private": 2141077504,
+          "peak": 1082064896
+        },
+        {
+          "operation": "redo",
+          "dispatch_ms": 499.3809000006877,
+          "complete_ms": 4873.558899998898,
+          "input_delivery": {
+            "events": [
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 292.61679999763146
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 292.99909999826923
+              },
+              {
+                "kind": "KeyPress",
+                "delivery_ms": 537.4361999856774
+              },
+              {
+                "kind": "MouseButtonPress",
+                "delivery_ms": 565.9980999771506
+              }
+            ],
+            "posting": [
+              {
+                "scheduled_ms": 152169629.6913,
+                "posting_late_ms": 7.019699987722561
+              },
+              {
+                "scheduled_ms": 152170079.6913,
+                "posting_late_ms": 0.7594000198878348
+              }
+            ]
+          },
+          "cpu_ms": 3593.75,
+          "max_qt_gap_ms": 1207.3102000285871,
+          "rss": 916271104,
+          "private": 2122379264,
+          "peak": 1082064896
+        }
+      ],
+      "exact_assertions_passed": true,
+      "fixture": "Existing deterministic synthetic fixture; unique wafer per 100 source points; all eight plotted parameters edited; 8 selected Raw parameters, six wafers, Original order; full Map/Correlation tables; Dynamic independent empty. Actual rendered counts in drawn.",
+      "includes": "Key dispatch, queued Workbook analysis, all child data sync, watched page render and Qt paint. Unviewed plots intentionally deferred; explicit catch-up measured separately. Not DWM FPS"
+    }
+  },
+  "tests": {
+    "focused_native": {
+      "log": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\viewed-native-canvas-fixed.log",
+      "sha256": "bf25269883fc1b12dae1a2ff1ccb7527c4da38f34e16ee1491b42d55f7026501",
+      "total": 15,
+      "elapsed_seconds": 23.381,
+      "failures": [],
+      "errors": [],
+      "passed": 15,
+      "strict_pass": true,
+      "backend": "windows",
+      "isolated_settings_and_recovery": true
+    },
+    "native_related_initial": {
+      "log": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\viewed-related-stable.log",
+      "sha256": "38fd889b5aedc6078cfb9077dd84172dad5bf2efc43b7bfe2ba7a53360bfbb7a",
+      "total": 129,
+      "elapsed_seconds": 210.142,
+      "failures": [
+        "test_parameter_buttons_wrap_to_multiple_rows_and_reflow_when_widened (tests.test_parameter_filter.ParameterFilterTests)"
+      ],
+      "errors": [],
+      "passed": 128,
+      "strict_pass": false,
+      "backend": "windows",
+      "isolated_settings_and_recovery": true
+    },
+    "offscreen_focused": {
+      "log": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\viewed-offscreen-focused.log",
+      "sha256": "f3c5124fb70dfee1ff342733881d853b629cb9d2786a87e860acb5458bad4985",
+      "total": 15,
+      "elapsed_seconds": 15.443,
+      "failures": [],
+      "errors": [],
+      "passed": 15,
+      "strict_pass": true,
+      "backend": "offscreen",
+      "isolated_settings_and_recovery": true
+    },
+    "related_before_fixes": {
+      "log": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\viewed-related-standard.log",
+      "sha256": "3da696bb31165ada1d5ed39495b95befcfd6794f89be77edc399c5cda7efef76",
+      "total": 129,
+      "elapsed_seconds": 186.825,
+      "failures": [],
+      "errors": [],
+      "passed": 129,
+      "strict_pass": true,
+      "backend": "offscreen",
+      "isolated_settings_and_recovery": true
+    },
+    "initial_full_regression": {
+      "log": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\viewed-full-standard.log",
+      "sha256": "433dce8bb89220793117fd68c52901e1ea0ed7cdc08ddb1baff129f0926bb741",
+      "total": 1167,
+      "elapsed_seconds": 1186.524,
+      "failures": [
+        "test_restore_disabled_trend_does_not_run_old_queued_draw (test_performance_regressions.WorkbookPerformanceTests)",
+        "test_saved_wide_workbook_dirty_checks_preserve_the_accepted_state_promptly (test_performance_regressions.WorkbookPerformanceTests)",
+        "test_trend_prepares_labels_without_per_wafer_scans_or_losing_rows (test_render_preparation.RenderPreparationTests)",
+        "test_plain_cells_avoid_generic_recursive_serialization_cost (test_writer_cell_serialization.WriterCellSerializationTests)"
+      ],
+      "errors": [],
+      "passed": 1163,
+      "strict_pass": false,
+      "backend": "offscreen",
+      "isolated_settings_and_recovery": true
+    },
+    "native_after_regression_fixes": {
+      "log": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\viewed-regression-fixes-native.log",
+      "sha256": "9a079cf1ee7c0731ba3d2fede7852c5f9af3ea16d0b30f78417b48a9e56454e3",
+      "total": 19,
+      "elapsed_seconds": 25.257,
+      "failures": [],
+      "errors": [],
+      "passed": 19,
+      "strict_pass": true,
+      "backend": "windows",
+      "isolated_settings_and_recovery": true
+    },
+    "related_integration": {
+      "log": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\viewed-related-after-fixes.log",
+      "sha256": "5485124d20b7e142d24d303e97ea07dd26d08184032f9a292020d4e77beb078e",
+      "total": 133,
+      "elapsed_seconds": 184.042,
+      "failures": [],
+      "errors": [],
+      "passed": 133,
+      "strict_pass": true,
+      "backend": "offscreen",
+      "isolated_settings_and_recovery": true
+    },
+    "final_full_regression": {
+      "log": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\viewed-full-after-fixes.log",
+      "sha256": "022bb769c567ba36aeababa117026f41b59fcee278658868819dc718ea7792b6",
+      "total": 1168,
+      "elapsed_seconds": 1189.858,
+      "failures": [
+        "test_closing_changed_analysis_state_is_responsive_and_keeps_source (test_analysis_close_performance.AnalysisCloseTests)",
+        "test_saved_wide_workbook_dirty_checks_preserve_the_accepted_state_promptly (test_performance_regressions.WorkbookPerformanceTests)",
+        "test_plain_cells_avoid_generic_recursive_serialization_cost (test_writer_cell_serialization.WriterCellSerializationTests)"
+      ],
+      "errors": [],
+      "passed": 1165,
+      "strict_pass": false,
+      "backend": "offscreen",
+      "isolated_settings_and_recovery": true
+    }
+  },
+  "limitations": [
+    "Original NOVA full-table paste changes only the first mapped parameter (+0.001). Additional synthetic case changes all eight drawn parameters.",
+    "Three child windows comprise Map/Radius, Correlation/Trend and independent empty Dynamic; no claim of loaded Dynamic workload.",
+    "100k is one stress pair. No leak conclusion from its Private Bytes or Working Set.",
+    "Application viewing follows last activated analysis window and current top tab; does not inspect screen occlusion or user gaze.",
+    "Earlier repeated-Wafer fixture had zero valid Maps. Earlier numeric-ready timings did not establish Trend canvas visibility; neither replaces these runs."
+  ],
+  "full_regression_count_this_viewed_refresh_phase": 2,
+  "second_full_reason": "Initial full found two real regressions also reproducible in frozen v4.3.3. Both received red/green local fixes before the final full; no repeat fishing for performance green.",
+  "required_lxml_backend": true,
+  "assertion_scope": "Raw/child string frames and Undo are exact; target curve arrays use numpy array equality; summary DataFrames use pandas default floating tolerance; final five plot digests compare canonical float64 data with normalized NaNs. The benchmark field exact_assertions_passed is qualified by this scope.",
+  "native_related_layout_failure": {
+    "source": "Observed stdout of parameter_geometry_probe.py and unmodified single test runs; stored after observation, no invented rerun",
+    "script": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\parameter_geometry_probe.py",
+    "script_sha256": "f3c9a92b16d1d9d202f7ad757951737d7f2ab5697f6a80a5b7e0bc3f2d804ae8",
+    "test": "tests.test_parameter_filter.ParameterFilterTests.test_parameter_buttons_wrap_to_multiple_rows_and_reflow_when_widened",
+    "source_and_test_equal_v433": true,
+    "windows": {
+      "requested_width": 4000,
+      "actual_host_width": 1539,
+      "bar_width": 1517,
+      "rows": 2,
+      "screen": [
+        0,
+        0,
+        1536,
+        864
+      ],
+      "original_test_passed": false,
+      "test_seconds": 0.2
+    },
+    "offscreen": {
+      "requested_width": 4000,
+      "actual_host_width": 4000,
+      "bar_width": 3978,
+      "rows": 1,
+      "screen": [
+        0,
+        0,
+        800,
+        800
+      ],
+      "original_test_passed": true,
+      "test_seconds": 0.017
+    },
+    "classification": "Unmodified layout test assumes wider-than-desktop top-level window; native Windows maximum tracking width constrains the input. No production change or assertion relaxation."
+  },
+  "baseline_and_harness_manifest": {
+    "baseline_tag": "v4.3.3",
+    "verified_tag_modules": {
+      "metrology_app/analysis_export.py": "67c6b7aff97a5b99276d5b0925d5de81255de3bb612bc27039008d61b111cc84",
+      "metrology_app/correlation_page.py": "665c4ccc61eb2080e4499e6f75dce2d041d363a55ccab94a1f2e76e6ca0e40f4",
+      "metrology_app/matching_window.py": "dec5b7ac4bfd99fea265844235bfaf3c4848be190ceee8e176c44b2f00549a40",
+      "metrology_app/plot_page.py": "ead50b2a87e789d225c3f36ad6e7c0d2ca82c05d9797c172028e87f86a82ee0a",
+      "metrology_app/radius_page.py": "d9182fb5a20a3e756a8c065b30c703d7762a4d8e47aba0d17b1ede033dbcae01",
+      "metrology_app/sequence_page.py": "04b4514c4905e03380b50bfb504643876f14f715517a98416b36a0ed829b4458",
+      "metrology_app/window.py": "8a656ed7903b955f4255fb7505d36a88e75a208ff4c58e919b7337f014c00d8a"
+    },
+    "benchmark_scripts": {
+      "probe_viewed_refresh.py": "a3e5ee3cce2f189741787303be129b30cd7f58ace0793b9d25a88b3d25bee0df",
+      "probe_all_metric_refresh.py": "855345769c94b5538e2166a53350100cd9cef3c01038da319afd61b4c46cf991",
+      "run_visible_final_pairs.ps1": "52474d2d39250f45b3c9d9604fc71846c7def33b44d2c4e776d2322d20a99c65",
+      "run_visible_all8_pairs.ps1": "3ade922912c1f0996353cf83bf0f6c618a68533a62c013f729a8b799173a9020"
+    },
+    "unmodified_shared_modules": "All other imported production modules equal HEAD v4.3.3; new viewed_plots controller is unused by baseline window."
+  },
+  "protected_hashes_before_full": {
+    "D:\\WaferMap\\config\\settings.yaml": "4cba2be14b7a1f0bcc2e50710ca29d382a17c8bac2900a595a5fc63fb9c6b1b7",
+    "D:\\WaferMap\\.vscode\\settings.json": "9a8907551427895d3a1fdad05941b3faf704b65f2c7cecca379bcfc562d26574",
+    "D:\\WaferMap\\AGENTS.md": "c1892cd6ff503fc3a9f4452cef948bfd72b51e04eaa44b5614c77016f657643f",
+    "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\owned-nova-multi.wkb": "9c0b9437eef660d3bffc9c007515c1875f24cbc25c60ca2e8235032b9272fb65"
+  },
+  "protected_hashes_after_full": {
+    "D:\\WaferMap\\config\\settings.yaml": "4cba2be14b7a1f0bcc2e50710ca29d382a17c8bac2900a595a5fc63fb9c6b1b7",
+    "D:\\WaferMap\\.vscode\\settings.json": "9a8907551427895d3a1fdad05941b3faf704b65f2c7cecca379bcfc562d26574",
+    "D:\\WaferMap\\AGENTS.md": "c1892cd6ff503fc3a9f4452cef948bfd72b51e04eaa44b5614c77016f657643f",
+    "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\owned-nova-multi.wkb": "9c0b9437eef660d3bffc9c007515c1875f24cbc25c60ca2e8235032b9272fb65"
+  },
+  "protected_hashes_unchanged": true,
+  "three_round_phase_source_sha256": {
+    "metrology_app/analysis_export.py": "97b23fc43f01793488a43937db259b566002d97de08eec45fb7daae9e01b602b",
+    "metrology_app/correlation_page.py": "9f956d726f66b7b2844e800677fae4064be877e7dab04eed7b3bfe8c882460d7",
+    "metrology_app/matching_window.py": "6c0915e55e0f094ccb8eaa31fa8f0e2ff9211e60b65295d10ddb12a429cc9d2b",
+    "metrology_app/plot_page.py": "41b9f46098a39c2c6567996293e1074418fe84d10e1401479c55ae66facafd1a",
+    "metrology_app/radius_page.py": "81c12bd80175710ece5ba8f88d31e1bf6e89946af28df2a68abce89ca282eaad",
+    "metrology_app/sequence_page.py": "4933ebe4f5a392ecd6fe3685ca138d0bfffd85441414dd2976bf8f42724c8cb9",
+    "metrology_app/window.py": "95f7ddf5a8a426e50ba98cb8ca22b985d47c990c5a355c356b8c99dd0e7bd9f6",
+    "metrology_app/viewed_plots.py": "0a0073ed01ad9079bd948be1bab0c5b8f851596f88ab4f1a4abf1c9987212285",
+    "tests/test_viewed_plot_refresh.py": "b45c65ecb331d49b493abce80f48d142520b8ef6859ae271ee9762fb0c76a418"
+  },
+  "source_sha256": {
+    "metrology_app/analysis_export.py": "97b23fc43f01793488a43937db259b566002d97de08eec45fb7daae9e01b602b",
+    "metrology_app/correlation_page.py": "be170b24c65fe73f39e483ecac19c2e05302a571c39d9ea107f71bba0a520224",
+    "metrology_app/matching_window.py": "6c0915e55e0f094ccb8eaa31fa8f0e2ff9211e60b65295d10ddb12a429cc9d2b",
+    "metrology_app/plot_page.py": "41b9f46098a39c2c6567996293e1074418fe84d10e1401479c55ae66facafd1a",
+    "metrology_app/radius_page.py": "81c12bd80175710ece5ba8f88d31e1bf6e89946af28df2a68abce89ca282eaad",
+    "metrology_app/sequence_page.py": "42b265ca8c43be976558747dc2796865c6270ee4c64803b3bbc4111f0875edd9",
+    "metrology_app/window.py": "95f7ddf5a8a426e50ba98cb8ca22b985d47c990c5a355c356b8c99dd0e7bd9f6",
+    "metrology_app/viewed_plots.py": "0a0073ed01ad9079bd948be1bab0c5b8f851596f88ab4f1a4abf1c9987212285",
+    "tests/test_viewed_plot_refresh.py": "3a14cbfe866855106fb3200360a7745324f95a3797bfd73c8c12d13a19d4801c"
+  },
+  "final_source_confirmation_pair": {
+    "raw_runs": {
+      "before": {
+        "rows": 10000,
+        "columns": 30,
+        "children": 3,
+        "drawn": {
+          "valid_maps": 48,
+          "plot_page": 48,
+          "radius_page": 48,
+          "correlation_page": 45,
+          "sequence_page": 10
+        },
+        "profiled": false,
+        "baseline_all": false,
+        "baseline_v433": true,
+        "fixture_raw_sha256": "5b9386de4aef7f522bd8034815686c5a6cdab3eb5971d874127c5a1ead721436",
+        "fixture_reference_sha256": "2bb589a88fba756789e66a597e88c3b98a3ddb2eaf7c949aa7236893245c6cff",
+        "watched": "trend",
+        "floating": true,
+        "changed_parameters": [
+          "P0",
+          "P1",
+          "P2",
+          "P3",
+          "P4",
+          "P5",
+          "P6",
+          "P7"
+        ],
+        "plot_evidence": {
+          "deferred_before_catchup": 0,
+          "explicit_catchup_ms": 27.355700003681704,
+          "digests": {
+            "map_layers_surfaces_options": "3c5d5657a54a5b51a1ebda2c564e6e573db25d865aa6fe99e2709d8903ef6a9a",
+            "radius_sources": "306197e146ee28aca15c0d26c80a7ac1effafe8916c9f23fdaf6f33303c98692",
+            "correlation_all_fits": "e1097a0981f5fb7b5100b0875a12ee3030a3c68e48f992a33a9ed047846ede4b",
+            "correlation_visible_points_lines": "e0a44a02281817cd7c7b8f2f6b74fd8cca9743ea6b0499da538020bbab10478e",
+            "trend_all_primary_points": "a527016f685f3e6362b02571016e510bb549da140a313162fff2fef15ca1e17c"
+          }
+        },
+        "input_probe": true,
+        "samples": [
+          {
+            "operation": "select_all",
+            "dispatch_ms": 0.7168000156525522,
+            "complete_ms": 51.420000003417954,
+            "input_delivery": null,
+            "cpu_ms": 15.625,
+            "max_qt_gap_ms": 36.328100017271936,
+            "rss": 815693824,
+            "private": 1953206272,
+            "peak": 815693824
+          },
+          {
+            "operation": "click_after_select_all",
+            "dispatch_ms": 0.7658000104129314,
+            "complete_ms": 45.12500000419095,
+            "input_delivery": null,
+            "cpu_ms": 0.0,
+            "max_qt_gap_ms": 32.310000009601936,
+            "rss": 815722496,
+            "private": 1953206272,
+            "peak": 815722496
+          },
+          {
+            "operation": "whole_table_paste",
+            "dispatch_ms": 887.1402000077069,
+            "complete_ms": 5403.15389999887,
+            "input_delivery": {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 681.8774999992456
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 682.0147999969777
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 234.41730000195093
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 234.99620001530275
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 154523522.1614,
+                  "posting_late_ms": 5.424800008768216
+                },
+                {
+                  "scheduled_ms": 154523972.1614,
+                  "posting_late_ms": 3.5142000124324113
+                }
+              ]
+            },
+            "cpu_ms": 5156.25,
+            "max_qt_gap_ms": 1218.2661000115331,
+            "rss": 917352448,
+            "private": 2056237056,
+            "peak": 1026404352
+          },
+          {
+            "operation": "undo",
+            "dispatch_ms": 407.16879998217337,
+            "complete_ms": 4749.828400003025,
+            "input_delivery": {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 201.5687999955844
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 201.95799999055453
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 816.3168999890331
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 816.6418999899179
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 154529145.9322,
+                  "posting_late_ms": 5.752199998823926
+                },
+                {
+                  "scheduled_ms": 154529595.93219998,
+                  "posting_late_ms": 5.215400015003979
+                }
+              ]
+            },
+            "cpu_ms": 3562.5,
+            "max_qt_gap_ms": 880.3664000006393,
+            "rss": 936173568,
+            "private": 2109411328,
+            "peak": 1097318400
+          },
+          {
+            "operation": "redo",
+            "dispatch_ms": 492.63920000521466,
+            "complete_ms": 4877.19980001566,
+            "input_delivery": {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 273.49510000203736
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 273.87249999446794
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 956.7119000130333
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 957.1452000236604
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 154534121.3012,
+                  "posting_late_ms": 19.29050000035204
+                },
+                {
+                  "scheduled_ms": 154534571.3012,
+                  "posting_late_ms": 6.608499999856576
+                }
+              ]
+            },
+            "cpu_ms": 3937.5,
+            "max_qt_gap_ms": 1216.3757999951486,
+            "rss": 916029440,
+            "private": 2091208704,
+            "peak": 1097318400
+          }
+        ],
+        "exact_assertions_passed": true,
+        "fixture": "Existing deterministic synthetic fixture; unique wafer per 100 source points; all eight plotted parameters edited; 8 selected Raw parameters, six wafers, Original order; full Map/Correlation tables; Dynamic independent empty. Actual rendered counts in drawn.",
+        "includes": "Key dispatch, queued Workbook analysis, all child data sync, watched page render and Qt paint. Unviewed plots intentionally deferred; explicit catch-up measured separately. Not DWM FPS"
+      },
+      "after": {
+        "rows": 10000,
+        "columns": 30,
+        "children": 3,
+        "drawn": {
+          "valid_maps": 48,
+          "plot_page": 48,
+          "radius_page": 48,
+          "correlation_page": 45,
+          "sequence_page": 10
+        },
+        "profiled": false,
+        "baseline_all": false,
+        "baseline_v433": false,
+        "fixture_raw_sha256": "5b9386de4aef7f522bd8034815686c5a6cdab3eb5971d874127c5a1ead721436",
+        "fixture_reference_sha256": "2bb589a88fba756789e66a597e88c3b98a3ddb2eaf7c949aa7236893245c6cff",
+        "watched": "trend",
+        "floating": true,
+        "changed_parameters": [
+          "P0",
+          "P1",
+          "P2",
+          "P3",
+          "P4",
+          "P5",
+          "P6",
+          "P7"
+        ],
+        "plot_evidence": {
+          "deferred_before_catchup": 3,
+          "explicit_catchup_ms": 2389.4672000024,
+          "digests": {
+            "map_layers_surfaces_options": "3c5d5657a54a5b51a1ebda2c564e6e573db25d865aa6fe99e2709d8903ef6a9a",
+            "radius_sources": "306197e146ee28aca15c0d26c80a7ac1effafe8916c9f23fdaf6f33303c98692",
+            "correlation_all_fits": "e1097a0981f5fb7b5100b0875a12ee3030a3c68e48f992a33a9ed047846ede4b",
+            "correlation_visible_points_lines": "e0a44a02281817cd7c7b8f2f6b74fd8cca9743ea6b0499da538020bbab10478e",
+            "trend_all_primary_points": "a527016f685f3e6362b02571016e510bb549da140a313162fff2fef15ca1e17c"
+          }
+        },
+        "input_probe": true,
+        "samples": [
+          {
+            "operation": "select_all",
+            "dispatch_ms": 0.903899985132739,
+            "complete_ms": 50.684799993177876,
+            "input_delivery": null,
+            "cpu_ms": 0.0,
+            "max_qt_gap_ms": 35.551899985875934,
+            "rss": 820240384,
+            "private": 1923526656,
+            "peak": 820240384
+          },
+          {
+            "operation": "click_after_select_all",
+            "dispatch_ms": 0.9714999760035425,
+            "complete_ms": 54.60939998738468,
+            "input_delivery": null,
+            "cpu_ms": 0.0,
+            "max_qt_gap_ms": 36.21910000219941,
+            "rss": 820269056,
+            "private": 1923526656,
+            "peak": 820269056
+          },
+          {
+            "operation": "whole_table_paste",
+            "dispatch_ms": 904.6564000018407,
+            "complete_ms": 3422.745300020324,
+            "input_delivery": {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 699.2677000234835
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 699.4059000280686
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 166.87660000752658
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 167.1939000079874
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 154555015.4454,
+                  "posting_late_ms": 5.555499985348433
+                },
+                {
+                  "scheduled_ms": 154555465.44539997,
+                  "posting_late_ms": 88.87720000348054
+                }
+              ]
+            },
+            "cpu_ms": 2187.5,
+            "max_qt_gap_ms": 1107.0262999855913,
+            "rss": 879374336,
+            "private": 1983201280,
+            "peak": 947433472
+          },
+          {
+            "operation": "undo",
+            "dispatch_ms": 409.10320001421496,
+            "complete_ms": 2808.583700010786,
+            "input_delivery": {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 202.1355000033509
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 202.4985000025481
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 961.5507000125945
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 961.8766000203323
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 154558663.9222,
+                  "posting_late_ms": 7.130099984351546
+                },
+                {
+                  "scheduled_ms": 154559113.9222,
+                  "posting_late_ms": 2.331900002900511
+                }
+              ]
+            },
+            "cpu_ms": 1453.125,
+            "max_qt_gap_ms": 1019.7609999740962,
+            "rss": 896950272,
+            "private": 1999826944,
+            "peak": 947433472
+          },
+          {
+            "operation": "redo",
+            "dispatch_ms": 481.9011999934446,
+            "complete_ms": 2769.8847000137903,
+            "input_delivery": {
+              "events": [
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 272.4078000173904
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 272.77400001185015
+                },
+                {
+                  "kind": "KeyPress",
+                  "delivery_ms": 871.9200000050478
+                },
+                {
+                  "kind": "MouseButtonPress",
+                  "delivery_ms": 872.3387999925762
+                }
+              ],
+              "posting": [
+                {
+                  "scheduled_ms": 154561698.92520002,
+                  "posting_late_ms": 9.64509998448193
+                },
+                {
+                  "scheduled_ms": 154562148.9252,
+                  "posting_late_ms": 7.860900019295514
+                }
+              ]
+            },
+            "cpu_ms": 1515.625,
+            "max_qt_gap_ms": 905.3260000073351,
+            "rss": 879943680,
+            "private": 1983033344,
+            "peak": 948776960
+          }
+        ],
+        "exact_assertions_passed": true,
+        "fixture": "Existing deterministic synthetic fixture; unique wafer per 100 source points; all eight plotted parameters edited; 8 selected Raw parameters, six wafers, Original order; full Map/Correlation tables; Dynamic independent empty. Actual rendered counts in drawn.",
+        "includes": "Key dispatch, queued Workbook analysis, all child data sync, watched page render and Qt paint. Unviewed plots intentionally deferred; explicit catch-up measured separately. Not DWM FPS"
+      }
+    },
+    "same_fixture_and_all_five_plot_digests": true,
+    "same_as_pre_corrective_fix_plot_digests": true,
+    "n_each_condition": 1,
+    "p50_or_p95_claimed": false,
+    "source_sha256": {
+      "metrology_app/analysis_export.py": "97b23fc43f01793488a43937db259b566002d97de08eec45fb7daae9e01b602b",
+      "metrology_app/correlation_page.py": "be170b24c65fe73f39e483ecac19c2e05302a571c39d9ea107f71bba0a520224",
+      "metrology_app/matching_window.py": "6c0915e55e0f094ccb8eaa31fa8f0e2ff9211e60b65295d10ddb12a429cc9d2b",
+      "metrology_app/plot_page.py": "41b9f46098a39c2c6567996293e1074418fe84d10e1401479c55ae66facafd1a",
+      "metrology_app/radius_page.py": "81c12bd80175710ece5ba8f88d31e1bf6e89946af28df2a68abce89ca282eaad",
+      "metrology_app/sequence_page.py": "42b265ca8c43be976558747dc2796865c6270ee4c64803b3bbc4111f0875edd9",
+      "metrology_app/window.py": "95f7ddf5a8a426e50ba98cb8ca22b985d47c990c5a355c356b8c99dd0e7bd9f6",
+      "metrology_app/viewed_plots.py": "0a0073ed01ad9079bd948be1bab0c5b8f851596f88ab4f1a4abf1c9987212285",
+      "tests/test_viewed_plot_refresh.py": "3a14cbfe866855106fb3200360a7745324f95a3797bfd73c8c12d13a19d4801c"
+    }
+  },
+  "corrective_regressions": {
+    "strict_current_red_log": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\two-regressions-current-red.log",
+    "strict_frozen_tag_red_log": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\two-regressions-tag-red.log",
+    "disabled_draw_workflow_red_log": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\disabled-draw-workflow-red.log",
+    "label_preparation_before": {
+      "label_spans_calls": 2,
+      "callers": [
+        [
+          "draw_plot",
+          "render_interactive",
+          "_single_curve_geometry"
+        ],
+        [
+          "test_trend_prepares_labels_without_per_wafer_scans_or_losing_rows",
+          "draw_plot",
+          "render_interactive"
+        ]
+      ],
+      "strict_test_passed": false
+    },
+    "label_preparation_after": {
+      "label_spans_calls": 1,
+      "callers": [
+        [
+          "test_trend_prepares_labels_without_per_wafer_scans_or_losing_rows",
+          "draw_plot",
+          "render_interactive"
+        ]
+      ],
+      "strict_test_passed": true
+    },
+    "fixes": [
+      "Explicit enabled=False clears prior Correlation/Trend plots, cancels old work, discards deferred replay, remains disabled on subsequent source edits.",
+      "One existing label-spans result is passed to geometry comparison and rendering; no label or numerical semantics change."
+    ],
+    "limits_unchanged": true
+  },
+  "post_gate_diagnostics": {
+    "viewed-final-postgate-close.json": {
+      "test": "close",
+      "code_root": "D:\\WaferMap",
+      "python": "3.10.20 | packaged by Anaconda, Inc. | (main, Jun 11 2026, 15:13:20) [MSC v.1942 64 bit (AMD64)]",
+      "qt": "6.11.0",
+      "platform": "offscreen",
+      "pid": 10660,
+      "samples": [
+        {
+          "name": "close",
+          "iteration": 0,
+          "timings": [
+            {
+              "seconds": 0.29439679998904467,
+              "limit": 0.25,
+              "passed": false,
+              "message": "wafer_map close blocks the GUI"
+            },
+            {
+              "seconds": 0.06755000000703149,
+              "limit": 0.25,
+              "passed": true,
+              "message": "correlation_trend close blocks the GUI"
+            },
+            {
+              "seconds": 0.02969440000015311,
+              "limit": 0.25,
+              "passed": true,
+              "message": "dynamic close blocks the GUI"
+            }
+          ],
+          "machine_cpu_before_percent": 0.0,
+          "available_memory_before": 4744871936,
+          "wall_seconds": 2.353479299985338,
+          "non_timing_assertions_passed": true,
+          "log": "test_closing_changed_analysis_state_is_responsive_and_keeps_source (tests.test_analysis_close_performance.AnalysisCloseTests) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 2.352s\n\nOK\n",
+          "all_timing_gates_passed": false
+        }
+      ],
+      "diagnostic_only": true,
+      "timing_gate_unchanged": true,
+      "note": "Only timing failures are deferred to check subsequent assertions; never an official passing test result."
+    },
+    "viewed-final-postgate-writer.json": {
+      "test": "writer",
+      "code_root": "D:\\WaferMap",
+      "python": "3.10.20 | packaged by Anaconda, Inc. | (main, Jun 11 2026, 15:13:20) [MSC v.1942 64 bit (AMD64)]",
+      "qt": "6.11.0",
+      "platform": "offscreen",
+      "pid": 35796,
+      "samples": [
+        {
+          "name": "writer",
+          "iteration": 0,
+          "timings": [
+            {
+              "seconds": 0.3135138000070583,
+              "limit": 0.3,
+              "passed": false,
+              "message": "Plain-cell encoding blocked for 0.314s"
+            }
+          ],
+          "machine_cpu_before_percent": 5.747126436781613,
+          "available_memory_before": 4707639296,
+          "wall_seconds": 0.8179028000158723,
+          "non_timing_assertions_passed": true,
+          "log": "test_plain_cells_avoid_generic_recursive_serialization_cost (tests.test_writer_cell_serialization.WriterCellSerializationTests) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.816s\n\nOK\n",
+          "all_timing_gates_passed": false
+        }
+      ],
+      "diagnostic_only": true,
+      "timing_gate_unchanged": true,
+      "note": "Only timing failures are deferred to check subsequent assertions; never an official passing test result."
+    }
+  },
+  "raw_evidence_root": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027",
+  "git_checkpoint": "Local checkpoint containing this report and sources; resolve exact SHA with git log -1 -- docs/validation/viewed-plot-refresh-2026-10-27.json. Remote v4.3.3 remains at the pre-feature commit.",
+  "current_remaining_gates": [
+    {
+      "check": "changed Wafer Map close",
+      "seconds": 0.31588680000277236,
+      "limit_seconds": 0.25,
+      "classification": "证据不足以归因为版本回归或环境；当前确实不达标",
+      "post_gate_non_timing_verified": true
+    },
+    {
+      "check": "Dirty min of three",
+      "seconds": 0.11146169999847189,
+      "limit_seconds": 0.1,
+      "classification": "既有持续耗时缺口；本轮未实施性能修复",
+      "non_timing_assertions_before_gate_passed": true
+    },
+    {
+      "check": "Writer 100000 plain cells",
+      "seconds": 0.3489048999908846,
+      "limit_seconds": 0.3,
+      "classification": "既有耗时缺口；本轮未实施性能修复",
+      "post_gate_non_timing_verified": true
+    }
+  ],
+  "assessment": {
+    "this_feature": "查看时刷新已实现；相关133/133和原生19/19通过，最终full无新增非耗时失败，关闭/Writer后续断言独立诊断通过；不等于所有场景全面认证",
+    "common_smoothness": "部分达标",
+    "extreme_performance": "不通过",
+    "p0_release": "暂不可封版：严格full三项耗时门槛未过，10k/100k真实等待仍明显，旧独立审核的未覆盖边界未由本文自动消除",
+    "tag_scope": "v4.3.3 is pre-feature snapshot; the two reproduced regressions remain in the tag and are fixed only in the local successor checkpoint"
+  },
+  "post_gate_adapter": {
+    "base_runner": "D:/WaferMap/.cache/p0-final-v432-20261026/probe_four.py",
+    "base_sha256": "b9f4597de883d5680517c1ec0a9125781789fa2932ab404315c8286fc99961bb",
+    "adapter": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\probe_postgate_same_backend.py",
+    "adapter_sha256": "25a0784f993624c32b7048b83478e5757c266d8f4eb34376f9bcfbe8ae4a9ce1",
+    "change": "Only switch diagnostic Qt backend to offscreen, matching full. Existing runner records/defer timing assertLess to reach downstream assertions; never an official strict pass."
+  }
+}

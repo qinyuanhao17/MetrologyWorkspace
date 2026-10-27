@@ -795,6 +795,7 @@ class MatchingWindow(QMainWindow):
         self._stage_windows = []
         self._syncing_stage_windows = False
         self._stage_sync_inputs = None
+        self._viewed_plot_workspace = None
         from .background_task import LatestTask
         from .linked_refresh import prepare_linked_sources
         self._linked_generation = 0
@@ -3431,6 +3432,8 @@ class MatchingWindow(QMainWindow):
             )
 
     def _forget_stage_workspace(self, workspace):
+        if getattr(self, "_viewed_plot_workspace", None) is workspace:
+            self._viewed_plot_workspace = None
         if workspace in self._stage_windows:
             self._stage_windows.remove(workspace)
         self._stage_window_context.pop(workspace, None)
@@ -3620,7 +3623,7 @@ class MatchingWindow(QMainWindow):
         # Small inputs are cheaper than scheduling/copying a worker request;
         # retain their existing one-event-loop source update behavior.
         if self._active_raw_frame().size < 8192:
-            self.sync_stage_windows()
+            self.sync_stage_windows(defer_plots=True)
             return
         if self.raw_view.keyboard_editing or self._raw_keyboard_timer.isActive():
             self._linked_prepare_timer.start()
@@ -3745,7 +3748,11 @@ class MatchingWindow(QMainWindow):
                 page.setEnabled(getattr(page, "_linked_was_enabled", True))
             available = (getattr(page, "ready", False) or
                          (getattr(page, "result", None) is not None and not getattr(page, "dirty", True)))
-            available = available and not pending and not getattr(page, "background_render_pending", False)
+            controller = getattr(child, "viewed_plots", None)
+            available = (available and not pending and not getattr(page, "background_render_pending", False)
+                         and (controller is None or page not in controller.pending))
+            if not pending and controller is not None:
+                controller.queue()
             for control in ("export_button", "export_all_button", "copy_button"):
                 button = getattr(page, control, None)
                 if button is not None:
@@ -3757,15 +3764,25 @@ class MatchingWindow(QMainWindow):
             self._stage_window_inputs(), self._stage_sync_inputs)
         if inputs_changed or self.linked_updates_pending or any(
                 getattr(child, "_source_refresh_pending", False) for child in self._stage_windows):
-            self.sync_stage_windows()
-        for child in self._stage_windows:
-            for name in ("correlation_page", "sequence_page"):
-                page = getattr(child, name, None)
-                finish = getattr(page, "finish_background_draw", None)
-                if callable(finish):
-                    finish()
+            self.sync_stage_windows(defer_plots=True)
 
-    def sync_stage_windows(self):
+    def remember_viewed_plot(self, workspace):
+        previous = getattr(self, "_viewed_plot_workspace", None)
+        self._viewed_plot_workspace = workspace
+        if previous in self._stage_windows and previous is not workspace:
+            controller = getattr(previous, "viewed_plots", None)
+            if controller is not None:
+                controller.queue()
+
+    def may_refresh_viewed_plot(self, workspace):
+        from .viewed_plots import logical_window
+        if workspace not in self._stage_windows or getattr(self, "_viewed_plot_workspace", None) is not workspace:
+            return False
+        # Returning to this Workbook's inline/floating Raw editor keeps the
+        # last viewed child live; another workspace does not steal that target.
+        return logical_window(QApplication.activeWindow()) in (self, workspace)
+
+    def sync_stage_windows(self, *, defer_plots=False):
         """Refresh open analysis windows from the Match Workbook tables.
 
         Correlation follows Workbook sources. Map/Radius follows by default
@@ -3804,6 +3821,7 @@ class MatchingWindow(QMainWindow):
                         workspace.set_workbook_participation(book)
                     continue
                 try:
+                    workspace._defer_plot_refresh = defer_plots
                     self._refresh_stage_workspace(workspace, kind, stage, book=book)
                     self._set_child_refresh_pending(workspace, False)
                 except Exception as error:
@@ -3814,6 +3832,8 @@ class MatchingWindow(QMainWindow):
                     )
                     if hasattr(workspace, "statusBar"):
                         workspace.statusBar().showMessage(f"Workbook update failed: {error}")
+                finally:
+                    workspace._defer_plot_refresh = False
             if complete:
                 self._stage_sync_inputs = inputs
         finally:
@@ -3821,7 +3841,7 @@ class MatchingWindow(QMainWindow):
 
     def _refresh_stage_workspace(self, workspace, kind, stage, *, reset_data=False, book=None):
         book = book or (self._analysis_workspace_workbook() if kind == "correlation" else self.current_workbook())
-        transaction = getattr(workspace, 'input_update', nullcontext)
+        transaction = getattr(workspace, 'linked_input_update', getattr(workspace, 'input_update', nullcontext))
         views = self._workspace_views(workspace)
         pages = self._workspace_pages(workspace)
         previous_groups = getattr(workspace, "selection", {}).get("groups", {})

@@ -298,6 +298,13 @@ class SequencePage(QWidget):
     def restore_draw_state(self, state, *, background=False):
         """Restore surviving curve boxes and redraw without another click."""
         if not isinstance(state, dict) or state.get("enabled") is not True:
+            if isinstance(state, dict) and state.get("enabled") is False:
+                self.has_drawn_once = False
+                self.invalidate()
+                controller = getattr(self.window(), "viewed_plots", None)
+                if controller is not None:
+                    controller.pending.pop(self, None)
+                    controller.automatic.discard(self)
             return
         try:
             cells = {
@@ -313,6 +320,9 @@ class SequencePage(QWidget):
         self.cells = set(cells)
         self.selector.set_selected_cells(cells, notify=False)
         self.invalidate(preserve_plot=True)
+        from .viewed_plots import defer_linked_draw
+        if defer_linked_draw(self, state):
+            return
         if background:
             self.request_background_draw()
         else:
@@ -356,6 +366,7 @@ class SequencePage(QWidget):
         self.axis_ratio.setVisible(visible)
 
     def set_input(self, frame, selection):
+        showing_plot = self.stack.currentWidget() is self.interactive_scroll
         self.frame = frame
         self.selection = selection.copy()
         self.wafer_column = find_column(frame, ("waferid", "wafer", "waferno"))
@@ -371,6 +382,8 @@ class SequencePage(QWidget):
         self.invalidate(preserve_plot=True)
         if (self.has_drawn_once and not self.selector.pending_draw
                 and self.selector.selected_cells()):
+            if showing_plot:
+                self.stack.setCurrentWidget(self.interactive_scroll)
             self.input_refresh_timer.start()
 
     def selector_changed(self):
@@ -892,6 +905,9 @@ class SequencePage(QWidget):
             "die_column": self.die_column, "metrics": tuple(names)})
 
     def _accept_background_draw(self, prepared):
+        from .viewed_plots import defer_unviewed_result
+        if defer_unviewed_result(self):
+            return
         if prepared is not None:
             self.draw_plot(prepared=prepared, background_render=True)
 
@@ -1424,7 +1440,7 @@ class SequencePage(QWidget):
             # pass. Shrink the existing grid now, without rebuilding its plots.
             self.plot_host.resize(self.interactive_scroll.viewport().width(), self.plot_host.height())
 
-    def _single_curve_geometry(self, panels, groups, columns, rows):
+    def _single_curve_geometry(self, panels, groups, columns, rows, label_spans):
         """Prove axes/controls are identical before updating only curve values.
 
         Comparison axes and expanded wafer spacing retain the complete renderer.
@@ -1434,7 +1450,7 @@ class SequencePage(QWidget):
             return None
         return (
             int(self.font_size.currentText()), columns, rows, self.x_range,
-            tuple(self._label_spans()),
+            tuple(label_spans),
             tuple(tuple(edges) for edges in self._boundary_positions()),
             tuple((panel["metric"], (panel["source"] or {}).get("name"),
                    (panel["source"] or {}).get("color"),
@@ -1470,7 +1486,8 @@ class SequencePage(QWidget):
     def render_interactive(self, panels, groups, columns, rows, *, batch=False, finished=None):
         """Render every base panel plus any explicit comparison curves."""
         self.wafer_ticks = [(group["center"], group["group_label"] if self.selection.get("show_group_labels", self.selection.get("preserve_group_order")) else group["wafer"]) for group in self.axis_groups]
-        geometry = self._single_curve_geometry(panels, groups, columns, rows)
+        label_spans = self._label_spans()
+        geometry = self._single_curve_geometry(panels, groups, columns, rows, label_spans)
         if self._refresh_single_curves(geometry, panels, groups):
             if finished is not None:
                 finished()
@@ -1480,7 +1497,6 @@ class SequencePage(QWidget):
         previous_scroll = self.interactive_scroll.verticalScrollBar().value()
         self.clear_interactive()
         base = int(self.font_size.currentText())
-        label_spans = self._label_spans()
         panel_height = 320
         grid = PanelGrid(columns)
         grid.set_minimum_row_height(rows, panel_height)

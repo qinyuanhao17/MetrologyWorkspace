@@ -33,6 +33,9 @@ def capture_window(window):
         finish_sources()
     if getattr(window, "_source_refresh_pending", False):
         raise ValueError("The Workbook source update has not completed.")
+    controller = getattr(window, "viewed_plots", None)
+    if controller is not None:
+        controller.finish()
     for name in ("correlation_page", "sequence_page"):
         page = getattr(window, name, None)
         finish = getattr(page, "finish_background_draw", None)

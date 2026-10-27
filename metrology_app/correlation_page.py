@@ -434,6 +434,13 @@ class CorrelationPage(QWidget):
     def restore_draw_state(self, state, *, background=False):
         """Restore surviving fit boxes and redraw without another click."""
         if not isinstance(state, dict) or state.get("enabled") is not True:
+            if isinstance(state, dict) and state.get("enabled") is False:
+                self.has_drawn_once = False
+                self.invalidate()
+                controller = getattr(self.window(), "viewed_plots", None)
+                if controller is not None:
+                    controller.pending.pop(self, None)
+                    controller.automatic.discard(self)
             return
         try:
             cells = {
@@ -448,6 +455,9 @@ class CorrelationPage(QWidget):
         self.has_drawn_once = True
         self.drawn_cells = set(cells)
         self.selector.set_selected_cells(cells, notify=False)
+        from .viewed_plots import defer_linked_draw
+        if defer_linked_draw(self, state):
+            return
         if background:
             self.request_background_draw()
         else:
@@ -599,6 +609,9 @@ class CorrelationPage(QWidget):
 
     def _accept_background_draw(self, prepared):
         if prepared is None:
+            return
+        from .viewed_plots import defer_unviewed_result
+        if defer_unviewed_result(self):
             return
         self._background_requested = False
         self.all_fits, errors, metrics, cells = prepared
