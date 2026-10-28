@@ -89,3 +89,12 @@ class SheetVersionTests(unittest.TestCase):
         self.assertEqual(self.model.document_frame().iat[-1, 49], '')
         self.model.cells.clear()
         self.assertTrue(self.model.document_frame().empty)
+
+    def test_unrepresented_external_cells_cannot_be_discarded_by_version_adoption(self):
+        self.model.cells[(-1, 0)] = 'external source extension'
+        self.model.document_frame()
+        self.assertIsNone(self.model._column_version())
+        self.paste()
+        self.assertEqual(self.model.snapshot()[0][(-1, 0)], 'external source extension')
+        self.model.undo.undo()
+        self.assertEqual(self.model.snapshot()[0][(-1, 0)], 'external source extension')

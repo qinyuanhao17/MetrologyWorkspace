@@ -1,0 +1,71 @@
+{
+  "control": {
+    "whole_table_paste": {
+      "complete_ms": [
+        3232.421399996383,
+        3248.4646000084467,
+        3271.94690000033
+      ],
+      "p50_ms": 3248.4646000084467,
+      "max_qt_gap_p50_ms": 1025.0771999999415
+    },
+    "undo": {
+      "complete_ms": [
+        2315.106800000649,
+        2210.475800005952,
+        2354.7952999942936
+      ],
+      "p50_ms": 2315.106800000649,
+      "max_qt_gap_p50_ms": 769.7666000167374
+    },
+    "redo": {
+      "complete_ms": [
+        2628.1375999969896,
+        2684.4687000266276,
+        2503.9877999806777
+      ],
+      "p50_ms": 2628.1375999969896,
+      "max_qt_gap_p50_ms": 938.761599973077
+    }
+  },
+  "version": {
+    "whole_table_paste": {
+      "complete_ms": [
+        3217.699500004528,
+        3238.067400001455,
+        2981.3719999801833
+      ],
+      "p50_ms": 3217.699500004528,
+      "max_qt_gap_p50_ms": 873.6636000103317
+    },
+    "undo": {
+      "complete_ms": [
+        2326.4513000031,
+        2317.566599987913,
+        2342.000700009521
+      ],
+      "p50_ms": 2326.4513000031,
+      "max_qt_gap_p50_ms": 611.2120000179857
+    },
+    "redo": {
+      "complete_ms": [
+        2619.950299995253,
+        2620.658800005913,
+        2604.116400005296
+      ],
+      "p50_ms": 2619.950299995253,
+      "max_qt_gap_p50_ms": 799.4383000186644
+    }
+  },
+  "all_exact_assertions_passed": true,
+  "notes": "Three sequential alternating controls per variant, full 10k x 50/100 wafers/1225 pairs and current page painting; no stable P95 claim from three observations; 300ms fails for every V/Z/Y sample.",
+  "stage": "dense immutable value commit experiment",
+  "status": "withdrawn; no stable complete-latency improvement",
+  "baseline_commit": "dcc1438",
+  "qa_root": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\data-version",
+  "production_feature_retained": false,
+  "gate_ms": 300,
+  "gate_passed": false,
+  "archive": "withdrawn-dense-version-values.patch",
+  "tests_note": "Experimental focused 37/37 plus 1 NA/nonplot workflow and later 33/33 passed before withdrawal. Those results do not validate the later withdrawn source as current code."
+}

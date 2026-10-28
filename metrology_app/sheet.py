@@ -468,7 +468,8 @@ class SheetModel(QAbstractTableModel):
         except (TypeError, ValueError):
             return None
         if (not version.dense or self._document_rows != version.row_count
-                or self._extent != (version.row_count + 1, len(version.headers))):
+                or self._extent != (version.row_count + 1, len(version.headers))
+                or len(self.cells) != (version.row_count + 1) * len(version.headers)):
             return None
         self.cells = VersionCells(version, changed=self._direct_cells_changed)
         return version
