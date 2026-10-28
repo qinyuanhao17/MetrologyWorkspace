@@ -94,8 +94,7 @@ class LiteralTableVersion:
         frame.attrs = _thaw(self._attributes)
         return frame
 
-    def matches_frame(self, frame):
-        """Prove a mutable input still represents this exact source version."""
+    def _matches_metadata(self, frame):
         if (frame.shape != (self.row_count, len(self.headers))
                 or tuple(frame.columns) != self.headers
                 or not isinstance(frame.index, pd.RangeIndex)
@@ -106,6 +105,12 @@ class LiteralTableVersion:
             if _freeze(frame.attrs) != self._attributes:
                 return False
         except (TypeError, ValueError):
+            return False
+        return True
+
+    def matches_frame(self, frame):
+        """Prove a mutable input still represents this exact source version."""
+        if not self._matches_metadata(frame):
             return False
         return all(np.array_equal(frame.iloc[:, position].to_numpy(), np.asarray(column, dtype=object))
                    for position, column in enumerate(self.columns))
@@ -162,3 +167,31 @@ class LiteralTableVersion:
                 values = grouped[column] = list(self.columns[column])
             values[row - 1] = value
         return self.replace_columns(grouped)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class LiteralFrameSource:
+    """Short-lived proof from a model's current immutable document view.
+
+    Only SheetModel creates this from its version-backed cache. It never lives
+    in a table version or Undo command. Detached/mutated frames keep the full
+    literal comparison; matching a region alone cannot prove another version.
+    """
+    version: LiteralTableVersion
+    frame: pd.DataFrame = field(repr=False)
+    _values: np.ndarray = field(init=False, repr=False)
+
+    def __post_init__(self):
+        values = self.frame.to_numpy(copy=False)
+        if values.flags.writeable or not self.version._matches_metadata(self.frame):
+            raise ValueError('A source proof requires a readonly version-backed model view')
+        object.__setattr__(self, '_values', values)
+
+    def matches(self, frame, version):
+        if version is not self.version or not version._matches_metadata(frame):
+            return False
+        values = frame.to_numpy(copy=False)
+        return (not values.flags.writeable and values.shape == self._values.shape
+                and values.dtype == self._values.dtype and values.strides == self._values.strides
+                and values.__array_interface__['data'][0]
+                == self._values.__array_interface__['data'][0])

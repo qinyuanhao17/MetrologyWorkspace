@@ -1,0 +1,142 @@
+{
+  "date": "2026-10-28",
+  "step": "Readonly literal source proof and unchanged normalization",
+  "base_commit": "4a810db",
+  "scope": "Same-structure version-backed source updates; no focus gating, no WKB/Recovery/Undo protocol changes",
+  "invariants": [
+    "All source strings, precision, original row order and attrs remain unchanged.",
+    "Only current model-owned readonly regions with exact version identity and metadata qualify.",
+    "Detached, changed, reordered, blank/renamed or unknown inputs retain full normalization/value comparison.",
+    "Child editors still materialize independently owned writable DataFrames.",
+    "No receipt or mutable DataFrame is stored in immutable versions or Undo history.",
+    "Parent publication generations, cancellations and independent child draft checks remain unchanged."
+  ],
+  "red": [
+    {
+      "tests": 6,
+      "errors": 6,
+      "reason": "Source proof absent",
+      "log": ".cache/p0-final-v432-20261026/literal-source-red.log"
+    },
+    {
+      "tests": 9,
+      "errors": 5,
+      "reason": "Normalization discarded immutable region; new explicit source contract absent",
+      "log": ".cache/p0-final-v432-20261026/literal-normalization-red.log"
+    }
+  ],
+  "focused": [
+    {
+      "passed": 44,
+      "total": 44,
+      "seconds": 40.176,
+      "log": ".cache/p0-final-v432-20261026/literal-source-integration.log"
+    },
+    {
+      "passed": 14,
+      "total": 14,
+      "seconds": 0.431,
+      "log": ".cache/p0-final-v432-20261026/literal-source-final-contracts.log",
+      "notes": "Includes final 10 source-proof contracts and both pandas copy-on-write modes."
+    }
+  ],
+  "local": {
+    "rows": 10000,
+    "alternating_cycles": 7,
+    "includes_proof_capture": true,
+    "scope": "Separate normalization and complete version preparation; no calculation/paint",
+    "parameters_50": {
+      "before_p50_ms": {
+        "normalization": 28.527499991469085,
+        "preparation": 45.92049997881986
+      },
+      "after_p50_ms": {
+        "normalization": 4.130899993469939,
+        "preparation": 23.112199996830896
+      }
+    },
+    "parameters_30": {
+      "before_p50_ms": {
+        "normalization": 15.943000005790964,
+        "preparation": 29.893200000515208
+      },
+      "after_p50_ms": {
+        "normalization": 2.788499987218529,
+        "preparation": 16.064199997344986
+      }
+    },
+    "evidence": ".cache/p0-final-v432-20261026/literal-source-{50,30}-paired.json"
+  },
+  "native": {
+    "rows": 10000,
+    "parameters": 50,
+    "wafers": 100,
+    "fits": 1225,
+    "alternating_cycles": 3,
+    "control": "Current code with _literal_source returning None; restores owned stage-input copies, full normalization and full per-value proof; not a historical complete checkout",
+    "before_p50_ms": {
+      "paste": 2758.767600025749,
+      "undo": 1943.0842000001576,
+      "redo": 2182.1022999938577
+    },
+    "after_p50_ms": {
+      "paste": 2593.703899998218,
+      "undo": 1829.149500001222,
+      "redo": 2109.7953999997117
+    },
+    "all_exact_assertions_passed": true,
+    "proof_adoption": "All nine V/Z/Y updates adopted readonly model proof; all nine controls used full validation",
+    "gate_ms": 300,
+    "gate_passed": false,
+    "p95_established": false,
+    "evidence_pattern": "raw-click-20261027/data-version/native-literal-source-{0,1,2}-{control,proof}.json"
+  },
+  "native_30": {
+    "rows": 10000,
+    "parameters": 30,
+    "wafers": 100,
+    "fits": 435,
+    "samples_each": 1,
+    "complete_ms": {
+      "select_all": 88.95,
+      "click_after_select_all": 79.84,
+      "paste": 2026.4904999930877,
+      "undo": 1526.2321999762207,
+      "redo": 1767.2662000113633
+    },
+    "dispatch_ms": {
+      "paste": 293.51,
+      "undo": 25.16,
+      "redo": 35.85
+    },
+    "exact_assertions_passed": true,
+    "gate_ms": 300,
+    "gate_passed": false,
+    "evidence": "raw-click-20261027/data-version/native-literal-source-30.json",
+    "notes": "Dispatch is not complete refresh; a single sample is not P50/P95."
+  },
+  "withdrawn_group_copy": {
+    "retained": false,
+    "profile": "Current preparation had ~79ms in two generic deepcopy calls under profiling.",
+    "focused_passed": 53,
+    "focused_seconds": 25.545,
+    "paired_cycles_each": 7,
+    "full_prepare_p50_ms": [
+      {
+        "before": 232.35809998004697,
+        "after": 214.0326999942772
+      },
+      {
+        "before": 232.42059999029152,
+        "after": 212.7145000267774
+      }
+    ],
+    "reason": "Limited local benefit relative to new ownership-graph qualification complexity; experimental production source and only its new API tests withdrawn.",
+    "artifacts": ".cache/p0-final-v432-20261026/{withdrawn-group-context.patch,withdrawn_test_correlation_group_copy.py,group-copy-targeted.log,group-context-qualified-paired.json}",
+    "tests_are_current_acceptance": false
+  },
+  "full_suite": "Pending once this turn's source stabilizes; prior 1203-test result covers earlier checkpoint only.",
+  "qa_root": "C:/Users/qinyu/.codex/visualizations/2026/10/18/01a14f7d-3088-7760-953c-a1aa86946096",
+  "rollback": "Revert this checkpoint's source-proof class/callers/normalization and new tests/docs only; retain independent source-frame extraction checkpoint and user files.",
+  "no_push": true
+}

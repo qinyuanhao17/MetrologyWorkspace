@@ -2036,7 +2036,8 @@ class MatchingWindow(QMainWindow):
                 # unnamed, populated columns use the existing spreadsheet alias.
                 headers = [name if str(name).strip() else headers[column]
                            for column, name in enumerate(document.columns)]
-            frame = self._analysis_input_frame(document, headers=headers, preserve_rows=preserve_rows)
+            frame = self._analysis_input_frame(document, headers=headers, preserve_rows=preserve_rows,
+                                               source=model._literal_source(document))
             if not frame.empty:
                 self._validate_input_frame(frame, title)
             error = ""
@@ -2452,8 +2453,20 @@ class MatchingWindow(QMainWindow):
         self._update_state()
 
     @staticmethod
-    def _analysis_input_frame(frame, *, headers=None, preserve_rows=True):
+    def _analysis_input_frame(frame, *, headers=None, preserve_rows=True, source=None):
         """Ignore columns without measurements; never mutate the source sheet."""
+        if source is not None:
+            from .table_version import LiteralFrameSource
+            if isinstance(source, LiteralFrameSource) and source.matches(frame, source.version):
+                version = source.version
+                names = tuple(frame.columns) if headers is None else tuple(headers)
+                if (version.row_count and version.columns and names == version.headers
+                        and all(name.strip() for name in version.headers)
+                        and all(column[0].strip() for column in version.columns)
+                        and (preserve_rows or all(map(str.strip, version.columns[0])))):
+                    # Nothing is removed or renamed. Keep readonly data, with
+                    # independent pandas metadata; validation still follows.
+                    return frame.copy(deep=False)
         def nonblank(value):
             if isinstance(value, str):
                 return bool(value.strip(None))
@@ -3582,9 +3595,12 @@ class MatchingWindow(QMainWindow):
             mappings = tuple(self.selected_mappings())
         except ValueError:
             mappings = ()
+        raw = self._active_raw_frame()
+        model = self.final_raw_model if self.result_mode.currentText().lower() == 'final' else self.raw_model
+        source = model._literal_source(raw)
         return (
             self.reference_frame.copy(),
-            self._active_raw_frame().copy(),
+            source.frame if source is not None else raw.copy(),
             mappings,
             str(self.match_type.currentText()),
         )
@@ -3672,9 +3688,11 @@ class MatchingWindow(QMainWindow):
         self._queued_stage_inputs = inputs
         source_model = (self.final_raw_model if self.result_mode.currentText().lower() == 'final'
                         else self.raw_model)
+        source = source_model._literal_source(inputs[1])
         self._linked_task.submit({"generation": self._linked_generation,
             "inputs": inputs, "book": deepcopy(book), "raw": inputs[1],
-            "raw_version": source_model.literal_version, "children": tuple(descriptors)})
+            "raw_version": source_model.literal_version, "raw_source": source,
+            "children": tuple(descriptors)})
 
     def _publish_linked_refresh(self, result):
         if result is None or result["generation"] != self._linked_generation:

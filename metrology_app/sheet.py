@@ -24,7 +24,7 @@ from .metadata_locks import ColumnLockDelegate, is_metadata_column
 from .table_clipboard import ClipboardRangeOutline, copy_selection, selection_bounds
 from .table_selection import RangeSelectionHeader, RangeSelectionTableView
 from .sheet_batch import ColumnChanges, prepare_column_paste
-from .table_version import LiteralTableVersion
+from .table_version import LiteralTableVersion, LiteralFrameSource
 from .version_cells import TrackedCells, VersionCells
 
 
@@ -966,6 +966,17 @@ class SheetModel(QAbstractTableModel):
         """Internal borrowed read of immutable data; public reads stay detached."""
         return self._read_frame_view('document')
 
+    def _literal_source(self, frame=None):
+        """Prove a request shares this current version's readonly document region."""
+        version = self.literal_version
+        if version is None or not version.dense:
+            return None
+        try:
+            source = LiteralFrameSource(version, self._document_view())
+        except (TypeError, ValueError):
+            return None  # Unknown cache metadata/layout retains full validation.
+        return source if frame is None or source.matches(frame, version) else None
+
     def _analysis_view(self):
         return self._read_frame_view('analysis')
 
@@ -1479,9 +1490,12 @@ class PasteFeedbackBar(QFrame):
             "<br>Feedback clears on the next edit, Undo, table reload, or ×.")
 
 
-def prepare_sheet_version(frame, version):
+def prepare_sheet_version(frame, version, *, source=None):
     """Reuse a proved immutable source, while keeping mutable GUI frames owned."""
-    if not isinstance(version, LiteralTableVersion) or not version.dense or not version.matches_frame(frame):
+    if not isinstance(version, LiteralTableVersion) or not version.dense:
+        return None
+    proved = isinstance(source, LiteralFrameSource) and source.matches(frame, version)
+    if not proved and not version.matches_frame(frame):
         return None
     document = version.to_frame()
     headers = [name.strip() or f'Column {column_letter(column)}'

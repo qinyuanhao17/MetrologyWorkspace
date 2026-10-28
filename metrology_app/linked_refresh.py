@@ -77,7 +77,8 @@ def prepare_linked_sources(request, cancelled):
         table = (prepare_linked_values(frame, options.get('value_baseline'), cancelled=cancelled)
                  if kind == 'correlation' else None)
         if table is None and kind == 'correlation':
-            table = prepare_sheet_version(frame, request.get('raw_version'))
+            table = prepare_sheet_version(frame, request.get('raw_version'),
+                                          source=request.get('raw_source'))
         table = prepared[key] = table if table is not None else prepare_sheet_frame(frame)
         analysis = table["analysis"]
         if cancelled():
