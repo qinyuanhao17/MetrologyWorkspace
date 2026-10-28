@@ -1,5 +1,6 @@
 """Small spreadsheet model: editable cells, range clipboard and undo/redo."""
 import csv
+from copy import deepcopy
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -22,6 +23,7 @@ from .settings import get_settings
 from .metadata_locks import ColumnLockDelegate, is_metadata_column
 from .table_clipboard import ClipboardRangeOutline, copy_selection, selection_bounds
 from .table_selection import RangeSelectionHeader, RangeSelectionTableView
+from .sheet_batch import ColumnChanges, prepare_column_paste
 
 
 HEADER_COLOURS = {"dark": ("#201629", "#d6b9f5"), "light": ("#f0f0f2", "#18181b")}
@@ -121,10 +123,12 @@ class PasteReport:
             return "No changes — pasted values match the existing table."
         count = len(self.changes)
         parts = [f"Paste complete — {count:,} {'cell' if count == 1 else 'cells'} changed"]
-        rows = len({row for row, _ in self.changes if row > 0})
+        rows = (self.changes.data_row_count if isinstance(self.changes, ColumnChanges)
+                else len({row for row, _ in self.changes if row > 0}))
         if rows:
             parts.append(f"{rows:,} data {'row' if rows == 1 else 'rows'}")
-        headers = sum(row == 0 for row, _ in self.changes)
+        headers = (0 if isinstance(self.changes, ColumnChanges)
+                   else sum(row == 0 for row, _ in self.changes))
         if headers:
             parts.append(f"{headers:,} {'header' if headers == 1 else 'headers'} changed")
         if self.rows_added:
@@ -179,6 +183,27 @@ class CellEdit(QUndoCommand):
                                       value_mode=self.before_mode)
         else:
             self.model.apply(self.before)
+
+
+class ColumnEdit(QUndoCommand):
+    """One ordinary Undo step over an owned immutable set of column vectors."""
+
+    def __init__(self, model, parts, data_rows):
+        super().__init__("Edit cells")
+        self.model = model
+        self.before = ColumnChanges(parts, 'before', data_rows)
+        self.after = ColumnChanges(parts, 'after', data_rows)
+        self.rows = model._document_rows
+
+    def redo(self):
+        self.model._document_rows = self.rows
+        self.model._apply_changes(self.after, bounds=self.after.bounds,
+                                  document_rows=self.rows, value_mode=True)
+
+    def undo(self):
+        self.model._document_rows = self.rows
+        self.model._apply_changes(self.before, bounds=self.before.bounds,
+                                  document_rows=self.rows, value_mode=True)
 
 
 class TableReplace(QUndoCommand):
@@ -371,6 +396,36 @@ class SheetModel(QAbstractTableModel):
                       max(r for r, _ in changes), max(c for _, c in changes))
         self._report_paste(before, rows, headers, bounds)
 
+    def _paste_value_matrix(self, matrix, row, column):
+        if type(self) is not SheetModel or self.clipboard_locks:
+            return False
+        document = self._frames.get('document')
+        if (document is None or len(document) != self._document_rows
+                or self._extent != (self._document_rows + 1, len(document.columns))):
+            return False
+        prepared = prepare_column_paste(document, matrix, row, column)
+        if prepared is None:
+            return False
+        parts, data_rows = prepared
+        bounds = row, column, row + len(matrix) - 1, column + len(matrix[0]) - 1
+        if parts:
+            command = ColumnEdit(self, parts, data_rows)
+            revision = self.revision
+            self.undo.push(command)
+            if self.revision != revision + 1:
+                # Reentrant edits can change the pasted values before push
+                # returns; the receipt must capture those actual final strings.
+                headers = {p.column: str(document.columns[p.column]) for p in parts}
+                self._report_paste(command.before, self._document_rows, headers, bounds)
+                return True
+            changes = ColumnChanges(parts, 'pairs', data_rows)
+            columns = tuple((p.column, str(document.columns[p.column]), len(p.rows)) for p in parts)
+        else:
+            changes, columns = MappingProxyType({}), ()
+        self.paste_report = PasteReport(changes, columns, bounds=bounds)
+        self.paste_report_changed.emit()
+        return True
+
     def clear_paste_report(self):
         if self.paste_report is not None:
             self.paste_report = None
@@ -407,11 +462,13 @@ class SheetModel(QAbstractTableModel):
     def apply(self, changes):
         self._apply_changes(changes)
 
-    def _apply_changes(self, changes, *, bounds=None, document_rows=None, value_mode=None):
+    def _apply_changes(self, changes, *, bounds=None, document_rows=None, value_mode=None,
+                       prepared_frames=None):
         previous = self._frame_change
         self._frame_change = changes
         try:
-            self._apply_cells(changes, bounds=bounds, document_rows=document_rows, value_mode=value_mode)
+            self._apply_cells(changes, bounds=bounds, document_rows=document_rows,
+                              value_mode=value_mode, prepared_frames=prepared_frames)
         finally:
             self._frame_change = previous
 
@@ -424,7 +481,13 @@ class SheetModel(QAbstractTableModel):
         """
         return MappingProxyType(self._frame_change) if self._frame_change is not None else None
 
-    def _apply_cells(self, changes, *, bounds=None, document_rows=None, value_mode=None):
+    @property
+    def changed_cell_bounds(self):
+        """Known bounds of a compact batch notification, without visiting cells."""
+        return self._frame_change.bounds if isinstance(self._frame_change, ColumnChanges) else None
+
+    def _apply_cells(self, changes, *, bounds=None, document_rows=None, value_mode=None,
+                     prepared_frames=None):
         if bounds is None:
             bounds = (min(r for r, _ in changes), min(c for _, c in changes),
                       max(r for r, _ in changes), max(c for _, c in changes))
@@ -438,7 +501,11 @@ class SheetModel(QAbstractTableModel):
                 renamed_locks = {self.cells.get((0, c), ""): value if is_metadata_column(value) else ""
                                  for (r, c), value in changes.items()
                                  if r == 0 and self.cells.get((0, c), "") in self.clipboard_locks}
-        self._invalidate_frames()
+        if prepared_frames is None:
+            frames_patched = self._invalidate_frames()
+        else:
+            self._frames = {name: frame.copy(deep=True) for name, frame in prepared_frames.items()}
+            frames_patched = True
         self._revision += 1
         self._preserves_record_positions = True
         rows = max(self.height, bottom + 21)
@@ -451,7 +518,9 @@ class SheetModel(QAbstractTableModel):
             self.beginInsertColumns(QModelIndex(), self.width, cols - 1)
             self.width = cols
             self.endInsertColumns()
-        if value_mode is True:
+        if isinstance(changes, ColumnChanges):
+            changes.update_cells(self.cells)
+        elif value_mode is True:
             self.cells.update(changes)
         elif value_mode is False and self.cells.keys() <= changes.keys():
             self.cells.clear()
@@ -469,10 +538,41 @@ class SheetModel(QAbstractTableModel):
         if document_rows is None:
             document_rows = max((row for (row, _), value in changes.items() if value), default=0)
         self._document_rows = max(self._document_rows, document_rows)
+        if not frames_patched:
+            # Structural notifications may have rebuilt the old frames while
+            # rows/columns were being inserted. Discard them before observers
+            # capture the completed edit.
+            context, self._frame_change = self._frame_change, None
+            try:
+                self._invalidate_frames()
+            finally:
+                self._frame_change = context
         first = self.index(top, left)
         last = self.index(bottom, right)
         self.dataChanged.emit(first, last)
-        self.changed.emit()
+        # Consume this known notification once: these frames are current.
+        # Reentrant edits and unknown changed.emit() still invalidate normally.
+        self._prepared_load = True
+        try:
+            self.changed.emit()
+        finally:
+            self._prepared_load = False
+
+    def apply_linked_values(self, prepared, frame):
+        """Commit a proved source delta; independent drafts are checked by the owner."""
+        if (type(self) is not SheetModel or self.clipboard_locks
+                or prepared.get('base_revision') != self.revision
+                or not prepared['document'].equals(frame)
+                or not self.document_frame().equals(prepared['base_document'])):
+            return False
+        changes = prepared['value_changes']
+        self._apply_changes(changes, bounds=changes.bounds,
+                            document_rows=self._document_rows, value_mode=True,
+                            prepared_frames={name: prepared[name] for name in ('document', 'analysis')})
+        # Following a Workbook source is a load, not a new child edit command.
+        self.undo.clear()
+        self.undo.setClean()
+        return True
 
     def load(self, frame, *, report_paste=False):
         prepared = getattr(self, "_linked_prepared_load", None)
@@ -665,31 +765,57 @@ class SheetModel(QAbstractTableModel):
             self._prepared_load = False
             return
         changes = self._frame_change
-        if (changes and self._extent is not None
-                and all(row > 0 and isinstance(value, str) and value.strip() and (row, column) in self.cells
-                        and self.cells[(row, column)].strip()
-                        for (row, column), value in changes.items())):
-            # Existing nonblank data cells cannot change headers, row inclusion
-            # or extent. Patch only module-owned string frames; public reads
-            # still return detached copies, including accepted Save snapshots.
-            width = self._extent[1]
-            columns = {}
+        columns = {}
+        if isinstance(changes, ColumnChanges) and self._extent is not None:
+            columns = changes.frame_updates(self._frames.get('document')) or {}
+        elif isinstance(changes, ColumnChanges):
+            pass  # Unknown structural state retains complete invalidation.
+        elif changes and self._extent is not None:
             for (row, column), value in changes.items():
-                columns.setdefault(column, []).append((row - 1, value))
+                previous = self.cells.get((row, column), "")
+                if (row <= 0 or not isinstance(value, str) or not value or value.isspace()
+                        or not previous or previous.isspace()):
+                    columns.clear()
+                    break
+                updates = columns.get(column)
+                if updates is None:
+                    updates = columns[column] = ([], [])
+                updates[0].append(row - 1)
+                updates[1].append(value)
+        if columns:
+            # Existing nonblank data cells cannot change headers, row inclusion
+            # or extent. Public reads remain detached from these owned frames.
+            width = self._extent[1]
             for kind, frame in list(self._frames.items()):
                 if (len(frame) == self._document_rows and len(frame.columns) == width
                         and all(dtype == object for dtype in frame.dtypes)):
-                    for column, updates in columns.items():
-                        if len(updates) == 1:
-                            row, value = updates[0]
-                            frame.iat[row, column] = value
+                    if isinstance(changes, ColumnChanges):
+                        # Keep a single owned object block. Replacing each
+                        # column separately fragments the table and makes
+                        # every observer's detached copy consolidate it again.
+                        values = frame.to_numpy(copy=True)
+                        for column, (rows, replacements) in columns.items():
+                            values[rows, column] = replacements
+                        updated = pd.DataFrame(values, index=frame.index.copy(),
+                                               columns=frame.columns.copy(), copy=False)
+                        updated.attrs = deepcopy(frame.attrs)
+                        self._frames[kind] = updated
+                        continue
+                    for column, (rows, replacements) in columns.items():
+                        if len(rows) == 1:
+                            frame.iat[rows[0], column] = replacements[0]
                         else:
-                            frame.iloc[[row for row, _ in updates], column] = [value for _, value in updates]
+                            # Replace one owned object column in a single batch.
+                            # Unlike mutating to_numpy(copy=False), this is also
+                            # correct for fragmented blocks and copy-on-write.
+                            values = frame.iloc[:, column].to_numpy(copy=True)
+                            values[rows] = replacements
+                            frame.isetitem(column, values)
                 else:
                     # Analysis frames with omitted blank rows have a different
                     # positional map. Keep their original full rebuild behavior.
                     del self._frames[kind]
-            return
+            return True
         # Headers, blanks, growth, replacement and unknown notifications retain
         # full invalidation. No change summary is inferred from an old revision.
         self._frames.clear()
@@ -1079,9 +1205,12 @@ class SheetView(RangeSelectionTableView):
             # Explicit Ctrl+Shift+V replacement: clear the rest of the table so
             # no stale cells from a previously pasted file survive.
             model.replace_matrix(matrix, report_paste=True)
-        else:
-            model.paste_cells(
-                {(row + r, column + c): v for r, line in enumerate(matrix) for c, v in enumerate(line)},
+        elif type(model) is not SheetModel or not model._paste_value_matrix(matrix, row, column):
+            cells = model.cells if type(model) is SheetModel else None
+            changes = {(row + r, column + c): value for r, line in enumerate(matrix)
+                       for c, value in enumerate(line)
+                       if cells is None or cells.get((row + r, column + c), "") != value}
+            model.paste_cells(changes,
                 bounds=(row, column, row + len(matrix) - 1, column + max(map(len, matrix)) - 1))
         top, left = (0, 0) if replace else (row, column)
         self.mark_pasted_range((top, left, top + len(matrix) - 1,

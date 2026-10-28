@@ -134,6 +134,11 @@ class CorrelationWindow(DataWorkspaceWindow):
         return {"raw_data": self._copy_from_wkb, "reference_data": False}
 
     def set_workbook_sources(self, raw, mappings, mode="Preview"):
+        prepared = getattr(self.raw_model, '_linked_prepared_load', None)
+        if prepared is not None and 'value_changes' in prepared:
+            self.raw_model._linked_prepared_load = None
+            if self._set_workbook_values(raw, mappings, mode, prepared):
+                return
         reference = self.reference_model.document_frame()
         if not reference.empty and len(reference) != len(raw):
             # Keep the manual Reference literally intact. A changed Raw row
@@ -143,6 +148,45 @@ class CorrelationWindow(DataWorkspaceWindow):
             self._populate_reference_choices()
             return
         self.set_sources(reference, raw, mappings, mode, align_reference=False)
+
+    def _linked_value_context(self):
+        numeric = tuple(self.parameter_list.topLevelItem(i).text(0)
+                        for i in range(self.parameter_list.topLevelItemCount())
+                        if self.parameter_list.topLevelItem(i).data(0, Qt.ItemDataRole.UserRole + 1))
+        return (self.include_fit_quality, bool(self.card_check.isChecked()),
+                tuple(self.group_checks), tuple(self.group_columns()), numeric)
+
+    def linked_value_baseline(self):
+        """Detached qualification inputs, never live widgets in the worker."""
+        if (type(self.raw_model) is not SheetModel or self.raw_model.clipboard_locks
+                or self.card_check.isChecked() or not self._workbook_sources
+                or self._reset_selection):
+            return None
+        context = self._linked_value_context()
+        return {'document': self.raw_model.document_frame(), 'analysis': self._frame.copy(deep=True),
+                'revision': self.raw_model.revision, 'context': context,
+                'numeric_columns': context[-1], 'identity_columns': context[2]}
+
+    def _set_workbook_values(self, raw, mappings, mode, prepared):
+        if self._linked_value_context() != prepared['value_context']:
+            return False
+        self._loading_workbook_sources = True
+        try:
+            if not self.raw_model.apply_linked_values(prepared, raw):
+                return False
+            self._frame = self.raw_model.frame()
+            self._source_mappings = tuple(mappings)
+            self._match_groups = self._group_plan = self._group_result_cache = None
+            self.source_path = f'{mode} Raw Data'
+            self.file_label.setText(self.source_path)
+            self.file_label.setToolTip(self.source_path)
+            self._refresh_table_sizes()
+            self._rebuild_source_analysis()
+            self.setWindowTitle(f'{mode} Correlation and Trend')
+            return True
+        finally:
+            self.refresh_timer.stop()
+            self._loading_workbook_sources = False
 
     def _copy_from_wkb_changed(self, checked):
         owner = getattr(self, "_managed_owner", None)

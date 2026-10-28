@@ -156,8 +156,6 @@ class MainWindow(QMainWindow):
         )
         self.tabs.addTab(self.radius_page, "3. Radius Plot")
         self.tabs.currentChanged.connect(self.change_tab)
-        from .viewed_plots import ViewedPlots
-        self.viewed_plots = ViewedPlots(self)
         outer.addWidget(self.tabs, 1)
         self.setCentralWidget(root)
         self.model.changed.connect(self.refresh_timer.start)
@@ -808,27 +806,6 @@ class MainWindow(QMainWindow):
             self._restore_page_draw(self.radius_page, state.get("radius_draw"))
 
     @contextmanager
-    def linked_input_update(self):
-        """A parent source update does not confirm a pending local Draw choice."""
-        previous = getattr(self, "_linked_manual_draws", frozenset())
-        protected = previous | frozenset(page for name in (
-            "plot_page", "radius_page", "correlation_page", "sequence_page")
-            if (page := getattr(self, name, None)) is not None
-            and page.has_drawn_once and page.selector.pending_draw)
-        self._linked_manual_draws = protected
-        for page in protected:
-            self._input_draw_pending.pop(page, None)
-        try:
-            with self.input_update():
-                yield
-        finally:
-            for page in protected:
-                page.input_refresh_timer.stop()
-                page.selector.pending_draw = True
-                self.viewed_plots.pending.pop(page, None)
-            self._linked_manual_draws = previous
-
-    @contextmanager
     def input_update(self):
         """Publish one final plan after sources, participation and choices agree."""
         self._input_update_depth += 1
@@ -854,11 +831,6 @@ class MainWindow(QMainWindow):
                         page.restore_draw_state(state)
 
     def _restore_page_draw(self, page, state):
-        if page in getattr(self, "_linked_manual_draws", ()):
-            page.input_refresh_timer.stop()
-            page.selector.pending_draw = True
-            self.viewed_plots.pending.pop(page, None)
-            return
         if self._input_update_depth:
             self._input_draw_pending[page] = state
         else:
@@ -1331,7 +1303,6 @@ class MainWindow(QMainWindow):
             self.measurement_floating_editor.dock()
             self.document.closed()
             self.refresh_timer.stop()
-            self.viewed_plots.stop()
             self.plot_page.stop()
             self.radius_page.stop()
             for name in ("correlation_page", "sequence_page"):

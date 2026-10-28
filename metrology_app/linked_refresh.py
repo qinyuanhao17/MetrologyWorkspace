@@ -2,6 +2,56 @@
 from .sheet import prepare_sheet_frame
 
 
+def prepare_linked_values(frame, baseline, *, cancelled=None):
+    """Qualify a detached numeric-only Correlation update, without Qt mutation."""
+    import numpy as np
+    import pandas as pd
+    from .data import number
+    from .sheet_batch import ColumnChanges, ColumnDelta
+    if baseline is None:
+        return None
+    previous = baseline['document']
+    document = frame.fillna('').astype(str).reset_index(drop=True)
+    document.columns = [str(name) for name in document.columns]
+    try:
+        same_attributes = (document.attrs == previous.attrs
+                           and previous.attrs == baseline['analysis'].attrs)
+    except (TypeError, ValueError):
+        return None  # Uncertain provenance/metadata must retain full loading.
+    if (document.empty or document.size < 8192 or document.shape != previous.shape
+            or not document.columns.equals(previous.columns) or not document.columns.is_unique
+            or any(not name or name != name.strip() for name in document.columns)
+            or not same_attributes or not previous.equals(baseline['analysis'])):
+        return None
+    allowed = set(baseline['numeric_columns']) - set(baseline['identity_columns'])
+    parts = []
+    changed_rows = np.zeros(len(document), dtype=bool)
+    for column, name in enumerate(document.columns):
+        if cancelled is not None and cancelled():
+            raise InterruptedError('Linked source update cancelled')
+        old = previous.iloc[:, column].to_numpy()
+        new = document.iloc[:, column].to_numpy()
+        positions = np.flatnonzero(old != new)
+        if not len(positions):
+            continue
+        if column == 0 or name not in allowed:
+            return None
+        old_values, new_values = old[positions], new[positions]
+        if not (number(pd.Series(old_values)).notna().all()
+                and number(pd.Series(new_values)).notna().all()):
+            return None
+        rows = (range(1, len(document) + 1) if len(positions) == len(document)
+                else tuple(int(position) + 1 for position in positions))
+        parts.append(ColumnDelta(column, rows, tuple(old_values), tuple(new_values)))
+        changed_rows[positions] = True
+    if not parts:
+        return None
+    values = ColumnChanges(tuple(parts), 'after', int(np.count_nonzero(changed_rows)))
+    return {'document': document, 'analysis': document.copy(deep=True),
+            'base_document': previous, 'value_changes': values,
+            'base_revision': baseline['revision'], 'value_context': baseline['context']}
+
+
 def prepare_linked_sources(request, cancelled):
     book = request["book"]
     prepared = {}
@@ -24,11 +74,13 @@ def prepare_linked_sources(request, cancelled):
             # Locked metadata is merged and validated against the live child.
             # Its final frame may differ from the parent's prepared table.
             continue
-        table = prepared[key] = prepare_sheet_frame(frame)
+        table = (prepare_linked_values(frame, options.get('value_baseline'), cancelled=cancelled)
+                 if kind == 'correlation' else None)
+        table = prepared[key] = table if table is not None else prepare_sheet_frame(frame)
         analysis = table["analysis"]
         if cancelled():
             return None
-        if analysis is not None and not options["carded"]:
+        if analysis is not None and not options["carded"] and 'value_changes' not in table:
             from .input_planning import prepare_measurement_choices
             table["recognition"] = {"frame": analysis,
                 "include_fit_quality": options["include_fit_quality"],

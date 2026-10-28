@@ -254,9 +254,6 @@ class RadiusPage(QWidget):
         self.selector.pending_draw = False
         self.invalidate()
         self.draw_state_changed.emit(self.draw_state())
-        from .viewed_plots import defer_linked_draw
-        if defer_linked_draw(self, state):
-            return
         self.queue_input_refresh()
 
     @staticmethod

@@ -5642,5 +5642,8 @@
     "adapter": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\probe_postgate_same_backend.py",
     "adapter_sha256": "25a0784f993624c32b7048b83478e5757c266d8f4eb34376f9bcfbe8ae4a9ce1",
     "change": "Only switch diagnostic Qt backend to offscreen, matching full. Existing runner records/defer timing assertLess to reach downstream assertions; never an official strict pass."
-  }
+  },
+  "historical_status": "withdrawn_by_user",
+  "current_behavior": "Full refresh of previously drawn graphs, independent of focus/active tab",
+  "superseded_by": "docs/validation/correlation-50-300ms-2026-10-28.json"
 }

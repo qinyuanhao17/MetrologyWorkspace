@@ -1,4 +1,4 @@
-"""Pairwise numeric scatter plots and lmfit linear regression.
+"""Pairwise numeric scatter plots and unweighted linear regression.
 
 The visible grid is PyQtGraph so every variable pair zooms and pans on its own;
 Matplotlib stays behind the Export / Copy PNG buttons as the print backend.
@@ -97,25 +97,66 @@ def fit_numeric_pair(frame, x_name, y_name):
     return _fit_numeric_values(x, y, x_name, y_name)
 
 
-def _fit_numeric_values(x, y, x_name, y_name, model=None):
+def _fit_numeric_values(x, y, x_name, y_name, model=None, *, moments=None):
     """Fit already-converted arrays while preserving the public frame seam."""
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
     paired = np.isfinite(x) & np.isfinite(y)
-    x, y = x[paired], y[paired]
+    if not (type(model) is LinearModel and not x.flags.writeable
+            and not y.flags.writeable and paired.all()):
+        x, y = x[paired], y[paired]
     if len(x) < 3:
         raise ValueError("fewer than 3 paired numeric points")
-    if np.ptp(x) == 0 or np.ptp(y) == 0:
-        raise ValueError("constant data cannot be fitted")
-    model = model or LinearModel()
-    result = model.fit(y, model.guess(y, x=x), x=x)
-    predicted = np.asarray(result.best_fit, dtype=float)
+    # Batch callers already supplied the ordinary, unweighted LinearModel.
+    # Its two coefficients have a closed OLS solution; starting a generic
+    # iterative fit for every pair repeats that work quadratically. Keep the
+    # public single-pair/lmfit path and conservative numerical fallback intact.
+    coefficients = None
+    # Retain the established solver's bit-for-bit output for small selections;
+    # the batch shortcut is useful for long measurement vectors.
+    if type(model) is LinearModel and len(x) >= 128:
+        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+            mean_x, centered_x, denominator, spread_x = _numeric_moments(x, moments)
+            mean_y, centered_y, _energy_y, spread_y = _numeric_moments(y, moments)
+            if spread_x == 0 or spread_y == 0:
+                raise ValueError("constant data cannot be fitted")
+            if (abs(mean_x) <= 1e4 * spread_x
+                    and abs(mean_y) <= 1e4 * spread_y):
+                if np.isfinite(denominator) and denominator > 0:
+                    slope = float(np.dot(centered_x, centered_y) / denominator)
+                    intercept = float(mean_y - slope * mean_x)
+                    if np.isfinite([slope, intercept]).all():
+                        coefficients = slope, intercept
+    if coefficients is None:
+        if np.ptp(x) == 0 or np.ptp(y) == 0:
+            raise ValueError("constant data cannot be fitted")
+        model = model or LinearModel()
+        result = model.fit(y, model.guess(y, x=x), x=x)
+        predicted = np.asarray(result.best_fit, dtype=float)
+        slope = float(result.params["slope"].value)
+        intercept = float(result.params["intercept"].value)
+    else:
+        slope, intercept = coefficients
+        predicted = slope * x + intercept
     residual = float(np.square(y - predicted).sum())
     total = float(np.square(y - y.mean()).sum())
     rsquared = 1 - residual / total if total > 0 else float("nan")
-    return LinearFit(x_name, y_name, x, y, predicted,
-                     float(result.params["slope"].value),
-                     float(result.params["intercept"].value), rsquared)
+    return LinearFit(x_name, y_name, x, y, predicted, slope, intercept, rsquared)
+
+
+def _numeric_moments(values, cache):
+    # Only call-local, detached read-only vectors are reused. Pairwise NaN
+    # filtering produces new writable arrays and must compute its own moments.
+    key = id(values)
+    reusable = cache is not None and not values.flags.writeable
+    if reusable and key in cache:
+        return cache[key]
+    mean = float(values.mean())
+    centered = values - mean
+    result = mean, centered, float(np.dot(centered, centered)), float(np.ptp(values))
+    if reusable:
+        cache[key] = result
+    return result
 
 
 def swap_fit_axes(fit):
@@ -131,8 +172,29 @@ def swap_fit_axes(fit):
     return _fit_numeric_values(fit.y, fit.x, fit.y_name, fit.x_name)
 
 
+def _owned_numeric_columns(frame, metrics):
+    """Detached read-only vectors may safely serve many result pairs."""
+    numeric = {}
+    for name in metrics:
+        values = number(frame[name]).to_numpy(dtype=float, copy=True)
+        values.flags.writeable = False
+        numeric[name] = values
+    return numeric
+
+
+def _selected_numeric(numeric, name, positions, selection, cache):
+    if positions is None:
+        return numeric[name]
+    key = (selection, name)
+    if key not in cache:
+        values = numeric[name][positions]
+        values.flags.writeable = False
+        cache[key] = values
+    return cache[key]
+
+
 def pairwise_linear_fits(frame, metrics, groups=None, cells=None, *, cancelled=None):
-    """Return valid lmfit results ordered from strongest to weakest linear fit.
+    """Return valid OLS results ordered from strongest to weakest linear fit.
 
     ``groups`` maps a measurement set to its row indices and ``cells`` holds the
     selected (measurement set, column) boxes. A pair is then fitted only on the
@@ -144,13 +206,13 @@ def pairwise_linear_fits(frame, metrics, groups=None, cells=None, *, cancelled=N
     # repeats the same pandas parsing 39 times per column. Convert each column
     # once and keep row selection positional, matching the workspace's stable
     # source-row mapping.
-    numeric = {name: number(frame[name]).to_numpy(float) for name in metrics}
+    numeric = _owned_numeric_columns(frame, metrics)
     model = LinearModel()
-    row_cache = {}
+    row_cache, vector_cache, moments = {}, {}, {}
     for x_name, y_name in combinations(metrics, 2):
         if cancelled is not None and cancelled():
             raise InterruptedError("Correlation update cancelled")
-        positions = None
+        positions, selected_keys = None, None
         if groups is not None and cells is not None:
             selected_keys = tuple(key for key in groups
                                   if (key, x_name) in cells and (key, y_name) in cells)
@@ -158,10 +220,10 @@ def pairwise_linear_fits(frame, metrics, groups=None, cells=None, *, cancelled=N
                 row_cache[selected_keys] = np.asarray(
                     [index for key in selected_keys for index in groups[key]], dtype=int)
             positions = row_cache[selected_keys]
-        x = numeric[x_name] if positions is None else numeric[x_name][positions]
-        y = numeric[y_name] if positions is None else numeric[y_name][positions]
+        x = _selected_numeric(numeric, x_name, positions, selected_keys, vector_cache)
+        y = _selected_numeric(numeric, y_name, positions, selected_keys, vector_cache)
         try:
-            fits.append(_fit_numeric_values(x, y, x_name, y_name, model))
+            fits.append(_fit_numeric_values(x, y, x_name, y_name, model, moments=moments))
         except ValueError as error:
             errors.append((x_name, y_name, str(error)))
     fits.sort(key=lambda fit: fit.rsquared if np.isfinite(fit.rsquared) else -np.inf, reverse=True)
@@ -174,12 +236,12 @@ def source_pairwise_linear_fits(frame, metrics, sources, groups, cells, *, cance
     Within-source panels remain Reference-first/Raw-second. Cross-source
     panels follow and fit aligned observations, never pooled populations.
     """
-    numeric = {name: number(frame[name]).to_numpy(float) for name in metrics}
+    numeric = _owned_numeric_columns(frame, metrics)
     model = LinearModel()
     panels, errors = [], []
     for source in sources:
         source_panels = []
-        row_cache = {}
+        row_cache, vector_cache, moments = {}, {}, {}
         for x_name, y_name in combinations(metrics, 2):
             if cancelled is not None and cancelled():
                 raise InterruptedError("Correlation update cancelled")
@@ -195,8 +257,9 @@ def source_pairwise_linear_fits(frame, metrics, sources, groups, cells, *, cance
             positions = row_cache[selected_keys]
             try:
                 fit = _fit_numeric_values(
-                    numeric[x_name][positions], numeric[y_name][positions],
-                    x_name, y_name, model,
+                    _selected_numeric(numeric, x_name, positions, selected_keys, vector_cache),
+                    _selected_numeric(numeric, y_name, positions, selected_keys, vector_cache),
+                    x_name, y_name, model, moments=moments,
                 )
             except ValueError as error:
                 errors.append((source["name"], x_name, y_name, str(error)))
@@ -268,6 +331,7 @@ class CorrelationPage(QWidget):
         self.panel_hosts = []
         self._panel_cache = {}
         self._visible_panel_keys = []
+        self._retained_grid = None
         self._axis_directions = {}
         self._reversed_fits = {}
         self.skipped_count = 0
@@ -437,10 +501,6 @@ class CorrelationPage(QWidget):
             if isinstance(state, dict) and state.get("enabled") is False:
                 self.has_drawn_once = False
                 self.invalidate()
-                controller = getattr(self.window(), "viewed_plots", None)
-                if controller is not None:
-                    controller.pending.pop(self, None)
-                    controller.automatic.discard(self)
             return
         try:
             cells = {
@@ -455,9 +515,6 @@ class CorrelationPage(QWidget):
         self.has_drawn_once = True
         self.drawn_cells = set(cells)
         self.selector.set_selected_cells(cells, notify=False)
-        from .viewed_plots import defer_linked_draw
-        if defer_linked_draw(self, state):
-            return
         if background:
             self.request_background_draw()
         else:
@@ -540,7 +597,8 @@ class CorrelationPage(QWidget):
         self.update_pagination()
         self.figure.clear()
         self.clear_interactive(preserve_panels=preserve_panels and not self.frame.empty
-                               and bool(self.selector.rowCount() and self.selector.columnCount()))
+                               and bool(self.selector.rowCount() and self.selector.columnCount()),
+                               retain_layout=True)
         wafers = self.selection.get("wafers", [])
         metrics = self.selection.get("metrics", [])
         rows, columns = len(wafers), len(metrics)
@@ -609,9 +667,6 @@ class CorrelationPage(QWidget):
 
     def _accept_background_draw(self, prepared):
         if prepared is None:
-            return
-        from .viewed_plots import defer_unviewed_result
-        if defer_unviewed_result(self):
             return
         self._background_requested = False
         self.all_fits, errors, metrics, cells = prepared
@@ -1036,7 +1091,19 @@ class CorrelationPage(QWidget):
             self.build_export_figure()
             self.refresh_canvas()
 
-    def clear_interactive(self, message=None, *, preserve_panels=False):
+    def clear_interactive(self, message=None, *, preserve_panels=False, retain_layout=False):
+        if preserve_panels and retain_layout and isinstance(self.plot_host, PanelGrid):
+            keys = tuple(self._visible_panel_keys)
+            if keys:
+                self._retained_grid = self.plot_host, keys
+            if self._retained_grid is not None:
+                # Hide stale content while fitting, but do not reparent all its
+                # widgets just to put the same grid back on the next result.
+                self.plot_host.hide()
+                self.plot_widgets, self.panel_hosts, self.home_views = [], [], []
+                self._visible_panel_keys = []
+                return
+        self._retained_grid = None
         for cached in self._panel_cache.values():
             cached["panel"].setParent(self)
             cached["panel"].hide()
@@ -1077,8 +1144,31 @@ class CorrelationPage(QWidget):
 
     def render_interactive(self, visible_fits, columns, rows, start_rank=1):
         """Build a resizable grid of independently zoomable PyQtGraph plots."""
-        self.clear_interactive(preserve_panels=True)
         base = int(self.font_size.currentText())
+        keys = tuple(self._panel_key(fit, base) for fit in visible_fits)
+        retained = self._retained_grid
+        if (retained is not None and retained[0] is self.plot_host
+                and retained[1] == keys and self.plot_host.columns == columns
+                and len(self.plot_host.row_splitters) == rows
+                and all(key in self._panel_cache for key in keys)):
+            for rank, original in enumerate(visible_fits, start=start_rank):
+                cached = self._panel_cache[self._panel_key(original, base)]
+                fit = self.oriented_fit(original)
+                if cached['fit'] is not fit:
+                    changed_direction = ((cached['fit'].x_name, cached['fit'].y_name)
+                                         != (fit.x_name, fit.y_name))
+                    self.update_panel_direction(cached, fit, rank, base,
+                                                swap_view=changed_direction)
+                cached['original'] = original
+                cached['heading'].setText(self.panel_heading(fit, rank, base))
+                self.plot_widgets.append(cached['widget'])
+                self.panel_hosts.append(cached['panel'])
+            self._visible_panel_keys = list(keys)
+            self._retained_grid = None
+            self.plot_host.show()
+            QTimer.singleShot(0, self.remember_home_views)
+            return
+        self.clear_interactive(preserve_panels=True)
         panel_height = 350
         grid = PanelGrid(columns)
         grid.set_fixed_row_height(rows, panel_height)

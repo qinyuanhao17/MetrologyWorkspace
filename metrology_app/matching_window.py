@@ -795,7 +795,6 @@ class MatchingWindow(QMainWindow):
         self._stage_windows = []
         self._syncing_stage_windows = False
         self._stage_sync_inputs = None
-        self._viewed_plot_workspace = None
         from .background_task import LatestTask
         from .linked_refresh import prepare_linked_sources
         self._linked_generation = 0
@@ -2068,6 +2067,9 @@ class MatchingWindow(QMainWindow):
             self._sync_selection_to_raw(previous_raw, preserve_positions=model.preserves_record_positions)
         self._refresh_selection_columns_warning()
         changed = model.changed_cells
+        change_bounds = model.changed_cell_bounds
+        data_only = (change_bounds[0] > 0 if change_bounds is not None
+                     else changed is not None and all(row > 0 for row, _ in changed))
         if (name != "reference" and frame is self._active_raw_frame()
                 and changed and all(row == 0 for row, _ in changed)
                 and len(previous_raw.columns) == len(frame.columns) == len(document.columns)):
@@ -2078,10 +2080,10 @@ class MatchingWindow(QMainWindow):
             for mapping in mapping_state:
                 mapping["raw_column"] = renamed.get(mapping["raw_column"], mapping["raw_column"])
         same_mapping_controls = (name != "reference" and changed is not None
-                                 and all(row > 0 for row, _ in changed)
+                                 and data_only
                                  and getattr(self, "_mapping_schema", None) == (tuple(self.reference_frame.columns), tuple(frame.columns)))
         if (name == "reference" and changed is not None
-                and all(row > 0 for row, _ in changed)
+                and data_only
                 and getattr(self, "_mapping_schema", None) == (tuple(frame.columns), tuple(self._active_raw_frame().columns))):
             numeric = set(inspect_table(frame)[2])
             candidates = tuple(str(column) for column in frame
@@ -2305,6 +2307,12 @@ class MatchingWindow(QMainWindow):
 
     def _analysis_input_changed(self, *_, view_state=None, prepare_groups=True):
         """Refresh valid post-run edits without blanking plots or layout first."""
+        model = self.final_raw_model if self.result_mode.currentText().lower() == 'final' else self.raw_model
+        changed = model.changed_cells
+        # This is a cost hint, never proof of correctness. Sparse updates still
+        # prove the complete baseline and schema before publishing any delta.
+        self._linked_value_hint = ((id(model), model.revision, len(changed))
+                                   if changed is not None else None)
         self._cancel_linked_refresh()
         for child in self._stage_windows:
             context = self._stage_window_context.get(child)
@@ -3432,8 +3440,6 @@ class MatchingWindow(QMainWindow):
             )
 
     def _forget_stage_workspace(self, workspace):
-        if getattr(self, "_viewed_plot_workspace", None) is workspace:
-            self._viewed_plot_workspace = None
         if workspace in self._stage_windows:
             self._stage_windows.remove(workspace)
         self._stage_window_context.pop(workspace, None)
@@ -3623,7 +3629,7 @@ class MatchingWindow(QMainWindow):
         # Small inputs are cheaper than scheduling/copying a worker request;
         # retain their existing one-event-loop source update behavior.
         if self._active_raw_frame().size < 8192:
-            self.sync_stage_windows(defer_plots=True)
+            self.sync_stage_windows()
             return
         if self.raw_view.keyboard_editing or self._raw_keyboard_timer.isActive():
             self._linked_prepare_timer.start()
@@ -3651,6 +3657,12 @@ class MatchingWindow(QMainWindow):
             if kind == "correlation":
                 options["reference"] = child.reference_model.frame().copy(deep=True)
                 options["trend_groups"] = deepcopy(child.selection.get("groups", {}))
+                baseline = getattr(child, 'linked_value_baseline', None)
+                model = self.final_raw_model if self.result_mode.currentText().lower() == 'final' else self.raw_model
+                hint = getattr(self, '_linked_value_hint', None)
+                sparse = (hint is not None and hint[:2] == (id(model), model.revision)
+                          and hint[2] * 4 < inputs[1].size)
+                options['value_baseline'] = baseline() if follows and sparse and callable(baseline) else None
             descriptors.append((id(child), kind, stage, follows,
                                 bool(getattr(child.model, "clipboard_locks", ())), options))
             if follows:
@@ -3748,11 +3760,7 @@ class MatchingWindow(QMainWindow):
                 page.setEnabled(getattr(page, "_linked_was_enabled", True))
             available = (getattr(page, "ready", False) or
                          (getattr(page, "result", None) is not None and not getattr(page, "dirty", True)))
-            controller = getattr(child, "viewed_plots", None)
-            available = (available and not pending and not getattr(page, "background_render_pending", False)
-                         and (controller is None or page not in controller.pending))
-            if not pending and controller is not None:
-                controller.queue()
+            available = available and not pending and not getattr(page, "background_render_pending", False)
             for control in ("export_button", "export_all_button", "copy_button"):
                 button = getattr(page, control, None)
                 if button is not None:
@@ -3764,25 +3772,15 @@ class MatchingWindow(QMainWindow):
             self._stage_window_inputs(), self._stage_sync_inputs)
         if inputs_changed or self.linked_updates_pending or any(
                 getattr(child, "_source_refresh_pending", False) for child in self._stage_windows):
-            self.sync_stage_windows(defer_plots=True)
+            self.sync_stage_windows()
+        for child in self._stage_windows:
+            for name in ("correlation_page", "sequence_page"):
+                page = getattr(child, name, None)
+                finish = getattr(page, "finish_background_draw", None)
+                if callable(finish):
+                    finish()
 
-    def remember_viewed_plot(self, workspace):
-        previous = getattr(self, "_viewed_plot_workspace", None)
-        self._viewed_plot_workspace = workspace
-        if previous in self._stage_windows and previous is not workspace:
-            controller = getattr(previous, "viewed_plots", None)
-            if controller is not None:
-                controller.queue()
-
-    def may_refresh_viewed_plot(self, workspace):
-        from .viewed_plots import logical_window
-        if workspace not in self._stage_windows or getattr(self, "_viewed_plot_workspace", None) is not workspace:
-            return False
-        # Returning to this Workbook's inline/floating Raw editor keeps the
-        # last viewed child live; another workspace does not steal that target.
-        return logical_window(QApplication.activeWindow()) in (self, workspace)
-
-    def sync_stage_windows(self, *, defer_plots=False):
+    def sync_stage_windows(self):
         """Refresh open analysis windows from the Match Workbook tables.
 
         Correlation follows Workbook sources. Map/Radius follows by default
@@ -3821,7 +3819,6 @@ class MatchingWindow(QMainWindow):
                         workspace.set_workbook_participation(book)
                     continue
                 try:
-                    workspace._defer_plot_refresh = defer_plots
                     self._refresh_stage_workspace(workspace, kind, stage, book=book)
                     self._set_child_refresh_pending(workspace, False)
                 except Exception as error:
@@ -3832,8 +3829,6 @@ class MatchingWindow(QMainWindow):
                     )
                     if hasattr(workspace, "statusBar"):
                         workspace.statusBar().showMessage(f"Workbook update failed: {error}")
-                finally:
-                    workspace._defer_plot_refresh = False
             if complete:
                 self._stage_sync_inputs = inputs
         finally:
@@ -3841,7 +3836,7 @@ class MatchingWindow(QMainWindow):
 
     def _refresh_stage_workspace(self, workspace, kind, stage, *, reset_data=False, book=None):
         book = book or (self._analysis_workspace_workbook() if kind == "correlation" else self.current_workbook())
-        transaction = getattr(workspace, 'linked_input_update', getattr(workspace, 'input_update', nullcontext))
+        transaction = getattr(workspace, 'input_update', nullcontext)
         views = self._workspace_views(workspace)
         pages = self._workspace_pages(workspace)
         previous_groups = getattr(workspace, "selection", {}).get("groups", {})
@@ -4725,6 +4720,10 @@ class MatchingWindow(QMainWindow):
                 # Same curves, new Group names/order/boundaries: keep the
                 # plotted items and repaint only the axes that read the plan.
                 mode = "axes"
+            elif (group.get("source_mapping") == source_mapping
+                    and group.get("source_identity") == identity
+                    and self._can_refresh_parameter_values(parameter, group, data)):
+                mode = "values"
             else:
                 mode = "full"
             if mode == "full":
@@ -4924,6 +4923,19 @@ class MatchingWindow(QMainWindow):
         if hasattr(self, "document"):
             self._plot_layout_identity_timer.start()
 
+    def _can_refresh_parameter_values(self, parameter, group, data):
+        """Same ungrouped rows/styles: replace arrays, keeping Qt artists alive."""
+        old = group.get("source_data")
+        card = self.result.card(parameter)
+        if (self.result.group_plan.enabled or old is None or data.empty
+                or not old.index.equals(data.index)
+                or not np.isfinite(data[["Raw", "Reference"]].to_numpy(float)).all()
+                or not np.isfinite([card.slope, card.intercept]).all()):
+            return False
+        counts = {name: len(plot.listDataItems()) for name, plot in group["plots"].items()}
+        return (counts.get("match") == 2 and counts.get("trend") == 2
+                and all(counts.get(name, 1) == 1 for name in ("bias", "bias-percent")))
+
     def _draw_parameter_group(self, parameter, group, *, refresh="full", data=None):
         """Paint one parameter card.
 
@@ -4932,6 +4944,7 @@ class MatchingWindow(QMainWindow):
         Wafer order.
         """
         axes_only = refresh == "axes"
+        values_only = refresh == "values"
         sequence_only = refresh == "sequence"
         result = group.get("result", self.result)
         workbook = group.get("workbook", self.workbook)
@@ -5020,18 +5033,21 @@ class MatchingWindow(QMainWindow):
         valid = np.isfinite(raw) & np.isfinite(reference)
         if not axes_only and not sequence_only:
             fit_text = ""
-            points = match_plot.plot(raw[valid], reference[valid], pen=None, symbol="o", symbolSize=5,
-                                     symbolBrush=CORRELATION_POINT_COLOR, symbolPen=None)
+            if values_only:
+                points = match_plot.listDataItems()[0]
+                points.setData(raw[valid], reference[valid])
+            else:
+                points = match_plot.plot(raw[valid], reference[valid], pen=None, symbol="o", symbolSize=5,
+                                         symbolBrush=CORRELATION_POINT_COLOR, symbolPen=None)
             attach_point_hover(points, np.asarray(dies_all, dtype=object)[indices][valid])
             if valid.any() and np.isfinite(fit_card.slope) and np.isfinite(fit_card.intercept):
                 low, high = float(np.min(raw[valid])), float(np.max(raw[valid]))
                 x_line = np.array([low, high])
                 y_line = fit_card.slope * x_line + fit_card.intercept
-                match_plot.plot(
-                    x_line,
-                    y_line,
-                    pen=pg.mkPen(CORRELATION_FIT_COLOR, width=2),
-                )
+                if values_only:
+                    match_plot.listDataItems()[1].setData(x_line, y_line)
+                else:
+                    match_plot.plot(x_line, y_line, pen=pg.mkPen(CORRELATION_FIT_COLOR, width=2))
                 intercept_sign = "+" if fit_card.intercept >= 0 else "-"
                 fit_text = (
                     f"y = {fit_card.slope:.6g}x {intercept_sign} "
@@ -5045,15 +5061,15 @@ class MatchingWindow(QMainWindow):
             # Trend and Bias curve keeps its identity while its ordinals move.
             self._draw_collected_trend(parameter, group, row, reference, raw, card_value)
         else:
-            self._draw_trend_plot(parameter, group, data=data)
+            self._draw_trend_plot(parameter, group, data=data, reuse=values_only)
 
         bias_plot = plots.get("bias")
-        if bias_plot is not None and axes_only:
+        if bias_plot is not None and (axes_only or values_only):
             for curve in bias_plot.listDataItems():
                 curve.setData(row, bias, connect="finite")
         if bias_plot is not None and sequence_only:
             self._reorder_curve(bias_plot, row, bias)
-        if bias_plot is not None and not axes_only and not sequence_only:
+        if bias_plot is not None and not axes_only and not sequence_only and not values_only:
             unit = parse_unit(mapping.reference_column if mapping is not None else parameter)
             bias_plot.setLabel("left", "Bias" if unit == "1" else f"Bias ({unit})")
             bias_plot.plot(
@@ -5075,12 +5091,12 @@ class MatchingWindow(QMainWindow):
             self._draw_bias_limit(parameter, group)
 
         bias_percent_plot = plots.get("bias-percent")
-        if bias_percent_plot is not None and axes_only:
+        if bias_percent_plot is not None and (axes_only or values_only):
             for curve in bias_percent_plot.listDataItems():
                 curve.setData(row, bias_percent, connect="finite")
         if bias_percent_plot is not None and sequence_only:
             self._reorder_curve(bias_percent_plot, row, bias_percent)
-        if bias_percent_plot is not None and not axes_only and not sequence_only:
+        if bias_percent_plot is not None and not axes_only and not sequence_only and not values_only:
             bias_percent_plot.plot(
                 row,
                 bias_percent,
@@ -5114,9 +5130,9 @@ class MatchingWindow(QMainWindow):
                 if plot is not None:
                     plot.setXRange(.5, len(data) + .5, padding=0)
                     set_group_axes(plot, result, data, show_wafers=group.get("show_wafers"))
-        if axes_only:
+        if axes_only or values_only:
             self._draw_bias_limit(parameter, group)
-        if not grouped:
+        if not grouped and not values_only:
             for name in ("trend", "bias", "bias-percent"):
                 plot = plots.get(name)
                 if plot is None:
@@ -5218,7 +5234,7 @@ class MatchingWindow(QMainWindow):
         plot = group["plots"]["trend"]
         space_wafer_plot(plot, getattr(plot, "_wafer_spacing", None))
 
-    def _draw_trend_plot(self, parameter, group, *, data=None):
+    def _draw_trend_plot(self, parameter, group, *, data=None, reuse=False):
         """Redraw only Trend so its Card control feels immediate and stable."""
         if "trend_data" not in group:
             return
@@ -5233,31 +5249,20 @@ class MatchingWindow(QMainWindow):
             draw_group_trend(trend_plot, result, parameter, card_mode=mode,
                              group_only=not group.get("show_wafers", False), data=data)
             return
-        for item in tuple(trend_plot.listDataItems()):
-            trend_plot.removeItem(item)
-        place_legend_above_frame(trend_plot)
+        curves = tuple(trend_plot.listDataItems())
         row, reference, raw, card_value = group["trend_data"]
         pmish = card_value if trend_plot.card_checkbox.isChecked() else raw
-        trend_plot.plot(
-            row,
-            pmish,
-            pen=pg.mkPen("#5b9bd5", width=TREND_LINE_WIDTH),
-            symbol="o",
-            symbolSize=TREND_MARKER_SIZE,
-            symbolBrush="#5b9bd5",
-            symbolPen=None,
-            name="PMISH",
-        )
-        trend_plot.plot(
-            row,
-            reference,
-            pen=pg.mkPen("#ed7d31", width=TREND_LINE_WIDTH),
-            symbol="o",
-            symbolSize=TREND_MARKER_SIZE,
-            symbolBrush="#ed7d31",
-            symbolPen=None,
-            name=workbook.match_type,
-        )
+        if reuse and len(curves) == 2 and [item.name() for item in curves] == ["PMISH", workbook.match_type]:
+            curves[0].setData(row, pmish)
+            curves[1].setData(row, reference)
+        else:
+            for item in curves:
+                trend_plot.removeItem(item)
+            place_legend_above_frame(trend_plot)
+            for name, values, color in (("PMISH", pmish, "#5b9bd5"),
+                                        (workbook.match_type, reference, "#ed7d31")):
+                trend_plot.plot(row, values, pen=pg.mkPen(color, width=TREND_LINE_WIDTH),
+                    symbol="o", symbolSize=TREND_MARKER_SIZE, symbolBrush=color, symbolPen=None, name=name)
         place_legend_above_frame(trend_plot)
         title = parameter
         trend_plot.setLabel("left", title)

@@ -301,10 +301,6 @@ class SequencePage(QWidget):
             if isinstance(state, dict) and state.get("enabled") is False:
                 self.has_drawn_once = False
                 self.invalidate()
-                controller = getattr(self.window(), "viewed_plots", None)
-                if controller is not None:
-                    controller.pending.pop(self, None)
-                    controller.automatic.discard(self)
             return
         try:
             cells = {
@@ -320,9 +316,6 @@ class SequencePage(QWidget):
         self.cells = set(cells)
         self.selector.set_selected_cells(cells, notify=False)
         self.invalidate(preserve_plot=True)
-        from .viewed_plots import defer_linked_draw
-        if defer_linked_draw(self, state):
-            return
         if background:
             self.request_background_draw()
         else:
@@ -366,7 +359,6 @@ class SequencePage(QWidget):
         self.axis_ratio.setVisible(visible)
 
     def set_input(self, frame, selection):
-        showing_plot = self.stack.currentWidget() is self.interactive_scroll
         self.frame = frame
         self.selection = selection.copy()
         self.wafer_column = find_column(frame, ("waferid", "wafer", "waferno"))
@@ -382,8 +374,6 @@ class SequencePage(QWidget):
         self.invalidate(preserve_plot=True)
         if (self.has_drawn_once and not self.selector.pending_draw
                 and self.selector.selected_cells()):
-            if showing_plot:
-                self.stack.setCurrentWidget(self.interactive_scroll)
             self.input_refresh_timer.start()
 
     def selector_changed(self):
@@ -905,9 +895,6 @@ class SequencePage(QWidget):
             "die_column": self.die_column, "metrics": tuple(names)})
 
     def _accept_background_draw(self, prepared):
-        from .viewed_plots import defer_unviewed_result
-        if defer_unviewed_result(self):
-            return
         if prepared is not None:
             self.draw_plot(prepared=prepared, background_render=True)
 

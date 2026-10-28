@@ -1,0 +1,970 @@
+{
+  "date": "2026-10-28",
+  "scope": "Correlation first; 10k rows x 50 Raw parameters, 1225 pairs, all 100 wafers selected; no view-driven refresh",
+  "head": "9e5fd795b51e3c375edf1e2d104209ae32276f45",
+  "application_base_tag": "v4.3.3",
+  "application_base_commit": "199164aba7811e6283bd28ecbc174517fc6e7407",
+  "application_changes_vs_tag": [
+    "metrology_app/correlation_page.py",
+    "metrology_app/matching_window.py",
+    "metrology_app/sheet.py"
+  ],
+  "worktree_status": [
+    " M .vscode/settings.json",
+    " M AGENTS.md",
+    " M docs/plans/viewed-plot-refresh-2026-10-27.md",
+    " M metrology_app/analysis_export.py",
+    " M metrology_app/correlation_page.py",
+    " M metrology_app/correlation_window.py",
+    " M metrology_app/linked_refresh.py",
+    " M metrology_app/matching_window.py",
+    " M metrology_app/plot_page.py",
+    " M metrology_app/radius_page.py",
+    " M metrology_app/sequence_page.py",
+    " M metrology_app/sheet.py",
+    " D metrology_app/viewed_plots.py",
+    " M metrology_app/window.py",
+    " D tests/test_viewed_plot_refresh.py",
+    "?? docs/plans/correlation-300ms-data-version-proposal.md",
+    "?? docs/plans/correlation-50-300ms-2026-10-28.md",
+    "?? docs/todos/",
+    "?? docs/validation/correlation-50-300ms-2026-10-28.json",
+    "?? metrology_app/sheet_batch.py",
+    "?? tests/test_correlation_batch_ols.py",
+    "?? tests/test_correlation_linked_values.py",
+    "?? tests/test_matching_value_refresh.py",
+    "?? tests/test_sheet_batch_transactions.py",
+    "?? tests/test_sheet_cache_updates.py"
+  ],
+  "target_complete_ms": 300,
+  "target_achieved": false,
+  "checkpoint_created": false,
+  "push_performed": false,
+  "tests": {
+    "related": {
+      "tests_run": 146,
+      "passed": 146,
+      "seconds": 60.355,
+      "artifact": {
+        "path": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\correlation-50-related-final.log",
+        "sha256": "28d69ed21bd8144387f743148f767e4fb32d8ce478831f7e6d77d0f60bc5f6e8"
+      }
+    },
+    "prior_related_attempt": {
+      "tests_run": 146,
+      "failure_records": 2,
+      "both_in_one_new_test": true,
+      "artifact": {
+        "path": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\correlation-50-related.log",
+        "sha256": "809917af61d72140b665f8bf03896ecc04b0ee1c21c7dc8451c9793b70dbc9a2"
+      },
+      "finding": "New comparison treated finite-difference lmfit predictions as an exact coefficient oracle. Independent SVD showed OLS error <=1.78e-15, lmfit <=6.30e-10; existing assertions were not loosened. The new case now checks an independent SVD solution at the same tolerance plus exact point pairing and legacy R2 at 13 decimal places."
+    },
+    "full_current_source": {
+      "run": true,
+      "status": "completed_before_two_local_repairs",
+      "exact_final_source": false,
+      "total": 1180,
+      "passed": 1176,
+      "failures": 4,
+      "seconds": 1160.748,
+      "artifact": {
+        "path": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\correlation-batch-full-20261028.log",
+        "sha256": "723be912103e641bd293992ee66550cb1785780f7a3766df2a70962d0b90f11e"
+      },
+      "failures_detail": [
+        {
+          "test": "test_restore_disabled_trend_does_not_run_old_queued_draw",
+          "type": "functional",
+          "finding": "Disabled saved Trend left old plot widgets",
+          "repaired_after_full": true
+        },
+        {
+          "test": "test_trend_prepares_labels_without_per_wafer_scans_or_losing_rows",
+          "type": "structural_performance",
+          "actual_scans": 3,
+          "maximum_scans": 2,
+          "repaired_after_full": true
+        },
+        {
+          "test": "test_saved_wide_workbook_dirty_checks_preserve_the_accepted_state_promptly",
+          "type": "timing",
+          "actual_s": 0.11036399999284185,
+          "limit_s": 0.1,
+          "isolated_s": 0.10554550000233576,
+          "still_fails": true,
+          "functional_assertions_before_threshold_ran": true
+        },
+        {
+          "test": "test_plain_cells_avoid_generic_recursive_serialization_cost",
+          "type": "timing",
+          "actual_s": 0.31765189999714494,
+          "limit_s": 0.3,
+          "isolated_s": 0.31741299998247996,
+          "still_fails": true,
+          "post_threshold_text_assertion_not_reached": true
+        }
+      ]
+    },
+    "post_full_repairs": {
+      "total": 26,
+      "passed": 26,
+      "seconds": 11.496,
+      "artifact": {
+        "path": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\correlation-post-full-fixes-focused.log",
+        "sha256": "dfdc7a3e2314208a6579c92467f1716772d70591fd90522f20464b0e3d6588f1"
+      },
+      "scope": "Explicit disabled Correlation/Trend draw cancellation and one shared Trend label-spans preparation, with linked source and axis regressions; no focus/view policy"
+    },
+    "timing_isolated_once": {
+      "total": 2,
+      "failures": 2,
+      "seconds": 10.155,
+      "artifact": {
+        "path": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\correlation-full-timing-isolated-once.log",
+        "sha256": "5edd2964b6ce848eed88651d80494e90e5d3339cf52b7974c31c5f2a605a9bee"
+      }
+    },
+    "separate_writer_value_check": {
+      "artifact": {
+        "path": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\writer-values-after-timing-failure.json",
+        "sha256": "03f5a158b5f084c5e3be542973cccaa295f0ba0e27ee76e148052dca6c8e9f40"
+      },
+      "result": {
+        "purpose": "Separate functional value verification of the same 100k fixture; original timing failures retained",
+        "cells": 100000,
+        "all_texts_exact": true,
+        "last": "99999.123456789000",
+        "elapsed_s": 0.37323619998642243,
+        "original_limit_s": 0.3,
+        "original_timing_gate_passed": false
+      },
+      "does_not_turn_original_failed_test_green": true
+    }
+  },
+  "pure_compute": {
+    "before": {
+      "rows": 10000,
+      "parameters": 50,
+      "baseline": true,
+      "samples_ms": [
+        3782.639900018694,
+        3728.1582999858074,
+        3764.389799995115
+      ],
+      "p50_ms": 3764.389799995115,
+      "fixture_sha256": "7091508c638e62b817a3edf39d2f177504f5f28134e32fd1de3e69dbb8116ec4"
+    },
+    "after": {
+      "rows": 10000,
+      "parameters": 50,
+      "baseline": false,
+      "samples_ms": [
+        308.38679999578744,
+        299.81909997877665,
+        301.6703999892343
+      ],
+      "p50_ms": 301.6703999892343,
+      "fixture_sha256": "7091508c638e62b817a3edf39d2f177504f5f28134e32fd1de3e69dbb8116ec4"
+    },
+    "native_ready": false,
+    "repeat_count_each": 3,
+    "p95_claimed": false
+  },
+  "native_complete": {
+    "before": {
+      "artifact": {
+        "path": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\correlation-50-repaint-before.json",
+        "sha256": "fe373f8328ea6dd70ce1ef29fa77ce0a5b9cabf5f278a77a54e6f93b74a4ec35"
+      },
+      "fixture_raw_sha256": "d0795d147f560f1c064008b71f2d218a54fab6d9a21a8c5b9d29e2a0e7e1439b",
+      "drawn": {
+        "correlation_page": 1225
+      },
+      "legacy_correlation": true,
+      "repaint_plots": true,
+      "exact_assertions_passed": true,
+      "samples": [
+        {
+          "operation": "select_all",
+          "dispatch_ms": 0.9492000099271536,
+          "complete_ms": 85.73089999845251,
+          "cpu_ms": 0.0,
+          "max_qt_gap_ms": 85.85750000202097,
+          "rss": 1056993280,
+          "private": 2030964736
+        },
+        {
+          "operation": "click_after_select_all",
+          "dispatch_ms": 0.6742999830748886,
+          "complete_ms": 80.44839999638498,
+          "cpu_ms": 31.25,
+          "max_qt_gap_ms": 80.55769998463802,
+          "rss": 1057030144,
+          "private": 2030964736
+        },
+        {
+          "operation": "whole_table_paste",
+          "dispatch_ms": 2809.514799999306,
+          "complete_ms": 10469.243700004881,
+          "cpu_ms": 5406.25,
+          "max_qt_gap_ms": 3369.6137000224553,
+          "rss": 1271640064,
+          "private": 2245677056
+        },
+        {
+          "operation": "undo",
+          "dispatch_ms": 863.3004000002984,
+          "complete_ms": 8034.970700013218,
+          "cpu_ms": 3187.5,
+          "max_qt_gap_ms": 1035.5859999835957,
+          "rss": 1225191424,
+          "private": 2200072192
+        },
+        {
+          "operation": "redo",
+          "dispatch_ms": 931.1110000126064,
+          "complete_ms": 8480.887200013967,
+          "cpu_ms": 3625.0,
+          "max_qt_gap_ms": 1161.1024999874644,
+          "rss": 1224953856,
+          "private": 2199269376
+        }
+      ],
+      "loaded_code": {
+        "sheet": {
+          "path": "D:\\WaferMap\\metrology_app\\sheet.py",
+          "sha256": "612fa5f41bcb43f1ba6d58cd2e45b447f76e1db1742956acbd912a135f9a6ffd"
+        },
+        "matching_window": {
+          "path": "D:\\WaferMap\\metrology_app\\matching_window.py",
+          "sha256": "8a0f66932ad22c13a620b205c1f851387aa7d29f8ecf5c0cc89706a5494e447d"
+        },
+        "window": {
+          "path": "D:\\WaferMap\\metrology_app\\window.py",
+          "sha256": "63116589846c6c16c58168356e7305b23ffe0e6f2f8bf2a7a887e50620b4c666"
+        },
+        "correlation_page": {
+          "path": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\correlation_page.v433-before-ols.py",
+          "sha256": "55082b12e990b689c8f9871e2beaf5aab8897eeb8c58d498b7109c4af3e808a1"
+        },
+        "sequence_page": {
+          "path": "D:\\WaferMap\\metrology_app\\sequence_page.py",
+          "sha256": "4bd917bedf0070aa0790034654673462b4a94d76615922975ee0d8fcdbed759f"
+        },
+        "plot_page": {
+          "path": "D:\\WaferMap\\metrology_app\\plot_page.py",
+          "sha256": "da15651e6e39a9912dce1215c682a962a056d3202f8a3b9ff0cf11d0ce5aff19"
+        },
+        "radius_page": {
+          "path": "D:\\WaferMap\\metrology_app\\radius_page.py",
+          "sha256": "5ed48a4c41168e20e69b7d10c10ac3d47ab82725e410dbbcb6716b12ec4586ba"
+        },
+        "linked_refresh": {
+          "path": "D:\\WaferMap\\metrology_app\\linked_refresh.py",
+          "sha256": "a6ec648f41f75e3bd361c400e373a22383bd58eb62624d889992a7988d17e14b"
+        }
+      },
+      "gate": {
+        "limit_ms": 300.0,
+        "passed": false,
+        "failures": [
+          {
+            "operation": "whole_table_paste",
+            "complete_ms": 10469.243700004881
+          },
+          {
+            "operation": "undo",
+            "complete_ms": 8034.970700013218
+          },
+          {
+            "operation": "redo",
+            "complete_ms": 8480.887200013967
+          }
+        ]
+      }
+    },
+    "after": {
+      "artifact": {
+        "path": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\correlation-50-repaint-after.json",
+        "sha256": "e9698281c43ff47d086a6820938ea64aca084e1e1eb35ebe8ec392cb15f10ace"
+      },
+      "fixture_raw_sha256": "d0795d147f560f1c064008b71f2d218a54fab6d9a21a8c5b9d29e2a0e7e1439b",
+      "drawn": {
+        "correlation_page": 1225
+      },
+      "legacy_correlation": false,
+      "repaint_plots": true,
+      "exact_assertions_passed": true,
+      "samples": [
+        {
+          "operation": "select_all",
+          "dispatch_ms": 0.9396999957971275,
+          "complete_ms": 86.65010001277551,
+          "cpu_ms": 62.5,
+          "max_qt_gap_ms": 86.77199998055585,
+          "rss": 863117312,
+          "private": 1770041344
+        },
+        {
+          "operation": "click_after_select_all",
+          "dispatch_ms": 0.6399000121746212,
+          "complete_ms": 80.01229999354109,
+          "cpu_ms": 31.25,
+          "max_qt_gap_ms": 80.12030000099912,
+          "rss": 863154176,
+          "private": 1770041344
+        },
+        {
+          "operation": "whole_table_paste",
+          "dispatch_ms": 2639.3940999987535,
+          "complete_ms": 6141.780900012236,
+          "cpu_ms": 5218.75,
+          "max_qt_gap_ms": 3573.7846000120044,
+          "rss": 1077301248,
+          "private": 1984393216
+        },
+        {
+          "operation": "undo",
+          "dispatch_ms": 839.5797999983188,
+          "complete_ms": 3865.409500023816,
+          "cpu_ms": 2843.75,
+          "max_qt_gap_ms": 919.4335999782197,
+          "rss": 1028108288,
+          "private": 1935089664
+        },
+        {
+          "operation": "redo",
+          "dispatch_ms": 907.2220999805722,
+          "complete_ms": 4232.526199979475,
+          "cpu_ms": 3281.25,
+          "max_qt_gap_ms": 1109.8198000108823,
+          "rss": 1031516160,
+          "private": 1939144704
+        }
+      ],
+      "loaded_code": {
+        "sheet": {
+          "path": "D:\\WaferMap\\metrology_app\\sheet.py",
+          "sha256": "612fa5f41bcb43f1ba6d58cd2e45b447f76e1db1742956acbd912a135f9a6ffd"
+        },
+        "matching_window": {
+          "path": "D:\\WaferMap\\metrology_app\\matching_window.py",
+          "sha256": "8a0f66932ad22c13a620b205c1f851387aa7d29f8ecf5c0cc89706a5494e447d"
+        },
+        "window": {
+          "path": "D:\\WaferMap\\metrology_app\\window.py",
+          "sha256": "63116589846c6c16c58168356e7305b23ffe0e6f2f8bf2a7a887e50620b4c666"
+        },
+        "correlation_page": {
+          "path": "D:\\WaferMap\\metrology_app\\correlation_page.py",
+          "sha256": "b876ae5bc6664db043ac47e54140ef9f5cb2195a78044e2353fe42def6e7c042"
+        },
+        "sequence_page": {
+          "path": "D:\\WaferMap\\metrology_app\\sequence_page.py",
+          "sha256": "4bd917bedf0070aa0790034654673462b4a94d76615922975ee0d8fcdbed759f"
+        },
+        "plot_page": {
+          "path": "D:\\WaferMap\\metrology_app\\plot_page.py",
+          "sha256": "da15651e6e39a9912dce1215c682a962a056d3202f8a3b9ff0cf11d0ce5aff19"
+        },
+        "radius_page": {
+          "path": "D:\\WaferMap\\metrology_app\\radius_page.py",
+          "sha256": "5ed48a4c41168e20e69b7d10c10ac3d47ab82725e410dbbcb6716b12ec4586ba"
+        },
+        "linked_refresh": {
+          "path": "D:\\WaferMap\\metrology_app\\linked_refresh.py",
+          "sha256": "a6ec648f41f75e3bd361c400e373a22383bd58eb62624d889992a7988d17e14b"
+        }
+      },
+      "gate": {
+        "limit_ms": 300.0,
+        "passed": false,
+        "failures": [
+          {
+            "operation": "whole_table_paste",
+            "complete_ms": 6141.780900012236
+          },
+          {
+            "operation": "undo",
+            "complete_ms": 3865.409500023816
+          },
+          {
+            "operation": "redo",
+            "complete_ms": 4232.526199979475
+          }
+        ]
+      }
+    },
+    "repeat_count_each": 1,
+    "p50_or_p95_claimed": false,
+    "comparison_scope": "Only Correlation module differs; Raw cache and main artist reuse retained in both sides. Baseline is not an unchanged complete tag checkout. Explicit synchronous child plot viewport repaint included.",
+    "excludes": "Identity/Recovery quiescence and heavy diagnostic assertion work; DWM presentation latency not measured."
+  },
+  "numerical_oracle": {
+    "artifact": {
+      "path": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\correlation-ols-independent-oracle.json",
+      "sha256": "141244ef468bd6c0639d7fe0e06e51805a63f7ffbf4fa34e7af45ce95a2c095a"
+    },
+    "method": "numpy.linalg.lstsq independent SVD reference; raw artifact key names say qr but no QR method was used",
+    "max_ols_vs_svd_abs": 1.7763568394002505e-15,
+    "max_lmfit_vs_svd_abs": 6.292888085623893e-10,
+    "max_r2_delta": 2.220446049250313e-16
+  },
+  "confirmed_hotspots": [
+    "Repeated lmfit solver setup per parameter pair (optimized)",
+    "Repeated selected numeric copies and per-column moments (optimized within batch only)",
+    "Raw CellEdit construction, cached frame update and paste report",
+    "Linked child source commit and repeated object frame work",
+    "Qt ScatterPlotItem data/style refresh and panel reparenting"
+  ],
+  "profiling": {
+    "artifact": {
+      "path": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\correlation-50-ols-profile.json",
+      "sha256": "d4038ae1a453bc4be074a91f5a31c2e68db5f14fa6e6d1f4d54cb661093767bc"
+    },
+    "timings_are_diagnostic_not_native_baseline": true,
+    "nested_spans_must_not_be_summed": true
+  },
+  "safety": {
+    "settings_before_sha256": "993010fb1689348a6d5d6f06582d18024f7706a71f21b2bcf83dbeeaef4efda1",
+    "settings_after_sha256": "993010fb1689348a6d5d6f06582d18024f7706a71f21b2bcf83dbeeaef4efda1",
+    "settings_unchanged": true,
+    "owned_wkb_sha256": "9c0b9437eef660d3bffc9c007515c1875f24cbc25c60ca2e8235032b9272fb65",
+    "user_files_fault_injected": false,
+    "wkb_recovery_protocol_changed": false,
+    "view_focus_deferral_reintroduced": false,
+    "existing_thresholds_relaxed": false,
+    "protected_wkb_unchanged": true
+  },
+  "source_hashes": {
+    "metrology_app/sheet.py": "ceca7053ddba74d14092723851b5f767355384d65b16342c227bc3fa5b57314e",
+    "metrology_app/sheet_batch.py": "51399bea68b6257ad0edd2d308b6a08cfb44b63b7b7f1e0b7ac6fc109cb518e2",
+    "metrology_app/matching_window.py": "a600d60681db1fb7e1b6be097578af0db15abd18dd4ab896b8ba1c1ace3f5393",
+    "metrology_app/correlation_page.py": "49f572abae9800c4c25e60eef91ee3e127a7c2db93bdce14000d36269cf1a972",
+    "metrology_app/correlation_window.py": "d4d2a5ecff6ed18bfff7470d36b37460ac303bd63aa56cfe86b25ef62856bf8e",
+    "metrology_app/linked_refresh.py": "3145a4fb784c5eab69b3ceb5b8ec023220c2388232f352e462eed1f3579cd522",
+    "tests/test_sheet_batch_transactions.py": "d98ca35f868ef21aa4f5fb00d9f4387990a8c6c0a83457a6c856057b61d89394",
+    "tests/test_correlation_linked_values.py": "5b220e2170bc2a411d22b9b4a62584a2d8630a33aa35ec558ce9a1f0cb70276f",
+    "tests/test_correlation_batch_ols.py": "9d35718f04ea2655c26565c4c88c69ec7bacd5ab0b20c9a1032ddeee51f249d1",
+    "tests/test_sheet_cache_updates.py": "400d52edc0fe3e98010cc2c16d9b4dd3ff7d57b365b34ce2375acb95ba8b1b9c",
+    "tests/test_matching_value_refresh.py": "dc302c75b1f3c9b3211cacc2cc22935c49a98a9354a78ba8f05b65731923a73e",
+    "metrology_app/sequence_page.py": "e3b991ac990c8b8fc8fa74c56a20a53f1f965c5099548a74fe5a5dc93171ec03"
+  },
+  "qa_scripts": {
+    "probe_correlation_workload.py": {
+      "path": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\probe_correlation_workload.py",
+      "sha256": "04aa7acc30b79ff8fe308a87e53f20217810e6fd86a7212933095137a8911a81"
+    },
+    "probe_correlation_workload.model-ready.py": {
+      "path": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\probe_correlation_workload.model-ready.py",
+      "sha256": "a00d00edadb8a2628cd9791c13cc04153c08067298f2539b4ace393020959280"
+    },
+    "benchmark_correlation_batch.py": {
+      "path": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\benchmark_correlation_batch.py",
+      "sha256": "e4ae5d68b7c1839b9e2ca964169df28dea57fb801569ac75036c1ace65a44790"
+    },
+    "diagnose_ols_oracle.py": {
+      "path": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\diagnose_ols_oracle.py",
+      "sha256": "19fd9d28525fb0d482104602c0235724a664f912c95a9c53916fca8c52c803cf"
+    }
+  },
+  "pending": {
+    "approval": "Batch transaction plan received; broader column storage/immutable data ownership proposal awaits a separate explicit answer",
+    "proposal": "docs/plans/correlation-300ms-data-version-proposal.md",
+    "target_achieved": false,
+    "wafermap_20x5": "Paused per user: Correlation first",
+    "next": [
+      "Save a local progress checkpoint with all failed gates disclosed; do not push or move tags",
+      "Do not repeat the full suite for accidental green; it remains 1180/4 failed before two targeted repairs",
+      "New SheetModel storage/data ownership work requires the pending proposal approval; no such implementation yet"
+    ]
+  },
+  "pre_batch_source_hashes": {
+    "metrology_app/correlation_page.py": "b876ae5bc6664db043ac47e54140ef9f5cb2195a78044e2353fe42def6e7c042",
+    "metrology_app/sheet.py": "612fa5f41bcb43f1ba6d58cd2e45b447f76e1db1742956acbd912a135f9a6ffd",
+    "metrology_app/matching_window.py": "8a0f66932ad22c13a620b205c1f851387aa7d29f8ecf5c0cc89706a5494e447d",
+    "tests/test_correlation_batch_ols.py": "9d35718f04ea2655c26565c4c88c69ec7bacd5ab0b20c9a1032ddeee51f249d1",
+    "tests/test_sheet_cache_updates.py": "400d52edc0fe3e98010cc2c16d9b4dd3ff7d57b365b34ce2375acb95ba8b1b9c",
+    "tests/test_matching_value_refresh.py": "dc302c75b1f3c9b3211cacc2cc22935c49a98a9354a78ba8f05b65731923a73e"
+  },
+  "batch_followup": {
+    "date": "2026-10-28",
+    "authorization": "User explicitly accepted the column batch transaction and guarded child incremental plan in this chat",
+    "view_or_focus_deferral": false,
+    "status": "Approved batch transaction phase implemented and validated as recorded; total 300ms not reached; current source has targeted repairs after the one full run",
+    "column_sheet_only": {
+      "before": {
+        "scope": "SheetView clipboard parse + transaction + observers reading both owned frame kinds; no WKB/child/plot work",
+        "rows": 10000,
+        "parameters": 50,
+        "cycles": 3,
+        "baseline": true,
+        "samples_ms": [
+          {
+            "paste": 2793.845700012753,
+            "undo": 826.8919000111055,
+            "redo": 925.1258000149392
+          },
+          {
+            "paste": 2778.591600013897,
+            "undo": 873.8596000184771,
+            "redo": 935.8837000036146
+          },
+          {
+            "paste": 2692.3201000026893,
+            "undo": 886.201000015717,
+            "redo": 921.6914999997243
+          }
+        ],
+        "p50_ms": {
+          "paste": 2778.591600013897,
+          "undo": 873.8596000184771,
+          "redo": 925.1258000149392
+        },
+        "exact_assertions_passed": true
+      },
+      "after": {
+        "scope": "SheetView clipboard parse + transaction + observers reading both owned frame kinds; no WKB/child/plot work",
+        "rows": 10000,
+        "parameters": 50,
+        "cycles": 3,
+        "baseline": false,
+        "samples_ms": [
+          {
+            "paste": 684.5299000269733,
+            "undo": 280.1344000035897,
+            "redo": 285.54199999780394
+          },
+          {
+            "paste": 764.5790000096895,
+            "undo": 291.16150000481866,
+            "redo": 311.7492999881506
+          },
+          {
+            "paste": 789.158999978099,
+            "undo": 283.4787000028882,
+            "redo": 308.5214000020642
+          }
+        ],
+        "p50_ms": {
+          "paste": 764.5790000096895,
+          "undo": 283.4787000028882,
+          "redo": 308.5214000020642
+        },
+        "exact_assertions_passed": true
+      },
+      "excludes_all_workbook_child_and_plot_work": true
+    },
+    "native_dense": {
+      "artifact": {
+        "path": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\correlation-50-column-grid-final.json",
+        "sha256": "9875a10c4476ddafb72eb2f965e0e082f9e821671ac7707027cac99f1794afeb"
+      },
+      "gate": {
+        "limit_ms": 300.0,
+        "passed": false,
+        "failures": [
+          {
+            "operation": "whole_table_paste",
+            "complete_ms": 4152.831099985633
+          },
+          {
+            "operation": "undo",
+            "complete_ms": 3127.6817999896593
+          },
+          {
+            "operation": "redo",
+            "complete_ms": 3371.6958000150044
+          }
+        ]
+      },
+      "selected_parameters": [
+        "P0",
+        "P1",
+        "P2",
+        "P3",
+        "P4",
+        "P5",
+        "P6",
+        "P7",
+        "P8",
+        "P9",
+        "P10",
+        "P11",
+        "P12",
+        "P13",
+        "P14",
+        "P15",
+        "P16",
+        "P17",
+        "P18",
+        "P19",
+        "P20",
+        "P21",
+        "P22",
+        "P23",
+        "P24",
+        "P25",
+        "P26",
+        "P27",
+        "P28",
+        "P29",
+        "P30",
+        "P31",
+        "P32",
+        "P33",
+        "P34",
+        "P35",
+        "P36",
+        "P37",
+        "P38",
+        "P39",
+        "P40",
+        "P41",
+        "P42",
+        "P43",
+        "P44",
+        "P45",
+        "P46",
+        "P47",
+        "P48",
+        "P49"
+      ],
+      "changed_parameters": [
+        "P0",
+        "P1",
+        "P2",
+        "P3",
+        "P4",
+        "P5",
+        "P6",
+        "P7",
+        "P8",
+        "P9",
+        "P10",
+        "P11",
+        "P12",
+        "P13",
+        "P14",
+        "P15",
+        "P16",
+        "P17",
+        "P18",
+        "P19",
+        "P20",
+        "P21",
+        "P22",
+        "P23",
+        "P24",
+        "P25",
+        "P26",
+        "P27",
+        "P28",
+        "P29",
+        "P30",
+        "P31",
+        "P32",
+        "P33",
+        "P34",
+        "P35",
+        "P36",
+        "P37",
+        "P38",
+        "P39",
+        "P40",
+        "P41",
+        "P42",
+        "P43",
+        "P44",
+        "P45",
+        "P46",
+        "P47",
+        "P48",
+        "P49"
+      ],
+      "data_only": false,
+      "value_commits": [],
+      "drawn": {
+        "correlation_page": 1225
+      },
+      "exact_assertions_passed": true,
+      "samples": [
+        {
+          "operation": "select_all",
+          "dispatch_ms": 1.9346000044606626,
+          "complete_ms": 100.69120000116527,
+          "max_qt_gap_ms": 100.82510000211187
+        },
+        {
+          "operation": "click_after_select_all",
+          "dispatch_ms": 0.6647999980486929,
+          "complete_ms": 87.1869999973569,
+          "max_qt_gap_ms": 87.3128000239376
+        },
+        {
+          "operation": "whole_table_paste",
+          "dispatch_ms": 899.2874000105076,
+          "complete_ms": 4152.831099985633,
+          "max_qt_gap_ms": 1039.069299993571
+        },
+        {
+          "operation": "undo",
+          "dispatch_ms": 320.9492000169121,
+          "complete_ms": 3127.6817999896593,
+          "max_qt_gap_ms": 813.605400006054
+        },
+        {
+          "operation": "redo",
+          "dispatch_ms": 336.83829999063164,
+          "complete_ms": 3371.6958000150044,
+          "max_qt_gap_ms": 941.6293999820482
+        }
+      ],
+      "loaded_code": {
+        "sheet": {
+          "path": "D:\\WaferMap\\metrology_app\\sheet.py",
+          "sha256": "ceca7053ddba74d14092723851b5f767355384d65b16342c227bc3fa5b57314e"
+        },
+        "matching_window": {
+          "path": "D:\\WaferMap\\metrology_app\\matching_window.py",
+          "sha256": "a600d60681db1fb7e1b6be097578af0db15abd18dd4ab896b8ba1c1ace3f5393"
+        },
+        "window": {
+          "path": "D:\\WaferMap\\metrology_app\\window.py",
+          "sha256": "63116589846c6c16c58168356e7305b23ffe0e6f2f8bf2a7a887e50620b4c666"
+        },
+        "correlation_page": {
+          "path": "D:\\WaferMap\\metrology_app\\correlation_page.py",
+          "sha256": "d62b143e097d95351636be1e73811498a39fc9701657c1a8a83e630c7f734247"
+        },
+        "sequence_page": {
+          "path": "D:\\WaferMap\\metrology_app\\sequence_page.py",
+          "sha256": "4bd917bedf0070aa0790034654673462b4a94d76615922975ee0d8fcdbed759f"
+        },
+        "plot_page": {
+          "path": "D:\\WaferMap\\metrology_app\\plot_page.py",
+          "sha256": "da15651e6e39a9912dce1215c682a962a056d3202f8a3b9ff0cf11d0ce5aff19"
+        },
+        "radius_page": {
+          "path": "D:\\WaferMap\\metrology_app\\radius_page.py",
+          "sha256": "5ed48a4c41168e20e69b7d10c10ac3d47ab82725e410dbbcb6716b12ec4586ba"
+        },
+        "linked_refresh": {
+          "path": "D:\\WaferMap\\metrology_app\\linked_refresh.py",
+          "sha256": "7083fd5d19c4d14d84d17c9afee843daebb7ccef73608d01d3903f3451392e6a"
+        }
+      },
+      "batch_source_sha256": "51399bea68b6257ad0edd2d308b6a08cfb44b63b7b7f1e0b7ac6fc109cb518e2"
+    },
+    "native_sparse_data_tab": {
+      "artifact": {
+        "path": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\correlation-50-sparse-data-tab-final.json",
+        "sha256": "7363e3855f4cd65bf8e607d86fb3035f583958f1cbb51350ec3379966f39a6c0"
+      },
+      "gate": {
+        "limit_ms": 300.0,
+        "passed": false,
+        "failures": [
+          {
+            "operation": "whole_table_paste",
+            "complete_ms": 2469.8735999991186
+          },
+          {
+            "operation": "undo",
+            "complete_ms": 2102.642799989553
+          },
+          {
+            "operation": "redo",
+            "complete_ms": 2125.2485000004526
+          }
+        ]
+      },
+      "selected_parameters": [
+        "P0",
+        "P1",
+        "P2",
+        "P3",
+        "P4",
+        "P5",
+        "P6",
+        "P7",
+        "P8",
+        "P9",
+        "P10",
+        "P11",
+        "P12",
+        "P13",
+        "P14",
+        "P15",
+        "P16",
+        "P17",
+        "P18",
+        "P19",
+        "P20",
+        "P21",
+        "P22",
+        "P23",
+        "P24",
+        "P25",
+        "P26",
+        "P27",
+        "P28",
+        "P29",
+        "P30",
+        "P31",
+        "P32",
+        "P33",
+        "P34",
+        "P35",
+        "P36",
+        "P37",
+        "P38",
+        "P39",
+        "P40",
+        "P41",
+        "P42",
+        "P43",
+        "P44",
+        "P45",
+        "P46",
+        "P47",
+        "P48",
+        "P49"
+      ],
+      "changed_parameters": [
+        "P0"
+      ],
+      "data_only": true,
+      "value_commits": [
+        true,
+        true,
+        true
+      ],
+      "drawn": {
+        "correlation_page": 1225
+      },
+      "exact_assertions_passed": true,
+      "samples": [
+        {
+          "operation": "select_all",
+          "dispatch_ms": 1.1159999994561076,
+          "complete_ms": 55.971499998122454,
+          "max_qt_gap_ms": 56.111900019459426
+        },
+        {
+          "operation": "click_after_select_all",
+          "dispatch_ms": 0.6939000159036368,
+          "complete_ms": 27.38580000004731,
+          "max_qt_gap_ms": 27.513000008184463
+        },
+        {
+          "operation": "whole_table_paste",
+          "dispatch_ms": 404.5462000067346,
+          "complete_ms": 2469.8735999991186,
+          "max_qt_gap_ms": 675.7288000080734
+        },
+        {
+          "operation": "undo",
+          "dispatch_ms": 95.60080000665039,
+          "complete_ms": 2102.642799989553,
+          "max_qt_gap_ms": 559.4988000229932
+        },
+        {
+          "operation": "redo",
+          "dispatch_ms": 98.4976000036113,
+          "complete_ms": 2125.2485000004526,
+          "max_qt_gap_ms": 551.8928999954369
+        }
+      ],
+      "loaded_code": {
+        "sheet": {
+          "path": "D:\\WaferMap\\metrology_app\\sheet.py",
+          "sha256": "ceca7053ddba74d14092723851b5f767355384d65b16342c227bc3fa5b57314e"
+        },
+        "matching_window": {
+          "path": "D:\\WaferMap\\metrology_app\\matching_window.py",
+          "sha256": "a600d60681db1fb7e1b6be097578af0db15abd18dd4ab896b8ba1c1ace3f5393"
+        },
+        "window": {
+          "path": "D:\\WaferMap\\metrology_app\\window.py",
+          "sha256": "63116589846c6c16c58168356e7305b23ffe0e6f2f8bf2a7a887e50620b4c666"
+        },
+        "correlation_page": {
+          "path": "D:\\WaferMap\\metrology_app\\correlation_page.py",
+          "sha256": "d62b143e097d95351636be1e73811498a39fc9701657c1a8a83e630c7f734247"
+        },
+        "sequence_page": {
+          "path": "D:\\WaferMap\\metrology_app\\sequence_page.py",
+          "sha256": "4bd917bedf0070aa0790034654673462b4a94d76615922975ee0d8fcdbed759f"
+        },
+        "plot_page": {
+          "path": "D:\\WaferMap\\metrology_app\\plot_page.py",
+          "sha256": "da15651e6e39a9912dce1215c682a962a056d3202f8a3b9ff0cf11d0ce5aff19"
+        },
+        "radius_page": {
+          "path": "D:\\WaferMap\\metrology_app\\radius_page.py",
+          "sha256": "5ed48a4c41168e20e69b7d10c10ac3d47ab82725e410dbbcb6716b12ec4586ba"
+        },
+        "linked_refresh": {
+          "path": "D:\\WaferMap\\metrology_app\\linked_refresh.py",
+          "sha256": "7083fd5d19c4d14d84d17c9afee843daebb7ccef73608d01d3903f3451392e6a"
+        }
+      },
+      "batch_source_sha256": "51399bea68b6257ad0edd2d308b6a08cfb44b63b7b7f1e0b7ac6fc109cb518e2"
+    },
+    "native_source_note": "Native runs precede only the conservative attrs-qualification fallback. That guard is included in the frozen full-suite source. No claim of byte-identical final-source native rerun.",
+    "incremental_density_control": {
+      "enabled_artifact": {
+        "path": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\correlation-50-column-and-linked.json",
+        "sha256": "b4b45e485af01afd16e7ac8fdd389bf7f3acd8e57de87eac86b5059a1a40dd83"
+      },
+      "disabled_artifact": {
+        "path": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\correlation-50-column-control-no-linked.json",
+        "sha256": "7c2c2709438948673b5f465274f3300808ea5082547e6906016337ccf74d3d48"
+      },
+      "finding": "Dense 50-column deltas were slower. Current production attempts a delta only below 25% changed cells; every accepted delta still proves its entire baseline and schema. The hint is not correctness proof."
+    },
+    "red_layout_test": {
+      "path": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\correlation-grid-reuse-red.log",
+      "sha256": "e19a2b5e730ec5ac62994289d75dfc05b86ceb7bc40fc217ed924486fab973ff"
+    },
+    "related_grid": {
+      "run": 95,
+      "passed": 95,
+      "seconds": 49.518,
+      "artifact": {
+        "path": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\correlation-batch-grid-related.log",
+        "sha256": "93c5952c3976ec1df71f7a906472aabf61f22a3960546279b93de3ab2dd66f6f"
+      }
+    },
+    "safety": {
+      "run": 78,
+      "passed": 78,
+      "seconds": 11.277,
+      "artifact": {
+        "path": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\correlation-batch-final-safety.log",
+        "sha256": "3f5dfb05ecac9030dc0ea9206c42557299aaaa57d58091153f2f007ea90cfe49"
+      }
+    },
+    "full_log": "C:\\Users\\qinyu\\.codex\\visualizations\\2026\\10\\18\\01a14f7d-3088-7760-953c-a1aa86946096\\raw-click-20261027\\correlation-batch-full-20261028.log",
+    "post_full_source_changes": [
+      "metrology_app/sequence_page.py",
+      "metrology_app/correlation_page.py",
+      "tests/test_correlation_linked_values.py"
+    ]
+  },
+  "full_suite_frozen_source_hashes": {
+    "metrology_app/sheet.py": "ceca7053ddba74d14092723851b5f767355384d65b16342c227bc3fa5b57314e",
+    "metrology_app/sheet_batch.py": "51399bea68b6257ad0edd2d308b6a08cfb44b63b7b7f1e0b7ac6fc109cb518e2",
+    "metrology_app/matching_window.py": "a600d60681db1fb7e1b6be097578af0db15abd18dd4ab896b8ba1c1ace3f5393",
+    "metrology_app/correlation_page.py": "d62b143e097d95351636be1e73811498a39fc9701657c1a8a83e630c7f734247",
+    "metrology_app/correlation_window.py": "d4d2a5ecff6ed18bfff7470d36b37460ac303bd63aa56cfe86b25ef62856bf8e",
+    "metrology_app/linked_refresh.py": "3145a4fb784c5eab69b3ceb5b8ec023220c2388232f352e462eed1f3579cd522",
+    "tests/test_sheet_batch_transactions.py": "d98ca35f868ef21aa4f5fb00d9f4387990a8c6c0a83457a6c856057b61d89394",
+    "tests/test_correlation_linked_values.py": "af1a24925242bce2ae18b85ba92d901ed5351fd77468a4b051fa438dddc9bd48",
+    "tests/test_correlation_batch_ols.py": "9d35718f04ea2655c26565c4c88c69ec7bacd5ab0b20c9a1032ddeee51f249d1",
+    "tests/test_sheet_cache_updates.py": "400d52edc0fe3e98010cc2c16d9b4dd3ff7d57b365b34ce2375acb95ba8b1b9c",
+    "tests/test_matching_value_refresh.py": "dc302c75b1f3c9b3211cacc2cc22935c49a98a9354a78ba8f05b65731923a73e"
+  }
+}
