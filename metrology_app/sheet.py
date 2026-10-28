@@ -24,6 +24,8 @@ from .metadata_locks import ColumnLockDelegate, is_metadata_column
 from .table_clipboard import ClipboardRangeOutline, copy_selection, selection_bounds
 from .table_selection import RangeSelectionHeader, RangeSelectionTableView
 from .sheet_batch import ColumnChanges, prepare_column_paste
+from .table_version import LiteralTableVersion
+from .version_cells import TrackedCells, VersionCells
 
 
 HEADER_COLOURS = {"dark": ("#201629", "#d6b9f5"), "light": ("#f0f0f2", "#18181b")}
@@ -194,16 +196,35 @@ class ColumnEdit(QUndoCommand):
         self.before = ColumnChanges(parts, 'before', data_rows)
         self.after = ColumnChanges(parts, 'after', data_rows)
         self.rows = model._document_rows
+        self.before_version = model._column_version()
+        self.after_version = None
+        if self.before_version is not None:
+            columns = {}
+            for part in parts:
+                if part.rows == range(1, self.before_version.row_count + 1):
+                    columns[part.column] = part.after
+                else:
+                    values = list(self.before_version.columns[part.column])
+                    for row, value in zip(part.rows, part.after):
+                        values[row - 1] = value
+                    columns[part.column] = values
+            self.after_version = self.before_version.replace_columns(columns)
+
+    def _apply(self, changes, expected, target):
+        current = self.model.cells
+        version = (target if isinstance(current, VersionCells)
+                   and current.version is expected else None)
+        self.model._apply_changes(changes, bounds=changes.bounds,
+                                  document_rows=self.rows, value_mode=True,
+                                  table_version=version)
 
     def redo(self):
         self.model._document_rows = self.rows
-        self.model._apply_changes(self.after, bounds=self.after.bounds,
-                                  document_rows=self.rows, value_mode=True)
+        self._apply(self.after, self.before_version, self.after_version)
 
     def undo(self):
         self.model._document_rows = self.rows
-        self.model._apply_changes(self.before, bounds=self.before.bounds,
-                                  document_rows=self.rows, value_mode=True)
+        self._apply(self.before, self.after_version, self.before_version)
 
 
 class TableReplace(QUndoCommand):
@@ -229,7 +250,8 @@ class SheetModel(QAbstractTableModel):
 
     def __init__(self):
         super().__init__()
-        self.cells = {}
+        self._writing_cells = False
+        self.cells = TrackedCells(changed=self._direct_cells_changed) if type(self) is SheetModel else {}
         self._document_rows = 0
         self._preserves_record_positions = False
         self._frames = {}
@@ -400,6 +422,9 @@ class SheetModel(QAbstractTableModel):
         if type(self) is not SheetModel or self.clipboard_locks:
             return False
         document = self._frames.get('document')
+        if document is None and isinstance(self.cells, VersionCells) and self.cells.version is not None:
+            self.document_frame()
+            document = self._frames.get('document')
         if (document is None or len(document) != self._document_rows
                 or self._extent != (self._document_rows + 1, len(document.columns))):
             return False
@@ -425,6 +450,30 @@ class SheetModel(QAbstractTableModel):
         self.paste_report = PasteReport(changes, columns, bounds=bounds)
         self.paste_report_changed.emit()
         return True
+
+    def _column_version(self):
+        """Adopt only tracked, normalized dense source cells, without changing data."""
+        if isinstance(self.cells, VersionCells):
+            return self.cells.version
+        document = self._frames.get('document')
+        if type(self.cells) is not TrackedCells or document is None:
+            return None
+        try:
+            version = LiteralTableVersion.from_frame(document)
+        except (TypeError, ValueError):
+            return None
+        if (not version.dense or self._document_rows != version.row_count
+                or self._extent != (version.row_count + 1, len(version.headers))):
+            return None
+        self.cells = VersionCells(version, changed=self._direct_cells_changed)
+        return version
+
+    def _direct_cells_changed(self):
+        # Public cells remain writable. Unknown writes cannot leave a materialized
+        # frame (or an immutable version) claiming to represent the new values.
+        if not self._writing_cells:
+            self._frames.clear()
+            self._extent = self._selection_extent = self._selection_bounds = None
 
     def clear_paste_report(self):
         if self.paste_report is not None:
@@ -463,12 +512,13 @@ class SheetModel(QAbstractTableModel):
         self._apply_changes(changes)
 
     def _apply_changes(self, changes, *, bounds=None, document_rows=None, value_mode=None,
-                       prepared_frames=None):
+                       prepared_frames=None, table_version=None):
         previous = self._frame_change
         self._frame_change = changes
         try:
             self._apply_cells(changes, bounds=bounds, document_rows=document_rows,
-                              value_mode=value_mode, prepared_frames=prepared_frames)
+                              value_mode=value_mode, prepared_frames=prepared_frames,
+                              table_version=table_version)
         finally:
             self._frame_change = previous
 
@@ -487,7 +537,10 @@ class SheetModel(QAbstractTableModel):
         return self._frame_change.bounds if isinstance(self._frame_change, ColumnChanges) else None
 
     def _apply_cells(self, changes, *, bounds=None, document_rows=None, value_mode=None,
-                     prepared_frames=None):
+                     prepared_frames=None, table_version=None):
+        if table_version is None and isinstance(self.cells, VersionCells):
+            # General/unknown/structural edits keep the ordinary dictionary path.
+            self.cells = TrackedCells(self.cells.copy(), changed=self._direct_cells_changed)
         if bounds is None:
             bounds = (min(r for r, _ in changes), min(c for _, c in changes),
                       max(r for r, _ in changes), max(c for _, c in changes))
@@ -501,7 +554,10 @@ class SheetModel(QAbstractTableModel):
                 renamed_locks = {self.cells.get((0, c), ""): value if is_metadata_column(value) else ""
                                  for (r, c), value in changes.items()
                                  if r == 0 and self.cells.get((0, c), "") in self.clipboard_locks}
-        if prepared_frames is None:
+        if table_version is not None:
+            self._frames.clear()
+            frames_patched = True
+        elif prepared_frames is None:
             frames_patched = self._invalidate_frames()
         else:
             self._frames = {name: frame.copy(deep=True) for name, frame in prepared_frames.items()}
@@ -518,18 +574,25 @@ class SheetModel(QAbstractTableModel):
             self.beginInsertColumns(QModelIndex(), self.width, cols - 1)
             self.width = cols
             self.endInsertColumns()
-        if isinstance(changes, ColumnChanges):
-            changes.update_cells(self.cells)
-        elif value_mode is True:
-            self.cells.update(changes)
-        elif value_mode is False and self.cells.keys() <= changes.keys():
-            self.cells.clear()
-        else:
-            for key, value in changes.items():
-                if value:
-                    self.cells[key] = value
-                else:
-                    self.cells.pop(key, None)
+        self._writing_cells = True
+        try:
+            if table_version is not None:
+                self.cells = VersionCells(table_version, changed=self._direct_cells_changed)
+                self._frames.clear()
+            elif isinstance(changes, ColumnChanges):
+                changes.update_cells(self.cells)
+            elif value_mode is True:
+                self.cells.update(changes)
+            elif value_mode is False and self.cells.keys() <= changes.keys():
+                self.cells.clear()
+            else:
+                for key, value in changes.items():
+                    if value:
+                        self.cells[key] = value
+                    else:
+                        self.cells.pop(key, None)
+        finally:
+            self._writing_cells = False
         if renamed_locks:
             # Undo/Redo can restore an earlier header name despite the lock.
             # Keep metadata protected on its slot; absent/nonmetadata headers
@@ -695,7 +758,7 @@ class SheetModel(QAbstractTableModel):
         return (0, 0, len(matrix) - 1, width - 1) if matrix and width else None
 
     def snapshot(self):
-        cells = dict(self.cells)
+        cells = self.cells.copy() if isinstance(self.cells, VersionCells) else dict(self.cells)
         if self._document_rows:
             # An empty final-row marker retains the three-field snapshot shape.
             # It is document extent, not a value/extra scientific observation.
@@ -731,7 +794,8 @@ class SheetModel(QAbstractTableModel):
         self._revision += 1
         self._preserves_record_positions = False
         self.beginResetModel()
-        self.cells = cells
+        self.cells = (TrackedCells(cells, changed=self._direct_cells_changed)
+                      if type(self) is SheetModel else cells)
         self._document_rows = document_rows
         self.height = height
         self.width = width
@@ -752,6 +816,11 @@ class SheetModel(QAbstractTableModel):
         headers = self.headers(columns)
         if len(set(headers)) != len(headers):
             raise ValueError("Duplicate column names in row 1. Rename them to continue.")
+        if isinstance(self.cells, VersionCells) and self.cells.version is not None:
+            document = self.document_frame()
+            if document.iloc[:, 0].str.strip().ne('').all():
+                self._frames['analysis'] = document.set_axis(headers, axis=1)
+                return self._frames['analysis'].copy()
         matrix = (self._frames["document"].values.tolist() if "document" in self._frames
                   else [[self.cells.get((r, c), "") for c in range(columns)] for r in range(1, rows)])
         frame = pd.DataFrame([row for row in matrix if any(v.strip() for v in row)], columns=headers)
@@ -857,6 +926,10 @@ class SheetModel(QAbstractTableModel):
             return self._frames["document"].copy()
         if not self.cells:
             return pd.DataFrame()
+        if isinstance(self.cells, VersionCells) and self.cells.version is not None:
+            frame = self.cells.version.to_frame()
+            self._frames['document'] = frame
+            return frame.copy()
         height, width = self._cell_extent()
         height = max(self._document_rows + 1, height)
         headers = [self.cells.get((0, c), "") for c in range(width)]

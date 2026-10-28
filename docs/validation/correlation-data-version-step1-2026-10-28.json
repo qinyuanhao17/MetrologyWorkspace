@@ -1,0 +1,27 @@
+{
+  "stage": "approved immutable source versions, step 1: sheet bulk transactions",
+  "baseline_commit": "e9a19be",
+  "status": "local improvement verified; complete 300ms target still fails",
+  "preserved": ["literal strings and precision", "public detached frames and snapshots", "single-step Undo/Redo", "direct mutation cache invalidation", "general structural and subclass fallback", "full refresh independent of focus"],
+  "tests": [
+    {"modules": ["test_table_version", "test_sheet_versions", "test_sheet_batch_transactions", "test_sheet_cache_updates"], "passed": 22, "total": 22, "seconds": 1.364},
+    {"modules": ["test_sheet_bulk_load", "test_sheet_bounds", "test_sheet_versions", "test_sheet_batch_transactions", "test_table_selection_notifications", "test_workbook_copy_data"], "passed": 44, "total": 44, "seconds": 47.378}
+  ],
+  "sheet_benchmark": {
+    "rows": 10000, "parameters": 50, "cycles": 3,
+    "scope": "clipboard parse, bulk transaction, selection, signal observers reading both detached frame kinds; excludes parent, child and plots",
+    "before_p50_ms": {"paste": 712.27, "undo": 280.98, "redo": 301.33},
+    "after_p50_ms": {"paste": 511.01, "undo": 64.30, "redo": 110.31},
+    "assertions": "every source literal and both frames compared after paste, Undo and Redo"
+  },
+  "native_profile": {
+    "file": "raw-click-20261027/data-version/native-step1-profile.json",
+    "profiled": true, "rows": 10000, "parameters": 50, "wafers": 100, "pairs": 1225,
+    "complete_ms": {"paste": 4097.2757, "undo": 3097.5737, "redo": 3429.4407},
+    "gate_ms": 300, "passed": false,
+    "notes": "One profiled sample, not P50/P95 or a paired end-to-end improvement claim; source, fits and current plotted page checked. No focus/Tab gate."
+  },
+  "qa_root": "C:/Users/qinyu/.codex/visualizations/2026/10/18/01a14f7d-3088-7760-953c-a1aa86946096/raw-click-20261027/data-version",
+  "full_suite": "not rerun at this intermediate step; final phase will run once after changes stabilize",
+  "rollback": "Revert this step's source/test/doc checkpoint only; do not reset user changes or change storage protocols."
+}

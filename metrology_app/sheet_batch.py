@@ -124,7 +124,9 @@ def prepare_column_paste(document, matrix, row, column):
         else:
             source_rows = tuple(row + int(position) for position in positions)
             before, after = tuple(previous[positions]), tuple(incoming[positions])
-        if not all(isinstance(v, str) and v and not v.isspace() for v in (*before, *after)):
+        literals = (*before, *after)
+        if (not all(map(str.__instancecheck__, literals)) or not all(literals)
+                or any(map(str.isspace, literals))):
             return None
         changed_rows[positions] = True
         parts.append(ColumnDelta(target, source_rows, before, after))
