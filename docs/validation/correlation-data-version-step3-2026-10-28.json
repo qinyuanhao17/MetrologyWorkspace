@@ -1,0 +1,16 @@
+{
+  "stage": "coalesce identical native scatter symbol atlas requests",
+  "baseline_commit": "c340111",
+  "tests": {"passed": 25, "total": 25, "seconds": 12.470, "log": "scatter-focused.log"},
+  "pixel_checks": ["uniform", "varied symbols/sizes/colors", "public style update", "atlas clear"],
+  "point_sampling_or_removal": false,
+  "paired_local": {"points_per_panel": 10000, "panels": 12, "alternating_cycles": 5,
+    "scope": "native full point setData; excludes paint", "before_p50_ms": 246.5101,
+    "after_p50_ms": 148.7132, "file": "scatter-paired.json"},
+  "native": {"rows": 10000, "parameters": 50, "wafers": 100, "pairs": 1225,
+    "profiled": false, "samples": 1, "complete_ms": {"paste": 3289.8824, "undo": 2389.1129, "redo": 2681.7438},
+    "gate_ms": 300, "passed": false, "exact_assertions_passed": true,
+    "file": "native-scatter-after.json", "stable_full_chain_improvement_claim": false},
+  "qa_root": "C:/Users/qinyu/.codex/visualizations/2026/10/18/01a14f7d-3088-7760-953c-a1aa86946096/raw-click-20261027/data-version",
+  "rollback": "Revert only the scatter atlas wrapper and its test; source versions and native full point rendering remain independent."
+}

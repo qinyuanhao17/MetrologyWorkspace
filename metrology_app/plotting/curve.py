@@ -237,12 +237,36 @@ class _CurveRasterizer(QObject):
         self.rendering_changed.emit()
 
 
+class _UniformSymbolAtlas:
+    """Coalesce equal style lookups; keep the native atlas, pixels and point data.
+
+    PyQtGraph supplies one style tuple per point even for a uniform scatter.
+    Resolve that symbol once and broadcast its rectangle. Mixed/hover styles,
+    atlas rebuilding, display scale changes and rendering remain native.
+    """
+
+    def __init__(self, native):
+        self._native = native
+
+    def __len__(self):
+        return len(self._native)
+
+    def __getattr__(self, name):
+        return getattr(self._native, name)
+
+    def __getitem__(self, styles):
+        if len(styles) > 1 and all(style == styles[0] for style in styles[1:]):
+            return self._native[styles[:1]] * len(styles)
+        return self._native[styles]
+
+
 class ResponsivePlotDataItem(pg.PlotDataItem):
     """Keep unchanged scatter/curve data when only the viewport changed."""
     rendering_changed = pyqtSignal()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.scatter.fragmentAtlas = _UniformSymbolAtlas(self.scatter.fragmentAtlas)
         self._rasterizer = _CurveRasterizer(self.curve)
         self._rasterizer.rendering_changed.connect(self.rendering_changed)
 
