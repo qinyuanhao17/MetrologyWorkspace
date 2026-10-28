@@ -1,0 +1,18 @@
+{
+  "stage": "common finite population covariance matrix",
+  "baseline_commit": "b51a16d",
+  "status": "fit-only improvement; complete 300ms gate still fails",
+  "eligibility": "at least 8 unique parameters, at least 128 finite points, exact identical selected measurement sets, ordinary well-conditioned OLS",
+  "retained_fallbacks": ["NaN", "different parameter selections", "constant", "ill-conditioned", "small population", "cross-source fits"],
+  "tests": {"passed": 76, "total": 76, "seconds": 35.579, "log": "matrix-focused.log"},
+  "kernel": {"rows": 10000, "parameters": 50, "cycles_each": 5,
+    "before_p50_ms": 310.37, "after_p50_ms": 245.35,
+    "source_before": "correlation_page.pre-matrix.py", "files": ["matrix-before.json", "matrix-after.json"],
+    "notes": "Fit-only, includes numeric parsing and all predictions. R-squared residual definition retained. All arrays produced before returning."},
+  "native": {"rows": 10000, "parameters": 50, "wafers": 100, "pairs": 1225,
+    "profiled": false, "samples": 1, "complete_ms": {"paste": 3073.8481, "undo": 2196.7834, "redo": 2532.7891},
+    "gate_ms": 300, "passed": false, "exact_assertions_passed": true, "file": "native-matrix-after.json",
+    "stable_full_chain_improvement_claim": false},
+  "qa_root": "C:/Users/qinyu/.codex/visualizations/2026/10/18/01a14f7d-3088-7760-953c-a1aa86946096/raw-click-20261027/data-version",
+  "rollback": "Revert only the common-population helper and its callers/tests. Original pairwise solver remains available as the safety fallback."
+}

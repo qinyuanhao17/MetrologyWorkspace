@@ -193,6 +193,67 @@ def _selected_numeric(numeric, name, positions, selection, cache):
     return cache[key]
 
 
+class _CommonPopulationFits:
+    """Call-local OLS coefficients for one proven finite observation population."""
+
+    def __init__(self, names, vectors, stats, covariance):
+        self.positions = {name: position for position, name in enumerate(names)}
+        self.vectors, self.stats, self.covariance = vectors, stats, covariance
+        # Keep the existing residual definition, including its centered total,
+        # rather than deriving R² by subtracting nearly equal matrix energies.
+        self.totals = [float(np.square(stat[1]).sum()) for stat in stats]
+
+    def fit(self, x_name, y_name):
+        i, j = self.positions[x_name], self.positions[y_name]
+        x, y = self.vectors[i], self.vectors[j]
+        slope = float(self.covariance[i, j] / self.stats[i][2])
+        intercept = float(self.stats[j][0] - slope * self.stats[i][0])
+        predicted = slope * x + intercept
+        residual = float(np.square(y - predicted).sum())
+        total = self.totals[j]
+        return LinearFit(x_name, y_name, x, y, predicted, slope, intercept,
+                         1 - residual / total if total > 0 else float('nan'))
+
+
+def _common_population_fits(numeric, metrics, groups, cells, source_rows=None):
+    # Small inputs retain exact legacy results. Different selections and NaN
+    # masks must keep their per-pair cleanup; equal lengths alone prove nothing.
+    if len(metrics) < 8 or len(set(metrics)) != len(metrics):
+        return None
+    positions = None
+    if groups is not None and cells is not None:
+        keys = tuple(key for key in groups if (key, metrics[0]) in cells)
+        if any(tuple(key for key in groups if (key, name) in cells) != keys for name in metrics[1:]):
+            return None
+        if source_rows is None:
+            rows = [row for key in keys for row in groups[key]]
+        else:
+            allowed = {row for key in keys for row in groups[key]}
+            rows = [row for row in source_rows if row in allowed]
+        positions = np.asarray(rows, dtype=int)
+    elif source_rows is not None:
+        positions = np.asarray(source_rows, dtype=int)
+    vectors = [numeric[name] if positions is None else numeric[name][positions] for name in metrics]
+    if any(len(values) < 128 or not np.isfinite(values).all() for values in vectors):
+        return None
+    for values in vectors:
+        values.flags.writeable = False
+    with np.errstate(over='ignore', invalid='ignore', divide='ignore'):
+        stats = [_numeric_moments(values, None) for values in vectors]
+        if any(not np.isfinite(stat[2]) or stat[2] <= 0 or stat[3] <= 0
+               or not np.isfinite(stat[3]) or abs(stat[0]) > 1e4 * stat[3] for stat in stats):
+            return None
+        centered = np.stack([stat[1] for stat in stats])
+        covariance = centered @ centered.T
+        denominators = np.asarray([stat[2] for stat in stats])
+        slopes = covariance / denominators[:, None]
+        means = np.asarray([stat[0] for stat in stats])
+        if not (np.isfinite(slopes).all()
+                and np.isfinite(means[None, :] - slopes * means[:, None]).all()):
+            return None
+    return _CommonPopulationFits(metrics, vectors, stats, covariance)
+
+
 def pairwise_linear_fits(frame, metrics, groups=None, cells=None, *, cancelled=None):
     """Return valid OLS results ordered from strongest to weakest linear fit.
 
@@ -207,11 +268,15 @@ def pairwise_linear_fits(frame, metrics, groups=None, cells=None, *, cancelled=N
     # once and keep row selection positional, matching the workspace's stable
     # source-row mapping.
     numeric = _owned_numeric_columns(frame, metrics)
+    common = _common_population_fits(numeric, metrics, groups, cells)
     model = LinearModel()
     row_cache, vector_cache, moments = {}, {}, {}
     for x_name, y_name in combinations(metrics, 2):
         if cancelled is not None and cancelled():
             raise InterruptedError("Correlation update cancelled")
+        if common is not None:
+            fits.append(common.fit(x_name, y_name))
+            continue
         positions, selected_keys = None, None
         if groups is not None and cells is not None:
             selected_keys = tuple(key for key in groups
@@ -242,25 +307,27 @@ def source_pairwise_linear_fits(frame, metrics, sources, groups, cells, *, cance
     for source in sources:
         source_panels = []
         row_cache, vector_cache, moments = {}, {}, {}
+        common = _common_population_fits(numeric, metrics, groups, cells, source['rows'])
         for x_name, y_name in combinations(metrics, 2):
             if cancelled is not None and cancelled():
                 raise InterruptedError("Correlation update cancelled")
-            selected_keys = tuple(key for key in groups
-                                  if (key, x_name) in cells and (key, y_name) in cells)
-            if selected_keys not in row_cache:
-                selected_rows = {row for key in selected_keys for row in groups[key]}
-                # Most parameter pairs use identical measurement boxes. Walk
-                # this source once per distinct selection, retaining its exact
-                # order and repeated positions, rather than once per fit.
-                row_cache[selected_keys] = np.asarray(
-                    [row for row in source["rows"] if row in selected_rows], dtype=int)
-            positions = row_cache[selected_keys]
             try:
-                fit = _fit_numeric_values(
-                    _selected_numeric(numeric, x_name, positions, selected_keys, vector_cache),
-                    _selected_numeric(numeric, y_name, positions, selected_keys, vector_cache),
-                    x_name, y_name, model, moments=moments,
-                )
+                if common is not None:
+                    fit = common.fit(x_name, y_name)
+                else:
+                    selected_keys = tuple(key for key in groups
+                                          if (key, x_name) in cells and (key, y_name) in cells)
+                    if selected_keys not in row_cache:
+                        selected_rows = {row for key in selected_keys for row in groups[key]}
+                        # Retain source order/repeated positions for each distinct selection.
+                        row_cache[selected_keys] = np.asarray(
+                            [row for row in source["rows"] if row in selected_rows], dtype=int)
+                    positions = row_cache[selected_keys]
+                    fit = _fit_numeric_values(
+                        _selected_numeric(numeric, x_name, positions, selected_keys, vector_cache),
+                        _selected_numeric(numeric, y_name, positions, selected_keys, vector_cache),
+                        x_name, y_name, model, moments=moments,
+                    )
             except ValueError as error:
                 errors.append((source["name"], x_name, y_name, str(error)))
                 continue
