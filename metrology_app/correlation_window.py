@@ -49,7 +49,7 @@ def _first_column(frame, aliases):
 
 def _available_source_frame(model):
     """Exclude an invalid source from analysis without blocking its valid peer."""
-    return pd.DataFrame() if model.duplicate_header_count() else model.frame()
+    return pd.DataFrame() if model.duplicate_header_count() else model._analysis_view()
 
 
 def _aligned_reference_frame(reference, raw):
@@ -1042,9 +1042,12 @@ class CorrelationWindow(DataWorkspaceWindow):
         reference = _available_source_frame(self.reference_model)
         # Recognition and selector changes are read-only. Reloading this model
         # here used to overwrite edited identities and clear the undo history.
-        reference = reference.reset_index(drop=True).copy()
+        if self.reference_model.literal_version is None:
+            reference = reference.reset_index(drop=True).copy()
         # Parameter identity comes from its source tab, not the match alias.
-        raw_analysis = _available_source_frame(self.raw_model).reset_index(drop=True).copy()
+        raw_analysis = _available_source_frame(self.raw_model)
+        if self.raw_model.literal_version is None:
+            raw_analysis = raw_analysis.reset_index(drop=True).copy()
         source_column = SOURCE_COLUMN
         while source_column in reference or source_column in raw_analysis:
             source_column = "_" + source_column

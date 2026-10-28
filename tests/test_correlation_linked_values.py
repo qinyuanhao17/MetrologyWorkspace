@@ -153,6 +153,36 @@ class LinkedCorrelationValueTests(unittest.TestCase):
         pd.testing.assert_frame_equal(self.child.raw_model.document_frame(), expected)
         self.assertFalse(self.child.copy_from_wkb_action.isChecked())
 
+    def test_dense_paste_borrowed_snapshots_and_both_draws_stay_current_on_data_tab(self):
+        original = self.parent.raw_model.document_frame()
+        incoming = original.copy()
+        for name in original.columns[6:]:
+            incoming[name] = [f'{float(value) + .375:.14f}' for value in original[name]]
+        incoming.loc[16, 'P0'] = 'NA'
+        matrix = [list(incoming.columns), *incoming.to_numpy().tolist()]
+        snapshots = []
+        for operation, expected in ((lambda: self.parent.raw_model._paste_value_matrix(matrix, 0, 0), incoming),
+                                    (self.parent.raw_model.undo.undo, original),
+                                    (self.parent.raw_model.undo.redo, incoming)):
+            operation()
+            settle(APP, [self.parent, self.child])
+            pd.testing.assert_frame_equal(self.child.raw_model.document_frame(), expected)
+            self.assertIs(self.child.raw_model.literal_version, self.parent.raw_model.literal_version)
+            snapshot = self.child.workspace_snapshot(readonly=True)
+            self.assertFalse(snapshot.frames['raw_data'].to_numpy().flags.writeable)
+            snapshots.append(snapshot)
+            self.assertIs(self.child.tabs.currentWidget(), self.child.reference_page)
+            self.assertTrue(self.child.correlation_page.ready)
+            self.assertTrue(self.child.sequence_page.ready)
+            values = self.child.correlation_page.all_fits[0].sources[0].fit
+            x, y = (pd.to_numeric(expected[name], errors='coerce').to_numpy(float)
+                    for name in (values.x_name, values.y_name))
+            valid = np.isfinite(x) & np.isfinite(y)
+            np.testing.assert_array_equal(values.x, x[valid])
+            np.testing.assert_array_equal(values.y, y[valid])
+        for snapshot, expected in zip(snapshots, (incoming, original, incoming)):
+            pd.testing.assert_frame_equal(snapshot.frames['raw_data'], expected)
+
     def test_rapid_parent_edit_undo_redo_undo_keeps_the_last_source(self):
         self.parent.raw_model.edit({(4, self.column): '10.75000000000001'})
         APP.processEvents()

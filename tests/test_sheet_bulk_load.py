@@ -8,6 +8,20 @@ APP = QApplication.instance() or QApplication([])
 
 
 class SheetBulkLoadTests(unittest.TestCase):
+    def test_reset_notification_reads_never_leave_previous_source_cached(self):
+        model = SheetModel()
+        self.addCleanup(model.deleteLater)
+        original = pd.DataFrame({'ID': ['001', '002'], 'Value': ['1.00', '2.00']})
+        incoming = pd.DataFrame({'New ID': ['new'], 'New Value': ['0001.230000']})
+        model.load(original)
+        seen_before, seen_after = [], []
+        model.modelAboutToBeReset.connect(lambda: seen_before.append(model.document_frame()))
+        model.modelReset.connect(lambda: seen_after.append(model.document_frame()))
+        model.load(incoming)
+        pd.testing.assert_frame_equal(seen_before[0], original)
+        pd.testing.assert_frame_equal(seen_after[0], incoming)
+        pd.testing.assert_frame_equal(model.document_frame(), incoming)
+
     def test_dense_and_sparse_loads_match_clipboard_matrix_semantics(self):
         fixtures = [pd.DataFrame({" ID ": ["001", "002"], "CD": ["1.000", "2.000"]}),
                     pd.DataFrame({"A": [" ", "3"], "B": ["\t", "4"]}),

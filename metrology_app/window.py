@@ -252,12 +252,14 @@ class MainWindow(QMainWindow):
 
     def workspace_snapshot(self, *, include_drafts=False, readonly=False):
         """Consume or detach read-only state views immediately on the GUI thread."""
+        def source(model):
+            return model._document_view() if readonly else model.document_frame()
         if self.workspace_type == "correlation_trend":
-            frames = {"raw_data": self.model.document_frame(),
-                      "reference_data": self.reference_model.document_frame()
+            frames = {"raw_data": source(self.model),
+                      "reference_data": source(self.reference_model)
                       if hasattr(self, "reference_model") else pd.DataFrame()}
         else:
-            frames = {"input_data": self.model.document_frame()}
+            frames = {"input_data": source(self.model)}
         states = {"ui": analysis_state(self)}
         if getattr(self, "_participation_excluded", None):
             states["workbook_participation"] = sorted(self._participation_excluded)

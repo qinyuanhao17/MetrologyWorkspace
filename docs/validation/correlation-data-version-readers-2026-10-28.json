@@ -1,0 +1,25 @@
+{
+  "stage": "immutable internal readonly frame borrowing",
+  "baseline_commit": "6dc449e",
+  "public_frames_still_independent": true,
+  "no_focus_or_tab_refresh_gate": true,
+  "reset_notification_stale_cache_fixed": true,
+  "focused": [
+    {"passed": 20, "total": 20, "seconds": 0.738, "log": "read-views-contracts.log"},
+    {"passed": 68, "total": 68, "seconds": 95.281, "log": "read-views-integration.log"},
+    {"passed": 8, "total": 8, "seconds": 8.907, "log": "read-views-versioned-workflow.log", "notes": "Both pandas copy-on-write modes, versioned dense parent V/Z/Y on child Data tab, both drawn pages current and literal NA rows preserved."}
+  ],
+  "read_control": {"rows": 10000, "parameters": 50, "alternating_cycles": 5, "reads_per_sample": 10,
+    "public_copy_p50_ms_per_pair": 17.4646, "internal_view_p50_ms_per_pair": 1.6934,
+    "file": "read-views-paired.json", "scope": "Warm document + analysis reads only; no edit, calculation or plots"},
+  "native": {"rows": 10000, "parameters": 50, "wafers": 100, "pairs": 1225, "samples_each": 1,
+    "before_complete_ms": {"paste": 3108.3990, "undo": 2215.1223, "redo": 2554.9947},
+    "after_complete_ms": {"paste": 3236.6831, "undo": 2282.4333, "redo": 2538.3233},
+    "gate_ms": 300, "passed": false, "exact_assertions_passed": true,
+    "full_chain_improvement_claim": false,
+    "files": ["native-readers-before.json", "native-readers-after.json"],
+    "notes": "The final interval includes forced viewport repaint. A repeated readiness/paint audit is pending; do not label the whole interval as queue wait."},
+  "full_suite": "The preceding 1203-test full run covers 662a11c, not these later readonly changes; those results must stay separate.",
+  "qa_root": "C:/Users/qinyu/.codex/visualizations/2026/10/18/01a14f7d-3088-7760-953c-a1aa86946096/raw-click-20261027/data-version",
+  "rollback": "Revert this step's caller/borrow changes, preserving the separate reset cache regression and required old-snapshot isolation checks. No WKB/Recovery format change."
+}

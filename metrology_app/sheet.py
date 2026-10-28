@@ -255,6 +255,7 @@ class SheetModel(QAbstractTableModel):
         self._document_rows = 0
         self._preserves_record_positions = False
         self._frames = {}
+        self._borrowed_frames = False
         self._extent = None
         self._selection_extent = None
         self._selection_bounds = None
@@ -479,6 +480,7 @@ class SheetModel(QAbstractTableModel):
         # frame (or an immutable version) claiming to represent the new values.
         if not self._writing_cells:
             self._frames.clear()
+            self._borrowed_frames = False
             self._extent = self._selection_extent = self._selection_bounds = None
 
     def clear_paste_report(self):
@@ -544,6 +546,12 @@ class SheetModel(QAbstractTableModel):
 
     def _apply_cells(self, changes, *, bounds=None, document_rows=None, value_mode=None,
                      prepared_frames=None, table_version=None):
+        if self._borrowed_frames:
+            if table_version is None:
+                # An older internal snapshot may still read these buffers.
+                # General edits patch owned writable replacements instead.
+                self._frames = {name: frame.copy(deep=True) for name, frame in self._frames.items()}
+            self._borrowed_frames = False
         if table_version is None and isinstance(self.cells, VersionCells):
             # General/unknown/structural edits keep the ordinary dictionary path.
             self.cells = TrackedCells(self.cells.copy(), changed=self._direct_cells_changed)
@@ -808,6 +816,12 @@ class SheetModel(QAbstractTableModel):
         self._document_rows = document_rows
         self.height = height
         self.width = width
+        # About-to-reset observers may have materialized the old source again.
+        # End-of-reset observers must see the complete replacement, while old
+        # borrowed buffers remain alive independently of this cache.
+        self._frames.clear()
+        self._borrowed_frames = False
+        self._extent = self._selection_extent = self._selection_bounds = None
         self.endResetModel()
         if self.clipboard_locks:
             # New/Open may remove fields entirely. Do not leave hidden locks
@@ -897,6 +911,7 @@ class SheetModel(QAbstractTableModel):
         # Headers, blanks, growth, replacement and unknown notifications retain
         # full invalidation. No change summary is inferred from an old revision.
         self._frames.clear()
+        self._borrowed_frames = False
         self._extent = None
         self._selection_extent = None
         self._selection_bounds = None
@@ -946,6 +961,37 @@ class SheetModel(QAbstractTableModel):
                              for r in range(1, height)], columns=headers)
         self._frames["document"] = frame
         return frame.copy()
+
+    def _document_view(self):
+        """Internal borrowed read of immutable data; public reads stay detached."""
+        return self._read_frame_view('document')
+
+    def _analysis_view(self):
+        return self._read_frame_view('analysis')
+
+    def _read_frame_view(self, kind):
+        import numpy as np
+        reader = self.document_frame if kind == 'document' else self.frame
+        version = self.literal_version
+        if version is None:
+            return reader()
+        frame = self._frames.get(kind)
+        if frame is None:
+            if kind == 'document':
+                frame = self._frames[kind] = version.to_frame()
+            else:
+                reader()
+                frame = self._frames.get(kind)
+        if frame is None:
+            return reader()
+        # A readonly buffer export also prevents callers from reenabling array
+        # writes. Fresh pandas metadata wrappers never share mutable attrs.
+        values = np.asarray(memoryview(frame.to_numpy(copy=False)).toreadonly())
+        result = pd.DataFrame(values, index=frame.index.copy(deep=True),
+                              columns=frame.columns.copy(deep=True), copy=False)
+        result.attrs = deepcopy(frame.attrs)
+        self._borrowed_frames = True
+        return result
 
     def headers(self, columns=None):
         """Row-1 header text, falling back to the column letter when it is blank."""

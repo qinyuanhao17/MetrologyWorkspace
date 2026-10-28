@@ -2029,7 +2029,7 @@ class MatchingWindow(QMainWindow):
             preserve_rows = name == "reference" or any(
                 state.get("enabled") or state.get("mark_enabled")
                 or state.get("data_selection") is not None for state in states)
-            document = model.document_frame()
+            document = model._document_view()
             headers = model.headers()
             if preserve_rows:
                 # Keep literal named headers and source rows for participation;
