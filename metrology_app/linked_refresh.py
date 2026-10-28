@@ -1,5 +1,5 @@
 """Detached table preparation for automatic Workbook child refreshes."""
-from .sheet import prepare_sheet_frame
+from .sheet import prepare_sheet_frame, prepare_sheet_version
 
 
 def prepare_linked_values(frame, baseline, *, cancelled=None):
@@ -76,6 +76,8 @@ def prepare_linked_sources(request, cancelled):
             continue
         table = (prepare_linked_values(frame, options.get('value_baseline'), cancelled=cancelled)
                  if kind == 'correlation' else None)
+        if table is None and kind == 'correlation':
+            table = prepare_sheet_version(frame, request.get('raw_version'))
         table = prepared[key] = table if table is not None else prepare_sheet_frame(frame)
         analysis = table["analysis"]
         if cancelled():

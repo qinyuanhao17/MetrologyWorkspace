@@ -273,6 +273,11 @@ class SheetModel(QAbstractTableModel):
         """Monotonic edit counter; analysis reuse is keyed on it, never on values."""
         return self._revision
 
+    @property
+    def literal_version(self):
+        """Internal immutable source read; public frames remain detached copies."""
+        return self.cells.version if isinstance(self.cells, VersionCells) else None
+
     def rowCount(self, parent=QModelIndex()):
         return 0 if parent.isValid() else self.height
 
@@ -657,7 +662,10 @@ class SheetModel(QAbstractTableModel):
         if type(self).restore is not SheetModel.restore:
             self.load(document)  # Subclass restore hooks retain the general seam.
             return
-        self._restore_owned(prepared.pop("cells"), prepared["height"], prepared["width"],
+        version = prepared.get('version')
+        cells = (VersionCells(version, changed=self._direct_cells_changed) if version is not None
+                 else prepared.pop('cells'))
+        self._restore_owned(cells, prepared["height"], prepared["width"],
                             prepared["rows"], emit_changed=False)
         if prepared["exact_extent"]:
             self._extent = (prepared["rows"] + 1, len(document.columns))
@@ -795,7 +803,7 @@ class SheetModel(QAbstractTableModel):
         self._preserves_record_positions = False
         self.beginResetModel()
         self.cells = (TrackedCells(cells, changed=self._direct_cells_changed)
-                      if type(self) is SheetModel else cells)
+                      if type(self) is SheetModel and not isinstance(cells, VersionCells) else cells)
         self._document_rows = document_rows
         self.height = height
         self.width = width
@@ -1422,6 +1430,25 @@ class PasteFeedbackBar(QFrame):
         self.message.setToolTip(
             f"{escape(columns).replace(chr(10), '<br>')}<br>Only pasted values are reported, not analysis completion."
             "<br>Feedback clears on the next edit, Undo, table reload, or ×.")
+
+
+def prepare_sheet_version(frame, version):
+    """Reuse a proved immutable source, while keeping mutable GUI frames owned."""
+    if not isinstance(version, LiteralTableVersion) or not version.dense or not version.matches_frame(frame):
+        return None
+    document = version.to_frame()
+    headers = [name.strip() or f'Column {column_letter(column)}'
+               for column, name in enumerate(version.headers)]
+    analysis = None
+    if len(set(headers)) == len(headers):
+        if document.iloc[:, 0].str.strip().ne('').all():
+            analysis = document.set_axis(headers, axis=1)
+        else:
+            analysis = document.loc[document.apply(lambda col: col.str.strip().ne('')).any(axis=1)]
+            analysis = analysis.set_axis(headers, axis=1).reset_index(drop=True)
+    return {'document': document, 'analysis': analysis, 'version': version,
+            'height': max(100, version.row_count + 21), 'width': max(26, len(headers) + 3),
+            'rows': version.row_count, 'exact_extent': True}
 
 
 def prepare_sheet_frame(frame):

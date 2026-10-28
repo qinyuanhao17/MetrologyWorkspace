@@ -3670,8 +3670,11 @@ class MatchingWindow(QMainWindow):
                 child.statusBar().showMessage("Updating from Match Workbook…")
         self._linked_update_pending = True
         self._queued_stage_inputs = inputs
+        source_model = (self.final_raw_model if self.result_mode.currentText().lower() == 'final'
+                        else self.raw_model)
         self._linked_task.submit({"generation": self._linked_generation,
-            "inputs": inputs, "book": deepcopy(book), "raw": inputs[1], "children": tuple(descriptors)})
+            "inputs": inputs, "book": deepcopy(book), "raw": inputs[1],
+            "raw_version": source_model.literal_version, "children": tuple(descriptors)})
 
     def _publish_linked_refresh(self, result):
         if result is None or result["generation"] != self._linked_generation:

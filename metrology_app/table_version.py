@@ -94,6 +94,22 @@ class LiteralTableVersion:
         frame.attrs = _thaw(self._attributes)
         return frame
 
+    def matches_frame(self, frame):
+        """Prove a mutable input still represents this exact source version."""
+        if (frame.shape != (self.row_count, len(self.headers))
+                or tuple(frame.columns) != self.headers
+                or not isinstance(frame.index, pd.RangeIndex)
+                or frame.index.start != 0 or frame.index.step != 1
+                or frame.index.name is not None or frame.columns.name is not None):
+            return False
+        try:
+            if _freeze(frame.attrs) != self._attributes:
+                return False
+        except (TypeError, ValueError):
+            return False
+        return all(np.array_equal(frame.iloc[:, position].to_numpy(), np.asarray(column, dtype=object))
+                   for position, column in enumerate(self.columns))
+
     def cell_items(self):
         keys = product(range(self.row_count + 1), range(len(self.headers)))
         values = chain(self.headers, chain.from_iterable(zip(*self.columns)))

@@ -1,0 +1,32 @@
+{
+  "stage": "immutable linked child source preparation",
+  "baseline_commit": "502e497",
+  "status": "local transfer cost reduced; complete 300ms target still fails",
+  "tests": {"passed": 29, "total": 29, "seconds": 8.362, "log": "linked-version-focused.log"},
+  "transfer_paired": {
+    "rows": 10000, "parameters": 50, "alternating_cycles": 5,
+    "before_p50_total_ms": 315.4068, "after_p50_total_ms": 71.4156,
+    "scope": "owned preparation and child GUI load with detached observer reads; no calculation or plots",
+    "exact_assertions_passed": true, "file": "transfer-paired.json"
+  },
+  "native": {
+    "rows": 10000, "parameters": 50, "wafers": 100, "pairs": 1225,
+    "samples_each": 1, "profiled": false,
+    "before_complete_ms": {"paste": 3761.5424, "undo": 2899.7705, "redo": 3240.7274},
+    "after_complete_ms": {"paste": 3298.5242, "undo": 2426.3233, "redo": 2983.6712},
+    "gate_ms": 300, "passed": false, "exact_assertions_passed": true,
+    "notes": "Single samples, not P50/P95 or a stable full-chain improvement claim. No deferred images or focus gate.",
+    "files": ["native-step2-before.json", "native-step2-after.json"]
+  },
+  "common_size_sheet": {
+    "rows": 10000, "parameters": 30, "cycles": 3,
+    "before_p50_ms": {"paste": 335.2886, "undo": 148.0819, "redo": 156.0866},
+    "after_p50_ms": {"paste": 356.0778, "undo": 41.4564, "redo": 67.6684},
+    "baseline_note": "Only sheet.py overlaid from e9a19be; both variants use current sheet_batch validation. Not a full historical checkout.",
+    "scope": "sheet only, no parent/child/calculation/plots",
+    "paste_improvement_claim": false,
+    "files": ["sheet-30-before.json", "sheet-30-after.json"]
+  },
+  "qa_root": "C:/Users/qinyu/.codex/visualizations/2026/10/18/01a14f7d-3088-7760-953c-a1aa86946096/raw-click-20261027/data-version",
+  "rollback": "Revert only the linked immutable preparation checkpoint; step 1 and ordinary full preparation remain independent. No storage protocol change."
+}
