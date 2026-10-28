@@ -250,16 +250,19 @@ class MainWindow(QMainWindow):
             except Exception as error:
                 QMessageBox.warning(self, "Cannot export Matplotlib", str(error))
 
-    def workspace_snapshot(self, *, include_drafts=False, readonly=False):
-        """Consume or detach read-only state views immediately on the GUI thread."""
+    def _workspace_source_frames(self, *, readonly=False):
+        """Read source tables without collecting unrelated plot/UI state."""
         def source(model):
             return model._document_view() if readonly else model.document_frame()
         if self.workspace_type == "correlation_trend":
-            frames = {"raw_data": source(self.model),
-                      "reference_data": source(self.reference_model)
-                      if hasattr(self, "reference_model") else pd.DataFrame()}
-        else:
-            frames = {"input_data": source(self.model)}
+            return {"raw_data": source(self.model),
+                    "reference_data": source(self.reference_model)
+                    if hasattr(self, "reference_model") else pd.DataFrame()}
+        return {"input_data": source(self.model)}
+
+    def workspace_snapshot(self, *, include_drafts=False, readonly=False):
+        """Consume or detach read-only state views immediately on the GUI thread."""
+        frames = self._workspace_source_frames(readonly=readonly)
         states = {"ui": analysis_state(self)}
         if getattr(self, "_participation_excluded", None):
             states["workbook_participation"] = sorted(self._participation_excluded)

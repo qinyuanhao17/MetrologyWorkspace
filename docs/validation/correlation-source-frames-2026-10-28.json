@@ -1,0 +1,69 @@
+{
+  "date": "2026-10-28",
+  "step": "Source-only linked draft guard and baseline reads",
+  "base_commit": "71c3105c74c26bfe916cfa5234605bfa68fe8ecb",
+  "changes": [
+    "Extract MainWindow._workspace_source_frames while preserving formal snapshot UI capture.",
+    "Use this reader only at two table-only linked source guard/baseline call sites.",
+    "Keep exact DataFrame comparisons, baseline copies, draft rejection, plots, focus policy and persistence protocols unchanged."
+  ],
+  "red": {
+    "tests": 3,
+    "errors": 4,
+    "reason": "Missing source-only reader (subtests counted separately)",
+    "log": ".cache/p0-final-v432-20261026/source-frames-red.log"
+  },
+  "focused": {
+    "passed": 43,
+    "total": 43,
+    "seconds": 39.818,
+    "log": ".cache/p0-final-v432-20261026/source-frames-integration.log"
+  },
+  "local": {
+    "rows": 10000,
+    "parameters": 50,
+    "wafers": 100,
+    "selected_boxes_each_page": 5000,
+    "alternating_cycles": 7,
+    "scope": "Two GUI-thread source reads only; no edits, fits or paint",
+    "before_p50_ms": 26.810699986526743,
+    "after_p50_ms": 1.5739999944344163,
+    "evidence": ".cache/p0-final-v432-20261026/source-frames-paired.json"
+  },
+  "native": {
+    "rows": 10000,
+    "parameters": 50,
+    "wafers": 100,
+    "fits": 1225,
+    "alternating_cycles": 3,
+    "control": "Exact former two workspace_snapshot(readonly=True).frames call sites overlaid on current code; not a historical full checkout",
+    "before_p50_ms": {
+      "paste": 2827.6866000087466,
+      "undo": 2042.112499999348,
+      "redo": 2267.7901000133716
+    },
+    "after_p50_ms": {
+      "paste": 2822.0358000253327,
+      "undo": 1915.6641000008676,
+      "redo": 2197.1769999945536
+    },
+    "all_exact_assertions_passed": true,
+    "complete_includes": "All linked source commits, all fits, current plot jobs and forced current viewport repaint; identity/recovery tail separate",
+    "gate_ms": 300,
+    "gate_passed": false,
+    "paste_improvement_established": false,
+    "p95_established": false,
+    "evidence_pattern": "raw-click-20261027/data-version/native-source-frames-{0,1,2}-{control,source}.json"
+  },
+  "rejected_diagnostic": {
+    "name": "Batch page.setEnabled calls with setUpdatesEnabled",
+    "reason": "No repeatable end-to-end benefit shown; no production change retained",
+    "evidence": "raw-click-20261027/data-version/native-batched-enable-diagnostic.json"
+  },
+  "qa_root": "C:/Users/qinyu/.codex/visualizations/2026/10/18/01a14f7d-3088-7760-953c-a1aa86946096",
+  "full_suite": "Pending after this turn's production changes stabilize; preceding full run does not cover this change.",
+  "rollback": "Revert this step's window.py/matching_window.py source-read extraction and its tests/docs only; preserve user edits and other checkpoints.",
+  "no_focus_or_tab_refresh_gate": true,
+  "no_gpu_dependencies_installed": true,
+  "no_push": true
+}

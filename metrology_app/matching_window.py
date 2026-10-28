@@ -3880,7 +3880,7 @@ class MatchingWindow(QMainWindow):
             if baseline is not None:
                 # Compare tables immediately; copying the unrelated Group/UI
                 # state here adds work for every linked analysis window.
-                current_frames = workspace.workspace_snapshot(readonly=True).frames
+                current_frames = workspace._workspace_source_frames(readonly=True)
                 source_frames = getattr(workspace, "_workbook_source_frames", baseline.frames)
                 if source_policy is not None:
                     source_frames = {name: frame for name, frame in source_frames.items() if source_policy.get(name)}
@@ -3987,7 +3987,7 @@ class MatchingWindow(QMainWindow):
         if hasattr(workspace, "document") and workspace.document.baseline is not None and not reset_data:
             # Parent-driven table refreshes are not child edits. Keep draft
             # configuration intact while advancing the table-only baseline.
-            current_frames = workspace.workspace_snapshot(readonly=True).frames
+            current_frames = workspace._workspace_source_frames(readonly=True)
             accepted_link = workspace.document.baseline.states.get("ui", {}).get("copy_from_wkb", True)
             for name, frame in current_frames.items():
                 if source_policy is None or (source_policy.get(name) and accepted_link):
