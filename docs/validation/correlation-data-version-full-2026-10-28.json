@@ -1,0 +1,19 @@
+{
+  "source_commit": "662a11c",
+  "command": "F:/Anaconda3/envs/octs/python.exe -B -X utf8 run_tests.py",
+  "qt_platform": "offscreen",
+  "total": 1203, "passed": 1201, "failures": 2, "errors": 0, "seconds": 1169.765,
+  "all_green": false,
+  "failed_tests": [
+    {"test": "test_performance_regressions.WorkbookPerformanceTests.test_saved_wide_workbook_dirty_checks_preserve_the_accepted_state_promptly", "measured_seconds": 0.11056670002290048, "limit_exclusive_seconds": 0.1, "preceding_data_and_baseline_assertions_executed": true},
+    {"test": "test_writer_cell_serialization.WriterCellSerializationTests.test_plain_cells_avoid_generic_recursive_serialization_cost", "measured_seconds": 0.3175954000034835, "limit_exclusive_seconds": 0.3, "last_text_assertion_after_timing_executed": false}
+  ],
+  "writer_supplementary": {"rows": 100000, "all_literal_values_equal": true, "last": "99999.123456789000", "seconds": 0.3683661999821197, "file": "writer-full-value-check.json", "original_test_still_failed": true},
+  "protected_hashes_before_and_after": {
+    "config/settings.yaml": "993010fb1689348a6d5d6f06582d18024f7706a71f21b2bcf83dbeeaef4efda1",
+    ".cache/p0-final-v432-20261026/owned-nova-multi.wkb": "9c0b9437eef660d3bffc9c007515c1875f24cbc25c60ca2e8235032b9272fb65"
+  },
+  "qa_root": "C:/Users/qinyu/.codex/visualizations/2026/10/18/01a14f7d-3088-7760-953c-a1aa86946096/raw-click-20261027/data-version",
+  "log": "data-version-full-20261028.log",
+  "scope_note": "This full run covers immutable sheet versions, proved linked version loads, identical-symbol atlas lookup, common-population fit matrix, and extra-cell fallback. It does not cover the subsequently planned internal read-only borrowing step. Native full refresh gate remains failed as recorded separately."
+}
