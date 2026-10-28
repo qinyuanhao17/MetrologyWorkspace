@@ -1,0 +1,198 @@
+{
+  "date": "2026-10-28",
+  "head": "71c3105c74c26bfe916cfa5234605bfa68fe8ecb",
+  "purpose": "GPU feasibility and conditional latency model; not an actual GPU benchmark",
+  "operations": {
+    "V": "Ctrl+V paste",
+    "Z": "Ctrl+Z undo",
+    "Y": "Ctrl+Y redo"
+  },
+  "workload": {
+    "rows": 10000,
+    "selected_raw_parameters": 50,
+    "pairs": 1225,
+    "plot_wafers": 100,
+    "children": 1
+  },
+  "hardware": {
+    "cpu": "AMD Ryzen 7 4800H with Radeon Graphics",
+    "cuda_gpu": "NVIDIA GeForce GTX 1650",
+    "cuda_gpu_memory_mib": 4096,
+    "driver": "527.83",
+    "compute_capability": "7.5",
+    "other_graphics": "AMD Radeon(TM) Graphics",
+    "qt_actual_gl_renderer": "not measured"
+  },
+  "versions": {
+    "pandas": "2.3.3",
+    "numpy": "2.2.6",
+    "scipy": "1.15.3",
+    "lmfit": "1.3.4",
+    "matplotlib": "3.10.9",
+    "pyqtgraph": "0.14.0",
+    "PyQt6": "6.11.0",
+    "openpyxl": "3.1.5",
+    "lxml": "6.1.3",
+    "Pillow": "12.3.0",
+    "contourpy": "1.3.2",
+    "PyYAML": "6.0.3",
+    "rapidocr": "3.10.0",
+    "onnxruntime": "1.23.2",
+    "opencv-python-headless": "5.0.0.93"
+  },
+  "unavailable_gpu_packages": [
+    "cupy",
+    "cupy-cuda12x",
+    "cudf",
+    "numba",
+    "torch"
+  ],
+  "verified_backends": {
+    "pyqtgraph_useOpenGL_default": false,
+    "wafer_graphics_explicit_useOpenGL": false,
+    "onnxruntime_available_providers": [
+      "AzureExecutionProvider",
+      "CPUExecutionProvider"
+    ],
+    "opencv_cuda_device_count": 0,
+    "opencv_opencl_build": "YES (NVD3D11)"
+  },
+  "sandbox_inventory_note": "Initial restricted query could not read external QA package files. Escalated read-only verification located real lxml.etree.cp310-win_amd64.pyd and the complete metadata. No XML backend changed.",
+  "model": {
+    "source": "C:/Users/qinyu/.codex/visualizations/2026/10/18/01a14f7d-3088-7760-953c-a1aa86946096/raw-click-20261027/data-version/native-readers-before.json",
+    "baseline_ms_rounded": {
+      "V": 3108.4,
+      "Z": 2215.12,
+      "Y": 2554.99
+    },
+    "phase_ms_rounded": {
+      "key_and_sheet_commit": {
+        "V": 696,
+        "Z": 78,
+        "Y": 145
+      },
+      "parent_debounce": {
+        "V": 108,
+        "Z": 121,
+        "Y": 115
+      },
+      "parent_analysis_and_plots": {
+        "V": 308,
+        "Z": 258,
+        "Y": 346
+      },
+      "worker_data_and_groups": {
+        "V": 332,
+        "Z": 340,
+        "Y": 328
+      },
+      "worker_to_gui_wait": {
+        "V": 56,
+        "Z": 67,
+        "Y": 68
+      },
+      "child_data_and_ui_commit": {
+        "V": 994,
+        "Z": 738,
+        "Y": 920
+      },
+      "remaining_fits_draw_and_forced_acceptance": {
+        "V": 612,
+        "Z": 611,
+        "Y": 624
+      }
+    },
+    "optimistically_accelerated_phase_names": [
+      "parent_analysis_and_plots",
+      "worker_data_and_groups",
+      "remaining_fits_draw_and_forced_acceptance"
+    ],
+    "eligible_ms": {
+      "V": 1252,
+      "Z": 1209,
+      "Y": 1298
+    },
+    "retained_ms_including_rounding_and_unassigned": {
+      "V": 1856.4,
+      "Z": 1006.12,
+      "Y": 1256.99
+    },
+    "formula": "total = baseline - eligible + eligible / assumed_speedup; instantaneous uses eligible/speedup=0",
+    "scenarios": [
+      {
+        "assumed_stage_speedup": 1,
+        "total_ms": {
+          "V": 3108.4,
+          "Z": 2215.12,
+          "Y": 2554.99
+        }
+      },
+      {
+        "assumed_stage_speedup": 2,
+        "total_ms": {
+          "V": 2482.4,
+          "Z": 1610.62,
+          "Y": 1905.99
+        }
+      },
+      {
+        "assumed_stage_speedup": 5,
+        "total_ms": {
+          "V": 2106.8,
+          "Z": 1247.92,
+          "Y": 1516.59
+        }
+      },
+      {
+        "assumed_stage_speedup": "instantaneous",
+        "total_ms": {
+          "V": 1856.4,
+          "Z": 1006.12,
+          "Y": 1256.99
+        }
+      }
+    ],
+    "assumptions": [
+      "The entire three mixed CPU/GPU phases are accelerated, intentionally overestimating the candidate fraction.",
+      "All other phases and existing GUI/storage paths remain unchanged.",
+      "Warm steady-state only; no CUDA context creation, JIT, host-device transfers, WSL IPC, validation, or renderer fallback costs added.",
+      "Speedup factors are sensitivity assumptions, not measured or predicted performance of GTX 1650.",
+      "Rewriting dataflow or reducing CPU/UI work changes this model and requires a new baseline."
+    ],
+    "conclusion": "GPU alone, while keeping retained paths unchanged, cannot reach 300ms in this model. Exact hardware latency is not established."
+  },
+  "separate_harness_verification": {
+    "source": "C:/Users/qinyu/.codex/visualizations/2026/10/18/01a14f7d-3088-7760-953c-a1aa86946096/raw-click-20261027/data-version/native-ready-single.json",
+    "complete_ms": {
+      "A": 88.00590000464581,
+      "click_after_select_all": 81.43789999303408,
+      "V": 2824.3896999920253,
+      "Z": 1996.1040999914985,
+      "Y": 2246.904399973573
+    },
+    "finish_passes_per_operation": 1,
+    "purpose": "QA-only readiness polling fix prevents duplicate forced repaint acceptance. All original data/fit/paint assertions retained; 300ms assertion failed for V/Z/Y.",
+    "application_speedup_claim": false,
+    "gpu_execution": false
+  },
+  "safety": {
+    "production_code_modified": false,
+    "gpu_packages_installed": false,
+    "settings_written": false,
+    "git_push": false,
+    "protected_settings_sha256": "993010fb1689348a6d5d6f06582d18024f7706a71f21b2bcf83dbeeaef4efda1",
+    "owned_wkb_sha256": "9c0b9437eef660d3bffc9c007515c1875f24cbc25c60ca2e8235032b9272fb65"
+  },
+  "sources": [
+    "https://docs.nvidia.com/cudf/latest/cudf_pandas/usage/",
+    "https://docs.nvidia.com/datascience/install/",
+    "https://docs.cupy.dev/en/stable/user_guide/performance.html",
+    "https://docs.cupy.dev/en/stable/install.html",
+    "https://docs.scipy.org/doc/scipy-1.15.3/dev/api-dev/array_api.html",
+    "https://lmfit.github.io/lmfit-py/fitting.html",
+    "https://doc.qt.io/qt-6/threads-qobject.html",
+    "https://github.com/pyqtgraph/pyqtgraph/releases/tag/pyqtgraph-0.14.0",
+    "https://matplotlib.org/stable/users/explain/figure/backends.html",
+    "https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html"
+  ]
+}

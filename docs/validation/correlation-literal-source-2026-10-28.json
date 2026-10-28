@@ -135,7 +135,7 @@
     "artifacts": ".cache/p0-final-v432-20261026/{withdrawn-group-context.patch,withdrawn_test_correlation_group_copy.py,group-copy-targeted.log,group-context-qualified-paired.json}",
     "tests_are_current_acceptance": false
   },
-  "full_suite": "Pending once this turn's source stabilizes; prior 1203-test result covers earlier checkpoint only.",
+  "full_suite": "Covered by fixed source 7832f57: 1226 tests, 1223 passed, 3 timing-gate failures, 1169.379s; see correlation-source-proof-full-2026-10-28.json.",
   "qa_root": "C:/Users/qinyu/.codex/visualizations/2026/10/18/01a14f7d-3088-7760-953c-a1aa86946096",
   "rollback": "Revert this checkpoint's source-proof class/callers/normalization and new tests/docs only; retain independent source-frame extraction checkpoint and user files.",
   "no_push": true

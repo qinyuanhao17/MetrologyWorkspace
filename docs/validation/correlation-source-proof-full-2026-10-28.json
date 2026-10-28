@@ -1,0 +1,133 @@
+{
+  "date": "2026-10-28",
+  "source_commit": "7832f5771a12fba2f9710db64fbf60caed69a4ab",
+  "retained_checkpoints": [
+    "4a810db",
+    "7832f57"
+  ],
+  "command": "F:/Anaconda3/envs/octs/python.exe -B -X utf8 run_tests.py",
+  "environment": {
+    "qt_platform": "offscreen",
+    "settings": "run_tests.py isolated temporary paths",
+    "qa_dependencies": "C:/Users/qinyu/.codex/visualizations/2026/10/18/01a14f7d-3088-7760-953c-a1aa86946096/p0-die-axis-20261026/dependencies",
+    "xml_backend": "Real lxml.etree cp310-win_amd64; no backend substitution",
+    "heavy_tests_and_benchmarks_parallel": false
+  },
+  "full": {
+    "total": 1226,
+    "passed": 1223,
+    "failures": 3,
+    "errors": 0,
+    "seconds": 1169.379,
+    "all_green": false,
+    "production_source_stable": true,
+    "log": ".cache/p0-final-v432-20261026/source-proof-full-20261028.log"
+  },
+  "failure_details": [
+    {
+      "test": "test_performance_regressions.WorkbookPerformanceTests.test_saved_wide_workbook_dirty_checks_preserve_the_accepted_state_promptly",
+      "assertion_line": 946,
+      "seconds": 0.11026719998335466,
+      "limit_seconds": 0.1,
+      "samples": [
+        0.11026719998335466,
+        0.11112379998667166,
+        0.11047260003397241
+      ],
+      "functional_assertions": "Window modified flag, accepted snapshot and original source text assertions executed before the failed final timing gate."
+    },
+    {
+      "test": "test_performance_regressions.WorkbookPerformanceTests.test_wafer_window_opens_with_current_cards_and_uses_new_coefficients_after_edit",
+      "assertion_line": 991,
+      "seconds": 0.40522149996832013,
+      "limit_seconds": 0.4,
+      "functional_assertions": "Card coefficients, raw row count, participation exclusion and coefficients after source edit executed before the failed final timing gate."
+    },
+    {
+      "test": "test_writer_cell_serialization.WriterCellSerializationTests.test_plain_cells_avoid_generic_recursive_serialization_cost",
+      "assertion_line": 73,
+      "seconds": 0.3407487999647856,
+      "limit_seconds": 0.3,
+      "functional_assertions": "Last-text assertion after the timing gate did not execute in this test. Separate all-100k-literal verification subsequently passed; original test remains failed."
+    }
+  ],
+  "attribution": "These are timing-gate failures in unchanged test/Writer modules. This run does not establish their cause or prove absence of a regression; no thresholds changed and no tests skipped.",
+  "supplement": {
+    "count": 100000,
+    "all_original_strings_equal": true,
+    "last": "99999.123456789000",
+    "encoding_seconds": 0.36668599996482953,
+    "writer_sha256": "3df7846321d12b83261a609f8e1f4824758586d98bd897d26f47a40bf2382032",
+    "evidence": ".cache/p0-final-v432-20261026/writer-source-proof-values.json",
+    "does_not_clear_original_failure": true
+  },
+  "native_50": {
+    "rows": 10000,
+    "raw_parameters": 50,
+    "wafers": 100,
+    "pairs": 1225,
+    "alternating_cycles": 3,
+    "p50_complete_ms": {
+      "select_all": 86.11329999985173,
+      "click_after_select_all": 78.46560000325553,
+      "paste": 2593.703899998218,
+      "undo": 1829.149500001222,
+      "redo": 2109.7953999997117
+    },
+    "all_data_fit_and_current_plot_assertions_passed": true,
+    "gate_ms": 300,
+    "gate_passed_for_VZY": false,
+    "p95_established": false,
+    "evidence": "docs/validation/correlation-literal-source-2026-10-28.json"
+  },
+  "remaining_trace": {
+    "sample": "native-literal-source-2-proof.partial.json / whole_table_paste",
+    "single_sample_only": true,
+    "complete_ms": 2610.4,
+    "spans_ms": {
+      "sheet_paste": 558.42,
+      "parent_analysis": 299.65,
+      "worker_preparation": 275.78,
+      "child_commit": 788.51,
+      "child_page_reenable_nested_in_commit": 244.54
+    },
+    "notes": "Intervals are nested where labeled; do not sum the reenable interval twice. Tail also includes all fits/draw/current viewport paint."
+  },
+  "rejected_column_packing": {
+    "production_changed": false,
+    "rows": 10000,
+    "parameters": 50,
+    "cycles": 7,
+    "p50_ms": {
+      "control": 144.3448000063654,
+      "tolist": 137.9243999836035,
+      "object_matrix": 152.69639997859485
+    },
+    "extra_object_matrix_pointer_bytes": 4000000,
+    "all_literal_deltas_equal": true,
+    "evidence": ".cache/p0-final-v432-20261026/column-packing-diagnostic.json",
+    "reason": "Limited tolist gain; full object matrix slower and increases transient memory. Neither retained."
+  },
+  "protected_hashes": {
+    "settings": {
+      "before": "993010fb1689348a6d5d6f06582d18024f7706a71f21b2bcf83dbeeaef4efda1",
+      "after": "993010fb1689348a6d5d6f06582d18024f7706a71f21b2bcf83dbeeaef4efda1"
+    },
+    "owned_wkb": {
+      "before": "9c0b9437eef660d3bffc9c007515c1875f24cbc25c60ca2e8235032b9272fb65",
+      "after": "9c0b9437eef660d3bffc9c007515c1875f24cbc25c60ca2e8235032b9272fb65"
+    },
+    "evidence": ".cache/p0-final-v432-20261026/source-proof-full-{before,after}-hashes.json"
+  },
+  "boundaries": {
+    "focus_or_tab_gating": false,
+    "source_strings_or_precision_changed": false,
+    "persistence_protocols_changed": false,
+    "gpu_packages_installed": false,
+    "push": false,
+    "tag_move": false,
+    "release": false,
+    "user_files_committed": false
+  },
+  "conclusion": "Two measured local improvements retained. All executed functional assertions and supplemental Writer literals passed, but full suite has 3 failed timing gates and the 300ms end-to-end objective remains unmet."
+}
