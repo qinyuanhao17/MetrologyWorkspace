@@ -1,7 +1,7 @@
 {
   "date": "2026-10-28",
   "scope": "Correlation first; 10k rows x 50 Raw parameters, 1225 pairs, all 100 wafers selected; no view-driven refresh",
-  "head": "9e5fd795b51e3c375edf1e2d104209ae32276f45",
+  "head": "bae3f32043d647b6a13c3b9ffbc2bd74e5f6a725",
   "application_base_tag": "v4.3.3",
   "application_base_commit": "199164aba7811e6283bd28ecbc174517fc6e7407",
   "application_changes_vs_tag": [
@@ -38,7 +38,7 @@
   ],
   "target_complete_ms": 300,
   "target_achieved": false,
-  "checkpoint_created": false,
+  "checkpoint_created": true,
   "push_performed": false,
   "tests": {
     "related": {
@@ -475,9 +475,9 @@
     "target_achieved": false,
     "wafermap_20x5": "Paused per user: Correlation first",
     "next": [
-      "Save a local progress checkpoint with all failed gates disclosed; do not push or move tags",
-      "Do not repeat the full suite for accidental green; it remains 1180/4 failed before two targeted repairs",
-      "New SheetModel storage/data ownership work requires the pending proposal approval; no such implementation yet"
+      "Await the explicit answer to the broader immutable data-version proposal before changing SheetModel storage/data ownership",
+      "Keep the one original full run (1180/4 failures), 26 post-repair focused passes and the 2 isolated timing failures visible",
+      "No push/tag/release/worktree or automatic P1/P2/P3 work"
     ]
   },
   "pre_batch_source_hashes": {
@@ -952,7 +952,8 @@
       "metrology_app/sequence_page.py",
       "metrology_app/correlation_page.py",
       "tests/test_correlation_linked_values.py"
-    ]
+    ],
+    "source_checkpoint": "bae3f32043d647b6a13c3b9ffbc2bd74e5f6a725"
   },
   "full_suite_frozen_source_hashes": {
     "metrology_app/sheet.py": "ceca7053ddba74d14092723851b5f767355384d65b16342c227bc3fa5b57314e",
@@ -966,5 +967,13 @@
     "tests/test_correlation_batch_ols.py": "9d35718f04ea2655c26565c4c88c69ec7bacd5ab0b20c9a1032ddeee51f249d1",
     "tests/test_sheet_cache_updates.py": "400d52edc0fe3e98010cc2c16d9b4dd3ff7d57b365b34ce2375acb95ba8b1b9c",
     "tests/test_matching_value_refresh.py": "dc302c75b1f3c9b3211cacc2cc22935c49a98a9354a78ba8f05b65731923a73e"
-  }
+  },
+  "entry_revision": "9e5fd795b51e3c375edf1e2d104209ae32276f45",
+  "source_checkpoint": "bae3f32043d647b6a13c3b9ffbc2bd74e5f6a725",
+  "checkpoint_kind": "Local progress only; total 300ms target NOT met; full failures and targeted repairs disclosed",
+  "worktree_status_at_source_checkpoint": [
+    " M .vscode/settings.json",
+    " M AGENTS.md",
+    "?? docs/todos/"
+  ]
 }
