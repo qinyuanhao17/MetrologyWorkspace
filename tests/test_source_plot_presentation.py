@@ -64,6 +64,8 @@ class SourcePlotPresentationTests(unittest.TestCase):
         page = window.correlation_page
         page.selector.selectAll()
         page.draw_plot()
+        page.finish_background_draw()
+        self.assertEqual(len(page.plot_widgets), 6)
         for widget in page.plot_widgets:
             axis = widget.getAxis("left")
             self.assertFalse(axis.autoSIPrefix)
@@ -96,6 +98,8 @@ class SourcePlotPresentationTests(unittest.TestCase):
         page = window.correlation_page
         page.selector.selectAll()
         page.draw_plot()
+        page.finish_background_draw()
+        self.assertEqual(len(page.plot_widgets), 6)
         colors = {}
         for fit, widget in zip(page.page_fits(), page.plot_widgets):
             category = self.category(fit)
@@ -151,6 +155,8 @@ class SourcePlotPresentationTests(unittest.TestCase):
         report = capture_window(window)
         plots = [plot for plot in report["plots"] if plot["sheet"] == "Correlation"]
         expected = [self.colors(widget) for widget in page.plot_widgets]
+        self.assertEqual(len(expected), 6)
+        self.assertEqual(len(plots), 6)
         for plot, colors in zip(plots, expected):
             self.assertEqual(tuple(item.get("color") for item in plot["series"]), colors)
             self.assertTrue(all(list(item["data"].columns) == ["X", "Y"] for item in plot["series"]))
@@ -159,6 +165,7 @@ class SourcePlotPresentationTests(unittest.TestCase):
                               to_hex(figure.axes[0].lines[0].get_color())), colors)
         book = Workbook()
         append_report(book, set(), report, native=True)
+        self.assertEqual(len(book["Correlation"]._charts), 6)
         for chart, colors in zip(book["Correlation"]._charts, expected):
             self.assertEqual("#" + chart.series[0].marker.graphicalProperties.solidFill.srgbClr.lower(), colors[0])
             self.assertEqual("#" + chart.series[1].graphicalProperties.line.solidFill.srgbClr.lower(), colors[1])

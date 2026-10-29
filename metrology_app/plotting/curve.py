@@ -6,8 +6,9 @@ scene items, source arrays, axis labels and export painting stay with Qt's owner
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import contextmanager
 import multiprocessing
-from weakref import finalize
+from weakref import finalize, ref
 
+import numpy as np
 import pyqtgraph as pg
 from PyQt6.QtCore import QByteArray, QDataStream, QEvent, QIODevice, QObject, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QImage, QPainter, QPainterPath, QPen, QPixmap, QTransform
@@ -260,13 +261,42 @@ class _UniformSymbolAtlas:
         return self._native[styles]
 
 
+def _broadcast_uniform_styles(scatter):
+    """Enumerate one atlas style only when every point uses its defaults.
+
+    Native updateSpots broadcasts that one rectangle to its full sourceRect
+    array. Point data, hit testing, bounds, atlas rebuilds and painting stay
+    native. Per-point/hover/scaled styles retain the original enumeration.
+    """
+    owner, native = ref(scatter), type(scatter)._style
+
+    def styles(opts, data=None, idx=None, scale=None):
+        item = owner()
+        data = item.data if data is None else data
+        if (isinstance(opts, (list, tuple)) and tuple(opts) == ('symbol', 'size', 'pen', 'brush')
+                and scale is None and not item.opts['hoverable'] and len(data)
+                and all(name in data.dtype.names for name in opts)
+                and all(np.all(data[name] == (-1 if name == 'size' else None)) for name in opts)):
+            return tuple((item.opts[name],) for name in opts)
+        return native(item, opts, data=data, idx=idx, scale=scale)
+
+    return styles
+
+
 class ResponsivePlotDataItem(pg.PlotDataItem):
     """Keep unchanged scatter/curve data when only the viewport changed."""
     rendering_changed = pyqtSignal()
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, *args, broadcast_uniform_symbols=False, **kwargs):
+        if broadcast_uniform_symbols:
+            # Install the adapter before the first dense scatter is registered.
+            super().__init__()
+        else:
+            super().__init__(*args, **kwargs)
         self.scatter.fragmentAtlas = _UniformSymbolAtlas(self.scatter.fragmentAtlas)
+        if broadcast_uniform_symbols:
+            self.scatter._style = _broadcast_uniform_styles(self.scatter)
+            self.setData(*args, **kwargs)
         self._rasterizer = _CurveRasterizer(self.curve)
         self._rasterizer.rendering_changed.connect(self.rendering_changed)
 

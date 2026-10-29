@@ -256,6 +256,7 @@ class ParameterFilterTests(unittest.TestCase):
                 QTest.mouseClick(page.parameter_filter.buttons[second], Qt.MouseButton.LeftButton,
                                  Qt.KeyboardModifier.ControlModifier)
                 QTest.keyRelease(page, Qt.Key.Key_Control)
+                page.finish_background_draw()
                 QTest.qWait(30)
                 self.assertEqual(len(page.plot_widgets), 11)
                 widths = [panel.width() for panel in page.panel_hosts]
@@ -567,6 +568,8 @@ class ParameterFilterTests(unittest.TestCase):
                         page.set_overlay("TG", "EW")
                     page.resize(1100, 760)
                     page.show()
+                    if kind is CorrelationPage:
+                        page.finish_background_draw()
                     APP.processEvents()
                     original = list(page.plot_widgets)
                     values = {widget: [item.getData()[1].copy() for item in widget.listDataItems()]
@@ -579,6 +582,7 @@ class ParameterFilterTests(unittest.TestCase):
                     QTest.mouseClick(page.parameter_filter.buttons["EW"], Qt.MouseButton.LeftButton,
                                      Qt.KeyboardModifier.ControlModifier)
                     if kind is CorrelationPage:
+                        page.finish_background_draw()
                         expected = {frozenset(pair) for pair in (("DP", "TG"), ("DP", "EW"),
                                                                ("DP", "UC"), ("TG", "EW"), ("EW", "UC"))}
                         self.assertEqual({frozenset((fit.x_name, fit.y_name)) for fit in page.display_fits()}, expected)
@@ -602,6 +606,8 @@ class ParameterFilterTests(unittest.TestCase):
                         self.assertEqual(len(page.figure.axes), 3)
                         self.assertFalse(any("UC" in axis.get_title() for axis in page.figure.axes))
                     page.parameter_filter.buttons[None].click()
+                    if kind is CorrelationPage:
+                        page.finish_background_draw()
                     self.assertEqual(page.plot_widgets, original)
                     pd.testing.assert_frame_equal(page.frame, frame)
                 finally:

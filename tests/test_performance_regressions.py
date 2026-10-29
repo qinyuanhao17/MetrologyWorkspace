@@ -11,6 +11,13 @@ from metrology_app.matching import MatchWorkbook, ParameterMapping
 
 
 class WorkbookPerformanceTests(unittest.TestCase):
+    def wait_for_correlation_render(self, page):
+        from PyQt6.QtTest import QTest
+        deadline = perf_counter() + 8
+        while page.background_render_pending:
+            self.assertLess(perf_counter(), deadline, "Correlation rendering did not finish")
+            QTest.qWait(5)
+
     def tearDown(self):
         from PyQt6.QtCore import QCoreApplication, QEvent
         from PyQt6.QtWidgets import QApplication
@@ -1119,6 +1126,7 @@ class WorkbookPerformanceTests(unittest.TestCase):
                                ParameterMapping("Thickness", "Thickness Ref", "Thickness")])
             page = window.correlation_page
             page.draw_plot()
+            self.wait_for_correlation_render(page)
             self.assertTrue(page.ready, page.status.text())
             self.assertEqual(len(page.plot_widgets), 6)
             curves = [item for widget in page.plot_widgets for item in widget.listDataItems()]
@@ -1176,8 +1184,12 @@ class WorkbookPerformanceTests(unittest.TestCase):
             restored.set_workbook_groups(book)
             start = perf_counter()
             restored.restore_workspace(snapshot)
+            # The existing restore threshold includes complete graphics, not
+            # just dispatch of the newly event-driven construction batches.
+            self.wait_for_correlation_render(restored.correlation_page)
             elapsed = perf_counter() - start
             self.assertTrue(restored.correlation_page.ready)
+            self.assertEqual(len(restored.correlation_page.plot_widgets), 6)
             self.assertTrue(restored.sequence_page.ready)
             self.assertEqual(restored.tabs.currentWidget(), restored.sequence_page)
             self.assertEqual(restored.correlation_page.selector.selected_cells(), expected_cor)

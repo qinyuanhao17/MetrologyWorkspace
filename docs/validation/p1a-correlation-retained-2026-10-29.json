@@ -1,0 +1,6108 @@
+{
+  "task": "P1-A continuation: Correlation native scatter symbol enumeration",
+  "date": "2026-10-29",
+  "head": "adeafe018ac3ce65b33780e28f398d690b067da4",
+  "baseline_commit": "adeafe018ac3ce65b33780e28f398d690b067da4",
+  "comparison_baseline": "Previous uncommitted P1-A rendering implementation, not original synchronous tag renderer",
+  "baseline_files_sha256": {
+    "before_correlation_page.py": "695e7bebd6b7a0cdc81aac7e40d9072400134b187d4f8cccf1b3ad2ba749e6ad",
+    "before_curve.py": "dbc99260a9655f7152c2f6aeb6149de93592492f317f72efb106f7b5be9d7a79"
+  },
+  "current_production_sha256": {
+    "metrology_app/correlation_page.py": "b6be84c4ffdc822b5efcbaad274089a8448bef33ce63f5d252021ac79cea2877",
+    "metrology_app/plotting/curve.py": "29ce7a5ff2d058334a93e38aa02c4605cb5ac3b40b2ba764bdcee50810edc014"
+  },
+  "scope": "Rendering only; no OLS, Workbook/Undo/Recovery protocol or data ownership changes",
+  "fit_and_export_model_ast_unchanged": true,
+  "git_status": [
+    "M .vscode/settings.json",
+    " M AGENTS.md",
+    " M metrology_app/correlation_page.py",
+    " M metrology_app/plotting/curve.py",
+    " M tests/test_analysis_plot_style.py",
+    " M tests/test_async_analysis_refresh.py",
+    " M tests/test_correlation.py",
+    " M tests/test_correlation_axes.py",
+    " M tests/test_linked_table_versions.py",
+    " M tests/test_parameter_filter.py",
+    " M tests/test_performance_regressions.py",
+    " M tests/test_source_plot_presentation.py",
+    " M tests/test_uniform_scatter.py",
+    "?? benchmarks/benchmark_correlation_render.py",
+    "?? docs/plans/p1a-correlation-render-2026-10-29.md",
+    "?? docs/plans/p1a-correlation-retained-2026-10-29.md",
+    "?? docs/todos/",
+    "?? docs/validation/p1a-correlation-render-2026-10-29.json",
+    "?? tests/test_correlation_render_batches.py"
+  ],
+  "commit_created": false,
+  "pushed": false,
+  "tag_or_release_created": false,
+  "preflight": {
+    "time": "2026-10-29T12:59:03.3050791+08:00",
+    "head": "adeafe018ac3ce65b33780e28f398d690b067da4",
+    "tag": "adeafe018ac3ce65b33780e28f398d690b067da4",
+    "status": [
+      " M .vscode/settings.json",
+      " M AGENTS.md",
+      " M metrology_app/correlation_page.py",
+      " M metrology_app/plotting/curve.py",
+      " M tests/test_analysis_plot_style.py",
+      " M tests/test_async_analysis_refresh.py",
+      " M tests/test_correlation.py",
+      " M tests/test_correlation_axes.py",
+      " M tests/test_linked_table_versions.py",
+      " M tests/test_parameter_filter.py",
+      " M tests/test_performance_regressions.py",
+      " M tests/test_source_plot_presentation.py",
+      " M tests/test_uniform_scatter.py",
+      "?? benchmarks/benchmark_correlation_render.py",
+      "?? docs/plans/p1a-correlation-render-2026-10-29.md",
+      "?? docs/todos/",
+      "?? docs/validation/p1a-correlation-render-2026-10-29.json",
+      "?? tests/test_correlation_render_batches.py"
+    ],
+    "protected": [
+      {
+        "Path": "D:\\WaferMap\\config\\settings.yaml",
+        "Hash": "993010FB1689348A6D5D6F06582D18024F7706A71F21B2BCF83DBEEAEF4EFDA1"
+      },
+      {
+        "Path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\owned-nova-multi.wkb",
+        "Hash": "9C0B9437EEF660D3BFFC9C007515C1875F24CBC25C60CA2E8235032B9272FB65"
+      }
+    ],
+    "sources": [
+      {
+        "Path": "D:\\WaferMap\\metrology_app\\correlation_page.py",
+        "Hash": "B6BE84C4FFDC822B5EFCBAAD274089A8448BEF33CE63F5D252021AC79CEA2877"
+      },
+      {
+        "Path": "D:\\WaferMap\\metrology_app\\plotting\\curve.py",
+        "Hash": "29CE7A5FF2D058334A93E38AA02C4605CB5AC3B40B2BA764BDCEE50810EDC014"
+      }
+    ]
+  },
+  "postflight": {
+    "time": "2026-10-29T13:19:27.0595831+08:00",
+    "exit_code": 1,
+    "protected": [
+      {
+        "Path": "D:\\WaferMap\\config\\settings.yaml",
+        "Hash": "993010FB1689348A6D5D6F06582D18024F7706A71F21B2BCF83DBEEAEF4EFDA1"
+      },
+      {
+        "Path": "D:\\WaferMap\\.cache\\p0-final-v432-20261026\\owned-nova-multi.wkb",
+        "Hash": "9C0B9437EEF660D3BFFC9C007515C1875F24CBC25C60CA2E8235032B9272FB65"
+      }
+    ],
+    "sources": [
+      {
+        "Path": "D:\\WaferMap\\metrology_app\\correlation_page.py",
+        "Hash": "B6BE84C4FFDC822B5EFCBAAD274089A8448BEF33CE63F5D252021AC79CEA2877"
+      },
+      {
+        "Path": "D:\\WaferMap\\metrology_app\\plotting\\curve.py",
+        "Hash": "29CE7A5FF2D058334A93E38AA02C4605CB5AC3B40B2BA764BDCEE50810EDC014"
+      }
+    ]
+  },
+  "protected_hashes_unchanged": true,
+  "source_frozen_during_full": true,
+  "benchmarks": {
+    "before-red": {
+      "rows": 10000,
+      "parameters": 50,
+      "fits": 1225,
+      "page_size": 24,
+      "cycles": 1,
+      "platform": "windows",
+      "baseline_tag": null,
+      "batch_size": 2,
+      "baseline_source": ".cache\\p1a-correlation-retained-20261029\\before_correlation_page.py",
+      "profiled": false,
+      "source_sha256": "695e7bebd6b7a0cdc81aac7e40d9072400134b187d4f8cccf1b3ad2ba749e6ad",
+      "scope": "Rendering precomputed fits through current viewport paint; no fitting or Workbook refresh",
+      "samples": [
+        {
+          "cycle": 0,
+          "scenario": "initial",
+          "dispatch_ms": 0.6856000400148332,
+          "complete_ms": 1540.3146999888122,
+          "max_qt_gap_ms": 178.0634000315331,
+          "max_render_callback_ms": 177.3352999589406,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.35099999513477087
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 177.3352999589406
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 124.82369999634102
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 133.71520000509918
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 138.50619998993352
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.94350001821294
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 134.88470000447705
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.69419997185469
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.92600001208484
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 139.22450004611164
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.00049999728799
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 143.94849998643622
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 100.80739995464683
+            }
+          ],
+          "heartbeat_ticks": 34,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 526553088,
+            "private": 1509552128,
+            "peak": 526553088
+          },
+          "memory_after": {
+            "rss": 576049152,
+            "private": 1555472384,
+            "peak": 576049152
+          },
+          "plot_data_sha256": "31d2ea7966b3c0c0eeac1811d7c9e4b02a80042bbe404c61c47c8e16f21242bf",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 0,
+          "scenario": "retained_refresh",
+          "dispatch_ms": 419.7550000390038,
+          "complete_ms": 424.7816000133753,
+          "max_qt_gap_ms": 419.98300002887845,
+          "max_render_callback_ms": 419.4485999760218,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 419.4485999760218
+            }
+          ],
+          "heartbeat_ticks": 5,
+          "created": 0,
+          "events_after_created_counts": [],
+          "memory_before": {
+            "rss": 576061440,
+            "private": 1555472384,
+            "peak": 576061440
+          },
+          "memory_after": {
+            "rss": 577556480,
+            "private": 1557012480,
+            "peak": 577556480
+          },
+          "plot_data_sha256": "c9226e38f6d5fd1017c648cf102cb885cd5e942605151b5e550c1a552eb5263e",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 0,
+          "scenario": "ranked_refresh",
+          "dispatch_ms": 0.32789999386295676,
+          "complete_ms": 1457.6168000348844,
+          "max_qt_gap_ms": 150.13409999664873,
+          "max_render_callback_ms": 150.04909998970106,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.21780002862215042
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 95.22989997640252
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 150.04909998970106
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.46709999954328
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 106.83569998946041
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 143.23990000411868
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.5314000127837
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 139.92640003561974
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 96.57559997867793
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 97.02960000140592
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 138.80680000875145
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 95.23430000990629
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 147.61769998585805
+            }
+          ],
+          "heartbeat_ticks": 38,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 577556480,
+            "private": 1557012480,
+            "peak": 577556480
+          },
+          "memory_after": {
+            "rss": 625250304,
+            "private": 1605648384,
+            "peak": 625250304
+          },
+          "plot_data_sha256": "054ceebdc31786a4e7ea3ce6ef3f7ad58b1e02b5b013856eedeba6cd3fdb8fc1",
+          "all_plot_arrays_exact": true
+        }
+      ],
+      "p50_ms": {
+        "initial": {
+          "dispatch_ms": 0.6856000400148332,
+          "complete_ms": 1540.3146999888122,
+          "max_qt_gap_ms": 178.0634000315331,
+          "max_render_callback_ms": 177.3352999589406
+        },
+        "retained_refresh": {
+          "dispatch_ms": 419.7550000390038,
+          "complete_ms": 424.7816000133753,
+          "max_qt_gap_ms": 419.98300002887845,
+          "max_render_callback_ms": 419.4485999760218
+        },
+        "ranked_refresh": {
+          "dispatch_ms": 0.32789999386295676,
+          "complete_ms": 1457.6168000348844,
+          "max_qt_gap_ms": 150.13409999664873,
+          "max_render_callback_ms": 150.04909998970106
+        }
+      },
+      "raw_path": ".cache\\p1a-correlation-retained-20261029\\before-red.json",
+      "raw_sha256": "b7e4fc5c95bce21831056317ae9d74d8eb2358bb56fa0e5baac34de472e4f191"
+    },
+    "before24": {
+      "rows": 10000,
+      "parameters": 50,
+      "fits": 1225,
+      "page_size": 24,
+      "cycles": 3,
+      "platform": "windows",
+      "baseline_tag": null,
+      "batch_size": 2,
+      "baseline_source": ".cache\\p1a-correlation-retained-20261029\\before_correlation_page.py",
+      "baseline_curve_source": ".cache\\p1a-correlation-retained-20261029\\before_curve.py",
+      "profiled": false,
+      "source_sha256": "695e7bebd6b7a0cdc81aac7e40d9072400134b187d4f8cccf1b3ad2ba749e6ad",
+      "scope": "Rendering precomputed fits through current viewport paint; no fitting or Workbook refresh",
+      "samples": [
+        {
+          "cycle": 0,
+          "scenario": "initial",
+          "dispatch_ms": 0.8951000054366887,
+          "complete_ms": 1437.380800023675,
+          "max_qt_gap_ms": 153.6873000441119,
+          "max_render_callback_ms": 151.88899997156113,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.3493999829515815
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 151.88899997156113
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.27620001183823
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.28600000683218
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 137.97779998276383
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.62130002025515
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 134.41910000983626
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 91.61669999593869
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 95.71159997722134
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 134.76749998517334
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 102.72389999590814
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 139.31159995263442
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 98.04730000905693
+            }
+          ],
+          "heartbeat_ticks": 33,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 526254080,
+            "private": 1509003264,
+            "peak": 526254080
+          },
+          "memory_after": {
+            "rss": 576376832,
+            "private": 1555648512,
+            "peak": 576376832
+          },
+          "plot_data_sha256": "31d2ea7966b3c0c0eeac1811d7c9e4b02a80042bbe404c61c47c8e16f21242bf",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 0,
+          "scenario": "retained_refresh",
+          "dispatch_ms": 404.0512000210583,
+          "complete_ms": 409.98739999486133,
+          "max_qt_gap_ms": 404.28260003682226,
+          "max_render_callback_ms": 403.9385999785736,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 403.9385999785736
+            }
+          ],
+          "heartbeat_ticks": 5,
+          "created": 0,
+          "events_after_created_counts": [],
+          "memory_before": {
+            "rss": 576385024,
+            "private": 1555648512,
+            "peak": 576385024
+          },
+          "memory_after": {
+            "rss": 577781760,
+            "private": 1557209088,
+            "peak": 577781760
+          },
+          "plot_data_sha256": "c9226e38f6d5fd1017c648cf102cb885cd5e942605151b5e550c1a552eb5263e",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 0,
+          "scenario": "ranked_refresh",
+          "dispatch_ms": 0.2645000349730253,
+          "complete_ms": 1407.7526000328362,
+          "max_qt_gap_ms": 147.073200030718,
+          "max_render_callback_ms": 146.0090999607928,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.17469999147579074
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.87060004519299
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 136.41030003782362
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.26180000789464
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.55579997645691
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 137.17070000711828
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.51670001726598
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 135.56460000108927
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.16060000471771
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.69390003848821
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 137.02089997241274
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 91.2432000041008
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 146.0090999607928
+            }
+          ],
+          "heartbeat_ticks": 38,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 577781760,
+            "private": 1557209088,
+            "peak": 577781760
+          },
+          "memory_after": {
+            "rss": 624148480,
+            "private": 1604751360,
+            "peak": 624148480
+          },
+          "plot_data_sha256": "054ceebdc31786a4e7ea3ce6ef3f7ad58b1e02b5b013856eedeba6cd3fdb8fc1",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 1,
+          "scenario": "initial",
+          "dispatch_ms": 0.33409998286515474,
+          "complete_ms": 1428.667200030759,
+          "max_qt_gap_ms": 157.39489998668432,
+          "max_render_callback_ms": 155.44559998670593,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.22540002828463912
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 121.29849998746067
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 96.71890002209693
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 155.44559998670593
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 98.68090000236407
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 134.93090000702068
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 95.35760001745075
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.01010000146925
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 134.86970000667498
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.80209999997169
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 136.7170999874361
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.7362000006251
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 100.91739997733384
+            }
+          ],
+          "heartbeat_ticks": 34,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 624316416,
+            "private": 1604751360,
+            "peak": 624316416
+          },
+          "memory_after": {
+            "rss": 582840320,
+            "private": 1565495296,
+            "peak": 629489664
+          },
+          "plot_data_sha256": "31d2ea7966b3c0c0eeac1811d7c9e4b02a80042bbe404c61c47c8e16f21242bf",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 1,
+          "scenario": "retained_refresh",
+          "dispatch_ms": 434.6500999527052,
+          "complete_ms": 440.73569995816797,
+          "max_qt_gap_ms": 434.97279996518046,
+          "max_render_callback_ms": 434.5519000198692,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 434.5519000198692
+            }
+          ],
+          "heartbeat_ticks": 6,
+          "created": 0,
+          "events_after_created_counts": [],
+          "memory_before": {
+            "rss": 582844416,
+            "private": 1565495296,
+            "peak": 629489664
+          },
+          "memory_after": {
+            "rss": 584347648,
+            "private": 1566965760,
+            "peak": 629489664
+          },
+          "plot_data_sha256": "c9226e38f6d5fd1017c648cf102cb885cd5e942605151b5e550c1a552eb5263e",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 1,
+          "scenario": "ranked_refresh",
+          "dispatch_ms": 0.33080001594498754,
+          "complete_ms": 1405.7341000298038,
+          "max_qt_gap_ms": 141.9222000404261,
+          "max_render_callback_ms": 140.6732999603264,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.2182999742217362
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 133.95649997983128
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.23940002266318
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.27709996048361
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 135.54109999677166
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.16429997468367
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 140.6732999603264
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.93350001098588
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.7996000284329
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 139.87870002165437
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 91.87350003048778
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 137.58679997408763
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 99.18069996638224
+            }
+          ],
+          "heartbeat_ticks": 38,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 584347648,
+            "private": 1566965760,
+            "peak": 629489664
+          },
+          "memory_after": {
+            "rss": 626663424,
+            "private": 1606574080,
+            "peak": 629489664
+          },
+          "plot_data_sha256": "054ceebdc31786a4e7ea3ce6ef3f7ad58b1e02b5b013856eedeba6cd3fdb8fc1",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 2,
+          "scenario": "initial",
+          "dispatch_ms": 0.4805999924428761,
+          "complete_ms": 1442.0159000437707,
+          "max_qt_gap_ms": 162.1445000055246,
+          "max_render_callback_ms": 160.72869999334216,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.22639997769147158
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 97.75800001807511
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 160.72869999334216
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.48930000467226
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 135.76760003343225
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.05690001929179
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.20730000035837
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 136.43920002505183
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 91.53129998594522
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 145.02860000357032
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.40600004745647
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.67560000484809
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 140.61250002123415
+            }
+          ],
+          "heartbeat_ticks": 30,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22
+          ],
+          "memory_before": {
+            "rss": 626679808,
+            "private": 1606594560,
+            "peak": 629489664
+          },
+          "memory_after": {
+            "rss": 583671808,
+            "private": 1564491776,
+            "peak": 629489664
+          },
+          "plot_data_sha256": "31d2ea7966b3c0c0eeac1811d7c9e4b02a80042bbe404c61c47c8e16f21242bf",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 2,
+          "scenario": "retained_refresh",
+          "dispatch_ms": 413.4124999982305,
+          "complete_ms": 420.11960002128035,
+          "max_qt_gap_ms": 418.34299999754876,
+          "max_render_callback_ms": 413.3239999646321,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 413.3239999646321
+            }
+          ],
+          "heartbeat_ticks": 3,
+          "created": 0,
+          "events_after_created_counts": [
+            0
+          ],
+          "memory_before": {
+            "rss": 583671808,
+            "private": 1564491776,
+            "peak": 629489664
+          },
+          "memory_after": {
+            "rss": 584294400,
+            "private": 1565962240,
+            "peak": 629489664
+          },
+          "plot_data_sha256": "c9226e38f6d5fd1017c648cf102cb885cd5e942605151b5e550c1a552eb5263e",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 2,
+          "scenario": "ranked_refresh",
+          "dispatch_ms": 0.26519998209550977,
+          "complete_ms": 1390.8671999815851,
+          "max_qt_gap_ms": 140.69650002056733,
+          "max_render_callback_ms": 138.64610000746325,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.17800001660361886
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.77589997509494
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.2841999931261
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 138.3854000014253
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.8371000229381
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 137.99429999198765
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 114.03870000503957
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.10509997885674
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 138.5446999920532
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.07379998406395
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 138.64610000746325
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 95.89840000262484
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 99.92130001774058
+            }
+          ],
+          "heartbeat_ticks": 36,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 584294400,
+            "private": 1565962240,
+            "peak": 629489664
+          },
+          "memory_after": {
+            "rss": 626556928,
+            "private": 1606496256,
+            "peak": 629489664
+          },
+          "plot_data_sha256": "054ceebdc31786a4e7ea3ce6ef3f7ad58b1e02b5b013856eedeba6cd3fdb8fc1",
+          "all_plot_arrays_exact": true
+        }
+      ],
+      "p50_ms": {
+        "initial": {
+          "dispatch_ms": 0.4805999924428761,
+          "complete_ms": 1437.380800023675,
+          "max_qt_gap_ms": 157.39489998668432,
+          "max_render_callback_ms": 155.44559998670593
+        },
+        "retained_refresh": {
+          "dispatch_ms": 413.4124999982305,
+          "complete_ms": 420.11960002128035,
+          "max_qt_gap_ms": 418.34299999754876,
+          "max_render_callback_ms": 413.3239999646321
+        },
+        "ranked_refresh": {
+          "dispatch_ms": 0.26519998209550977,
+          "complete_ms": 1405.7341000298038,
+          "max_qt_gap_ms": 141.9222000404261,
+          "max_render_callback_ms": 140.6732999603264
+        }
+      },
+      "raw_path": ".cache\\p1a-correlation-retained-20261029\\before24.json",
+      "raw_sha256": "e24a2dea6d22a6ccc5ab349672b561bc0bbc3ae15f839c4bfa656400853cee6e"
+    },
+    "after24": {
+      "rows": 10000,
+      "parameters": 50,
+      "fits": 1225,
+      "page_size": 24,
+      "cycles": 3,
+      "platform": "windows",
+      "baseline_tag": null,
+      "batch_size": 2,
+      "baseline_source": null,
+      "baseline_curve_source": null,
+      "profiled": false,
+      "source_sha256": "b6be84c4ffdc822b5efcbaad274089a8448bef33ce63f5d252021ac79cea2877",
+      "scope": "Rendering precomputed fits through current viewport paint; no fitting or Workbook refresh",
+      "samples": [
+        {
+          "cycle": 0,
+          "scenario": "initial",
+          "dispatch_ms": 0.8667000220157206,
+          "complete_ms": 1434.1478999704123,
+          "max_qt_gap_ms": 162.5466999830678,
+          "max_render_callback_ms": 161.9881999795325,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.49219996435567737
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 161.9881999795325
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 103.26999996323138
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.65249996678904
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 133.25469999108464
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.46339997136965
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 132.4651000322774
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 91.37370000826195
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 91.58259996911511
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 139.29949997691438
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 91.77919995272532
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 133.69909999892116
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 98.30000001238659
+            }
+          ],
+          "heartbeat_ticks": 32,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 526241792,
+            "private": 1509040128,
+            "peak": 526241792
+          },
+          "memory_after": {
+            "rss": 575963136,
+            "private": 1555251200,
+            "peak": 575963136
+          },
+          "plot_data_sha256": "31d2ea7966b3c0c0eeac1811d7c9e4b02a80042bbe404c61c47c8e16f21242bf",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 0,
+          "scenario": "retained_refresh",
+          "dispatch_ms": 351.68000002158806,
+          "complete_ms": 357.6558000058867,
+          "max_qt_gap_ms": 351.909400022123,
+          "max_render_callback_ms": 351.5892999712378,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 351.5892999712378
+            }
+          ],
+          "heartbeat_ticks": 5,
+          "created": 0,
+          "events_after_created_counts": [],
+          "memory_before": {
+            "rss": 575975424,
+            "private": 1555251200,
+            "peak": 575975424
+          },
+          "memory_after": {
+            "rss": 577155072,
+            "private": 1556381696,
+            "peak": 577155072
+          },
+          "plot_data_sha256": "c9226e38f6d5fd1017c648cf102cb885cd5e942605151b5e550c1a552eb5263e",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 0,
+          "scenario": "ranked_refresh",
+          "dispatch_ms": 0.26649999199435115,
+          "complete_ms": 1404.561300005298,
+          "max_qt_gap_ms": 147.52439997391775,
+          "max_render_callback_ms": 146.47259999765083,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.17739995382726192
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.21739997155964
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 134.57880000350997
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 91.53930004686117
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.1869000303559
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 136.1814999836497
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 91.17059997515753
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 138.2651999592781
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 95.0961000053212
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.95469999779016
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 139.07790003577247
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 91.60210000118241
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 146.47259999765083
+            }
+          ],
+          "heartbeat_ticks": 37,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 577155072,
+            "private": 1556381696,
+            "peak": 577155072
+          },
+          "memory_after": {
+            "rss": 624762880,
+            "private": 1604833280,
+            "peak": 624762880
+          },
+          "plot_data_sha256": "054ceebdc31786a4e7ea3ce6ef3f7ad58b1e02b5b013856eedeba6cd3fdb8fc1",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 1,
+          "scenario": "initial",
+          "dispatch_ms": 0.4327999777160585,
+          "complete_ms": 1391.2355999927968,
+          "max_qt_gap_ms": 159.78010004619136,
+          "max_render_callback_ms": 159.21030001481995,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.26080000679939985
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.60730000864714
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.1488999738358
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 159.21030001481995
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.4143999950029
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 134.7249000100419
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.74110003793612
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.06909999577329
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 135.44420001562685
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.1239000163041
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 134.33139998232946
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 99.95100001106039
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 97.39820001414046
+            }
+          ],
+          "heartbeat_ticks": 34,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 624889856,
+            "private": 1604833280,
+            "peak": 624889856
+          },
+          "memory_after": {
+            "rss": 582737920,
+            "private": 1565212672,
+            "peak": 630038528
+          },
+          "plot_data_sha256": "31d2ea7966b3c0c0eeac1811d7c9e4b02a80042bbe404c61c47c8e16f21242bf",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 1,
+          "scenario": "retained_refresh",
+          "dispatch_ms": 358.334599994123,
+          "complete_ms": 364.54420001246035,
+          "max_qt_gap_ms": 358.5758999688551,
+          "max_render_callback_ms": 358.1762000103481,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 358.1762000103481
+            }
+          ],
+          "heartbeat_ticks": 6,
+          "created": 0,
+          "events_after_created_counts": [],
+          "memory_before": {
+            "rss": 582742016,
+            "private": 1565212672,
+            "peak": 630038528
+          },
+          "memory_after": {
+            "rss": 583913472,
+            "private": 1566195712,
+            "peak": 630038528
+          },
+          "plot_data_sha256": "c9226e38f6d5fd1017c648cf102cb885cd5e942605151b5e550c1a552eb5263e",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 1,
+          "scenario": "ranked_refresh",
+          "dispatch_ms": 0.2906000008806586,
+          "complete_ms": 1412.7727000159211,
+          "max_qt_gap_ms": 141.7465999838896,
+          "max_render_callback_ms": 140.64699999289587,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.20700000459328294
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 135.0100000272505
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.64880004432052
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.48719998868182
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 140.64699999289587
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 91.38379996875301
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 137.04160001361743
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.0050999848172
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.5378000033088
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 139.80040000751615
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.39390002423897
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 138.25900002848357
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 101.19110002415255
+            }
+          ],
+          "heartbeat_ticks": 35,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 583921664,
+            "private": 1566195712,
+            "peak": 630038528
+          },
+          "memory_after": {
+            "rss": 625815552,
+            "private": 1606115328,
+            "peak": 630038528
+          },
+          "plot_data_sha256": "054ceebdc31786a4e7ea3ce6ef3f7ad58b1e02b5b013856eedeba6cd3fdb8fc1",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 2,
+          "scenario": "initial",
+          "dispatch_ms": 0.5699999746866524,
+          "complete_ms": 1457.6777999754995,
+          "max_qt_gap_ms": 160.20169999683276,
+          "max_render_callback_ms": 160.06980004021898,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.2683000057004392
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 98.56740001123399
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 160.06980004021898
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.07009999267757
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 135.87649998953566
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 109.73440000088885
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.6885999981314
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 135.24380000308156
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 96.42720001284033
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 136.04459998896345
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.6220000255853
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.26699998928234
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 141.5394000359811
+            }
+          ],
+          "heartbeat_ticks": 34,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 625819648,
+            "private": 1606119424,
+            "peak": 630038528
+          },
+          "memory_after": {
+            "rss": 582807552,
+            "private": 1563136000,
+            "peak": 630038528
+          },
+          "plot_data_sha256": "31d2ea7966b3c0c0eeac1811d7c9e4b02a80042bbe404c61c47c8e16f21242bf",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 2,
+          "scenario": "retained_refresh",
+          "dispatch_ms": 358.5371000226587,
+          "complete_ms": 364.0709000173956,
+          "max_qt_gap_ms": 358.9207000331953,
+          "max_render_callback_ms": 358.4473999799229,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 358.4473999799229
+            }
+          ],
+          "heartbeat_ticks": 5,
+          "created": 0,
+          "events_after_created_counts": [],
+          "memory_before": {
+            "rss": 582807552,
+            "private": 1563136000,
+            "peak": 630038528
+          },
+          "memory_after": {
+            "rss": 584118272,
+            "private": 1565552640,
+            "peak": 630038528
+          },
+          "plot_data_sha256": "c9226e38f6d5fd1017c648cf102cb885cd5e942605151b5e550c1a552eb5263e",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 2,
+          "scenario": "ranked_refresh",
+          "dispatch_ms": 0.33569999504834414,
+          "complete_ms": 1368.4101999970153,
+          "max_qt_gap_ms": 141.99199998984113,
+          "max_render_callback_ms": 140.41030005319044,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.22529996931552887
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.9490000125952
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 91.452999971807
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 135.79019997268915
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.28609997080639
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 138.76050000544637
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.4030000353232
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.62809999240562
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 140.41030005319044
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.65970001090318
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 139.03979997849092
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.7998000192456
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 99.8799999943003
+            }
+          ],
+          "heartbeat_ticks": 36,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 584118272,
+            "private": 1565552640,
+            "peak": 630038528
+          },
+          "memory_after": {
+            "rss": 626679808,
+            "private": 1606987776,
+            "peak": 630038528
+          },
+          "plot_data_sha256": "054ceebdc31786a4e7ea3ce6ef3f7ad58b1e02b5b013856eedeba6cd3fdb8fc1",
+          "all_plot_arrays_exact": true
+        }
+      ],
+      "p50_ms": {
+        "initial": {
+          "dispatch_ms": 0.5699999746866524,
+          "complete_ms": 1434.1478999704123,
+          "max_qt_gap_ms": 160.20169999683276,
+          "max_render_callback_ms": 160.06980004021898
+        },
+        "retained_refresh": {
+          "dispatch_ms": 358.334599994123,
+          "complete_ms": 364.0709000173956,
+          "max_qt_gap_ms": 358.5758999688551,
+          "max_render_callback_ms": 358.1762000103481
+        },
+        "ranked_refresh": {
+          "dispatch_ms": 0.2906000008806586,
+          "complete_ms": 1404.561300005298,
+          "max_qt_gap_ms": 141.99199998984113,
+          "max_render_callback_ms": 140.64699999289587
+        }
+      },
+      "raw_path": ".cache\\p1a-correlation-retained-20261029\\after24.json",
+      "raw_sha256": "40ec10e99745e6fc108dd7e06b58f12d039ded07d5af937f8d20a3a2ee8a4625"
+    },
+    "final24": {
+      "rows": 10000,
+      "parameters": 50,
+      "fits": 1225,
+      "page_size": 24,
+      "cycles": 3,
+      "platform": "windows",
+      "baseline_tag": null,
+      "batch_size": 2,
+      "baseline_source": null,
+      "baseline_curve_source": null,
+      "profiled": false,
+      "source_sha256": "b6be84c4ffdc822b5efcbaad274089a8448bef33ce63f5d252021ac79cea2877",
+      "scope": "Rendering precomputed fits through current viewport paint; no fitting or Workbook refresh",
+      "samples": [
+        {
+          "cycle": 0,
+          "scenario": "initial",
+          "dispatch_ms": 0.6423000013455749,
+          "complete_ms": 1463.197399978526,
+          "max_qt_gap_ms": 156.39570000348613,
+          "max_render_callback_ms": 156.0450000106357,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.29419997008517385
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 156.0450000106357
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.42049999395385
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.81479995884001
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 137.95579998986796
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.6018999889493
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 147.23309996770695
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 100.67710001021624
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 99.35059997951612
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 135.3609999641776
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.79189998051152
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 142.01929996488616
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 98.44200004590675
+            }
+          ],
+          "heartbeat_ticks": 34,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 526405632,
+            "private": 1509089280,
+            "peak": 526405632
+          },
+          "memory_after": {
+            "rss": 576069632,
+            "private": 1555210240,
+            "peak": 576069632
+          },
+          "plot_data_sha256": "31d2ea7966b3c0c0eeac1811d7c9e4b02a80042bbe404c61c47c8e16f21242bf",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 0,
+          "scenario": "retained_refresh",
+          "dispatch_ms": 206.26510004512966,
+          "complete_ms": 211.58100001048297,
+          "max_qt_gap_ms": 206.49090001825243,
+          "max_render_callback_ms": 206.16870000958443,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 206.16870000958443
+            }
+          ],
+          "heartbeat_ticks": 6,
+          "created": 0,
+          "events_after_created_counts": [],
+          "memory_before": {
+            "rss": 576081920,
+            "private": 1555210240,
+            "peak": 576081920
+          },
+          "memory_after": {
+            "rss": 577179648,
+            "private": 1556193280,
+            "peak": 577179648
+          },
+          "plot_data_sha256": "c9226e38f6d5fd1017c648cf102cb885cd5e942605151b5e550c1a552eb5263e",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 0,
+          "scenario": "ranked_refresh",
+          "dispatch_ms": 0.2874999772757292,
+          "complete_ms": 1414.591799955815,
+          "max_qt_gap_ms": 145.97329997923225,
+          "max_render_callback_ms": 144.7018000180833,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.19209994934499264
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.79409998655319
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 136.36549998773262
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.84910000860691
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 96.44190000835806
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 141.96959999389946
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.06119999382645
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 136.96040003560483
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.44899997813627
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 91.23930003261194
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 139.08140000421554
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 91.00109996506944
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 144.7018000180833
+            }
+          ],
+          "heartbeat_ticks": 38,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 577179648,
+            "private": 1556193280,
+            "peak": 577179648
+          },
+          "memory_after": {
+            "rss": 625258496,
+            "private": 1605304320,
+            "peak": 625258496
+          },
+          "plot_data_sha256": "054ceebdc31786a4e7ea3ce6ef3f7ad58b1e02b5b013856eedeba6cd3fdb8fc1",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 1,
+          "scenario": "initial",
+          "dispatch_ms": 0.6936999852769077,
+          "complete_ms": 1395.145499962382,
+          "max_qt_gap_ms": 154.69200001098216,
+          "max_render_callback_ms": 154.36380001483485,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.2959999837912619
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 98.83420000551268
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.01459998823702
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 154.36380001483485
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 98.36940001696348
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 135.77439996879548
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.96920002857223
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.17219997663051
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 135.87760005611926
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.04440004052594
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 137.60129996808246
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.00029999576509
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 98.2726999791339
+            }
+          ],
+          "heartbeat_ticks": 31,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 625389568,
+            "private": 1605304320,
+            "peak": 625389568
+          },
+          "memory_after": {
+            "rss": 585551872,
+            "private": 1569288192,
+            "peak": 630530048
+          },
+          "plot_data_sha256": "31d2ea7966b3c0c0eeac1811d7c9e4b02a80042bbe404c61c47c8e16f21242bf",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 1,
+          "scenario": "retained_refresh",
+          "dispatch_ms": 199.92009998532012,
+          "complete_ms": 207.60780002456158,
+          "max_qt_gap_ms": 200.15550003154203,
+          "max_render_callback_ms": 199.82450001407415,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 199.82450001407415
+            }
+          ],
+          "heartbeat_ticks": 6,
+          "created": 0,
+          "events_after_created_counts": [],
+          "memory_before": {
+            "rss": 585555968,
+            "private": 1569288192,
+            "peak": 630530048
+          },
+          "memory_after": {
+            "rss": 586620928,
+            "private": 1570738176,
+            "peak": 630530048
+          },
+          "plot_data_sha256": "c9226e38f6d5fd1017c648cf102cb885cd5e942605151b5e550c1a552eb5263e",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 1,
+          "scenario": "ranked_refresh",
+          "dispatch_ms": 0.4339000442996621,
+          "complete_ms": 1456.316700030584,
+          "max_qt_gap_ms": 144.45969997905195,
+          "max_render_callback_ms": 143.48480000626296,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.28659997042268515
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 140.93240001238883
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 91.85259998776019
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 134.77549998788163
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.89129996998236
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.04050000011921
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 139.956200029701
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 114.57400000654161
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.00060000875965
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 143.48480000626296
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 95.14719998696819
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 138.90869996976107
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 109.74590003024787
+            }
+          ],
+          "heartbeat_ticks": 35,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 586620928,
+            "private": 1570738176,
+            "peak": 630530048
+          },
+          "memory_after": {
+            "rss": 626806784,
+            "private": 1606680576,
+            "peak": 630530048
+          },
+          "plot_data_sha256": "054ceebdc31786a4e7ea3ce6ef3f7ad58b1e02b5b013856eedeba6cd3fdb8fc1",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 2,
+          "scenario": "initial",
+          "dispatch_ms": 0.5109999910928309,
+          "complete_ms": 1452.73650001036,
+          "max_qt_gap_ms": 164.72020000219345,
+          "max_render_callback_ms": 163.87039999244735,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.30800001695752144
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 99.04269996332005
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 163.87039999244735
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.14490000158548
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 139.97269998071715
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.41039997525513
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.54809997603297
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 135.68200002191588
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.80650002276525
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 136.19539997307584
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 91.80960000958294
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 91.86280000722036
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 149.7636999702081
+            }
+          ],
+          "heartbeat_ticks": 35,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 626827264,
+            "private": 1606701056,
+            "peak": 630530048
+          },
+          "memory_after": {
+            "rss": 582373376,
+            "private": 1564827648,
+            "peak": 630530048
+          },
+          "plot_data_sha256": "31d2ea7966b3c0c0eeac1811d7c9e4b02a80042bbe404c61c47c8e16f21242bf",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 2,
+          "scenario": "retained_refresh",
+          "dispatch_ms": 201.183500001207,
+          "complete_ms": 207.22919999388978,
+          "max_qt_gap_ms": 201.41849998617545,
+          "max_render_callback_ms": 201.0949999676086,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 201.0949999676086
+            }
+          ],
+          "heartbeat_ticks": 6,
+          "created": 0,
+          "events_after_created_counts": [],
+          "memory_before": {
+            "rss": 582385664,
+            "private": 1565290496,
+            "peak": 630530048
+          },
+          "memory_after": {
+            "rss": 583372800,
+            "private": 1566273536,
+            "peak": 630530048
+          },
+          "plot_data_sha256": "c9226e38f6d5fd1017c648cf102cb885cd5e942605151b5e550c1a552eb5263e",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 2,
+          "scenario": "ranked_refresh",
+          "dispatch_ms": 0.298400002066046,
+          "complete_ms": 1374.2859000340104,
+          "max_qt_gap_ms": 142.6548000308685,
+          "max_render_callback_ms": 141.49909996194765,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.20330003462731838
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 91.91449999343604
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 138.26109998626634
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 99.40669999923557
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 91.77269996143878
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 138.96970002679154
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 91.94579999893904
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.84340000199154
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 141.49909996194765
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.76750002754852
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 137.62160000624135
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.43760000774637
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 101.5182999544777
+            }
+          ],
+          "heartbeat_ticks": 35,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 583372800,
+            "private": 1566273536,
+            "peak": 630530048
+          },
+          "memory_after": {
+            "rss": 627326976,
+            "private": 1607200768,
+            "peak": 630530048
+          },
+          "plot_data_sha256": "054ceebdc31786a4e7ea3ce6ef3f7ad58b1e02b5b013856eedeba6cd3fdb8fc1",
+          "all_plot_arrays_exact": true
+        }
+      ],
+      "p50_ms": {
+        "initial": {
+          "dispatch_ms": 0.6423000013455749,
+          "complete_ms": 1452.73650001036,
+          "max_qt_gap_ms": 156.39570000348613,
+          "max_render_callback_ms": 156.0450000106357
+        },
+        "retained_refresh": {
+          "dispatch_ms": 201.183500001207,
+          "complete_ms": 207.60780002456158,
+          "max_qt_gap_ms": 201.41849998617545,
+          "max_render_callback_ms": 201.0949999676086
+        },
+        "ranked_refresh": {
+          "dispatch_ms": 0.298400002066046,
+          "complete_ms": 1414.591799955815,
+          "max_qt_gap_ms": 144.45969997905195,
+          "max_render_callback_ms": 143.48480000626296
+        }
+      },
+      "raw_path": ".cache\\p1a-correlation-retained-20261029\\final24.json",
+      "raw_sha256": "1ff7c446d597778df5eb82e732f31c13e7c12238d0f42f787c88ac0aeb3e8384"
+    },
+    "final-early24": {
+      "rows": 10000,
+      "parameters": 50,
+      "fits": 1225,
+      "page_size": 24,
+      "cycles": 3,
+      "platform": "windows",
+      "baseline_tag": null,
+      "batch_size": 2,
+      "baseline_source": null,
+      "baseline_curve_source": null,
+      "profiled": false,
+      "source_sha256": "b6be84c4ffdc822b5efcbaad274089a8448bef33ce63f5d252021ac79cea2877",
+      "scope": "Rendering precomputed fits through current viewport paint; no fitting or Workbook refresh",
+      "samples": [
+        {
+          "cycle": 0,
+          "scenario": "initial",
+          "dispatch_ms": 0.6600999622605741,
+          "complete_ms": 913.7698999838904,
+          "max_qt_gap_ms": 85.55969997541979,
+          "max_render_callback_ms": 84.7337000304833,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.29420002829283476
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 84.7337000304833
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 65.98359998315573
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.95430001895875
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.34940001135692
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.59639998199418
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.23699997039512
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.02199997380376
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.90409998595715
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 70.08969999151304
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 70.08879998466
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.98059999709949
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 74.91289998870343
+            }
+          ],
+          "heartbeat_ticks": 37,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 526143488,
+            "private": 1508904960,
+            "peak": 526143488
+          },
+          "memory_after": {
+            "rss": 572878848,
+            "private": 1553641472,
+            "peak": 572878848
+          },
+          "plot_data_sha256": "31d2ea7966b3c0c0eeac1811d7c9e4b02a80042bbe404c61c47c8e16f21242bf",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 0,
+          "scenario": "retained_refresh",
+          "dispatch_ms": 199.7228999971412,
+          "complete_ms": 205.8070999919437,
+          "max_qt_gap_ms": 199.95410001138225,
+          "max_render_callback_ms": 199.6383999940008,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 199.6383999940008
+            }
+          ],
+          "heartbeat_ticks": 5,
+          "created": 0,
+          "events_after_created_counts": [],
+          "memory_before": {
+            "rss": 572891136,
+            "private": 1553641472,
+            "peak": 572891136
+          },
+          "memory_after": {
+            "rss": 573947904,
+            "private": 1554628608,
+            "peak": 573947904
+          },
+          "plot_data_sha256": "c9226e38f6d5fd1017c648cf102cb885cd5e942605151b5e550c1a552eb5263e",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 0,
+          "scenario": "ranked_refresh",
+          "dispatch_ms": 0.27300004148855805,
+          "complete_ms": 935.1433000410907,
+          "max_qt_gap_ms": 115.86949997581542,
+          "max_render_callback_ms": 113.30020002787933,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.1868000254034996
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.68019996909425
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.72240001009777
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.1293999766931
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.31160001456738
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 69.73789999028668
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.22379998629913
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 69.673000019975
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 69.77069994900376
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 113.30020002787933
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 69.23399999504909
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.67339998623356
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 74.6993999928236
+            }
+          ],
+          "heartbeat_ticks": 38,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 573952000,
+            "private": 1554628608,
+            "peak": 573952000
+          },
+          "memory_after": {
+            "rss": 621948928,
+            "private": 1603690496,
+            "peak": 621948928
+          },
+          "plot_data_sha256": "054ceebdc31786a4e7ea3ce6ef3f7ad58b1e02b5b013856eedeba6cd3fdb8fc1",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 1,
+          "scenario": "initial",
+          "dispatch_ms": 0.5500999977812171,
+          "complete_ms": 920.5478999647312,
+          "max_qt_gap_ms": 85.63809999031946,
+          "max_render_callback_ms": 85.29080002335832,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.3761000116355717
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 72.99209997290745
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.41309998324141
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 70.64260001061484
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 70.51719998707995
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 73.9315000246279
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 85.29080002335832
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 69.06890001846477
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 65.76610001502559
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.20549997407943
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 69.14729997515678
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.66030000289902
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 73.33039998775348
+            }
+          ],
+          "heartbeat_ticks": 33,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 622092288,
+            "private": 1603690496,
+            "peak": 622092288
+          },
+          "memory_after": {
+            "rss": 641331200,
+            "private": 1622126592,
+            "peak": 641331200
+          },
+          "plot_data_sha256": "31d2ea7966b3c0c0eeac1811d7c9e4b02a80042bbe404c61c47c8e16f21242bf",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 1,
+          "scenario": "retained_refresh",
+          "dispatch_ms": 199.2585000116378,
+          "complete_ms": 206.04479999747127,
+          "max_qt_gap_ms": 199.49309999356046,
+          "max_render_callback_ms": 199.1668000118807,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 199.1668000118807
+            }
+          ],
+          "heartbeat_ticks": 6,
+          "created": 0,
+          "events_after_created_counts": [],
+          "memory_before": {
+            "rss": 641351680,
+            "private": 1622126592,
+            "peak": 641351680
+          },
+          "memory_after": {
+            "rss": 642338816,
+            "private": 1623109632,
+            "peak": 642338816
+          },
+          "plot_data_sha256": "c9226e38f6d5fd1017c648cf102cb885cd5e942605151b5e550c1a552eb5263e",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 1,
+          "scenario": "ranked_refresh",
+          "dispatch_ms": 0.3312000189907849,
+          "complete_ms": 887.0304000447504,
+          "max_qt_gap_ms": 75.93419996555895,
+          "max_render_callback_ms": 75.83149999845773,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.21309999283403158
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 66.20290002319962
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.85059998603538
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.07669998286292
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 66.5339000406675
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 69.2323999828659
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.6693000132218
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 71.30269997287542
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.83260002359748
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.43749998370185
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.41870002588257
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 69.38920001266524
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 75.83149999845773
+            }
+          ],
+          "heartbeat_ticks": 36,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 642355200,
+            "private": 1623109632,
+            "peak": 642355200
+          },
+          "memory_after": {
+            "rss": 676065280,
+            "private": 1656799232,
+            "peak": 676065280
+          },
+          "plot_data_sha256": "054ceebdc31786a4e7ea3ce6ef3f7ad58b1e02b5b013856eedeba6cd3fdb8fc1",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 2,
+          "scenario": "initial",
+          "dispatch_ms": 0.5170000367797911,
+          "complete_ms": 900.4058000282384,
+          "max_qt_gap_ms": 75.78720001038164,
+          "max_render_callback_ms": 74.02430003276095,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.29850000282749534
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 69.83250001212582
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.15459998324513
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 71.86030002776533
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.76009999541566
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 66.20410003233701
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 71.53069996275008
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.44750001234934
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 66.62860000506043
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.62809999054298
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.18650000402704
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.64389999443665
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 74.02430003276095
+            }
+          ],
+          "heartbeat_ticks": 32,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22
+          ],
+          "memory_before": {
+            "rss": 676085760,
+            "private": 1656799232,
+            "peak": 676134912
+          },
+          "memory_after": {
+            "rss": 696393728,
+            "private": 1676574720,
+            "peak": 696393728
+          },
+          "plot_data_sha256": "31d2ea7966b3c0c0eeac1811d7c9e4b02a80042bbe404c61c47c8e16f21242bf",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 2,
+          "scenario": "retained_refresh",
+          "dispatch_ms": 197.6324999704957,
+          "complete_ms": 203.2318999990821,
+          "max_qt_gap_ms": 202.24099996266887,
+          "max_render_callback_ms": 197.50079995719716,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 197.50079995719716
+            }
+          ],
+          "heartbeat_ticks": 3,
+          "created": 0,
+          "events_after_created_counts": [
+            0
+          ],
+          "memory_before": {
+            "rss": 696397824,
+            "private": 1676574720,
+            "peak": 696397824
+          },
+          "memory_after": {
+            "rss": 697380864,
+            "private": 1677557760,
+            "peak": 697380864
+          },
+          "plot_data_sha256": "c9226e38f6d5fd1017c648cf102cb885cd5e942605151b5e550c1a552eb5263e",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 2,
+          "scenario": "ranked_refresh",
+          "dispatch_ms": 0.44020003406330943,
+          "complete_ms": 905.8651000377722,
+          "max_qt_gap_ms": 81.80629997514188,
+          "max_render_callback_ms": 80.67090000258759,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.2861999673768878
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 66.89469999400899
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.79130001086742
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 66.97829999029636
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 66.57010002527386
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.00039997324347
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.14439997449517
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 70.65970002440736
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 80.67090000258759
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 71.71779999043792
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 69.92520001949742
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.98730003740638
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 75.78840001951903
+            }
+          ],
+          "heartbeat_ticks": 38,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 697384960,
+            "private": 1677557760,
+            "peak": 697384960
+          },
+          "memory_after": {
+            "rss": 729612288,
+            "private": 1710133248,
+            "peak": 729612288
+          },
+          "plot_data_sha256": "054ceebdc31786a4e7ea3ce6ef3f7ad58b1e02b5b013856eedeba6cd3fdb8fc1",
+          "all_plot_arrays_exact": true
+        }
+      ],
+      "p50_ms": {
+        "initial": {
+          "dispatch_ms": 0.5500999977812171,
+          "complete_ms": 913.7698999838904,
+          "max_qt_gap_ms": 85.55969997541979,
+          "max_render_callback_ms": 84.7337000304833
+        },
+        "retained_refresh": {
+          "dispatch_ms": 199.2585000116378,
+          "complete_ms": 205.8070999919437,
+          "max_qt_gap_ms": 199.95410001138225,
+          "max_render_callback_ms": 199.1668000118807
+        },
+        "ranked_refresh": {
+          "dispatch_ms": 0.3312000189907849,
+          "complete_ms": 905.8651000377722,
+          "max_qt_gap_ms": 81.80629997514188,
+          "max_render_callback_ms": 80.67090000258759
+        }
+      },
+      "raw_path": ".cache\\p1a-correlation-retained-20261029\\final-early24.json",
+      "raw_sha256": "16ed477f74fbc61afe65c4b7c36372884f3dd3fdc52b7ee677b6b8d518e836c4"
+    },
+    "before-capture24": {
+      "rows": 10000,
+      "parameters": 50,
+      "fits": 1225,
+      "page_size": 24,
+      "cycles": 1,
+      "platform": "windows",
+      "baseline_tag": null,
+      "batch_size": 2,
+      "baseline_source": ".cache\\p1a-correlation-retained-20261029\\before_correlation_page.py",
+      "baseline_curve_source": ".cache\\p1a-correlation-retained-20261029\\before_curve.py",
+      "profiled": false,
+      "source_sha256": "695e7bebd6b7a0cdc81aac7e40d9072400134b187d4f8cccf1b3ad2ba749e6ad",
+      "scope": "Rendering precomputed fits through current viewport paint; no fitting or Workbook refresh",
+      "samples": [
+        {
+          "cycle": 0,
+          "scenario": "initial",
+          "dispatch_ms": 0.6104999920353293,
+          "complete_ms": 1439.56289999187,
+          "max_qt_gap_ms": 151.888299966231,
+          "max_render_callback_ms": 151.5635999967344,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.29559998074546456
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 151.5635999967344
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.3649999788031
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.11449999222532
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 135.54889999795705
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.05050002876669
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 138.15419998718426
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.1952999564819
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.83160003926605
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 135.20989997778088
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.80889998283237
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 136.3978000008501
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 107.5890000211075
+            }
+          ],
+          "heartbeat_ticks": 35,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 526069760,
+            "private": 1509019648,
+            "peak": 526069760
+          },
+          "memory_after": {
+            "rss": 575967232,
+            "private": 1555046400,
+            "peak": 575967232
+          },
+          "plot_data_sha256": "31d2ea7966b3c0c0eeac1811d7c9e4b02a80042bbe404c61c47c8e16f21242bf",
+          "all_plot_arrays_exact": true,
+          "capture": {
+            "path": ".cache\\p1a-correlation-retained-20261029\\before-capture24-initial.png",
+            "width": 636,
+            "height": 2842,
+            "png_sha256": "f2c9bf2948b30e34bacfe599d3b243833f11c6800177f897848fd5e299372bb6"
+          }
+        },
+        {
+          "cycle": 0,
+          "scenario": "retained_refresh",
+          "dispatch_ms": 413.4417999885045,
+          "complete_ms": 444.8207999812439,
+          "max_qt_gap_ms": 437.2377999825403,
+          "max_render_callback_ms": 413.342299987562,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 413.342299987562
+            }
+          ],
+          "heartbeat_ticks": 3,
+          "created": 0,
+          "events_after_created_counts": [],
+          "memory_before": {
+            "rss": 622563328,
+            "private": 1601220608,
+            "peak": 622563328
+          },
+          "memory_after": {
+            "rss": 623607808,
+            "private": 1602531328,
+            "peak": 623607808
+          },
+          "plot_data_sha256": "c9226e38f6d5fd1017c648cf102cb885cd5e942605151b5e550c1a552eb5263e",
+          "all_plot_arrays_exact": true,
+          "capture": {
+            "path": ".cache\\p1a-correlation-retained-20261029\\before-capture24-retained_refresh.png",
+            "width": 628,
+            "height": 2842,
+            "png_sha256": "6f7c5ef2cd4defaf4a7097f201b6fb8389e09413a8b5885ab517b47b6befa695"
+          }
+        },
+        {
+          "cycle": 0,
+          "scenario": "ranked_refresh",
+          "dispatch_ms": 0.2713000285439193,
+          "complete_ms": 1406.8214000435546,
+          "max_qt_gap_ms": 148.12190004158765,
+          "max_render_callback_ms": 148.02820002660155,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.18590001855045557
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 91.28180000698194
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 135.2762999595143
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.17169995140284
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.29089999664575
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 135.7629000558518
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 91.76599996862933
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 137.02439999906346
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 95.16810002969578
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 95.24439997039735
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 138.15370004158467
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 91.3287999574095
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 148.02820002660155
+            }
+          ],
+          "heartbeat_ticks": 35,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 623759360,
+            "private": 1602445312,
+            "peak": 630992896
+          },
+          "memory_after": {
+            "rss": 670990336,
+            "private": 1650597888,
+            "peak": 670990336
+          },
+          "plot_data_sha256": "054ceebdc31786a4e7ea3ce6ef3f7ad58b1e02b5b013856eedeba6cd3fdb8fc1",
+          "all_plot_arrays_exact": true,
+          "capture": {
+            "path": ".cache\\p1a-correlation-retained-20261029\\before-capture24-ranked_refresh.png",
+            "width": 628,
+            "height": 2842,
+            "png_sha256": "e5f10d8d09bf0d7b07bb23b02a296d4abeb0b36f45fed825e5e32f31c8ccc29b"
+          }
+        }
+      ],
+      "p50_ms": {
+        "initial": {
+          "dispatch_ms": 0.6104999920353293,
+          "complete_ms": 1439.56289999187,
+          "max_qt_gap_ms": 151.888299966231,
+          "max_render_callback_ms": 151.5635999967344
+        },
+        "retained_refresh": {
+          "dispatch_ms": 413.4417999885045,
+          "complete_ms": 444.8207999812439,
+          "max_qt_gap_ms": 437.2377999825403,
+          "max_render_callback_ms": 413.342299987562
+        },
+        "ranked_refresh": {
+          "dispatch_ms": 0.2713000285439193,
+          "complete_ms": 1406.8214000435546,
+          "max_qt_gap_ms": 148.12190004158765,
+          "max_render_callback_ms": 148.02820002660155
+        }
+      },
+      "raw_path": ".cache\\p1a-correlation-retained-20261029\\before-capture24.json",
+      "raw_sha256": "707841a9874b40c34a994540e475d10193fc12b15afec0f051d69aeadf819488"
+    },
+    "final-capture24": {
+      "rows": 10000,
+      "parameters": 50,
+      "fits": 1225,
+      "page_size": 24,
+      "cycles": 1,
+      "platform": "windows",
+      "baseline_tag": null,
+      "batch_size": 2,
+      "baseline_source": null,
+      "baseline_curve_source": null,
+      "profiled": false,
+      "source_sha256": "b6be84c4ffdc822b5efcbaad274089a8448bef33ce63f5d252021ac79cea2877",
+      "scope": "Rendering precomputed fits through current viewport paint; no fitting or Workbook refresh",
+      "samples": [
+        {
+          "cycle": 0,
+          "scenario": "initial",
+          "dispatch_ms": 0.6921000313013792,
+          "complete_ms": 952.350000035949,
+          "max_qt_gap_ms": 95.16930003883317,
+          "max_render_callback_ms": 94.58490001270548,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.3294000052846968
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.58490001270548
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.84149997495115
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.3827999853529
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 76.34520001010969
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 69.05689998529851
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 71.30559999495745
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.99790000170469
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 71.19739998597652
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 70.10690000606701
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.71729996055365
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 70.93489996623248
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 82.03609997872263
+            }
+          ],
+          "heartbeat_ticks": 32,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 526491648,
+            "private": 1509203968,
+            "peak": 526491648
+          },
+          "memory_after": {
+            "rss": 573505536,
+            "private": 1553940480,
+            "peak": 573505536
+          },
+          "plot_data_sha256": "31d2ea7966b3c0c0eeac1811d7c9e4b02a80042bbe404c61c47c8e16f21242bf",
+          "all_plot_arrays_exact": true,
+          "capture": {
+            "path": ".cache\\p1a-correlation-retained-20261029\\final-capture24-initial.png",
+            "width": 636,
+            "height": 2842,
+            "png_sha256": "f2c9bf2948b30e34bacfe599d3b243833f11c6800177f897848fd5e299372bb6"
+          }
+        },
+        {
+          "cycle": 0,
+          "scenario": "retained_refresh",
+          "dispatch_ms": 204.08590004080907,
+          "complete_ms": 236.0999000375159,
+          "max_qt_gap_ms": 228.65830000955611,
+          "max_render_callback_ms": 203.94219999434426,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 203.94219999434426
+            }
+          ],
+          "heartbeat_ticks": 3,
+          "created": 0,
+          "events_after_created_counts": [],
+          "memory_before": {
+            "rss": 620126208,
+            "private": 1600110592,
+            "peak": 620126208
+          },
+          "memory_after": {
+            "rss": 620843008,
+            "private": 1601097728,
+            "peak": 620843008
+          },
+          "plot_data_sha256": "c9226e38f6d5fd1017c648cf102cb885cd5e942605151b5e550c1a552eb5263e",
+          "all_plot_arrays_exact": true,
+          "capture": {
+            "path": ".cache\\p1a-correlation-retained-20261029\\final-capture24-retained_refresh.png",
+            "width": 628,
+            "height": 2842,
+            "png_sha256": "6f7c5ef2cd4defaf4a7097f201b6fb8389e09413a8b5885ab517b47b6befa695"
+          }
+        },
+        {
+          "cycle": 0,
+          "scenario": "ranked_refresh",
+          "dispatch_ms": 0.4449999541975558,
+          "complete_ms": 938.8156999484636,
+          "max_qt_gap_ms": 112.78530000708997,
+          "max_render_callback_ms": 111.47529998561367,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.2742999931797385
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.58830003673211
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.98669998534024
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.02159997075796
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 69.1460000234656
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.90299998829141
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 72.39300000946969
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 111.47529998561367
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 70.53219998488203
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.84239998180419
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.3496999554336
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.8660999876447
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 75.99090004805475
+            }
+          ],
+          "heartbeat_ticks": 37,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 621002752,
+            "private": 1601011712,
+            "peak": 628236288
+          },
+          "memory_after": {
+            "rss": 668233728,
+            "private": 1648943104,
+            "peak": 668233728
+          },
+          "plot_data_sha256": "054ceebdc31786a4e7ea3ce6ef3f7ad58b1e02b5b013856eedeba6cd3fdb8fc1",
+          "all_plot_arrays_exact": true,
+          "capture": {
+            "path": ".cache\\p1a-correlation-retained-20261029\\final-capture24-ranked_refresh.png",
+            "width": 628,
+            "height": 2842,
+            "png_sha256": "e5f10d8d09bf0d7b07bb23b02a296d4abeb0b36f45fed825e5e32f31c8ccc29b"
+          }
+        }
+      ],
+      "p50_ms": {
+        "initial": {
+          "dispatch_ms": 0.6921000313013792,
+          "complete_ms": 952.350000035949,
+          "max_qt_gap_ms": 95.16930003883317,
+          "max_render_callback_ms": 94.58490001270548
+        },
+        "retained_refresh": {
+          "dispatch_ms": 204.08590004080907,
+          "complete_ms": 236.0999000375159,
+          "max_qt_gap_ms": 228.65830000955611,
+          "max_render_callback_ms": 203.94219999434426
+        },
+        "ranked_refresh": {
+          "dispatch_ms": 0.4449999541975558,
+          "complete_ms": 938.8156999484636,
+          "max_qt_gap_ms": 112.78530000708997,
+          "max_render_callback_ms": 111.47529998561367
+        }
+      },
+      "raw_path": ".cache\\p1a-correlation-retained-20261029\\final-capture24.json",
+      "raw_sha256": "d4e0c1b9031eb2138c9a4a4015315df7da15bd9b6f5d8026359d6c00deabee3c"
+    },
+    "before-gc-diagnostic": {
+      "rows": 10000,
+      "parameters": 50,
+      "fits": 1225,
+      "page_size": 24,
+      "cycles": 3,
+      "platform": "windows",
+      "baseline_tag": null,
+      "batch_size": 2,
+      "baseline_source": ".cache\\p1a-correlation-retained-20261029\\before_correlation_page.py",
+      "baseline_curve_source": ".cache\\p1a-correlation-retained-20261029\\before_curve.py",
+      "profiled": false,
+      "collect_between_cycles": true,
+      "cleanup_samples": [
+        {
+          "cycle": 0,
+          "memory_after_qt_delete": {
+            "rss": 618852352,
+            "private": 1598889984,
+            "peak": 625201152
+          },
+          "live_qwidgets_after_qt_delete": 0,
+          "collected_objects": 33,
+          "memory_after_gc": {
+            "rss": 618860544,
+            "private": 1598889984,
+            "peak": 625201152
+          },
+          "live_qwidgets_after_gc": 0
+        },
+        {
+          "cycle": 1,
+          "memory_after_qt_delete": {
+            "rss": 620306432,
+            "private": 1600196608,
+            "peak": 630366208
+          },
+          "live_qwidgets_after_qt_delete": 0,
+          "collected_objects": 33,
+          "memory_after_gc": {
+            "rss": 620306432,
+            "private": 1600196608,
+            "peak": 630366208
+          },
+          "live_qwidgets_after_gc": 0
+        },
+        {
+          "cycle": 2,
+          "memory_after_qt_delete": {
+            "rss": 620670976,
+            "private": 1600151552,
+            "peak": 631689216
+          },
+          "live_qwidgets_after_qt_delete": 0,
+          "collected_objects": 33,
+          "memory_after_gc": {
+            "rss": 620670976,
+            "private": 1600159744,
+            "peak": 631689216
+          },
+          "live_qwidgets_after_gc": 0
+        }
+      ],
+      "source_sha256": "695e7bebd6b7a0cdc81aac7e40d9072400134b187d4f8cccf1b3ad2ba749e6ad",
+      "scope": "Rendering precomputed fits through current viewport paint; no fitting or Workbook refresh",
+      "samples": [
+        {
+          "cycle": 0,
+          "scenario": "initial",
+          "dispatch_ms": 0.6859999848529696,
+          "complete_ms": 1411.7659999756142,
+          "max_qt_gap_ms": 152.33259997330606,
+          "max_render_callback_ms": 150.93249996425584,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.3129999968223274
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 150.93249996425584
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.07719995174557
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.78939996147528
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 132.6435999944806
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.49279997311532
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 133.73120001051575
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.51750004477799
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 91.8202999746427
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 135.60589996632189
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.47400000458583
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 134.55570000223815
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 98.33040001103655
+            }
+          ],
+          "heartbeat_ticks": 35,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 526180352,
+            "private": 1508724736,
+            "peak": 526180352
+          },
+          "memory_after": {
+            "rss": 575561728,
+            "private": 1554874368,
+            "peak": 575561728
+          },
+          "plot_data_sha256": "31d2ea7966b3c0c0eeac1811d7c9e4b02a80042bbe404c61c47c8e16f21242bf",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 0,
+          "scenario": "retained_refresh",
+          "dispatch_ms": 430.5560000357218,
+          "complete_ms": 436.8020999827422,
+          "max_qt_gap_ms": 430.77909998828545,
+          "max_render_callback_ms": 430.39880000287667,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 430.39880000287667
+            }
+          ],
+          "heartbeat_ticks": 6,
+          "created": 0,
+          "events_after_created_counts": [],
+          "memory_before": {
+            "rss": 575569920,
+            "private": 1554874368,
+            "peak": 575569920
+          },
+          "memory_after": {
+            "rss": 577134592,
+            "private": 1556467712,
+            "peak": 577134592
+          },
+          "plot_data_sha256": "c9226e38f6d5fd1017c648cf102cb885cd5e942605151b5e550c1a552eb5263e",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 0,
+          "scenario": "ranked_refresh",
+          "dispatch_ms": 0.28549996204674244,
+          "complete_ms": 1410.4933999478817,
+          "max_qt_gap_ms": 145.9444999927655,
+          "max_render_callback_ms": 145.1558999833651,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.1936000189743936
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 95.12960002757609
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 135.13619999866933
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.12220000335947
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.50180003093556
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 140.3874999959953
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.66919996682554
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 136.85559999430552
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.48089998820797
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.55760000087321
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 138.00949999131262
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.27199996914715
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 145.1558999833651
+            }
+          ],
+          "heartbeat_ticks": 37,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 577134592,
+            "private": 1556467712,
+            "peak": 577134592
+          },
+          "memory_after": {
+            "rss": 625086464,
+            "private": 1605234688,
+            "peak": 625086464
+          },
+          "plot_data_sha256": "054ceebdc31786a4e7ea3ce6ef3f7ad58b1e02b5b013856eedeba6cd3fdb8fc1",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 1,
+          "scenario": "initial",
+          "dispatch_ms": 0.5161000299267471,
+          "complete_ms": 1395.825000014156,
+          "max_qt_gap_ms": 156.8593000411056,
+          "max_render_callback_ms": 156.14300000015646,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.2838000073097646
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.51930004777387
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.56950002256781
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 156.14300000015646
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 95.54090001620352
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 96.02339996490628
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 135.21209999453276
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 95.07770003983751
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 134.70220001181588
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 98.9063999732025
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.04600004199892
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 136.06059999438003
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 100.60750000411645
+            }
+          ],
+          "heartbeat_ticks": 33,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 625217536,
+            "private": 1605234688,
+            "peak": 625217536
+          },
+          "memory_after": {
+            "rss": 586321920,
+            "private": 1571749888,
+            "peak": 630366208
+          },
+          "plot_data_sha256": "31d2ea7966b3c0c0eeac1811d7c9e4b02a80042bbe404c61c47c8e16f21242bf",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 1,
+          "scenario": "retained_refresh",
+          "dispatch_ms": 412.66380000161007,
+          "complete_ms": 418.0452000000514,
+          "max_qt_gap_ms": 412.89330000290647,
+          "max_render_callback_ms": 412.49770001741126,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 412.49770001741126
+            }
+          ],
+          "heartbeat_ticks": 6,
+          "created": 0,
+          "events_after_created_counts": [],
+          "memory_before": {
+            "rss": 586321920,
+            "private": 1571749888,
+            "peak": 630366208
+          },
+          "memory_after": {
+            "rss": 587886592,
+            "private": 1573470208,
+            "peak": 630366208
+          },
+          "plot_data_sha256": "c9226e38f6d5fd1017c648cf102cb885cd5e942605151b5e550c1a552eb5263e",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 1,
+          "scenario": "ranked_refresh",
+          "dispatch_ms": 0.3572999848984182,
+          "complete_ms": 1446.5448000119068,
+          "max_qt_gap_ms": 159.1920999926515,
+          "max_render_callback_ms": 158.68769999360666,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.23040000814944506
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 137.58869998855516
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.94519996223971
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.0301999906078
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 158.68769999360666
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.92559998761863
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.2903999928385
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 144.71309998771176
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 95.13089997926727
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 138.98190000327304
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.86979999160394
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.52789999684319
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 146.46979997633025
+            }
+          ],
+          "heartbeat_ticks": 37,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 587886592,
+            "private": 1573470208,
+            "peak": 630366208
+          },
+          "memory_after": {
+            "rss": 626638848,
+            "private": 1606533120,
+            "peak": 630366208
+          },
+          "plot_data_sha256": "054ceebdc31786a4e7ea3ce6ef3f7ad58b1e02b5b013856eedeba6cd3fdb8fc1",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 2,
+          "scenario": "initial",
+          "dispatch_ms": 0.575800018850714,
+          "complete_ms": 1399.2524999775924,
+          "max_qt_gap_ms": 159.88009999273345,
+          "max_render_callback_ms": 158.63010002067313,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.2405999694019556
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.10170000046492
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.49160000076517
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 158.63010002067313
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 96.5915999840945
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 96.22969996416941
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 133.73140001203865
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.38200000254437
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 136.70589996036142
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.40070001780987
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 97.65539999352768
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 135.82670001778752
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 98.97960000671446
+            }
+          ],
+          "heartbeat_ticks": 36,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 626651136,
+            "private": 1606545408,
+            "peak": 630366208
+          },
+          "memory_after": {
+            "rss": 585203712,
+            "private": 1568874496,
+            "peak": 631689216
+          },
+          "plot_data_sha256": "31d2ea7966b3c0c0eeac1811d7c9e4b02a80042bbe404c61c47c8e16f21242bf",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 2,
+          "scenario": "retained_refresh",
+          "dispatch_ms": 415.84400000283495,
+          "complete_ms": 422.57559997960925,
+          "max_qt_gap_ms": 416.0823000129312,
+          "max_render_callback_ms": 415.7454000087455,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 415.7454000087455
+            }
+          ],
+          "heartbeat_ticks": 6,
+          "created": 0,
+          "events_after_created_counts": [],
+          "memory_before": {
+            "rss": 585220096,
+            "private": 1568874496,
+            "peak": 631689216
+          },
+          "memory_after": {
+            "rss": 586973184,
+            "private": 1570267136,
+            "peak": 631689216
+          },
+          "plot_data_sha256": "c9226e38f6d5fd1017c648cf102cb885cd5e942605151b5e550c1a552eb5263e",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 2,
+          "scenario": "ranked_refresh",
+          "dispatch_ms": 0.3841999568976462,
+          "complete_ms": 1444.4496999494731,
+          "max_qt_gap_ms": 159.69709999626502,
+          "max_render_callback_ms": 158.2104000262916,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.26790000265464187
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 137.02819996979088
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.59419998852536
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.81619999092072
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 137.28159997845069
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.62440003314987
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 94.00630003074184
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 140.5236999853514
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 95.55799997178838
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 158.2104000262916
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 95.96479998435825
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 92.27409999584779
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 149.24650004832074
+            }
+          ],
+          "heartbeat_ticks": 37,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 586985472,
+            "private": 1570267136,
+            "peak": 631689216
+          },
+          "memory_after": {
+            "rss": 626995200,
+            "private": 1606479872,
+            "peak": 631689216
+          },
+          "plot_data_sha256": "054ceebdc31786a4e7ea3ce6ef3f7ad58b1e02b5b013856eedeba6cd3fdb8fc1",
+          "all_plot_arrays_exact": true
+        }
+      ],
+      "p50_ms": {
+        "initial": {
+          "dispatch_ms": 0.575800018850714,
+          "complete_ms": 1399.2524999775924,
+          "max_qt_gap_ms": 156.8593000411056,
+          "max_render_callback_ms": 156.14300000015646
+        },
+        "retained_refresh": {
+          "dispatch_ms": 415.84400000283495,
+          "complete_ms": 422.57559997960925,
+          "max_qt_gap_ms": 416.0823000129312,
+          "max_render_callback_ms": 415.7454000087455
+        },
+        "ranked_refresh": {
+          "dispatch_ms": 0.3572999848984182,
+          "complete_ms": 1444.4496999494731,
+          "max_qt_gap_ms": 159.1920999926515,
+          "max_render_callback_ms": 158.2104000262916
+        }
+      },
+      "raw_path": ".cache\\p1a-correlation-retained-20261029\\before-gc-diagnostic.json",
+      "raw_sha256": "dadc01f537d3c72ccea13c093a27e01341fa7b942012bdae2fc3ac5e1e91642b"
+    },
+    "final-gc-diagnostic": {
+      "rows": 10000,
+      "parameters": 50,
+      "fits": 1225,
+      "page_size": 24,
+      "cycles": 3,
+      "platform": "windows",
+      "baseline_tag": null,
+      "batch_size": 2,
+      "baseline_source": null,
+      "baseline_curve_source": null,
+      "profiled": false,
+      "collect_between_cycles": true,
+      "cleanup_samples": [
+        {
+          "cycle": 0,
+          "memory_after_qt_delete": {
+            "rss": 615768064,
+            "private": 1597173760,
+            "peak": 622116864
+          },
+          "live_qwidgets_after_qt_delete": 0,
+          "collected_objects": 33,
+          "memory_after_gc": {
+            "rss": 615776256,
+            "private": 1597173760,
+            "peak": 622116864
+          },
+          "live_qwidgets_after_gc": 0
+        },
+        {
+          "cycle": 1,
+          "memory_after_qt_delete": {
+            "rss": 677306368,
+            "private": 1657659392,
+            "peak": 683704320
+          },
+          "live_qwidgets_after_qt_delete": 0,
+          "collected_objects": 25148,
+          "memory_after_gc": {
+            "rss": 606441472,
+            "private": 1588211712,
+            "peak": 683704320
+          },
+          "live_qwidgets_after_gc": 0
+        },
+        {
+          "cycle": 2,
+          "memory_after_qt_delete": {
+            "rss": 676458496,
+            "private": 1658204160,
+            "peak": 683704320
+          },
+          "live_qwidgets_after_qt_delete": 0,
+          "collected_objects": 25148,
+          "memory_after_gc": {
+            "rss": 605556736,
+            "private": 1587232768,
+            "peak": 683704320
+          },
+          "live_qwidgets_after_gc": 0
+        }
+      ],
+      "source_sha256": "b6be84c4ffdc822b5efcbaad274089a8448bef33ce63f5d252021ac79cea2877",
+      "scope": "Rendering precomputed fits through current viewport paint; no fitting or Workbook refresh",
+      "samples": [
+        {
+          "cycle": 0,
+          "scenario": "initial",
+          "dispatch_ms": 0.6590000120922923,
+          "complete_ms": 913.2266000378877,
+          "max_qt_gap_ms": 83.49679998354986,
+          "max_render_callback_ms": 82.23170001292601,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.31730002956464887
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 82.23170001292601
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 66.89810001989827
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.60140000935644
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 70.008400012739
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.38750001043081
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 66.30589999258518
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 69.01330000255257
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 69.25459997728467
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 70.76749997213483
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 66.90710003022105
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.57660005334765
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 73.48060002550483
+            }
+          ],
+          "heartbeat_ticks": 33,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 526532608,
+            "private": 1509281792,
+            "peak": 526532608
+          },
+          "memory_after": {
+            "rss": 573108224,
+            "private": 1553608704,
+            "peak": 573108224
+          },
+          "plot_data_sha256": "31d2ea7966b3c0c0eeac1811d7c9e4b02a80042bbe404c61c47c8e16f21242bf",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 0,
+          "scenario": "retained_refresh",
+          "dispatch_ms": 199.67110001016408,
+          "complete_ms": 205.32700000330806,
+          "max_qt_gap_ms": 199.99140000436455,
+          "max_render_callback_ms": 199.58149996818975,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 199.58149996818975
+            }
+          ],
+          "heartbeat_ticks": 5,
+          "created": 0,
+          "events_after_created_counts": [],
+          "memory_before": {
+            "rss": 573116416,
+            "private": 1553608704,
+            "peak": 573116416
+          },
+          "memory_after": {
+            "rss": 574148608,
+            "private": 1554591744,
+            "peak": 574148608
+          },
+          "plot_data_sha256": "c9226e38f6d5fd1017c648cf102cb885cd5e942605151b5e550c1a552eb5263e",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 0,
+          "scenario": "ranked_refresh",
+          "dispatch_ms": 0.3133999998681247,
+          "complete_ms": 931.3085000030696,
+          "max_qt_gap_ms": 116.00549996364862,
+          "max_render_callback_ms": 114.84910000581294,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.2041999832727015
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 71.28600002033636
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 69.91890002973378
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.41780000831932
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 66.81009999010712
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 66.90179998986423
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.13899999158457
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.59919999260455
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 114.84910000581294
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.15540000004694
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.42999999551103
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.77259998489171
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 75.53309999639168
+            }
+          ],
+          "heartbeat_ticks": 36,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 574152704,
+            "private": 1554591744,
+            "peak": 574152704
+          },
+          "memory_after": {
+            "rss": 621981696,
+            "private": 1603518464,
+            "peak": 621981696
+          },
+          "plot_data_sha256": "054ceebdc31786a4e7ea3ce6ef3f7ad58b1e02b5b013856eedeba6cd3fdb8fc1",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 1,
+          "scenario": "initial",
+          "dispatch_ms": 0.44050003634765744,
+          "complete_ms": 896.5078000328504,
+          "max_qt_gap_ms": 75.21889999043196,
+          "max_render_callback_ms": 74.06379998428747,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.23549998877570033
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 69.76990000111982
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.655399965588
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.2449999731034
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.99609999870881
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 69.4080000394024
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.95849999273196
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.75870004296303
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 66.88479997683316
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.08539999090135
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.07600002503023
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.87280003866181
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 74.06379998428747
+            }
+          ],
+          "heartbeat_ticks": 37,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 622141440,
+            "private": 1603518464,
+            "peak": 622141440
+          },
+          "memory_after": {
+            "rss": 647979008,
+            "private": 1628225536,
+            "peak": 647979008
+          },
+          "plot_data_sha256": "31d2ea7966b3c0c0eeac1811d7c9e4b02a80042bbe404c61c47c8e16f21242bf",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 1,
+          "scenario": "retained_refresh",
+          "dispatch_ms": 201.78109995322302,
+          "complete_ms": 208.4053999860771,
+          "max_qt_gap_ms": 202.00669998303056,
+          "max_render_callback_ms": 201.69720001285896,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 201.69720001285896
+            }
+          ],
+          "heartbeat_ticks": 6,
+          "created": 0,
+          "events_after_created_counts": [],
+          "memory_before": {
+            "rss": 647987200,
+            "private": 1628225536,
+            "peak": 647987200
+          },
+          "memory_after": {
+            "rss": 648974336,
+            "private": 1629208576,
+            "peak": 648974336
+          },
+          "plot_data_sha256": "c9226e38f6d5fd1017c648cf102cb885cd5e942605151b5e550c1a552eb5263e",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 1,
+          "scenario": "ranked_refresh",
+          "dispatch_ms": 0.430900021456182,
+          "complete_ms": 894.9209999991581,
+          "max_qt_gap_ms": 79.02090001152828,
+          "max_render_callback_ms": 77.30829995125532,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.23770000552758574
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.06460000714287
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.3411000170745
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.72060005459934
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.45430000592023
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 69.7055000346154
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 72.30890000937507
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 69.90519998362288
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.45929998578504
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 70.58230001712218
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.26720002572984
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.5205999868922
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 77.30829995125532
+            }
+          ],
+          "heartbeat_ticks": 36,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 648974336,
+            "private": 1629208576,
+            "peak": 648974336
+          },
+          "memory_after": {
+            "rss": 683634688,
+            "private": 1664004096,
+            "peak": 683634688
+          },
+          "plot_data_sha256": "054ceebdc31786a4e7ea3ce6ef3f7ad58b1e02b5b013856eedeba6cd3fdb8fc1",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 2,
+          "scenario": "initial",
+          "dispatch_ms": 0.5708999815396965,
+          "complete_ms": 889.843299984932,
+          "max_qt_gap_ms": 75.59620001120493,
+          "max_render_callback_ms": 73.61720001790673,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.2813000464811921
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.16450000042096
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.46530002076179
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.27920001139864
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.61599995661527
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.6272000418976
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.88190000224859
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 70.17419999465346
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.4769000033848
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 66.69040000997484
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 71.40710001112893
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 65.30109996674582
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 73.61720001790673
+            }
+          ],
+          "heartbeat_ticks": 31,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22
+          ],
+          "memory_before": {
+            "rss": 612810752,
+            "private": 1594593280,
+            "peak": 683704320
+          },
+          "memory_after": {
+            "rss": 644022272,
+            "private": 1627385856,
+            "peak": 683704320
+          },
+          "plot_data_sha256": "31d2ea7966b3c0c0eeac1811d7c9e4b02a80042bbe404c61c47c8e16f21242bf",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 2,
+          "scenario": "retained_refresh",
+          "dispatch_ms": 196.62450003670529,
+          "complete_ms": 203.5463000065647,
+          "max_qt_gap_ms": 202.55810004891828,
+          "max_render_callback_ms": 196.48250000318512,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 196.48250000318512
+            }
+          ],
+          "heartbeat_ticks": 3,
+          "created": 0,
+          "events_after_created_counts": [
+            0
+          ],
+          "memory_before": {
+            "rss": 644038656,
+            "private": 1627385856,
+            "peak": 683704320
+          },
+          "memory_after": {
+            "rss": 645173248,
+            "private": 1628643328,
+            "peak": 683704320
+          },
+          "plot_data_sha256": "c9226e38f6d5fd1017c648cf102cb885cd5e942605151b5e550c1a552eb5263e",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 2,
+          "scenario": "ranked_refresh",
+          "dispatch_ms": 0.40879996959120035,
+          "complete_ms": 893.5643999720924,
+          "max_qt_gap_ms": 76.83380000526085,
+          "max_render_callback_ms": 76.73979998799041,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.2574000391177833
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 72.20090000191703
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.67720000445843
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 70.53619995713234
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.68159997975454
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.95250000525266
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.90179997915402
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 69.17169998632744
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.31469997996464
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 67.63669999781996
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 68.25450004544109
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 66.81200000457466
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 76.73979998799041
+            }
+          ],
+          "heartbeat_ticks": 36,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 645189632,
+            "private": 1628643328,
+            "peak": 683704320
+          },
+          "memory_after": {
+            "rss": 682733568,
+            "private": 1664544768,
+            "peak": 683704320
+          },
+          "plot_data_sha256": "054ceebdc31786a4e7ea3ce6ef3f7ad58b1e02b5b013856eedeba6cd3fdb8fc1",
+          "all_plot_arrays_exact": true
+        }
+      ],
+      "p50_ms": {
+        "initial": {
+          "dispatch_ms": 0.5708999815396965,
+          "complete_ms": 896.5078000328504,
+          "max_qt_gap_ms": 75.59620001120493,
+          "max_render_callback_ms": 74.06379998428747
+        },
+        "retained_refresh": {
+          "dispatch_ms": 199.67110001016408,
+          "complete_ms": 205.32700000330806,
+          "max_qt_gap_ms": 202.00669998303056,
+          "max_render_callback_ms": 199.58149996818975
+        },
+        "ranked_refresh": {
+          "dispatch_ms": 0.40879996959120035,
+          "complete_ms": 894.9209999991581,
+          "max_qt_gap_ms": 79.02090001152828,
+          "max_render_callback_ms": 77.30829995125532
+        }
+      },
+      "raw_path": ".cache\\p1a-correlation-retained-20261029\\final-gc-diagnostic.json",
+      "raw_sha256": "4dff87c3ad834727ebda61fd7468e34316d30bb212a0ebb836376e4c57060065"
+    },
+    "before-profile": {
+      "rows": 10000,
+      "parameters": 50,
+      "fits": 1225,
+      "page_size": 24,
+      "cycles": 1,
+      "platform": "windows",
+      "baseline_tag": null,
+      "batch_size": 2,
+      "baseline_source": ".cache\\p1a-correlation-retained-20261029\\before_correlation_page.py",
+      "profiled": true,
+      "source_sha256": "695e7bebd6b7a0cdc81aac7e40d9072400134b187d4f8cccf1b3ad2ba749e6ad",
+      "scope": "Rendering precomputed fits through current viewport paint; no fitting or Workbook refresh",
+      "samples": [
+        {
+          "cycle": 0,
+          "scenario": "initial",
+          "dispatch_ms": 2.7534000109881163,
+          "complete_ms": 1589.8051999974996,
+          "max_qt_gap_ms": 173.18649997469038,
+          "max_render_callback_ms": 172.21720004454255,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.43210003059357405
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 172.21720004454255
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 108.51100005675107
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 106.60070000449196
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 146.4010999770835
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 108.42830000910908
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 146.4191999984905
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 106.05200001737103
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 106.88820003997535
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 148.00029998878017
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 106.6185999661684
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 148.0199999641627
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 111.53819999890402
+            }
+          ],
+          "heartbeat_ticks": 31,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 526069760,
+            "private": 1508876288,
+            "peak": 526069760
+          },
+          "memory_after": {
+            "rss": 575905792,
+            "private": 1555099648,
+            "peak": 575905792
+          },
+          "plot_data_sha256": "31d2ea7966b3c0c0eeac1811d7c9e4b02a80042bbe404c61c47c8e16f21242bf",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 0,
+          "scenario": "retained_refresh",
+          "dispatch_ms": 466.0926999640651,
+          "complete_ms": 472.6591999642551,
+          "max_qt_gap_ms": 466.3642999948934,
+          "max_render_callback_ms": 465.1490999967791,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 465.1490999967791
+            }
+          ],
+          "heartbeat_ticks": 5,
+          "created": 0,
+          "events_after_created_counts": [],
+          "memory_before": {
+            "rss": 575913984,
+            "private": 1555099648,
+            "peak": 575913984
+          },
+          "memory_after": {
+            "rss": 577273856,
+            "private": 1556606976,
+            "peak": 577273856
+          },
+          "plot_data_sha256": "c9226e38f6d5fd1017c648cf102cb885cd5e942605151b5e550c1a552eb5263e",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 0,
+          "scenario": "ranked_refresh",
+          "dispatch_ms": 0.9336000075563788,
+          "complete_ms": 1604.578499973286,
+          "max_qt_gap_ms": 160.97719996469095,
+          "max_render_callback_ms": 160.88320000562817,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.2855999628081918
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 134.38469998072833
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 150.91570001095533
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 106.38179996749386
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 149.1247999947518
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 106.72989999875426
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 104.89989997586235
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 155.76850000070408
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 109.36969995964319
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 153.53609999874607
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 105.23889999603853
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 105.79100000904873
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 160.88320000562817
+            }
+          ],
+          "heartbeat_ticks": 36,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 577273856,
+            "private": 1556606976,
+            "peak": 577273856
+          },
+          "memory_after": {
+            "rss": 625713152,
+            "private": 1605566464,
+            "peak": 625713152
+          },
+          "plot_data_sha256": "054ceebdc31786a4e7ea3ce6ef3f7ad58b1e02b5b013856eedeba6cd3fdb8fc1",
+          "all_plot_arrays_exact": true
+        }
+      ],
+      "p50_ms": {
+        "initial": {
+          "dispatch_ms": 2.7534000109881163,
+          "complete_ms": 1589.8051999974996,
+          "max_qt_gap_ms": 173.18649997469038,
+          "max_render_callback_ms": 172.21720004454255
+        },
+        "retained_refresh": {
+          "dispatch_ms": 466.0926999640651,
+          "complete_ms": 472.6591999642551,
+          "max_qt_gap_ms": 466.3642999948934,
+          "max_render_callback_ms": 465.1490999967791
+        },
+        "ranked_refresh": {
+          "dispatch_ms": 0.9336000075563788,
+          "complete_ms": 1604.578499973286,
+          "max_qt_gap_ms": 160.97719996469095,
+          "max_render_callback_ms": 160.88320000562817
+        }
+      },
+      "raw_path": ".cache\\p1a-correlation-retained-20261029\\before-profile.json",
+      "raw_sha256": "af5806e19a961644c68e010ea966a4918b0a33b15e4c1ab198c28f606297e7d1"
+    },
+    "tuple-profile": {
+      "rows": 10000,
+      "parameters": 50,
+      "fits": 1225,
+      "page_size": 24,
+      "cycles": 1,
+      "platform": "windows",
+      "baseline_tag": null,
+      "batch_size": 2,
+      "baseline_source": null,
+      "baseline_curve_source": null,
+      "profiled": true,
+      "source_sha256": "b6be84c4ffdc822b5efcbaad274089a8448bef33ce63f5d252021ac79cea2877",
+      "scope": "Rendering precomputed fits through current viewport paint; no fitting or Workbook refresh",
+      "samples": [
+        {
+          "cycle": 0,
+          "scenario": "initial",
+          "dispatch_ms": 1.5087000210769475,
+          "complete_ms": 1582.2016000165604,
+          "max_qt_gap_ms": 166.95440001785755,
+          "max_render_callback_ms": 166.46670002955943,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.374099996406585
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 166.46670002955943
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 104.99049996724352
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 104.81950000394136
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 144.6286999853328
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 104.26980000920594
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 146.36730001075193
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 106.8301000050269
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 113.95569995511323
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 153.7102999864146
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 106.12150002270937
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 144.72409995505586
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 111.41549999592826
+            }
+          ],
+          "heartbeat_ticks": 33,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 526475264,
+            "private": 1509457920,
+            "peak": 526475264
+          },
+          "memory_after": {
+            "rss": 575963136,
+            "private": 1555161088,
+            "peak": 575963136
+          },
+          "plot_data_sha256": "31d2ea7966b3c0c0eeac1811d7c9e4b02a80042bbe404c61c47c8e16f21242bf",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 0,
+          "scenario": "retained_refresh",
+          "dispatch_ms": 399.62939999531955,
+          "complete_ms": 406.82919998653233,
+          "max_qt_gap_ms": 399.9511000001803,
+          "max_render_callback_ms": 398.89439998660237,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 398.89439998660237
+            }
+          ],
+          "heartbeat_ticks": 6,
+          "created": 0,
+          "events_after_created_counts": [],
+          "memory_before": {
+            "rss": 575971328,
+            "private": 1555161088,
+            "peak": 575971328
+          },
+          "memory_after": {
+            "rss": 577187840,
+            "private": 1556344832,
+            "peak": 577187840
+          },
+          "plot_data_sha256": "c9226e38f6d5fd1017c648cf102cb885cd5e942605151b5e550c1a552eb5263e",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 0,
+          "scenario": "ranked_refresh",
+          "dispatch_ms": 0.8272000122815371,
+          "complete_ms": 1564.214100013487,
+          "max_qt_gap_ms": 158.96030003204942,
+          "max_render_callback_ms": 158.86480000335723,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.2630999661050737
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 106.41730000497773
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 150.01779998419806
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 104.11349998321384
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 149.30950000416487
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 107.21679998096079
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 105.51760002272204
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 150.39160003652796
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 106.98370001045987
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 150.07629996398464
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 105.51339999074116
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 104.33790000388399
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 158.86480000335723
+            }
+          ],
+          "heartbeat_ticks": 38,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 577187840,
+            "private": 1556344832,
+            "peak": 577187840
+          },
+          "memory_after": {
+            "rss": 625078272,
+            "private": 1605189632,
+            "peak": 625078272
+          },
+          "plot_data_sha256": "054ceebdc31786a4e7ea3ce6ef3f7ad58b1e02b5b013856eedeba6cd3fdb8fc1",
+          "all_plot_arrays_exact": true
+        }
+      ],
+      "p50_ms": {
+        "initial": {
+          "dispatch_ms": 1.5087000210769475,
+          "complete_ms": 1582.2016000165604,
+          "max_qt_gap_ms": 166.95440001785755,
+          "max_render_callback_ms": 166.46670002955943
+        },
+        "retained_refresh": {
+          "dispatch_ms": 399.62939999531955,
+          "complete_ms": 406.82919998653233,
+          "max_qt_gap_ms": 399.9511000001803,
+          "max_render_callback_ms": 398.89439998660237
+        },
+        "ranked_refresh": {
+          "dispatch_ms": 0.8272000122815371,
+          "complete_ms": 1564.214100013487,
+          "max_qt_gap_ms": 158.96030003204942,
+          "max_render_callback_ms": 158.86480000335723
+        }
+      },
+      "raw_path": ".cache\\p1a-correlation-retained-20261029\\tuple-profile.json",
+      "raw_sha256": "08cff472026d07d153d69099c7bab5c351db52441cac3438e140048e63a700a4"
+    },
+    "final-profile": {
+      "rows": 10000,
+      "parameters": 50,
+      "fits": 1225,
+      "page_size": 24,
+      "cycles": 1,
+      "platform": "windows",
+      "baseline_tag": null,
+      "batch_size": 2,
+      "baseline_source": null,
+      "baseline_curve_source": null,
+      "profiled": true,
+      "collect_between_cycles": false,
+      "cleanup_samples": [
+        {
+          "cycle": 0,
+          "memory_after_qt_delete": {
+            "rss": 617414656,
+            "private": 1597734912,
+            "peak": 623763456
+          },
+          "live_qwidgets_after_qt_delete": 0
+        }
+      ],
+      "source_sha256": "b6be84c4ffdc822b5efcbaad274089a8448bef33ce63f5d252021ac79cea2877",
+      "scope": "Rendering precomputed fits through current viewport paint; no fitting or Workbook refresh",
+      "samples": [
+        {
+          "cycle": 0,
+          "scenario": "initial",
+          "dispatch_ms": 1.6666000010445714,
+          "complete_ms": 994.7430000174791,
+          "max_qt_gap_ms": 94.19179998803884,
+          "max_render_callback_ms": 93.80799997597933,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.3865999751724303
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 93.80799997597933
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 72.04629998886958
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 76.33080001687631
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 74.38710000133142
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 75.94499998958781
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 74.30580002255738
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 75.13800001470372
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 74.46690002689138
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 75.67079999716952
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 74.64200002141297
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 72.44459999492392
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 81.72079996438697
+            }
+          ],
+          "heartbeat_ticks": 33,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22
+          ],
+          "memory_before": {
+            "rss": 526454784,
+            "private": 1509052416,
+            "peak": 526454784
+          },
+          "memory_after": {
+            "rss": 574709760,
+            "private": 1554173952,
+            "peak": 574709760
+          },
+          "plot_data_sha256": "31d2ea7966b3c0c0eeac1811d7c9e4b02a80042bbe404c61c47c8e16f21242bf",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 0,
+          "scenario": "retained_refresh",
+          "dispatch_ms": 217.10759995039552,
+          "complete_ms": 225.79489997588098,
+          "max_qt_gap_ms": 224.47679995093495,
+          "max_render_callback_ms": 216.37509996071458,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 216.37509996071458
+            }
+          ],
+          "heartbeat_ticks": 3,
+          "created": 0,
+          "events_after_created_counts": [
+            0
+          ],
+          "memory_before": {
+            "rss": 574722048,
+            "private": 1554173952,
+            "peak": 574722048
+          },
+          "memory_after": {
+            "rss": 575823872,
+            "private": 1555156992,
+            "peak": 575823872
+          },
+          "plot_data_sha256": "c9226e38f6d5fd1017c648cf102cb885cd5e942605151b5e550c1a552eb5263e",
+          "all_plot_arrays_exact": true
+        },
+        {
+          "cycle": 0,
+          "scenario": "ranked_refresh",
+          "dispatch_ms": 0.999899988528341,
+          "complete_ms": 1002.1379999816418,
+          "max_qt_gap_ms": 117.67539998982102,
+          "max_render_callback_ms": 115.95639999723062,
+          "render_callbacks": [
+            {
+              "callback": "render_interactive",
+              "ms": 0.2758000046014786
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 75.44709998182952
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 115.95639999723062
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 74.98019997728989
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 73.4589000348933
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 73.39620002312586
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 74.18060000054538
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 73.86980002047494
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 74.56080004340038
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 73.36569996550679
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 73.81999999051914
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 73.59649997670203
+            },
+            {
+              "callback": "_render_next_panels",
+              "ms": 82.33689999906346
+            }
+          ],
+          "heartbeat_ticks": 33,
+          "created": 24,
+          "events_after_created_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24
+          ],
+          "memory_before": {
+            "rss": 575823872,
+            "private": 1555156992,
+            "peak": 575823872
+          },
+          "memory_after": {
+            "rss": 623640576,
+            "private": 1604079616,
+            "peak": 623640576
+          },
+          "plot_data_sha256": "054ceebdc31786a4e7ea3ce6ef3f7ad58b1e02b5b013856eedeba6cd3fdb8fc1",
+          "all_plot_arrays_exact": true
+        }
+      ],
+      "p50_ms": {
+        "initial": {
+          "dispatch_ms": 1.6666000010445714,
+          "complete_ms": 994.7430000174791,
+          "max_qt_gap_ms": 94.19179998803884,
+          "max_render_callback_ms": 93.80799997597933
+        },
+        "retained_refresh": {
+          "dispatch_ms": 217.10759995039552,
+          "complete_ms": 225.79489997588098,
+          "max_qt_gap_ms": 224.47679995093495,
+          "max_render_callback_ms": 216.37509996071458
+        },
+        "ranked_refresh": {
+          "dispatch_ms": 0.999899988528341,
+          "complete_ms": 1002.1379999816418,
+          "max_qt_gap_ms": 117.67539998982102,
+          "max_render_callback_ms": 115.95639999723062
+        }
+      },
+      "raw_path": ".cache\\p1a-correlation-retained-20261029\\final-profile.json",
+      "raw_sha256": "c9a7a7753d24699d6070f93c2a56b4e2a48cdfceb779a8cf05903da88e11c424"
+    }
+  },
+  "all_plot_arrays_exact": {
+    "initial": {
+      "sha256": "31d2ea7966b3c0c0eeac1811d7c9e4b02a80042bbe404c61c47c8e16f21242bf",
+      "equal_all_cycles": true
+    },
+    "retained_refresh": {
+      "sha256": "c9226e38f6d5fd1017c648cf102cb885cd5e942605151b5e550c1a552eb5263e",
+      "equal_all_cycles": true
+    },
+    "ranked_refresh": {
+      "sha256": "054ceebdc31786a4e7ea3ce6ef3f7ad58b1e02b5b013856eedeba6cd3fdb8fc1",
+      "equal_all_cycles": true
+    }
+  },
+  "pixel_equivalence_and_hover_diagnostic": {
+    "hover_diagnostic": {
+      "native": {
+        "sha256": "db9871c703942a9b9bd698123c9702aa7bb59ce03658a3727d1338ebb17633e6",
+        "hovered_before": [
+          false,
+          true,
+          false,
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "hovered_after": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      "existing_default": {
+        "sha256": "2d3e600ead5bdbd4298edf94563bd8695b40d83b570fd93940e2e6382b6800ff",
+        "hovered_before": [
+          false,
+          true,
+          false,
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "hovered_after": [
+          false,
+          true,
+          false,
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      "opt_in": {
+        "sha256": "2d3e600ead5bdbd4298edf94563bd8695b40d83b570fd93940e2e6382b6800ff",
+        "hovered_before": [
+          false,
+          true,
+          false,
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "hovered_after": [
+          false,
+          true,
+          false,
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ]
+      }
+    },
+    "page_images": {
+      "initial": {
+        "before_size": [
+          636,
+          2842
+        ],
+        "after_size": [
+          636,
+          2842
+        ],
+        "difference_bbox": null,
+        "pixel_equal": true
+      },
+      "retained_refresh": {
+        "before_size": [
+          628,
+          2842
+        ],
+        "after_size": [
+          628,
+          2842
+        ],
+        "difference_bbox": null,
+        "pixel_equal": true
+      },
+      "ranked_refresh": {
+        "before_size": [
+          628,
+          2842
+        ],
+        "after_size": [
+          628,
+          2842
+        ],
+        "difference_bbox": null,
+        "pixel_equal": true
+      }
+    }
+  },
+  "tests": {
+    "style_enumeration_red": {
+      "path": ".cache\\p1a-correlation-retained-20261029\\style-unit-red.log",
+      "sha256": "2f5e9f79cb801e58d966949faab47fe033cc91945dbc6367cfc5f6c7b002ecae",
+      "tests": 1,
+      "seconds": 0.035,
+      "successful": false,
+      "failure_blocks": [
+        "FAIL: test_opt_in_broadcast_enumerates_one_style_but_keeps_every_native_point (tests.test_uniform_scatter.UniformScatterTests)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"D:\\WaferMap\\tests\\test_uniform_scatter.py\", line 24, in test_opt_in_broadcast_enumerates_one_style_but_keeps_every_native_point\n    self.assertEqual([len(column) for column in columns], [1] * 4)\nAssertionError: Lists differ: [10000, 10000, 10000, 10000] != [1, 1, 1, 1]\n\nFirst differing element 0:\n10000\n1\n\n- [10000, 10000, 10000, 10000]\n+ [1, 1, 1, 1]\n\n----------------------------------------------------------------------\n"
+      ]
+    },
+    "first_registration_red": {
+      "path": ".cache\\p1a-correlation-retained-20261029\\initial-unit-red.log",
+      "sha256": "a952b779c74e7f2f9bb525e1f4bb39366b922e0e3552e54c42526817110032f1",
+      "tests": 1,
+      "seconds": 0.033,
+      "successful": false,
+      "failure_blocks": [
+        "FAIL: test_opt_in_initial_data_also_prepares_only_one_symbol_key (tests.test_uniform_scatter.UniformScatterTests)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"D:\\WaferMap\\tests\\test_uniform_scatter.py\", line 30, in test_opt_in_initial_data_also_prepares_only_one_symbol_key\n    self.assertLessEqual(max(calls), 1)\nAssertionError: 10000 not less than or equal to 1\n\n----------------------------------------------------------------------\n"
+      ]
+    },
+    "final_related": {
+      "path": ".cache\\p1a-correlation-retained-20261029\\all-related-final.log",
+      "sha256": "70e3093d571d4cacb94232cb7ad57b79cecde17fd3b9536db7db3265c36a40f4",
+      "tests": 170,
+      "seconds": 156.806,
+      "successful": true,
+      "failure_blocks": []
+    },
+    "full": {
+      "path": ".cache\\p1a-correlation-retained-20261029\\full.log",
+      "sha256": "979629c5a82cee43c6de4520252220f46279273d6ea286cc8818fd5f102d855e",
+      "tests": 1241,
+      "seconds": 1213.129,
+      "successful": false,
+      "failure_blocks": [
+        "FAIL: test_closing_changed_analysis_state_is_responsive_and_keeps_source (test_analysis_close_performance.AnalysisCloseTests)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"D:\\WaferMap\\tests\\test_analysis_close_performance.py\", line 68, in test_closing_changed_analysis_state_is_responsive_and_keeps_source\n    self.close_children(dirty=True)\n  File \"D:\\WaferMap\\tests\\test_analysis_close_performance.py\", line 100, in close_children\n    self.assertLess(elapsed, .25, f\"{child.workspace_type} close blocks the GUI\")\nAssertionError: 0.3611168999923393 not less than 0.25 : wafer_map close blocks the GUI\n\n",
+        "FAIL: test_saved_wide_workbook_dirty_checks_preserve_the_accepted_state_promptly (test_performance_regressions.WorkbookPerformanceTests)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"D:\\WaferMap\\tests\\test_performance_regressions.py\", line 953, in test_saved_wide_workbook_dirty_checks_preserve_the_accepted_state_promptly\n    self.assertLess(min(times), .10, f\"Dirty-title checks blocked unchanged controls: {times}\")\nAssertionError: 0.11121920001460239 not less than 0.1 : Dirty-title checks blocked unchanged controls: [0.11163110000779852, 0.11121920001460239, 0.1112616999889724]\n\n",
+        "FAIL: test_plain_cells_avoid_generic_recursive_serialization_cost (test_writer_cell_serialization.WriterCellSerializationTests)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"D:\\WaferMap\\tests\\test_writer_cell_serialization.py\", line 73, in test_plain_cells_avoid_generic_recursive_serialization_cost\n    self.assertLess(elapsed, .3, f'Plain-cell encoding blocked for {elapsed:.3f}s')\nAssertionError: 0.3087148000486195 not less than 0.3 : Plain-cell encoding blocked for 0.309s\n\n----------------------------------------------------------------------\n"
+      ]
+    }
+  },
+  "full_result_summary": {
+    "tests": 1241,
+    "passed": 1238,
+    "failures": 3,
+    "seconds": 1213.129,
+    "all_green": false,
+    "wafer_close": {
+      "seconds": 0.3611168999923393,
+      "required_less_than": 0.25
+    },
+    "dirty_check": {
+      "seconds_minimum": 0.11121920001460239,
+      "required_less_than": 0.1,
+      "samples": [
+        0.11163110000779852,
+        0.11121920001460239,
+        0.1112616999889724
+      ]
+    },
+    "writer_encoding": {
+      "seconds": 0.3087148000486195,
+      "required_less_than": 0.3
+    },
+    "post_gate_assertions_not_executed_in_full": [
+      "Later changed Correlation/Dynamic close subcases and parent source equality after first Map timing failure.",
+      "Writer final encoded string after timing failure."
+    ],
+    "original_failures_retained_after_supplements": true
+  },
+  "original_test_assertion_audit": {
+    "tests/test_correlation.py": {
+      "all_original_assertion_calls_preserved": true,
+      "tests_removed": []
+    },
+    "tests/test_async_analysis_refresh.py": {
+      "all_original_assertion_calls_preserved": true,
+      "tests_removed": []
+    },
+    "tests/test_analysis_plot_style.py": {
+      "all_original_assertion_calls_preserved": true,
+      "tests_removed": []
+    },
+    "tests/test_correlation_axes.py": {
+      "all_original_assertion_calls_preserved": true,
+      "tests_removed": []
+    },
+    "tests/test_parameter_filter.py": {
+      "all_original_assertion_calls_preserved": true,
+      "tests_removed": []
+    },
+    "tests/test_performance_regressions.py": {
+      "all_original_assertion_calls_preserved": true,
+      "tests_removed": []
+    },
+    "tests/test_source_plot_presentation.py": {
+      "all_original_assertion_calls_preserved": true,
+      "tests_removed": []
+    },
+    "tests/test_uniform_scatter.py": {
+      "all_original_assertion_calls_preserved": true,
+      "tests_removed": []
+    }
+  },
+  "method_limits": [
+    "Native Windows, 10k rows, 50 parameters, 1225 fits, 24 panels, three cycles; fitting precomputed.",
+    "Timing ends after current viewport repaint, includes all native scatter and line arrays.",
+    "Three cycles do not establish stable P95 or rule out long-term resource leaks.",
+    "Only cached page rendering met 300ms; complete Workbook V/Z/Y is outside this timing.",
+    "First drawing/rebuild completion still exceeds 300ms, although individual GUI callbacks are shorter.",
+    "Primary comparison has no explicit GC. Diagnostic collection occurs only after all operation timings and Qt page deletion.",
+    "Observed higher non-GC transient peak is retained in the report, not dismissed as proof of no leak.",
+    "Older benchmark JSON records Correlation source SHA only; both exact module baselines are archived and final modules were hashed before full regression."
+  ],
+  "remaining_bottlenecks": [
+    "Native ScatterPlotItem structured data allocation and clearing (~117ms profile in 24-panel update).",
+    "InteractivePlotWidget/ViewBox construction (~0.5s profile for 24 panels).",
+    "Temporary process memory peak increased; Qt widget count returns to zero and GC diagnostic reclaims prior Python objects.",
+    "Private pyqtgraph _style adapter requires regression verification when upgrading the dependency.",
+    "Workbook data preparation, fitting and linked-window synchronization remain outside scope."
+  ],
+  "writer_post_gate_correctness_supplement": {
+    "purpose": "Check data assertion after original failed timing gate; original failure retained",
+    "count": 100000,
+    "all_strings_exact": true,
+    "last": "99999.123456789000",
+    "elapsed_seconds": 0.3586954999482259,
+    "below_original_threshold": false,
+    "writer_source_sha256": "3df7846321d12b83261a609f8e1f4824758586d98bd897d26f47a40bf2382032"
+  },
+  "close_post_gate_correctness_supplement": {
+    "purpose": "Complete later close cases and source equality after full-test timing failure; original failure retained",
+    "rows": 3000,
+    "raw_columns": 36,
+    "all_children_closed": true,
+    "parent_raw_exact": true,
+    "timings": [
+      {
+        "type": "wafer_map",
+        "seconds": 0.13933009997708723,
+        "below_original_threshold": true
+      },
+      {
+        "type": "correlation_trend",
+        "seconds": 0.06912549998378381,
+        "below_original_threshold": true
+      },
+      {
+        "type": "dynamic",
+        "seconds": 0.03143219999037683,
+        "below_original_threshold": true
+      }
+    ]
+  }
+}

@@ -73,6 +73,7 @@ class CorrelationAxisTests(unittest.TestCase):
             self.assertEqual(window.document.save(path), path.resolve())
             self.assertFalse(window.document.is_dirty())
             restored.load_workspace(path)
+            restored.correlation_page.finish_background_draw()
             APP.processEvents()
             self.assertEqual(restored.correlation_page.axis_state(), page.axis_state())
             for fit, widget in zip(restored.correlation_page.page_fits(), restored.correlation_page.plot_widgets):
@@ -152,6 +153,7 @@ class CorrelationAxisTests(unittest.TestCase):
 
     @staticmethod
     def button(page, index):
+        page.finish_background_draw()
         buttons = [control for control in page.panel_hosts[index].findChildren(QAbstractButton)
                    if control.text() == "Swap X/Y"]
         if not buttons:

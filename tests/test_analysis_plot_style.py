@@ -79,6 +79,7 @@ class AnalysisPlotStyleTests(unittest.TestCase):
         page.selector.selectAll()
         page.draw_plot()
         # Two within-source pairs plus four row-aligned cross-source pairs.
+        page.finish_background_draw()
         self.assertEqual(len(page.plot_widgets), 6)
         palette = {frozenset(("Reference",)): ("#ed7d31", "#b95616"),
                    frozenset(("Raw Data",)): ("#4f8bd6", "#285f9f"),

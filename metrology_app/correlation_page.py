@@ -17,6 +17,7 @@ import pyqtgraph as pg
 from lmfit.models import LinearModel
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
+from PyQt6 import sip
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
@@ -41,6 +42,7 @@ from .settings import get_settings
 
 DEFAULT_PAGE_SIZE = 12
 HOME_PADDING = 0.08
+RENDER_BATCH_SIZE = 2
 
 
 @dataclass(slots=True)
@@ -405,6 +407,12 @@ class CorrelationPage(QWidget):
         self.base_size = (900, 650)
         self._pending_updates = set()
         self.home_views = []
+        self._render_generation = 0
+        self._batch_state = None
+        self._render_timer = QTimer(self, interval=5, singleShot=True)
+        self._render_timer.timeout.connect(self._render_next_panels)
+        self._home_timer = QTimer(self, interval=0, singleShot=True)
+        self._home_timer.timeout.connect(self._remember_current_home_views)
         self.update_timer = QTimer(self, interval=180, singleShot=True)
         self.update_timer.timeout.connect(self.flush_updates)
         self.input_refresh_timer = QTimer(self, interval=180, singleShot=True)
@@ -673,6 +681,9 @@ class CorrelationPage(QWidget):
         if not available:
             self.empty.clear()
             self.stack.setCurrentWidget(self.empty)
+        elif (preserve_panels and self.page_intent == "plots" and not self.selector.pending_draw
+              and isinstance(self.plot_host, PanelGrid)):
+            self.stack.setCurrentWidget(self.interactive_scroll)
         else:
             self.stack.setCurrentWidget(self.selector_panel)
         count = len(self.selector.selected_cells())
@@ -699,15 +710,18 @@ class CorrelationPage(QWidget):
     @property
     def background_render_pending(self):
         task = getattr(self, "_draw_task", None)
-        return bool(getattr(self, "_background_requested", False) or (task is not None and task.busy))
+        return bool(getattr(self, "_background_requested", False) or (task is not None and task.busy)
+                    or self._batch_state is not None)
 
     def _cancel_background_draw(self):
+        self._cancel_interactive_render()
         task = getattr(self, "_draw_task", None)
         if task is not None:
             task.cancel()
         self._background_requested = False
 
     def request_background_draw(self):
+        self._cancel_interactive_render()
         from .background_task import LatestTask
         from .correlation_data import prepare_correlations
         metrics = self.selection.get("metrics", ())
@@ -757,12 +771,17 @@ class CorrelationPage(QWidget):
     def finish_background_draw(self):
         if getattr(self, "_background_requested", False):
             self.redraw_keeping_page()
+        self._finish_interactive_render()
 
     def stop_background_draw(self):
         self._cancel_background_draw()
         task = getattr(self, "_draw_task", None)
         if task is not None:
             task.close()
+
+    def closeEvent(self, event):
+        self.stop_background_draw()
+        super().closeEvent(event)
 
     def draw_plot(self):
         self._cancel_background_draw()
@@ -829,6 +848,8 @@ class CorrelationPage(QWidget):
         """Merge rapid toolbar edits into one redraw after the user pauses."""
         if not self.all_fits:
             return
+        if kind in ("filter", "layout", "style") and self._batch_state is not None:
+            self._cancel_interactive_render()
         self._pending_updates.add(kind)
         self.update_timer.start()
 
@@ -897,6 +918,10 @@ class CorrelationPage(QWidget):
 
     def swap_axes(self, fit):
         """Change one panel in place; unrelated fits/widgets/views stay intact."""
+        rebuilding = self._batch_state is not None
+        if rebuilding:
+            fit = next((candidate for candidate in self.all_fits
+                        if self.axis_key(candidate) == self.axis_key(fit)), fit)
         if not self.ready or not any(candidate is fit for candidate in self.all_fits):
             return
         key = self.axis_key(fit)
@@ -915,7 +940,9 @@ class CorrelationPage(QWidget):
         updated = self.oriented_fit(fit)
         base = int(self.font_size.currentText())
         cache_key = self._panel_key(fit, base)
-        if cache_key in self._visible_panel_keys:
+        if rebuilding:
+            self.render_fits()
+        elif cache_key in self._visible_panel_keys:
             index = self._visible_panel_keys.index(cache_key)
             rank = self.page_index * int(self.page_size.currentText()) + index + 1
             self.update_panel_direction(self._panel_cache[cache_key], updated, rank, base)
@@ -1054,9 +1081,9 @@ class CorrelationPage(QWidget):
         self.ready = True
         self.stack.setCurrentWidget(self.interactive_scroll)
         visible = bool(self.display_fits())
-        self.export_button.setEnabled(visible)
-        self.export_all_button.setEnabled(visible)
-        self.copy_button.setEnabled(visible)
+        self.export_button.setEnabled(visible and self._batch_state is None)
+        self.export_all_button.setEnabled(visible and self._batch_state is None)
+        self.copy_button.setEnabled(visible and self._batch_state is None)
         self.update_fit_status()
 
     def render_fits(self):
@@ -1154,21 +1181,20 @@ class CorrelationPage(QWidget):
 
     def ensure_export_figure(self):
         """Build the export mirror only when Export / Copy actually needs it."""
+        self._finish_interactive_render()
         if self._export_dirty or not self.figure.axes:
             self.build_export_figure()
             self.refresh_canvas()
 
     def clear_interactive(self, message=None, *, preserve_panels=False, retain_layout=False):
+        self._cancel_interactive_render()
         if preserve_panels and retain_layout and isinstance(self.plot_host, PanelGrid):
             keys = tuple(self._visible_panel_keys)
             if keys:
                 self._retained_grid = self.plot_host, keys
             if self._retained_grid is not None:
-                # Hide stale content while fitting, but do not reparent all its
-                # widgets just to put the same grid back on the next result.
-                self.plot_host.hide()
-                self.plot_widgets, self.panel_hosts, self.home_views = [], [], []
-                self._visible_panel_keys = []
+                # Keep the complete old canvas while its replacement is prepared.
+                # Copy/export remain disabled until current data is published.
                 return
         self._retained_grid = None
         for cached in self._panel_cache.values():
@@ -1209,8 +1235,43 @@ class CorrelationPage(QWidget):
         return (f"<b>{escape(fit.y_name)} vs {escape(fit.x_name)}</b><br>"
                 f"<span style='font-size:{max(7, base - 1)}pt'>{details}</span>")
 
+    def _cancel_interactive_render(self):
+        self._render_generation += 1
+        self._render_timer.stop()
+        self._home_timer.stop()
+        state, self._batch_state = self._batch_state, None
+        if state is not None:
+            state["grid"].deleteLater()
+
+    def _current_render(self, state):
+        return (not sip.isdeleted(self) and state is self._batch_state
+                and state["generation"] == self._render_generation)
+
+    def _schedule_home_views(self):
+        self._home_generation = self._render_generation
+        self._home_timer.start()
+
+    def _remember_current_home_views(self):
+        if self._home_generation == self._render_generation and self._batch_state is None:
+            self.remember_home_views()
+
+    def _finish_interactive_render(self):
+        """Explicit Copy/export/save completion; normal rendering stays event driven."""
+        while self._batch_state is not None:
+            self._render_timer.stop()
+            self._render_next_panels()
+
+    def _update_render_panel(self, cached, fit, rank, base):
+        previous = cached["widget"].getViewBox().viewRange()
+        custom = cached["home"] is not None and not np.allclose(previous, cached["home"])
+        changed = (cached["fit"].x_name, cached["fit"].y_name) != (fit.x_name, fit.y_name)
+        self.update_panel_direction(cached, fit, rank, base, swap_view=changed)
+        if custom and not changed:
+            cached["widget"].getViewBox().setRange(xRange=previous[0], yRange=previous[1], padding=0)
+
     def render_interactive(self, visible_fits, columns, rows, start_rank=1):
-        """Build a resizable grid of independently zoomable PyQtGraph plots."""
+        """Reuse retained grids, otherwise stage complete pages in small GUI batches."""
+        self._cancel_interactive_render()
         base = int(self.font_size.currentText())
         keys = tuple(self._panel_key(fit, base) for fit in visible_fits)
         retained = self._retained_grid
@@ -1218,137 +1279,225 @@ class CorrelationPage(QWidget):
                 and retained[1] == keys and self.plot_host.columns == columns
                 and len(self.plot_host.row_splitters) == rows
                 and all(key in self._panel_cache for key in keys)):
+            widgets, hosts = [], []
             for rank, original in enumerate(visible_fits, start=start_rank):
                 cached = self._panel_cache[self._panel_key(original, base)]
                 fit = self.oriented_fit(original)
-                if cached['fit'] is not fit:
-                    changed_direction = ((cached['fit'].x_name, cached['fit'].y_name)
-                                         != (fit.x_name, fit.y_name))
-                    self.update_panel_direction(cached, fit, rank, base,
-                                                swap_view=changed_direction)
-                cached['original'] = original
-                cached['heading'].setText(self.panel_heading(fit, rank, base))
-                self.plot_widgets.append(cached['widget'])
-                self.panel_hosts.append(cached['panel'])
+                if cached["fit"] is not fit:
+                    self._update_render_panel(cached, fit, rank, base)
+                cached["original"] = original
+                cached["heading"].setText(self.panel_heading(fit, rank, base))
+                widgets.append(cached["widget"])
+                hosts.append(cached["panel"])
+            self.plot_widgets, self.panel_hosts = widgets, hosts
             self._visible_panel_keys = list(keys)
             self._retained_grid = None
             self.plot_host.show()
-            QTimer.singleShot(0, self.remember_home_views)
+            self._schedule_home_views()
             return
-        self.clear_interactive(preserve_panels=True)
-        panel_height = 350
-        grid = PanelGrid(columns)
-        grid.set_fixed_row_height(rows, panel_height)
-        for rank, original in enumerate(visible_fits, start=start_rank):
-            key = self._panel_key(original, base)
-            fit = self.oriented_fit(original)
-            cached = self._panel_cache.get(key)
-            if cached is not None:
-                if cached["fit"] is not fit:
-                    changed_direction = (cached["fit"].x_name, cached["fit"].y_name) != (fit.x_name, fit.y_name)
-                    self.update_panel_direction(cached, fit, rank, base, swap_view=changed_direction)
-                cached["original"] = original
-                cached["heading"].setText(self.panel_heading(fit, rank, base))
-                grid.add_panel(cached["panel"])
-                cached["panel"].show()
-                self.plot_widgets.append(cached["widget"])
-                self.panel_hosts.append(cached["panel"])
-                self._visible_panel_keys.append(key)
-                continue
-            widget = InteractivePlotWidget(background="w", frame_tick_length=3)
-            widget.setMinimumSize(180, 310)
-            widget.setToolTip("Ctrl+scroll to zoom · Drag a box to zoom · Right-drag to pan · "
-                              "Ordinary scrolling moves the page · "
-                              "Double-click to fit this plot · Reset views restores all plots")
-            plot = widget.getPlotItem()
-            plot.setTitle(None)   # the QLabel above the plot owns the heading
-            plot.showGrid(x=True, y=True, alpha=.18)
-            plot.setLabel("bottom", fit.x_name, color="#30343b", size=f"{max(7, base - 1)}pt")
-            plot.setLabel("left", fit.y_name, color="#30343b", size=f"{max(7, base - 1)}pt")
-            plain_y_axes(widget)
-            point_color, fit_color = correlation_colors(fit)
-            heading = panel_title_label(self.panel_heading(fit, rank, base), base + 1)
-            title_row = QWidget()
-            title_layout = QHBoxLayout(title_row)
-            title_layout.setContentsMargins(0, 0, 4, 0)
-            title_layout.addWidget(heading, 1)
-            swap_button = QToolButton()
-            swap_button.setText("Swap X/Y")
-            swap_button.setStyleSheet(
-                "QToolButton { color: #30343b; background: #f3f4f6; border: 1px solid #cbd5e1; "
-                "border-radius: 4px; padding: 3px 7px; } "
-                "QToolButton:hover { background: #e2e8f0; } "
-                "QToolButton:pressed { background: #cbd5e1; } "
-                "QToolButton:focus { border-color: #356d91; }")
-            swap_button.setAccessibleName(f"Swap X and Y for {fit.y_name} versus {fit.x_name}")
-            swap_button.setToolTip("Swap this plot's axes and refit the same observations in the new direction.")
-            policy = swap_button.sizePolicy()
-            policy.setRetainSizeWhenHidden(True)
-            swap_button.setSizePolicy(policy)
-            swap_button.clicked.connect(lambda _checked=False, target=key:
-                self.swap_axes(self._panel_cache[target]["original"]) if target in self._panel_cache else None)
-            title_layout.addWidget(swap_button)
-            # A QLabel keeps every title line in its own space; pyqtgraph's own
-            # title reserves one line and printed the second over the plot.
-            container = PlotPanel(title_row, widget)
-            items = []
-            if isinstance(fit, SourcePairFit):
-                plot.addLegend(offset=(10, 8))
-                for source in fit.sources:
-                    values = source.fit
-                    # Reuse the unchanged full scatter arrays during layout,
-                    # pan and zoom, as the Trend renderer already does.
-                    points = ResponsivePlotDataItem(
-                        values.x, values.y, pen=None, symbol="o", symbolSize=5,
-                        symbolPen=None,
-                        symbolBrush=pg.mkBrush(point_color),
-                        name=f"{source.name} points",
-                    )
-                    plot.addItem(points)
-                    order = np.argsort(values.x)
-                    line = plot.plot(
-                        values.x[order], values.predicted[order],
-                        pen=pg.mkPen(fit_color, width=2),
-                        name=f"{source.name} fit",
-                    )
-                    items.append((points, line))
+        grid = PanelGrid(columns, parent=self)
+        grid.hide()
+        grid.set_fixed_row_height(rows, 350)
+        self._batch_state = {"generation": self._render_generation, "grid": grid,
+            "fits": tuple(visible_fits), "position": 0, "base": base,
+            "rank": start_rank, "entries": [], "replacements": {},
+            "scroll": self.interactive_scroll.verticalScrollBar().value()}
+        for control in (self.export_button, self.export_all_button, self.copy_button):
+            control.setEnabled(False)
+        if len(visible_fits) <= 3:
+            self._render_next_panels()
+        else:
+            self.status.setText(f"Drawing 0 / {len(visible_fits)} plots…")
+            self._render_timer.start()
+
+    def _prepare_render_panel(self, original, rank, state):
+        base = state["base"]
+        key = self._panel_key(original, base)
+        fit = self.oriented_fit(original)
+        cached = self._panel_cache.get(key)
+        if cached is not None:
+            if key not in self._visible_panel_keys and cached["fit"] is not fit:
+                self._update_render_panel(cached, fit, rank, base)
+            return key, cached, original, fit, rank
+        entry = self._create_interactive_panel(original, fit, rank, base, state["grid"])
+        previous = next((self._panel_cache[visible] for visible in self._visible_panel_keys
+                         if visible[:2] == key[:2]), None)
+        if previous is not None:
+            state["replacements"][key] = previous
+        return key, entry, original, fit, rank
+
+    def _render_next_panels(self):
+        state = self._batch_state
+        if state is None or not self._current_render(state):
+            return
+        try:
+            count = len(state["fits"]) if len(state["fits"]) <= 3 else RENDER_BATCH_SIZE
+            for _ in range(count):
+                if state["position"] == len(state["fits"]):
+                    break
+                index = state["position"]
+                prepared = self._prepare_render_panel(state["fits"][index], state["rank"] + index, state)
+                if not self._current_render(state):
+                    return
+                state["entries"].append(prepared)
+                state["position"] += 1
+            if state["position"] == len(state["fits"]):
+                self._publish_render(state)
             else:
-                points = pg.ScatterPlotItem(fit.x, fit.y, size=5, symbol="o", pen=None,
-                                           brush=pg.mkBrush(point_color))
+                self.status.setText(f"Drawing {state['position']} / {len(state['fits'])} plots…")
+                self._render_timer.start()
+        except Exception as error:
+            if self._current_render(state):
+                self._background_draw_error(str(error))
+
+    def _publish_render(self, state):
+        if not self._current_render(state):
+            return
+        grid = state["grid"]
+        entries = {key: entry for key, entry, _original, _fit, _rank in state["entries"]}
+        # Retain zoom/pan/reset performed on the old canvas between batches.
+        previous_views = {key: (cached["widget"].getViewBox().viewRange(), cached["home"], cached["fit"])
+                          for key, cached in state["replacements"].items()}
+        updates = self.interactive_scroll.updatesEnabled()
+        self.interactive_scroll.setUpdatesEnabled(False)
+        try:
+            old = self.interactive_scroll.takeWidget()
+            for key, cached in self._panel_cache.items():
+                if entries.get(key) is cached:
+                    continue
+                cached["panel"].setParent(self)
+                cached["panel"].hide()
+                if key in entries:
+                    cached["panel"].deleteLater()
+            for key, entry, original, fit, rank in state["entries"]:
+                if entry["fit"] is not fit:
+                    self._update_render_panel(entry, fit, rank, state["base"])
+                entry["original"] = original
+                entry["heading"].setText(self.panel_heading(fit, rank, state["base"]))
+                grid.add_panel(entry["panel"])
+                entry["panel"].show()
+            grid.complete_last_row(minimum_width=180)
+            self._panel_cache.update(entries)
+            self.plot_widgets = [entry["widget"] for entry in entries.values()]
+            self.panel_hosts = [entry["panel"] for entry in entries.values()]
+            self._visible_panel_keys = list(entries)
+            self._retained_grid = None
+            self.plot_host = grid
+            self.interactive_scroll.setWidget(grid)
+            grid.show()
+            for key, (previous, home, old_fit) in previous_views.items():
+                entry = entries[key]
+                view = entry["widget"].getViewBox()
+                if home is not None and not np.allclose(previous, home):
+                    view.autoRange(padding=HOME_PADDING)
+                    entry["home"] = view.viewRange()
+                    fit = entry["fit"]
+                    changed = (old_fit.x_name, old_fit.y_name) != (fit.x_name, fit.y_name)
+                    view.setRange(xRange=previous[1] if changed else previous[0],
+                                  yRange=previous[0] if changed else previous[1], padding=0)
+            self.interactive_scroll.verticalScrollBar().setValue(state["scroll"])
+            if old is not None and old is not grid:
+                old.deleteLater()
+            self._batch_state = None
+            # Keep the existing bounded cache for parameter/ALL toggles.
+            limit = max(24, 2 * int(self.page_size.currentText()))
+            for key in list(self._panel_cache):
+                if len(self._panel_cache) <= limit:
+                    break
+                if key not in entries:
+                    self._panel_cache.pop(key)["panel"].deleteLater()
+        finally:
+            self.interactive_scroll.setUpdatesEnabled(updates)
+        self._schedule_home_views()
+        visible = bool(self.display_fits())
+        for control in (self.export_button, self.export_all_button, self.copy_button):
+            control.setEnabled(visible)
+        self.update_fit_status()
+
+    def _create_interactive_panel(self, original, fit, rank, base, owner):
+        key = self._panel_key(original, base)
+        widget = InteractivePlotWidget(background="w", frame_tick_length=3)
+        if sip.isdeleted(self) or sip.isdeleted(owner):
+            widget.deleteLater()
+            raise RuntimeError('Correlation rendering cancelled')
+        widget.setMinimumSize(180, 310)
+        widget.setToolTip("Ctrl+scroll to zoom · Drag a box to zoom · Right-drag to pan · "
+                          "Ordinary scrolling moves the page · "
+                          "Double-click to fit this plot · Reset views restores all plots")
+        plot = widget.getPlotItem()
+        plot.setTitle(None)   # the QLabel above the plot owns the heading
+        plot.showGrid(x=True, y=True, alpha=.18)
+        plot.setLabel("bottom", fit.x_name, color="#30343b", size=f"{max(7, base - 1)}pt")
+        plot.setLabel("left", fit.y_name, color="#30343b", size=f"{max(7, base - 1)}pt")
+        plain_y_axes(widget)
+        point_color, fit_color = correlation_colors(fit)
+        heading = panel_title_label(self.panel_heading(fit, rank, base), base + 1)
+        title_row = QWidget()
+        title_layout = QHBoxLayout(title_row)
+        title_layout.setContentsMargins(0, 0, 4, 0)
+        title_layout.addWidget(heading, 1)
+        swap_button = QToolButton()
+        swap_button.setText("Swap X/Y")
+        swap_button.setStyleSheet(
+            "QToolButton { color: #30343b; background: #f3f4f6; border: 1px solid #cbd5e1; "
+            "border-radius: 4px; padding: 3px 7px; } "
+            "QToolButton:hover { background: #e2e8f0; } "
+            "QToolButton:pressed { background: #cbd5e1; } "
+            "QToolButton:focus { border-color: #356d91; }")
+        swap_button.setAccessibleName(f"Swap X and Y for {fit.y_name} versus {fit.x_name}")
+        swap_button.setToolTip("Swap this plot's axes and refit the same observations in the new direction.")
+        policy = swap_button.sizePolicy()
+        policy.setRetainSizeWhenHidden(True)
+        swap_button.setSizePolicy(policy)
+        swap_button.clicked.connect(lambda _checked=False, target=key:
+            self.swap_axes(self._panel_cache[target]["original"]) if target in self._panel_cache else None)
+        title_layout.addWidget(swap_button)
+        # A QLabel keeps every title line in its own space; pyqtgraph's own
+        # title reserves one line and printed the second over the plot.
+        container = PlotPanel(title_row, widget, parent=owner)
+        items = []
+        if isinstance(fit, SourcePairFit):
+            plot.addLegend(offset=(10, 8))
+            for source in fit.sources:
+                values = source.fit
+                # Reuse the unchanged full scatter arrays during layout,
+                # pan and zoom, as the Trend renderer already does.
+                points = ResponsivePlotDataItem(
+                    values.x, values.y, pen=None, symbol="o", symbolSize=5,
+                    broadcast_uniform_symbols=True,
+                    symbolPen=None,
+                    symbolBrush=pg.mkBrush(point_color),
+                    name=f"{source.name} points",
+                )
                 plot.addItem(points)
-                order = np.argsort(fit.x)
-                line = pg.PlotDataItem(fit.x[order], fit.predicted[order],
-                                       pen=pg.mkPen(fit_color, width=2))
-                plot.addItem(line)
+                order = np.argsort(values.x)
+                line = plot.plot(
+                    values.x[order], values.predicted[order],
+                    pen=pg.mkPen(fit_color, width=2),
+                    name=f"{source.name} fit",
+                )
                 items.append((points, line))
-            view = plot.getViewBox()
-            # Left drag selects a region to zoom into; right drag pans.
-            view.setMouseMode(pg.ViewBox.RectMode)
-            view.setDefaultPadding(HOME_PADDING)
-            view.autoRange(padding=HOME_PADDING)
-            for axis_name in ("bottom", "left"):
-                axis = plot.getAxis(axis_name)
-                axis.setPen(pg.mkPen("#30343b"))
-                axis.setTextPen(pg.mkPen("#30343b"))
-                axis.setStyle(tickFont=widget.font())
-            grid.add_panel(container)
-            self.plot_widgets.append(widget)
-            self.panel_hosts.append(container)
-            self._visible_panel_keys.append(key)
-            self._panel_cache[key] = {"widget": widget, "panel": container, "heading": heading,
-                                      "fit": fit, "original": original, "items": items, "home": None, "swap_button": swap_button}
-        # Bound retained widgets to two pages. Unseen fits are created lazily;
-        # parameter/ALL toggles reuse existing curves without rerunning lmfit.
-        limit = max(24, 2 * int(self.page_size.currentText()))
-        for key in list(self._panel_cache):
-            if len(self._panel_cache) <= limit:
-                break
-            if key not in self._visible_panel_keys:
-                self._panel_cache.pop(key)["panel"].deleteLater()
-        grid.complete_last_row(minimum_width=180)
-        self.plot_host = grid
-        self.interactive_scroll.setWidget(grid)
-        QTimer.singleShot(0, self.remember_home_views)
+        else:
+            points = pg.ScatterPlotItem(fit.x, fit.y, size=5, symbol="o", pen=None,
+                                       brush=pg.mkBrush(point_color))
+            plot.addItem(points)
+            order = np.argsort(fit.x)
+            line = pg.PlotDataItem(fit.x[order], fit.predicted[order],
+                                   pen=pg.mkPen(fit_color, width=2))
+            plot.addItem(line)
+            items.append((points, line))
+        view = plot.getViewBox()
+        # Left drag selects a region to zoom into; right drag pans.
+        view.setMouseMode(pg.ViewBox.RectMode)
+        view.setDefaultPadding(HOME_PADDING)
+        view.autoRange(padding=HOME_PADDING)
+        for axis_name in ("bottom", "left"):
+            axis = plot.getAxis(axis_name)
+            axis.setPen(pg.mkPen("#30343b"))
+            axis.setTextPen(pg.mkPen("#30343b"))
+            axis.setStyle(tickFont=widget.font())
+        return {"widget": widget, "panel": container, "heading": heading,
+                                  "fit": fit, "original": original, "items": items, "home": None, "swap_button": swap_button}
 
     def remember_home_views(self):
         """Store the view each plot was drawn with, so Reset views can restore it exactly."""
@@ -1430,6 +1579,7 @@ class CorrelationPage(QWidget):
     def export_all_pages(self):
         if not self.ready or not self.display_fits():
             return
+        self._finish_interactive_render()
         path, _ = QFileDialog.getSaveFileName(
             self, "Export all pairwise fit pages", "pairwise_fits.png",
             "PNG (*.png)",
@@ -1468,6 +1618,7 @@ class CorrelationPage(QWidget):
     def copy_png(self):
         if not self.ready or not self.display_fits():
             return
+        self._finish_interactive_render()
         _scale, requested = resolution_settings(self.resolution)
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         self.status.setText("Copying…")

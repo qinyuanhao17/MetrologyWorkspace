@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from metrology_app.correlation_page import fit_numeric_pair, pairwise_linear_fits
+from metrology_app.correlation_page import CorrelationPage, fit_numeric_pair, pairwise_linear_fits
 from metrology_app.correlation_window import CorrelationWindow
 from metrology_app.matching import ParameterMapping
 from metrology_app.appearance import MAX_COPY_PIXELS, configure_fonts
@@ -32,6 +32,19 @@ from metrology_app.window import MainWindow as WaferMapWindow
 ROOT = Path(__file__).resolve().parents[1]
 APP = QApplication.instance() or QApplication([])
 configure_fonts(APP)  # same font registration the launcher installs
+
+
+def wait_for_correlation_render(page):
+    """Assert complete grids after asynchronous construction, never partial lists."""
+    if not isinstance(page, CorrelationPage):
+        return
+    from time import monotonic
+    deadline = monotonic() + 8
+    while page.background_render_pending:
+        if monotonic() > deadline:
+            raise AssertionError('Correlation grid did not finish')
+        QTest.qWait(5)
+    APP.processEvents()
 
 
 class CorrelationTests(unittest.TestCase):
@@ -135,6 +148,7 @@ class CorrelationTests(unittest.TestCase):
 
             window.correlation_page.selector.selectAll()
             window.correlation_page.draw_plot()
+            wait_for_correlation_render(window.correlation_page)
             self.assertEqual(len(window.correlation_page.plot_widgets), 6)
             reference_items = {
                 item.name(): item
@@ -239,6 +253,7 @@ class CorrelationTests(unittest.TestCase):
                 self.assertNotIn((reference_key, "PL_BCD"), page.selector.selected_cells())
             page = window.sequence_page
             page.draw_plot()
+            wait_for_correlation_render(page)
             self.assertEqual([panel.findChild(QLabel).text() for panel in page.panel_hosts],
                              ["<b>Reference · TEM</b>", "<b>Raw Data · PL_BCD</b>"])
             self.assertTrue(page.set_overlay("TEM", "PL_BCD", primary_source="Reference",
@@ -471,6 +486,7 @@ class CorrelationTests(unittest.TestCase):
                 correlation_cells
             )
             first.correlation_page.draw_plot()
+            wait_for_correlation_render(first.correlation_page)
             first.sequence_page.selector.set_selected_cells(trend_cells)
             first.sequence_page.draw_plot()
             self.assertTrue(first.correlation_page.ready)
@@ -711,6 +727,7 @@ class CorrelationTests(unittest.TestCase):
             window.tabs.setCurrentIndex(2)
             window.correlation_page.selector.selectAll()
             window.correlation_page.draw_plot()
+            wait_for_correlation_render(window.correlation_page)
             self.assertEqual(len(window.correlation_page.plot_widgets), 10)
         finally:
             window.raw_model.undo.setClean()
@@ -795,6 +812,7 @@ class CorrelationTests(unittest.TestCase):
             page = window.correlation_page
             page.min_rsq.setValue(0.0)
             page.draw_plot()
+            wait_for_correlation_render(page)
             APP.processEvents()
             self.assertEqual(page.columns.currentText(), "3")
             self.assertEqual(page.interactive_scroll.horizontalScrollBar().maximum(), 0)
@@ -806,6 +824,7 @@ class CorrelationTests(unittest.TestCase):
             page = window.sequence_page
             page.columns.setCurrentText("2")
             page.draw_plot()
+            wait_for_correlation_render(page)
             APP.processEvents()
             self.assertEqual(page.interactive_scroll.horizontalScrollBar().maximum(), 0)
             for host in page.panel_hosts:
@@ -828,6 +847,7 @@ class CorrelationTests(unittest.TestCase):
             window.tabs.setCurrentIndex(2)
             page = window.correlation_page
             page.draw_plot()
+            wait_for_correlation_render(page)
             APP.processEvents()
             self.assertTrue(page.ready, page.status.text())
             self.assertEqual(len(page.plot_widgets), 3)
@@ -913,6 +933,7 @@ class CorrelationTests(unittest.TestCase):
                 for column in (0, 1):
                     boxes.item(row, column).setSelected(True)
             page.draw_plot()
+            wait_for_correlation_render(page)
             APP.processEvents()
             self.assertTrue(page.ready, page.status.text())
             self.assertEqual(len(page.all_fits), 1)
@@ -923,6 +944,7 @@ class CorrelationTests(unittest.TestCase):
             boxes.item(1, 0).setSelected(False)
             boxes.item(1, 1).setSelected(False)
             page.draw_plot()
+            wait_for_correlation_render(page)
             APP.processEvents()
             self.assertTrue(page.ready, page.status.text())
             self.assertEqual(len(page.all_fits[0].x), 6)
@@ -931,12 +953,14 @@ class CorrelationTests(unittest.TestCase):
             boxes.clearSelection()
             boxes.item(0, 0).setSelected(True)
             page.draw_plot()
+            wait_for_correlation_render(page)
             self.assertFalse(page.ready)
             self.assertIn("at least 2 numeric columns", page.status.text())
 
             # Without any box the page asks for a selection instead of drawing.
             boxes.clearSelection()
             page.draw_plot()
+            wait_for_correlation_render(page)
             self.assertIn("Select at least one fit box", page.status.text())
             self.assertIs(page.stack.currentWidget(), page.selector_panel)
         finally:
@@ -985,7 +1009,8 @@ class CorrelationTests(unittest.TestCase):
         for _ in range(1000):
             if (getattr(page, "worker", None) is None
                     and not page.input_refresh_timer.isActive()
-                    and not getattr(page, "pending_input_refresh", False)):
+                    and not getattr(page, "pending_input_refresh", False)
+                    and not getattr(page, "background_render_pending", False)):
                 break
             QTest.qWait(20)
         APP.processEvents()
@@ -1129,6 +1154,7 @@ class CorrelationTests(unittest.TestCase):
             page = window.correlation_page
             page.min_rsq.setValue(0)
             page.draw_plot()
+            wait_for_correlation_render(page)
             APP.processEvents()
             self.assertTrue(page.ready, page.status.text())
             self.assertFalse(page.figure.axes)
@@ -1159,6 +1185,7 @@ class CorrelationTests(unittest.TestCase):
             page = window.correlation_page
             page.min_rsq.setValue(.5)
             page.draw_plot()
+            wait_for_correlation_render(page)
             APP.processEvents()
             self.assertTrue(page.plot_widgets)
             for host, widget in zip(page.panel_hosts, page.plot_widgets):
@@ -1192,6 +1219,7 @@ class CorrelationTests(unittest.TestCase):
             page = window.correlation_page
             page.min_rsq.setValue(.5)
             page.draw_plot()
+            wait_for_correlation_render(page)
             APP.processEvents()
             self.assertEqual(len(page.plot_widgets), 6)
 
@@ -1456,10 +1484,12 @@ class CorrelationTests(unittest.TestCase):
             page = window.correlation_page
             page.selector.selectAll()
             page.draw_plot()
+            wait_for_correlation_render(page)
             self.assertTrue(page.ready, page.status.text())
             self.assertEqual(len(page.all_fits), 41 * 40 // 2)
             self.assertEqual(len(page.plot_widgets), int(page.page_size.currentText()))
             page.set_page(page.page_count() - 1)
+            wait_for_correlation_render(page)
             self.assertEqual(len(page.page_fits()), 4)
             self.assertEqual(len(page.plot_widgets), 4)
             self.assertEqual(set(page.parameter_filter.names), set(names))
@@ -1509,6 +1539,7 @@ class CorrelationTests(unittest.TestCase):
                 with self.subTest(page=type(page).__name__):
                     page.selector.set_selected_cells({(key, names[0]), (key, names[-1])})
                     page.draw_plot()
+                    wait_for_correlation_render(page)
                     self.assertTrue(page.ready, page.status.text())
                     if page is window.correlation_page:
                         self.assertEqual(len(page.all_fits), 1)
@@ -1539,6 +1570,7 @@ class CorrelationTests(unittest.TestCase):
                 with self.subTest(page=type(page).__name__):
                     page.selector.selectAll()
                     page.draw_plot()
+                    wait_for_correlation_render(page)
                     self.assertTrue(page.ready, page.status.text())
                     if page is window.correlation_page:
                         self.assertEqual(len(page.all_fits), 41 * 40 // 2)
@@ -1568,6 +1600,7 @@ class CorrelationTests(unittest.TestCase):
             window.tabs.setCurrentIndex(2)
             page = window.correlation_page
             page.draw_plot()
+            wait_for_correlation_render(page)
             page.ensure_export_figure()   # the export mirror is built on demand
             self.assertTrue(page.ready, page.status.text())
             self.assertEqual(len(page.all_fits), 1)
@@ -1590,6 +1623,7 @@ class CorrelationTests(unittest.TestCase):
             page = window.correlation_page
             page.min_rsq.setValue(0)
             page.draw_plot()
+            wait_for_correlation_render(page)
             APP.processEvents()
 
             self.assertEqual(len(page.fits), 15)
@@ -1600,6 +1634,7 @@ class CorrelationTests(unittest.TestCase):
             self.assertTrue(page.next_page.isEnabled())
 
             page.next_page.click()
+            wait_for_correlation_render(page)
             APP.processEvents()
             self.assertEqual(len(page.plot_widgets), 3)
             self.assertEqual(page.page_label.text(), "Page 2 / 2")
@@ -1608,6 +1643,7 @@ class CorrelationTests(unittest.TestCase):
             self.assertIn("rank 13", heading)
 
             page.page_size.setCurrentText("6")
+            wait_for_correlation_render(page)
             APP.processEvents()
             self.assertEqual(len(page.plot_widgets), 6)
             self.assertEqual(page.page_label.text(), "Page 1 / 3")
@@ -1634,10 +1670,12 @@ class CorrelationTests(unittest.TestCase):
             page.columns.setCurrentText("4")
             page.min_rsq.setValue(0)
             page.draw_plot()
+            wait_for_correlation_render(page)
             APP.processEvents()
 
             full_page_size = page.panel_hosts[0].size()
             page.next_page.click()
+            wait_for_correlation_render(page)
             APP.processEvents()
 
             self.assertEqual(len(page.panel_hosts), 3)
@@ -1670,6 +1708,7 @@ class CorrelationTests(unittest.TestCase):
             page.min_rsq.setValue(0)
             page.resolution.setCurrentText("Standard")
             page.draw_plot()
+            wait_for_correlation_render(page)
             APP.processEvents()
 
             with TemporaryDirectory() as folder:
@@ -1712,6 +1751,7 @@ class CorrelationTests(unittest.TestCase):
             window.tabs.setCurrentIndex(2)
             page = window.correlation_page
             page.draw_plot()
+            wait_for_correlation_render(page)
             page.ensure_export_figure()   # the export mirror is built on demand
             self.assertTrue(page.ready, page.status.text())
             self.assertEqual(page.copy_shortcut.key(), QKeySequence(QKeySequence.StandardKey.Copy))
@@ -1751,6 +1791,7 @@ class CorrelationTests(unittest.TestCase):
             window.tabs.setCurrentIndex(3)
             sequence = window.sequence_page
             sequence.draw_plot()
+            wait_for_correlation_render(sequence)
             sequence.ensure_export_figure()   # the export mirror is built on demand
             self.assertTrue(sequence.ready, sequence.status.text())
             self.assertEqual(sequence.wafer_column, "Wafer ID")
@@ -1785,6 +1826,7 @@ class CorrelationTests(unittest.TestCase):
         page.overlay = {}
         page.selector.selectAll()
         page.draw_plot()
+        wait_for_correlation_render(page)
         APP.processEvents()
         return window, page
 
@@ -2219,6 +2261,7 @@ class CorrelationTests(unittest.TestCase):
             self.select_parameters(window, {"DP [nm]", "EW [V]"})
             page.selector.selectAll()
             page.draw_plot()
+            wait_for_correlation_render(page)
             self.assertTrue(page.set_overlay("DP [nm]", "EW [V]"))
             for size in (8, 16, 20):
                 page.font_size.setCurrentText(str(size))

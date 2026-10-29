@@ -420,6 +420,7 @@ class BackgroundPlotTests(unittest.TestCase):
     def test_refreshed_correlation_reuses_qualified_panels_and_swaps_the_current_fit(self):
         page = self.page(CorrelationPage)
         page.draw_plot()
+        wait_until(lambda: not page.background_render_pending)
         old = {page.axis_key(fit): widget for fit, widget in zip(page.page_fits(), page.plot_widgets)}
         changed = self.frame.copy(deep=True)
         changed['P0'] = pd.to_numeric(changed['P0'], errors='coerce') + .01
