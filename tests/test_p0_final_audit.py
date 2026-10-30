@@ -132,7 +132,7 @@ class FinalAuditTests(unittest.TestCase):
         child.plot_page.draw_maps()
         child.radius_page.draw_plot()
         deadline = monotonic()+8
-        while child.plot_page.worker is not None and monotonic()<deadline:
+        while child.plot_page.background_render_pending and monotonic()<deadline:
             QTest.qWait(20)
         self.assertIsNotNone(child.plot_page.result)
         column = parent.raw_model.document_frame().columns.get_loc('Wafer ID')
@@ -181,7 +181,7 @@ class FinalAuditTests(unittest.TestCase):
             deadline = monotonic() + 8
             while monotonic() < deadline:
                 QTest.qWait(20)
-                if child.plot_page.worker is None and not child.plot_page.input_refresh_timer.isActive() \
+                if not child.plot_page.background_render_pending \
                         and not child.radius_page.input_refresh_timer.isActive():
                     break
         settled()

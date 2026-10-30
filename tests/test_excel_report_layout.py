@@ -1174,7 +1174,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
         child.plot_page.selector.selectAll()
         child.plot_page.draw_maps()
         deadline = time.monotonic() + 30
-        while child.plot_page.worker is not None and time.monotonic() < deadline:
+        while child.plot_page.background_render_pending and time.monotonic() < deadline:
             QTest.qWait(10)
         self.assertIsNone(child.plot_page.worker)
         self.assertEqual(len(child.plot_page.artists), 2)

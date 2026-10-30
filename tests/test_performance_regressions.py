@@ -621,7 +621,7 @@ class WorkbookPerformanceTests(unittest.TestCase):
             page.selector.selectAll()
             page.draw_maps()
             deadline = perf_counter() + 15
-            while page.worker is not None and perf_counter() < deadline:
+            while page.background_render_pending and perf_counter() < deadline:
                 QTest.qWait(10)
             self.assertIsNotNone(page.result)
             page.zoom.setCurrentText('200%')

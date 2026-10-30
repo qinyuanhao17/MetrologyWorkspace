@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import QApplication
 from metrology_app.array_plot import ArrayOptions, prepare_array
 from metrology_app.plot_page import PlotPage
 from metrology_app.radius_page import RadiusPage
-from tests.test_wafer_static import map_fixture
+from tests.test_wafer_static import finish_graphics, map_fixture
 
 APP = QApplication.instance() or QApplication([])
 
@@ -32,6 +32,8 @@ class MapPageZoomTests(unittest.TestCase):
         page.resize(1400, 850)
         page.show()
         APP.processEvents()
+        if kind is PlotPage:
+            finish_graphics(page)
         return page
 
     @staticmethod

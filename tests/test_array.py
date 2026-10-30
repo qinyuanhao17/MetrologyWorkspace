@@ -196,12 +196,11 @@ class PlotWorkspaceTests(unittest.TestCase):
         page = self.window.plot_page
         start = time.monotonic()
         while (
-            page.worker is not None
-            or page.input_refresh_timer.isActive()
-            or page.pending_input_refresh
+            page.background_render_pending
         ) and time.monotonic() - start < 25:
             QTest.qWait(20)
         self.assertIsNone(page.worker, "Background render did not complete")
+        self.assertFalse(page.background_render_pending, page.status.text())
 
     def unique_fixture(self):
         # Test-only in-memory input: the app must never silently filter the real CSV.
@@ -340,6 +339,7 @@ class PlotWorkspaceTests(unittest.TestCase):
             page.color_map.setCurrentText("Viridis")
             QTest.qWait(400)
             APP.processEvents()
+            self.wait_render()
             redraw.assert_not_called()
         self.assertEqual([panel.image for panel in page.map_grid.panels], images)
         self.assertTrue(page.artists[0][0].contours.get_visible())
@@ -504,7 +504,7 @@ class PlotWorkspaceTests(unittest.TestCase):
         if expected_dpi < export_scale * 100:
             self.assertIn("capped", page.status.text())
         page.font_size.setCurrentText("14")
-        QTest.qWait(250)
+        self.wait_render()
         axis = page.artists[0][0].axes
         self.assertEqual(axis.title.get_fontsize(), 14)
         self.assertEqual(axis.title.get_fontweight(), "bold")
@@ -545,6 +545,7 @@ class PlotWorkspaceTests(unittest.TestCase):
         # Resolution supersamples the screen raster and drives the export DPI,
         # exactly as before; Export… additionally offers vector output.
         page.resolution.setCurrentText("Standard")
+        self.wait_render()
         self.assertEqual(page.canvas.width(), 3 * 460)
         self.assertIsNotNone(page.result)
         page.resolution.setCurrentText("High")

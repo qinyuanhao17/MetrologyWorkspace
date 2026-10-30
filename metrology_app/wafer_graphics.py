@@ -5,6 +5,9 @@ Qt draws the static annotations in batches; ImageItem owns the colour fields.
 The Matplotlib renderer remains the independent vector/raster export backend.
 """
 from functools import lru_cache
+from copy import copy
+from hashlib import sha256
+from math import floor
 
 import numpy as np
 import contourpy
@@ -14,7 +17,8 @@ from matplotlib.path import Path
 from matplotlib.font_manager import FontProperties
 from matplotlib.textpath import TextPath
 from matplotlib.ticker import MaxNLocator, ScalarFormatter
-from PyQt6.QtCore import QPointF, QRectF, Qt
+from PyQt6 import sip
+from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QTransform
 from PyQt6.QtWidgets import QGraphicsView, QToolTip
 
@@ -107,6 +111,29 @@ def text_path(text, pixels, bold):
     return QTransform(1, 0, 0, -1, 0, 0).map(qt_path(glyph.vertices, glyph.codes))
 
 
+class _LabelBoxIndex:
+    """Spatial candidates for the original ordered, strict overlap predicate."""
+    def __init__(self, cell_size=24):
+        self.cell_size = cell_size
+        self.cells = {}
+
+    def _keys(self, box):
+        size = self.cell_size
+        for x in range(floor(box[0] / size), floor(box[2] / size) + 1):
+            for y in range(floor(box[1] / size), floor(box[3] / size) + 1):
+                yield x, y
+
+    def add_if_clear(self, box):
+        keys = tuple(self._keys(box))
+        for key in keys:
+            for other in self.cells.get(key, ()):
+                if box[0] < other[2] and box[2] > other[0] and box[1] < other[3] and box[3] > other[1]:
+                    return False
+        for key in keys:
+            self.cells.setdefault(key, []).append(box)
+        return True
+
+
 class WaferImage(pg.ImageItem):
     """Smooth ImageItem clipped to the exact circular wafer, not its square."""
     def paint(self, painter, *args):
@@ -122,7 +149,7 @@ class WaferImage(pg.ImageItem):
 class WaferPanel(pg.GraphicsObject):
     _glyph_paths = {}
 
-    def __init__(self, scene, settings, parent):
+    def __init__(self, scene, settings, parent, *, template=None):
         super().__init__(parent)
         self.source = scene
         self.settings = settings
@@ -136,6 +163,8 @@ class WaferPanel(pg.GraphicsObject):
         self.label_path = QPainterPath()
         self.drawn_indices = []
         self._pixel_positions = np.empty((0, 2))
+        self._geometry_key = None
+        self._label_key = None
         self.status_callback = None
         self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
         self.setAcceptHoverEvents(True)
@@ -143,8 +172,15 @@ class WaferPanel(pg.GraphicsObject):
             self.positions = scene["surface"][0]
             self.low, self.high = colour_limits(scene)
             self.values = scene["layer"].value.to_numpy(float)
-            self.value_labels = ValueLabels(self.positions, self.values, 5.5,
-                                            scene["options"].point_decimals)
+            if (template is not None and template.image is not None
+                    and tuple(self.values) == template.value_labels.values
+                    and scene['options'].point_decimals == template.value_labels.decimals):
+                # Decimal formatting is immutable here. A separate Artist keeps
+                # any later precision change from mutating the old published page.
+                self.value_labels = copy(template.value_labels)
+            else:
+                self.value_labels = ValueLabels(self.positions, self.values, 5.5,
+                                                scene["options"].point_decimals)
             self.image = WaferImage(axisOrder="row-major")
             self.image.setParentItem(self)
             self.image.setZValue(-1)
@@ -176,10 +212,20 @@ class WaferPanel(pg.GraphicsObject):
         self.contours = None  # Re-colour iso-lines, retaining the original surface.
         self.update()
 
-    def set_geometry(self, box, font_size):
+    def set_geometry(self, box, font_size, *, template=None):
+        options = self.source.get("options")
+        positions_key = (sha256(np.ascontiguousarray(self.positions).tobytes()).digest()
+                         if self.image is not None else None)
+        key = (tuple(box.getRect()), font_size, positions_key,
+               (options.radius, options.center_x, options.center_y, options.show_colorbar)
+               if self.image is not None else None)
+        if key == self._geometry_key:
+            if self.image is not None:
+                self._prepare_labels()
+            self.update()
+            return
         self.prepareGeometryChange()
         self.box, self.font_size = QRectF(box), font_size
-        options = self.source.get("options")
         main = QRectF(box)
         self.bar_rect = QRectF()
         if self.image is not None and options.show_colorbar:
@@ -195,13 +241,18 @@ class WaferPanel(pg.GraphicsObject):
             self.axis_rect = QRectF(box)
         if self.image is not None:
             self.image.setRect(self.axis_rect)
-            transform = self.data_transform()
-            self._pixel_positions = np.array(
-                [(mapped.x(), mapped.y()) for mapped in
-                 (transform.map(QPointF(float(x), float(y))) for x, y in self.positions)],
-                dtype=float) if len(self.positions) else np.empty((0, 2))
-            self._prepare_labels()
+            self._geometry_key = key
+            if template is not None and template._geometry_key == key:
+                self._pixel_positions = template._pixel_positions
+            else:
+                transform = self.data_transform()
+                self._pixel_positions = np.array(
+                    [(mapped.x(), mapped.y()) for mapped in
+                     (transform.map(QPointF(float(x), float(y))) for x, y in self.positions)],
+                    dtype=float) if len(self.positions) else np.empty((0, 2))
+            self._prepare_labels(template=template)
             self._prepare_bar()
+        self._geometry_key = key
         self.update()
 
     def hover_text(self, point):
@@ -248,16 +299,25 @@ class WaferPanel(pg.GraphicsObject):
                           rect.center().x() - options.center_x * scale,
                           rect.center().y() + options.center_y * scale)
 
-    def _prepare_labels(self):
+    def _prepare_labels(self, *, template=None):
         labels = self.value_labels
         labels.set_decimals(self.source["options"].point_decimals)
+        label_key = (self._geometry_key, tuple(labels.labels),
+                     sha256(np.ascontiguousarray(self.values).tobytes()).digest())
+        if label_key == self._label_key:
+            return
+        if template is not None and template._label_key == label_key:
+            self.label_path = QPainterPath(template.label_path)
+            self.drawn_indices = list(template.drawn_indices)
+            self._label_key = label_key
+            return
         size = max(4.5, self.font_size * .55)
         if len(self.values) > 100:
             size = max(4.5, size - 1)
         scale = size * 100/72
         gap = max(1.5, scale * .12)
         transform = self.data_transform()
-        path, boxes, indices = QPainterPath(), [], []
+        path, boxes, indices = QPainterPath(), _LabelBoxIndex(), []
         for index, (label, position) in enumerate(zip(labels.labels, self.positions)):
             point = transform.map(QPointF(*position))
             width = sum(labels._glyphs[c][1] for c in label) * scale
@@ -265,9 +325,8 @@ class WaferPanel(pg.GraphicsObject):
             baseline = point.y() + (labels._top + .75) * scale
             box = (point.x()-width/2-gap, baseline-labels._top*scale-gap,
                    point.x()+width/2+gap, baseline+gap)
-            if any(box[0] < b[2] and box[2] > b[0] and box[1] < b[3] and box[3] > b[1] for b in boxes):
+            if not boxes.add_if_clear(box):
                 continue
-            boxes.append(box)
             indices.append(index)
             cursor = point.x() - width/2
             for character in label:
@@ -277,6 +336,7 @@ class WaferPanel(pg.GraphicsObject):
                 path.addPath(QTransform(scale, 0, 0, -scale, cursor, baseline).map(self._glyph_paths[character]))
                 cursor += advance * scale
         self.label_path, self.drawn_indices = path, indices
+        self._label_key = label_key
 
     def _prepare_contours(self):
         if self.contours is not None:
@@ -457,13 +517,32 @@ class WaferPanel(pg.GraphicsObject):
             self.text(painter, offset, QRectF(bar.left()-10, bar.top()-43, 95, 20))
 
 
+class _PendingWaferLayer(pg.GraphicsObject):
+    """Owned unpublished children, detached from the displayed scene."""
+    def boundingRect(self):
+        return QRectF()
+
+    def paint(self, painter, *args):
+        pass
+
+
 class WaferMapGrid(pg.GraphicsObject):
     """Fixed scientific coordinate frames; the containing view only scrolls."""
+    rendered = pyqtSignal(object)
+    render_failed = pyqtSignal(str)
+    render_progress = pyqtSignal(int, int)
+
     def __init__(self):
         super().__init__()
         self.panels = []
         self.rect = QRectF()
         self.status_callback = None
+        self._pending = None
+        self._generation = 0
+        self.render_stats = {name: 0 for name in ("requests", "published", "panels_created",
+                                                "templates_reused", "images_reused", "cancelled", "failed")}
+        self._render_timer = QTimer(self, interval=1, singleShot=True)
+        self._render_timer.timeout.connect(self._render_batch)
         self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
         self.setAcceptHoverEvents(False)
 
@@ -474,33 +553,167 @@ class WaferMapGrid(pg.GraphicsObject):
         pass
 
     def clear(self):
+        self.cancel_render()
         for panel in self.panels:
             panel.setParentItem(None)
             if panel.scene() is not None:
                 panel.scene().removeItem(panel)
         self.panels = []
 
-    def set_result(self, result, font_size, identity_labels):
-        self.clear()
-        self.prepareGeometryChange()
-        rows, columns = result["shape"]
-        self.rect = QRectF(0, 0, columns*460, rows*420+30)
-        self.panels = [WaferPanel(scene, result["settings"], self) for scene in result["scenes"]]
-        for panel in self.panels:
-            panel.status_callback = self.status_callback
-        self.relayout(result, font_size, identity_labels)
+    @property
+    def render_pending(self):
+        return self._pending is not None
 
-    def relayout(self, result, font_size, identity_labels):
+    def cancel_render(self):
+        self._generation += 1
+        self._render_timer.stop()
+        state, self._pending = self._pending, None
+        if state is not None:
+            self.render_stats["cancelled"] += 1
+            layer = state["layer"]
+            layer.setParentItem(None)
+            if layer.scene() is not None:
+                layer.scene().removeItem(layer)
+            layer.deleteLater()
+
+    @staticmethod
+    def _layout_boxes(result, rect, font_size):
         rows, columns = result["shape"]
         grow = max(0, font_size-10)
         left, right, top, bottom = 58+9*grow, 78+6*grow, 70+9*grow, 42+9*grow
         wspace, hspace = .42+.02*grow, .28+.055*grow
-        width = (self.rect.width()-left-right)/(columns+(columns-1)*wspace)
-        height = (self.rect.height()-top-bottom)/(rows+(rows-1)*hspace)
+        width = (rect.width()-left-right)/(columns+(columns-1)*wspace)
+        height = (rect.height()-top-bottom)/(rows+(rows-1)*hspace)
+        return [QRectF(left+column*width*(1+wspace), top+row*height*(1+hspace), width, height)
+                for row, column in (divmod(index, columns) for index in range(len(result["scenes"])))]
+
+    def set_result(self, result, font_size, identity_labels, *, deferred=False, valid=None):
+        self.render_stats["requests"] += 1
+        self.cancel_render()
+        rows, columns = result["shape"]
+        rect = QRectF(0, 0, columns*460, rows*420+30)
+        layer = _PendingWaferLayer()
+        layer.setParent(self)  # QObject ownership without scene invalidation per batch.
+        layer.hide()
+        templates = {(id(panel.source.get("surface")), id(panel.source.get("layer"))): panel
+                     for panel in self.panels if panel.image is not None}
+        self._pending = {"generation": self._generation, "result": result, "font": font_size,
+                         "identity": dict(identity_labels), "rect": rect,
+                         "boxes": self._layout_boxes(result, rect, font_size), "panels": [],
+                         "position": 0, "layer": layer, "templates": templates, "valid": valid}
+        if not self._is_current(self._pending):
+            return
+        if deferred and len(result["scenes"]) > 2:
+            self._render_timer.start()
+        else:
+            self._render_batch(len(result["scenes"]), raise_errors=True)
+
+    def _is_current(self, state):
+        if (sip.isdeleted(self) or state is not self._pending
+                or state["generation"] != self._generation):
+            return False
+        if state["valid"] is not None and not state["valid"]():
+            if not sip.isdeleted(self) and state is self._pending:
+                self.cancel_render()
+            return False
+        return True
+
+    def _render_batch(self, count=2, *, raise_errors=False):
+        state = self._pending
+        if state is None or not self._is_current(state):
+            return
+        try:
+            for _ in range(count):
+                index = state["position"]
+                if index == len(state["result"]["scenes"]):
+                    break
+                scene = state["result"]["scenes"][index]
+                template = state["templates"].get((id(scene.get("surface")), id(scene.get("layer"))))
+                panel = WaferPanel(scene, state["result"]["settings"], state["layer"], template=template)
+                if not self._is_current(state):
+                    return
+                self.render_stats["panels_created"] += 1
+                panel.status_callback = self.status_callback
+                panel.identity_labels = state["identity"]
+                panel.set_geometry(state["boxes"][index], state["font"], template=template)
+                if not self._is_current(state):
+                    return
+                if (template is not None and panel._geometry_key == template._geometry_key
+                        and panel._label_key == template._label_key):
+                    self.render_stats["templates_reused"] += 1
+                if panel.image is not None:
+                    if not self._is_current(state):
+                        return
+                    # Contours retain the original lazy visible-panel path.
+                    # Preparing all offscreen contours here adds work the old
+                    # renderer never needed before completing the same viewport.
+                    # ImageItem normally materialises its QImage at first paint.
+                    # Keep that work in this GUI batch rather than final publication.
+                    panel.image.render()
+                state["panels"].append(panel)
+                state["position"] += 1
+                if not self._is_current(state):
+                    return
+            self.render_progress.emit(state["position"], len(state["result"]["scenes"]))
+            if not self._is_current(state):
+                return
+            if state["position"] == len(state["result"]["scenes"]):
+                self._publish(state)
+            else:
+                self._render_timer.start()
+        except Exception as error:
+            if self._is_current(state):
+                self.render_stats["failed"] += 1
+                self.cancel_render()
+                self.render_failed.emit(str(error))
+                if raise_errors:
+                    raise
+
+    def _publish(self, state):
+        if not self._is_current(state):
+            return
+        old = self.panels
+        self.prepareGeometryChange()
+        self.rect = state["rect"]
+        for panel in state["panels"]:
+            template = state['templates'].get((id(panel.source.get('surface')), id(panel.source.get('layer'))))
+            if template is not None and template.image is not None and panel.image is not None:
+                # Only move a published ImageItem after the entire new page is
+                # ready. Its old pixels remain untouched throughout preparation.
+                image = template.image
+                prepared = panel.image
+                image.setParentItem(panel)
+                image.setImage(prepared.image, autoLevels=False)
+                image.setOpacity(prepared.opacity())
+                image.setRect(panel.axis_rect)
+                image.render()
+                prepared.setParentItem(None)
+                if prepared.scene() is not None:
+                    prepared.scene().removeItem(prepared)
+                panel.image = image
+                template.image = None
+                self.render_stats['images_reused'] += 1
+            panel.setParentItem(self)
+        self.panels = state["panels"]
+        self._pending = None
+        self.render_stats["published"] += 1
+        for panel in old:
+            panel.setParentItem(None)
+            if panel.scene() is not None:
+                panel.scene().removeItem(panel)
+        layer = state["layer"]
+        layer.setParentItem(None)
+        if layer.scene() is not None:
+            layer.scene().removeItem(layer)
+        layer.deleteLater()
+        self.update()
+        self.rendered.emit(state["result"])
+
+    def relayout(self, result, font_size, identity_labels):
+        boxes = self._layout_boxes(result, self.rect, font_size)
         for index, panel in enumerate(self.panels):
-            row, column = divmod(index, columns)
             panel.identity_labels = identity_labels
-            panel.set_geometry(QRectF(left+column*width*(1+wspace), top+row*height*(1+hspace), width, height), font_size)
+            panel.set_geometry(boxes[index], font_size)
 
     @property
     def valid_count(self):

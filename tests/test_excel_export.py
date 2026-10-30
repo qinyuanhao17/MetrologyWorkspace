@@ -548,7 +548,7 @@ class ExcelExportTests(unittest.TestCase):
             page.selector.selectAll()
             page.draw_maps()
             deadline = time.monotonic() + 30
-            while page.worker is not None and time.monotonic() < deadline:
+            while page.background_render_pending and time.monotonic() < deadline:
                 QTest.qWait(10)
             self.assertIsNone(page.worker)
             self.assertTrue(page.artists)

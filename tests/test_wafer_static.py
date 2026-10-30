@@ -9,6 +9,7 @@ import pandas as pd
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QPoint, QPointF, QRectF, Qt
 from PyQt6.QtGui import QImage, QPainter, QWheelEvent
+from PyQt6.QtTest import QTest
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 
@@ -17,6 +18,14 @@ from metrology_app.plot_page import PlotPage
 
 
 APP = QApplication.instance() or QApplication([])
+
+
+def finish_graphics(page):
+    deadline = perf_counter() + 8
+    while page.background_render_pending:
+        if perf_counter() >= deadline:
+            raise AssertionError(page.status.text())
+        QTest.qWait(1)
 
 
 def map_fixture(wafers=2, metrics=5):
@@ -40,6 +49,7 @@ class StaticWaferTests(unittest.TestCase):
         self.addCleanup(page.close)
         self.addCleanup(page.stop)
         page.render_result(result)
+        finish_graphics(page)
         self.assertIsNotNone(page.result, page.empty.text())
         return page
 
@@ -109,11 +119,14 @@ class StaticWaferTests(unittest.TestCase):
         page.color_map.setCurrentText("Viridis")
         page.scale_bar.setChecked(False)
         page.apply_plot_style()
+        finish_graphics(page)
         actual = QImage.fromData(page.png_bytes())
         page.figure.canvas.draw()
         reference = Figure(figsize=page.figure.get_size_inches(), dpi=page.figure.dpi, facecolor="white")
         FigureCanvasAgg(reference)
-        draw_array(reference, result, int(page.font_size.currentText()))
+        # Presentation updates no longer mutate the still-published old result.
+        self.assertFalse(result['settings'].contour)
+        draw_array(reference, page.result, int(page.font_size.currentText()))
         from io import BytesIO
         from metrology_app.appearance import export_dpi, resolution_settings, MAX_COPY_PIXELS
         buffer = BytesIO()
@@ -174,6 +187,7 @@ class StaticWaferTests(unittest.TestCase):
                 start = perf_counter()
                 page.render_result(result)
                 APP.processEvents()
+                finish_graphics(page)  # Completion remains inside the original timing budget.
                 durations.append(perf_counter() - start)
                 self.assertIsNotNone(page.result, page.empty.text())
             print("wafer UI seconds:", durations, "median:", median(durations), flush=True)

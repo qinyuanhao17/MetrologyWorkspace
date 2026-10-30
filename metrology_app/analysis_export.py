@@ -84,7 +84,8 @@ def capture_window(window):
     else:
         for label, page in (("Wafer Map", window.plot_page), ("Radius", window.radius_page)):
             _check_draw(page)
-            if getattr(page, "worker", None) is not None:
+            if (getattr(page, "worker", None) is not None
+                    or getattr(page, "background_render_pending", False)):
                 raise ValueError("Wait for the Wafer Map drawing to finish before exporting.")
             ready = (page.result is not None and bool(page.artists)
                      if label == "Wafer Map" else page.ready)
@@ -148,10 +149,12 @@ def capture_saved_window(kind, frame, *, scope, saved, selection, workbook, para
         if kind == 'map':
             _check_draw(window.plot_page)
             _check_draw(window.radius_page)
-            if window.plot_page.has_drawn_once and window.plot_page.result is None and window.plot_page.worker is None:
+            if (window.plot_page.has_drawn_once and window.plot_page.result is None
+                    and not window.plot_page.background_render_pending):
                 window.plot_page.draw_maps()
         deadline = monotonic() + 60
-        while getattr(window.plot_page, 'worker', None) is not None:
+        while (getattr(window.plot_page, 'worker', None) is not None
+               or getattr(window.plot_page, 'background_render_pending', False)):
             if monotonic() >= deadline:
                 raise ValueError(f'Wait for saved {scope} Wafer Map drawing to finish before exporting.')
             # Deliver worker completion, not user edits to the live workbook.

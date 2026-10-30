@@ -91,7 +91,7 @@ class PlotLabelTests(unittest.TestCase):
             page.selector.selectAll()
         map_page.draw_maps()
         deadline = time.monotonic() + 30
-        while map_page.worker is not None and time.monotonic() < deadline:
+        while map_page.background_render_pending and time.monotonic() < deadline:
             APP.processEvents()
             time.sleep(.01)
         self.assertIsNotNone(map_page.result, map_page.empty.text() + map_page.status.text())

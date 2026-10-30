@@ -3635,6 +3635,25 @@ class MatchingWindow(QMainWindow):
         self._queued_stage_inputs = None
         self._linked_update_pending = False
 
+    def _heavy_linked_graphics(self):
+        """Keep the small-source shortcut only when its drawn pages are light."""
+        for child in self._stage_windows:
+            context = self._stage_window_context.get(child)
+            if context is None or not getattr(child, '_copy_from_wkb', True):
+                continue
+            kind, _stage = context
+            if kind == 'correlation':
+                if any(len(getattr(getattr(child, name, None), 'plot_widgets', ())) > 6
+                       for name in ('correlation_page', 'sequence_page')):
+                    return True
+            elif kind == 'map' and (self._workspace_data_follows_workbook()
+                                   or getattr(child, '_copy_from_wkb', False)):
+                page = getattr(child, 'plot_page', None)
+                if max(len(getattr(getattr(page, 'map_grid', None), 'panels', ())),
+                       len(getattr(page, 'drawn_cells', ()))) > 8:
+                    return True
+        return False
+
     def queue_stage_refresh(self):
         """Prepare one owned source version; newer edits replace its request."""
         if not self._stage_windows or self._syncing_stage_windows:
@@ -3642,9 +3661,10 @@ class MatchingWindow(QMainWindow):
         if any(not isinstance(child, QWidget) for child in self._stage_windows):
             self.sync_stage_windows()
             return
-        # Small inputs are cheaper than scheduling/copying a worker request;
-        # retain their existing one-event-loop source update behavior.
-        if self._active_raw_frame().size < 8192:
+        # A small source may still drive dozens of graphs. Use the existing
+        # deferred prepare/commit path for those pages, retaining the shortcut
+        # for small sources with light graphics.
+        if self._active_raw_frame().size < 8192 and not self._heavy_linked_graphics():
             self.sync_stage_windows()
             return
         if self.raw_view.keyboard_editing or self._raw_keyboard_timer.isActive():
@@ -3980,6 +4000,12 @@ class MatchingWindow(QMainWindow):
                 frame = workspace.model.merge_clipboard_frame(frame)
             self._offer_parameter_cards(workspace, raw_columns=frame.attrs.get("raw_parameter_columns", ()))
             if not reset_data and hasattr(workspace, 'model') and frame.equals(workspace.model.frame()):
+                page = getattr(workspace, 'plot_page', None) if kind == 'map' else None
+                if (page is not None and page.dirty and page.has_drawn_once
+                        and not page.selector.pending_draw and not page.pending_input_refresh):
+                    # The source table can already be current while its Map
+                    # job was cancelled by an Undo/Redo back to this version.
+                    page.restore_draw_state(page.draw_state())
                 return  # Its stage's source did not change; Card/participation still did.
             workspace.set_table(
                 frame, f"{str(stage).title()} {label} · Match Workbook",

@@ -3,6 +3,7 @@
 Matplotlib figures are materialised only when an export is requested.
 """
 from io import BytesIO
+from dataclasses import replace
 from pathlib import Path
 from weakref import WeakSet
 
@@ -10,6 +11,7 @@ import numpy as np
 from matplotlib import rcParams
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
+from PyQt6 import sip
 from PyQt6.QtCore import QEvent, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QImage, QKeySequence, QPainter, QShortcut
 from matplotlib import colormaps
@@ -82,6 +84,17 @@ class PlotPage(QWidget):
         self.signature = None
         self.dirty = True
         self.revision = 0
+        self._pending_render = None
+        self._style_source = None
+        self._presentation_fields = set()
+        self._render_serial = 0
+        self._settle_timer = QTimer(self, interval=0, singleShot=True)
+        self._settle_timer.timeout.connect(self.settle_canvas)
+        self._restore_scroll_timer = QTimer(self, interval=0, singleShot=True)
+        self._restore_scroll_timer.timeout.connect(self._restore_scroll)
+        self._page_refresh_timer = QTimer(self, interval=0, singleShot=True)
+        self._page_refresh_timer.timeout.connect(self.draw_maps)
+        self._saved_scroll = None
         self._center_timer = QTimer(self, singleShot=True)
         self._center_timer.timeout.connect(self.center_canvas)
         self._fit_width_timer = QTimer(self, singleShot=True)
@@ -318,6 +331,9 @@ class PlotPage(QWidget):
         self.map_grid.status_callback = self.status.setText
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
+        self.map_grid.rendered.connect(self._publish_map_result)
+        self.map_grid.render_failed.connect(self._map_render_failed)
+        self.map_grid.render_progress.connect(self._map_render_progress)
         self.x_column.currentIndexChanged.connect(self.invalidate)
         self.y_column.currentIndexChanged.connect(self.invalidate)
         self.selector.changed.connect(self.selector_changed)
@@ -351,6 +367,10 @@ class PlotPage(QWidget):
         self._export_dirty = True
 
     def _ensure_export(self):
+        self._flush_export_overlay()
+        if (getattr(self.window(), '_source_refresh_pending', False)
+                or self.background_render_pending or (self.result is not None and self.dirty)):
+            raise ValueError("Wait for current Wafer Map data and graphics to finish before exporting.")
         if self.result is None or not self._export_dirty:
             return
         rows, columns = self.result["shape"]
@@ -395,11 +415,12 @@ class PlotPage(QWidget):
         cells = self.selector.reconciled_cells(cells)
         if not cells:
             return
+        preserve = self.result is not None and cells == self.drawn_cells
         self.has_drawn_once = True
         self.drawn_cells = set(cells)
         self.selector.set_selected_cells(cells, notify=False)
         self.selector.pending_draw = False
-        self.invalidate()
+        self.invalidate(preserve_canvas=preserve)
         self.draw_state_changed.emit(self.draw_state())
         self.queue_input_refresh()
 
@@ -438,10 +459,11 @@ class PlotPage(QWidget):
                 default = previous if previous in frame else next((names[a] for a in aliases if a in names), None)
                 self.populate(combo, entries, default)
         self.selector.set_array(selection["wafers"], selection["metrics"], selection.get("labels"))
-        self.invalidate()
-        if (self.has_drawn_once and not grid_changed
+        replay = (self.has_drawn_once and not grid_changed
                 and not self.selector.pending_draw
-                and set(self.selector.selected_cells()) == set(self.drawn_cells)):
+                and set(self.selector.selected_cells()) == set(self.drawn_cells))
+        self.invalidate(preserve_canvas=replay and self.result is not None)
+        if replay:
             # Auto redraw only replays the last successful draw; a pending box
             # selection waits for the engineer to press Draw selected.
             self.queue_input_refresh()
@@ -483,17 +505,20 @@ class PlotPage(QWidget):
         except OSError as error:
             self.status.setText(f"Could not save color preferences: {error}")
 
-    def invalidate(self, *_):
+    def invalidate(self, *_, preserve_canvas=False):
+        self._cancel_background_draw()
         self.pending_fill_refresh = False
         self.revision += 1
         self.dirty = True
-        self.result = None
-        self.artists = []
+        if not preserve_canvas:
+            self.result = None
+            self.artists = []
         if self.worker:
             self.worker.requestInterruption()
         self.export_button.setEnabled(False)
         self.copy_button.setEnabled(False)
-        self.stack.setCurrentWidget(self.selector_panel)
+        self.stack.setCurrentWidget(self.scroll if preserve_canvas and self.page_intent == "canvas"
+                                   else self.selector_panel)
         nr, nc = len(self.selection.get("wafers", [])), len(self.selection.get("metrics", []))
         if not nr or not nc:
             self.empty.clear()
@@ -540,9 +565,6 @@ class PlotPage(QWidget):
 
     def refresh_fill_edge(self, *_):
         """Recompute edge continuation while leaving the current plot visible."""
-        if self.result is None or self.stack.currentWidget() is not self.scroll:
-            self.invalidate()
-            return
         if self.worker is not None:
             # Coalesce rapid checkbox changes and redraw once with the latest
             # state after the current interpolation has stopped.
@@ -551,12 +573,24 @@ class PlotPage(QWidget):
             self.worker.requestInterruption()
             self.status.setText("Restarting the edge-fill update…")
             return
+        if self.map_grid.render_pending:
+            self._cancel_background_draw()
+            self._start_surface_job(preserve_canvas=self.result is not None)
+            return
+        if self.result is None or self.stack.currentWidget() is not self.scroll:
+            self.invalidate()
+            return
         self._start_surface_job(preserve_canvas=True)
 
     def draw_maps(self, *_):
         self.page_intent = "canvas"
         self.pending_input_refresh = False
         self.input_refresh_timer.stop()
+        if _ and self.map_grid.render_pending:
+            self.revision += 1
+            self._cancel_background_draw()
+            self.status.setText('Wafer drawing cancelled; click Draw selected to refresh current data.')
+            return
         self._start_surface_job(preserve_canvas=False)
 
     def queue_input_refresh(self):
@@ -593,6 +627,8 @@ class PlotPage(QWidget):
 
     def _start_surface_job(self, preserve_canvas=False):
         if self.worker is not None:
+            self.revision += 1
+            self._cancel_background_draw()
             self.worker.requestInterruption()
             self.status.setText("Cancelling…")
             return
@@ -628,6 +664,7 @@ class PlotPage(QWidget):
             selection = dict(self.selection, cells=list(cells),
                              wafers=wafers, metrics=metrics)
             if preserve_canvas:
+                self._cancel_background_draw()
                 self.revision += 1
                 self.dirty = True
                 self.export_button.setEnabled(False)
@@ -638,8 +675,9 @@ class PlotPage(QWidget):
             # Option-driven re-renders keep the current zoom and scroll offset;
             # only a fresh "Draw selected" recentres the canvas.
             self._preserve_view = preserve_canvas
+            self.pending_fill_refresh = False
             self.worker = SurfaceJob(self.frame, selection, options, self)
-            self.worker.ready.connect(lambda result: self.render_result(result) if revision == self.revision else None)
+            self.worker.ready.connect(lambda result: self._accept_surface_result(result, revision))
             if preserve_canvas:
                 self.worker.failed.connect(
                     lambda message: self.show_refresh_error(message) if revision == self.revision else None)
@@ -664,13 +702,15 @@ class PlotPage(QWidget):
 
     def show_refresh_error(self, message):
         """Report an option-refresh failure without discarding the last plot."""
-        self.dirty = False
+        self._cancel_background_draw()
+        self.dirty = True
         self.stack.setCurrentWidget(self.scroll)
-        self.export_button.setEnabled(bool(self.map_grid.valid_count))
-        self.copy_button.setEnabled(bool(self.map_grid.valid_count))
-        self.status.setText(f"Could not update the estimated edge: {message}")
+        self.export_button.setEnabled(False)
+        self.copy_button.setEnabled(False)
+        self.status.setText(f"Could not update wafer maps; previous image retained: {message}")
 
     def show_error(self, message):
+        self._cancel_background_draw()
         self.result = None
         self.export_button.setEnabled(False)
         self.copy_button.setEnabled(False)
@@ -683,43 +723,137 @@ class PlotPage(QWidget):
             return  # A completion event queued before close must not refresh the page.
         self.worker.deleteLater()
         self.worker = None
-        self.draw_button.setText("Draw selected")
+        self.draw_button.setText("Cancel" if self.map_grid.render_pending else "Draw selected")
         if getattr(self, "_pending_page_refresh", False):
             self._pending_page_refresh = False
-            QTimer.singleShot(0, self.draw_maps)
+            self._page_refresh_timer.start()
             return
         if self.pending_input_refresh:
             self.input_refresh_timer.start()
             return
-        if (self.pending_fill_refresh and self.result is not None
-                and self.stack.currentWidget() is self.scroll):
+        if self.pending_fill_refresh:
             self.pending_fill_refresh = False
-            QTimer.singleShot(0, self.refresh_fill_edge)
+            self._start_surface_job(preserve_canvas=self.result is not None)
             return
-        if self.result is None and self.empty.text() == "Preparing wafer maps…":
+        if (self.result is None and self._pending_render is None
+                and self.empty.text() == "Preparing wafer maps…"):
             self.show_selector()
+
+    @property
+    def background_render_pending(self):
+        return self._graphics_work_pending() or self.overlay_timer.isActive()
+
+    def _graphics_work_pending(self):
+        return (self.worker is not None or self.pending_input_refresh
+                or self._pending_render is not None or self.map_grid.render_pending
+                or any(timer.isActive() for timer in (self.input_refresh_timer, self.font_timer,
+                                                       self.style_timer, self._page_refresh_timer)))
+
+    def _cancel_background_draw(self):
+        """Use the parent's existing cancellation hook for unpublished graphics."""
+        self._render_serial += 1
+        self._pending_render = None
+        self._style_source = None
+        self._presentation_fields.clear()
+        self.map_grid.cancel_render()
+        for timer in (self.font_timer, self.style_timer, self.overlay_timer,
+                      self._settle_timer, self._restore_scroll_timer):
+            timer.stop()
+        self._saved_scroll = None
+        if self.worker is None:
+            self.draw_button.setText("Draw selected")
+
+    def _style_values(self):
+        return dict(cmap=self.color_map.currentData(), cmap_range=self.color_range.range(),
+                    opacity=self.opacity.currentData()/100, show_colorbar=self.scale_bar.isChecked(),
+                    contour=self.contour.isChecked(), point_outline=self.point_outline.isChecked(),
+                    labels=self.labels.isChecked(), points=self.points.isChecked(),
+                    point_decimals=self.point_decimals.value())
+
+    def _styled_result(self, result, fields):
+        """Clone presentation options only; numerical surfaces/layers stay intact."""
+        changes = {name:value for name,value in self._style_values().items() if name in fields}
+        if all(getattr(result['settings'], name) == value for name,value in changes.items()):
+            return result
+        current = dict(result, settings=replace(result['settings'], **changes), scenes=[])
+        for scene in result['scenes']:
+            copied = dict(scene)
+            if 'options' in scene:
+                copied['options'] = replace(scene['options'], **changes)
+            current['scenes'].append(copied)
+        return current
+
+    def _accept_surface_result(self, result, revision):
+        if revision == self.revision:
+            self.render_result(self._styled_result(result, self._style_values()))
+
+    def _map_render_progress(self, done, total):
+        if self._pending_render is not None:
+            self.status.setText(f"Preparing wafer graphics {done} / {total}…")
+
+    def _map_render_failed(self, message):
+        if self._pending_render is None:
+            return
+        self._cancel_background_draw()
+        self.dirty = True
+        self.export_button.setEnabled(False)
+        self.copy_button.setEnabled(False)
+        if self.result is None:
+            self.stack.setCurrentWidget(self.empty)
+            self.empty.setText(f"Could not prepare wafer graphics: {message}")
+        self.status.setText(f"Could not update wafer graphics; current data is not drawn: {message}")
 
     def render_result(self, result):
         try:
-            saved_view = self.capture_view() if getattr(self, "_preserve_view", False) else None
-            self.result = result
+            self._cancel_background_draw()
             # A worker may finish after this presentation-only control changed.
             result["settings"].point_decimals = self.point_decimals.value()
             for scene in result["scenes"]:
                 if "options" in scene:
                     scene["options"].point_decimals = self.point_decimals.value()
+            state = {"result":result, "revision":self.revision, "serial":self._render_serial,
+                     "preserve_view":getattr(self, '_preserve_view', False),
+                     "keep_page":getattr(self, '_refresh_keeps_page', False),
+                     "cells":set(self.pending_cells)}
+            self._pending_render = state
+            self.dirty = True
+            self.export_button.setEnabled(False)
+            self.copy_button.setEnabled(False)
+            self.draw_button.setText("Cancel")
+            self.status.setText(f"Preparing wafer graphics 0 / {len(result['scenes'])}…")
+            def current():
+                if sip.isdeleted(self) or self._pending_render is not state:
+                    return False
+                if state['revision'] != self.revision or state['serial'] != self._render_serial:
+                    self._pending_render = None
+                    self.dirty = True
+                    if self.worker is None:
+                        self.draw_button.setText('Draw selected')
+                    return False
+                return True
+            self.map_grid.set_result(result, int(self.font_size.currentText()), self.identity_labels,
+                                     deferred=True, valid=current)
+        except Exception as error:
+            self._map_render_failed(str(error))
+
+    def _publish_map_result(self, result):
+        state = self._pending_render
+        if (state is None or state['result'] is not result or state['revision'] != self.revision
+                or state['serial'] != self._render_serial):
+            return
+        try:
+            saved_view = self.capture_view() if state['preserve_view'] else None
+            self.result = result
+            self._pending_render = None
             self._export_dirty = True
-            self.map_grid.set_result(result, int(self.font_size.currentText()), self.identity_labels)
             self.dirty = False
             self.has_drawn_once = True
-            self.drawn_cells = set(self.pending_cells)
+            self.drawn_cells = state['cells']
             self.selector.pending_draw = False
             self.draw_state_changed.emit(self.draw_state())
-            if getattr(self, "_refresh_keeps_page", False):
-                # The engineer may be re-picking maps: refresh without moving.
-                self._refresh_keeps_page = False
-            else:
-                self.stack.setCurrentIndex(1)
+            self._refresh_keeps_page = False
+            # A page choice made during preparation wins over the old request.
+            self.apply_page_intent()
             self.refresh_canvas()
             if saved_view is not None:
                 self.restore_view(saved_view)
@@ -730,6 +864,7 @@ class PlotPage(QWidget):
             self.status.setText(f"{count} / {result['selected_count']} maps · "
                                 f"Page {self.page_index + 1} / {getattr(self, '_page_total', 1)} · "
                                 f"{rows} × {columns} grid · {result['size_summary']}.")
+            self.draw_button.setText("Cancel" if self.worker is not None else "Draw selected")
         except Exception as error:
             self.show_error(str(error))
 
@@ -746,6 +881,9 @@ class PlotPage(QWidget):
         if self.identity_labels == options:
             return
         self.identity_labels = dict(options)
+        if self.background_render_pending:
+            self._queue_presentation(self.font_timer, set())
+            return
         self._apply_identity_labels()
 
     def refresh_canvas(self):
@@ -755,7 +893,7 @@ class PlotPage(QWidget):
         self.scene.setSceneRect(self.canvas_proxy.boundingRect())
         self.scroll.setSceneRect(self.scene.sceneRect())
         self.resize_canvas()
-        QTimer.singleShot(0, self.settle_canvas)
+        self._settle_timer.start()
 
     def settle_canvas(self):
         if self.result is None:
@@ -814,13 +952,17 @@ class PlotPage(QWidget):
         horizontal.setValue(saved["h"])
         vertical.setValue(saved["v"])
 
-        def settle():
-            # Ranges are finalised on the next event-loop pass; setting the
-            # offsets again keeps the exact row and column the user was on.
-            horizontal.setValue(min(saved["h"], horizontal.maximum()))
-            vertical.setValue(min(saved["v"], vertical.maximum()))
+        self._saved_scroll = dict(saved, serial=self._render_serial)
+        self._restore_scroll_timer.start()
 
-        QTimer.singleShot(0, settle)
+    def _restore_scroll(self):
+        saved = self._saved_scroll
+        if saved is None or saved['serial'] != self._render_serial:
+            return
+        horizontal, vertical = self.scroll.horizontalScrollBar(), self.scroll.verticalScrollBar()
+        horizontal.setValue(min(saved['h'], horizontal.maximum()))
+        vertical.setValue(min(saved['v'], vertical.maximum()))
+        self._saved_scroll = None
 
     def change_resolution(self, *_):
         if self.result is None:
@@ -831,63 +973,57 @@ class PlotPage(QWidget):
 
     def redraw_style(self, *_):
         """Merge rapid font changes before updating the static scene."""
-        if self.result is None:
-            return
-        self.status.setText("Updating plot labels…")
-        self.font_timer.start()
+        self._queue_presentation(self.font_timer, set())
 
     def queue_plot_style(self, *_):
         """Color changes reuse prepared surfaces instead of repeating interpolation."""
-        if self.result is not None and self.stack.currentWidget() is self.scroll:
-            self.status.setText("Updating colors…")
-            self.style_timer.start()
+        self._queue_presentation(self.style_timer,
+            {'cmap', 'cmap_range', 'opacity', 'show_colorbar', 'contour', 'point_outline'})
+
+    def _queue_presentation(self, timer, fields):
+        base = self._pending_render['result'] if self._pending_render is not None else self._style_source
+        merged = self._presentation_fields | set(fields)
+        if base is None and (self.worker is not None or self.pending_input_refresh):
+            self._presentation_fields = merged
+            self.status.setText('Current plot options will apply when the data is ready…')
+            return
+        if base is None:
+            if self.result is None or self.dirty:
+                return
+            base = self.result
+        self._cancel_background_draw()
+        self._style_source = base
+        self._presentation_fields = merged
+        self.dirty = True
+        self.export_button.setEnabled(False)
+        self.copy_button.setEnabled(False)
+        self.status.setText('Updating wafer graphics…')
+        timer.start()
+
+    def _submit_presentation(self, fields):
+        base = (self._pending_render['result'] if self._pending_render is not None
+                else self._style_source)
+        if base is None and (self.worker is not None or self.pending_input_refresh):
+            self._presentation_fields |= set(fields)
+            return
+        if base is None:
+            if self.result is None or self.dirty:
+                return
+            base = self.result
+        current = self._styled_result(base, self._presentation_fields | set(fields))
+        self._preserve_view = True
+        self.render_result(current)
 
     def apply_plot_style(self):
-        if self.result is None or self.stack.currentWidget() is not self.scroll:
-            return
-        cmap, show_colorbar = self.color_map.currentData(), self.scale_bar.isChecked()
-        contour, point_outline = self.contour.isChecked(), self.point_outline.isChecked()
-        opacity = self.opacity.currentData() / 100
-        cmap_range = self.color_range.range()
-        previous = self.result["settings"]
-        # Only the colour bar changes the figure layout; contours, outlines and
-        # overlays are toggled in place on the fast blit path.
-        structural_change = (show_colorbar != previous.show_colorbar)
-        palette_change = (cmap != previous.cmap
-                          or tuple(cmap_range) != tuple(previous.cmap_range or ())
-                          or opacity != previous.opacity)
-        self.result["settings"].cmap = cmap
-        self.result["settings"].show_colorbar = show_colorbar
-        self.result["settings"].contour = contour
-        self.result["settings"].point_outline = point_outline
-        self.result["settings"].opacity = opacity
-        self.result["settings"].cmap_range = cmap_range
-        for scene in self.result["scenes"]:
-            if "options" in scene:
-                scene["options"].cmap = cmap
-                scene["options"].show_colorbar = show_colorbar
-                scene["options"].contour = contour
-                scene["options"].point_outline = point_outline
-                scene["options"].opacity = opacity
-                scene["options"].cmap_range = cmap_range
-        self._export_dirty = True
-        if palette_change:
-            for panel in self.map_grid.panels:
-                if panel.image is not None:
-                    panel.update_palette()
-        if structural_change:
-            self.map_grid.relayout(self.result, int(self.font_size.currentText()), self.identity_labels)
-        for panel in self.map_grid.panels:
-            panel.update()
-        name = self.color_map.currentText()
-        self.status.setText(f"Color: {name} · Palette {cmap_range[0]:.0%}–{cmap_range[1]:.0%} · "
-                            f"Opacity {opacity:.0%} · Contours: {'on' if contour else 'off'} · "
-                            f"Scale bar: {'shown' if show_colorbar else 'hidden'}.")
-        QTimer.singleShot(0, self.center_canvas)
+        self._submit_presentation({'cmap', 'cmap_range', 'opacity', 'show_colorbar', 'contour', 'point_outline'})
 
     def queue_overlay_visibility(self, *_):
         """Merge rapid value/point toggles into a single repaint."""
-        if self.result is None or not self.map_grid.valid_count:
+        if (self._pending_render is not None or self._style_source is not None
+                or self.worker is not None or self.pending_input_refresh):
+            self._queue_presentation(self.overlay_timer, {'labels', 'points', 'point_decimals'})
+            return
+        if self.result is None or not self.map_grid.valid_count or self.dirty:
             return
         self.status.setText("Updating points and contours…")
         self.overlay_timer.start()
@@ -915,6 +1051,10 @@ class PlotPage(QWidget):
 
     def apply_overlay_visibility(self, *_):
         """Toggle values and measured points without recalculating map surfaces."""
+        if (self._pending_render is not None or self._style_source is not None
+                or self.worker is not None or self.pending_input_refresh):
+            self._submit_presentation({'labels', 'points', 'point_decimals'})
+            return
         if self.result is None:
             return
         show_labels, show_points = self.labels.isChecked(), self.points.isChecked()
@@ -944,16 +1084,15 @@ class PlotPage(QWidget):
         values = "shown" if show_labels else "hidden"
         points = "shown" if show_points else "hidden"
         self.status.setText(f"Point values: {values} · Measurement points: {points}.")
+        if (not self.dirty and not getattr(self.window(), '_source_refresh_pending', False)
+                and not self.background_render_pending):
+            available = bool(self.map_grid.valid_count)
+            self.export_button.setEnabled(available)
+            self.copy_button.setEnabled(available)
 
     def apply_font_style(self):
         """Resize Qt annotations; the colour fields and interpolations are reused."""
-        if self.result is None:
-            return
-        base = int(self.font_size.currentText())
-        label_size, tick_size = max(6, base - 1), max(5, base - 2)
-        self._export_dirty = True
-        self.map_grid.relayout(self.result, base, self.identity_labels)
-        self.status.setText(f"Plot font {base} pt · axis labels {label_size} pt · ticks {tick_size} pt.")
+        self._submit_presentation(set())
 
     def eventFilter(self, watched, event):
         if event.type() == QEvent.Type.Wheel and self.result is not None:
@@ -994,6 +1133,8 @@ class PlotPage(QWidget):
 
     def export_image(self):
         """Write the complete array as PNG (chosen quality) or as SVG / PDF vector."""
+        if not self._export_ready():
+            return
         if self.result is None or not self.artists:
             return
         self.apply_overlay_visibility()
@@ -1023,6 +1164,8 @@ class PlotPage(QWidget):
             self.status.setText(f"Export failed: {error}")
 
     def copy_png(self):
+        if not self._export_ready():
+            return
         if self.result is None or not self.artists:
             return
         self.apply_overlay_visibility()
@@ -1046,6 +1189,8 @@ class PlotPage(QWidget):
 
     def png_bytes(self):
         """Current Copy PNG grid, without touching the system clipboard."""
+        if not self._export_ready():
+            raise ValueError(self.status.text())
         self.apply_overlay_visibility()
         requested = resolution_settings(self.resolution)[1]
         dpi = export_dpi(self.figure, requested, MAX_COPY_PIXELS)
@@ -1053,14 +1198,36 @@ class PlotPage(QWidget):
         self.figure.savefig(buffer, format="png", dpi=dpi, facecolor="white")
         return buffer.getvalue()
 
+    def _flush_export_overlay(self):
+        # A current map can apply precision/point overlays immediately, as
+        # before. Never flush a stale source or an unfinished graphics request.
+        if (self.overlay_timer.isActive() and self.result is not None and not self.dirty
+                and not getattr(self.window(), '_source_refresh_pending', False)
+                and not self._graphics_work_pending()):
+            self.overlay_timer.stop()
+            self.apply_overlay_visibility()
+
+    def _export_ready(self):
+        self._flush_export_overlay()
+        if (getattr(self.window(), '_source_refresh_pending', False)
+                or self.background_render_pending or (self.result is not None and self.dirty)):
+            self.status.setText('Wait for current Wafer Map data and graphics to finish before exporting.')
+            return False
+        return self.result is not None
+
+    def closeEvent(self, event):
+        self.stop()
+        super().closeEvent(event)
+
     def stop(self):
         self.revision += 1  # Invalidate results already queued on the GUI thread.
+        self._cancel_background_draw()
         self.pending_input_refresh = False
         self.pending_fill_refresh = False
         self._pending_page_refresh = False
         self.input_refresh_timer.stop()
         for timer in (self.font_timer, self.style_timer, self.overlay_timer,
-                      self._center_timer, self._fit_width_timer):
+                      self._center_timer, self._fit_width_timer, self._page_refresh_timer):
             timer.stop()
         if self.settings_timer.isActive():
             self.settings_timer.stop()
@@ -1083,3 +1250,8 @@ class PlotPage(QWidget):
             if not job.isRunning():
                 _release_cancelled_job(job)
             self.draw_button.setText("Draw selected")
+        self.map_grid.clear()
+        self.result = None
+        self._artists = []
+        self._export_dirty = True
+        self._figure.clear()
