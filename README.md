@@ -115,6 +115,8 @@ python -m PyInstaller --noconfirm --clean MetrologyWorkspace.spec
 
 ## Spectra Viewer
 
+Windows 开发版 **v5-dev1** 提供 Setup 安装包和便携 ZIP，见 [发布说明](docs/releases/v5-dev1.md)。
+
 **Data → Data selection** 用一行表示一个 SME 文件，Apply 同步树中勾选和绘图。右上角 **Selection Script** 可复制/粘贴带版本号的 JSON，保留全部筛选行、AND/OR、搜索、查看模式、Hide excluded rows 和参与状态。记录仅按 **Wafer ID＋Lot ID＋PAD Name＋Die** 匹配，不使用 SME 名称或路径；同一身份的多条光谱统一应用勾选，来源状态冲突时提示先统一。旧版路径脚本需从更新后的来源窗口重新复制。跟随 Match Workbook selection 的子窗口显示父窗口选择，Apply 本地改动后自动切到 Full data，父窗口不变。
 
 **Open Die Map** 显示所有量测位点，已勾选为蓝色，未勾选为浅灰色。左键在单张 Die Map 内拖动矩形选中框内点，Ctrl/Shift 框选追加，单击空白取消选择；双击位点切换其光谱勾选。勾选仅更新现有位点的颜色，不重建整页或改变图尺寸。右键 **Apply to Similar Wafer** 要求 Die 编号集合相同，且每个对应 Die 的 X、Y 绝对差分别小于 **0.4 mm**；缺失/冲突坐标或来源混合勾选会明确提示。树右键 **Export Checked Spectra…** 按原 Folder 层级复制已有 SME 原文件，不生成或改写 SME；原件缺失或目标重名时不覆盖。

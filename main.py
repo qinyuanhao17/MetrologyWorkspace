@@ -34,6 +34,12 @@ def main():
     window = MainWindow()
     window.show()
     style_titlebar(window, settings["theme"])
+    if "--spectra-smoke-test" in sys.argv:
+        from metrology_app.spectra_smoke import run_spectra_smoke
+        index = sys.argv.index("--spectra-smoke-test")
+        if len(sys.argv) <= index + 2:
+            return 2
+        return run_spectra_smoke(window, app, sys.argv[index + 1], sys.argv[index + 2])
     if "--self-test" in sys.argv:
         # Release smoke test: prove that lazily imported components and all
         # bundled Qt/Matplotlib resources can be created by the frozen app.

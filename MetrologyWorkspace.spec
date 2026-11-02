@@ -18,6 +18,9 @@ datas += copy_metadata("onnxruntime", recursive=True)
 datas += collect_data_files("onnxruntime", includes=["LICENSE", "ThirdPartyNotices.txt", "Privacy.md"])
 ffi = Path(sys.base_prefix) / "Library" / "bin" / "ffi.dll"
 binaries = [(str(ffi), ".")] if ffi.exists() else []
+sqlite_dll = Path(sys.base_prefix) / "Library" / "bin" / "sqlite3.dll"
+if sqlite_dll.exists():
+    binaries.append((str(sqlite_dll), "."))
 
 analysis = Analysis(
     [str(root / "main.py")],
