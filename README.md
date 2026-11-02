@@ -1,6 +1,6 @@
 # Metrology Workspace
 
-Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、光谱、径向图、相关性图和趋势图。主窗口提供 **Match Workbook**、**Wafer Map**、**Spectra Viewer**、**Correlation and Trend**、**Dynamic** 和 **AutoWeighting Writer** 六个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例；窗口可命名、勾选随 WKB 保存。当前源码标签为 **v5.0.0**；功能、验证及已知限制见 [v5.0.0 发布说明](docs/releases/v5.0.0.md)。历史版本与开发版标签保持不变。
+Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、光谱、径向图、相关性图和趋势图。主窗口提供 **Match Workbook**、**Wafer Map**、**Spectra Viewer**、**Correlation and Trend**、**Dynamic** 和 **AutoWeighting Writer** 六个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例；窗口可命名、勾选随 WKB 保存。稳定源码标签为 **v5.0.0**；开发源码 **v5-dev** 见 [开发版说明](docs/releases/v5-dev.md)。历史版本标签保持不变。
 
 v4.3.1 修复 Match Group / Wafer 导出中曲线、Wafer 标签和分界线不一致的问题：原生 Trend、Bias 与 Bias % 改为绑定单元格的 XY series，Show Wafer Group 的真实宽度会同步作用于数据；Wafer 标签保持各自 span 中心。单独 Group 页始终展示全部 Wafer，Match Wafer 改为不分页的一张完整图，数值轴只保留一个 Die Seq 标题，并在每个 Wafer 内按可用宽度生成密集刻度。完整 Undo、宽表粘贴/删除和多窗口阶段切换仍可能等待，不能把局部提速理解为整体流畅度全部达标。
 
@@ -114,6 +114,14 @@ python -m PyInstaller --noconfirm --clean MetrologyWorkspace.spec
 这个表格用于整理绘图数据，不支持 Excel 公式、合并单元格或完整的 Excel 格式。
 
 ## Spectra Viewer
+
+**Data → Data selection** 用一行表示一个 SME 文件，Apply 同步树中勾选和绘图。右上角 **Selection Script** 可复制/粘贴带版本号的 JSON，保留全部筛选行、AND/OR、搜索、查看模式、Hide excluded rows 和参与状态。记录仅按 **Wafer ID＋Lot ID＋PAD Name＋Die** 匹配，不使用 SME 名称或路径；同一身份的多条光谱统一应用勾选，来源状态冲突时提示先统一。旧版路径脚本需从更新后的来源窗口重新复制。跟随 Match Workbook selection 的子窗口显示父窗口选择，Apply 本地改动后自动切到 Full data，父窗口不变。
+
+**Open Die Map** 显示所有量测位点，已勾选为蓝色，未勾选为浅灰色。左键在单张 Die Map 内拖动矩形选中框内点，Ctrl/Shift 框选追加，单击空白取消选择；双击位点切换其光谱勾选。勾选仅更新现有位点的颜色，不重建整页或改变图尺寸。右键 **Apply to Similar Wafer** 要求 Die 编号集合相同，且每个对应 Die 的 X、Y 绝对差分别小于 **0.4 mm**；缺失/冲突坐标或来源混合勾选会明确提示。树右键 **Export Checked Spectra…** 按原 Folder 层级复制已有 SME 原文件，不生成或改写 SME；原件缺失或目标重名时不覆盖。
+
+Match Workbook 顶部新增 **Open Spectra Viewer** 子窗口入口，可在菜单中新建、命名、勾选和删除多个光谱窗口。该入口为工作簿级，Preview/Final 共用入口，Card 不修改光谱数据。源采样、身份和通道元数据嵌入 `.mwkb`，原 SME 移动后仍可查看；勾选、多选、Filter By、Color By、BSL、分析模式、隐藏图例、视图开关、手动坐标范围和分隔条随 WKB 保存恢复。子窗口中的 **Save Match Workbook / Ctrl+S** 保存所属工作簿；关闭子窗口只保留会话草稿，父窗口统一处理未保存提示。此集成为 `v5.0.0` 快照之后的改动。
+
+Spectra Viewer 也支持独立的 **`.spec`** 文件：File → **Save Spectra / Save Spectra As…** 保存完整光谱和当前设置，**Open Spectra File…** 重新打开；主界面的 Open Workspace 和拖入文件也能识别 `.spec`。Match WKB 子窗口中，**Ctrl+S / Ctrl+Shift+S 始终保存或另存所属 Match WKB**，`.spec` 通过菜单单独保存；独立 Spectra Viewer 中，这两个快捷键保存或另存 `.spec`。保存 `.spec` 不会同时保存父 WKB。
 
 顶部 **Color By** 可选 **Wafer** 或 **SME Name**。Wafer 按 Wafer ID、Lot、PAD 的完整组合区分颜色；SME Name 按具体光谱文件区分颜色，重复文件名仍按源路径区分。两种方式都为不同 Channel 分配不同颜色，各图、图例与悬浮图保持一致。勾选、分类、缩放及切回已有模式时保留已分配颜色；双击图例只切换对应着色组的显示。优先使用 Tableau Category10，较多组合扩展色相、饱和度和亮度，避免循环复用相同 RGB。3σ 每条曲线汇总多个文件，因此仍按 Wafer/通道着色；此时 Color By 显示 Wafer 并禁用，离开 3σ 后恢复原选择。物理 Channel 数量统计不受着色分组影响。
 

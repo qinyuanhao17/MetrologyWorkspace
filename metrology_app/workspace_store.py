@@ -17,16 +17,16 @@ import sqlite3
 import tempfile
 
 FORMAT_VERSION = 1
-WORKSPACE_TYPES = {"match_workbook", "wafer_map", "dynamic", "correlation_trend", "auto_weighting"}
-EXTENSIONS = {"match_workbook": ".mwkb", "wafer_map": ".wmap", "dynamic": ".wdyn", "correlation_trend": ".wct", "auto_weighting": ".waw"}
+WORKSPACE_TYPES = {"match_workbook", "wafer_map", "dynamic", "correlation_trend", "auto_weighting", "spectra_viewer"}
+EXTENSIONS = {"match_workbook": ".mwkb", "wafer_map": ".wmap", "dynamic": ".wdyn", "correlation_trend": ".wct", "auto_weighting": ".waw", "spectra_viewer": ".spec"}
 WORKSPACE_LABELS = {"match_workbook": "Match Workbook", "wafer_map": "Wafer Map / Radius",
-                    "dynamic": "Dynamic", "correlation_trend": "Correlation and Trend", "auto_weighting": "AutoWeighting Writer"}
-WORKSPACE_FILTER = "Metrology workspaces (*.mwkb *.wkb *.wmap *.wdyn *.wct *.waw *.bak);;Backups (*.bak)"
+                    "dynamic": "Dynamic", "correlation_trend": "Correlation and Trend", "auto_weighting": "AutoWeighting Writer", "spectra_viewer": "Spectra Viewer"}
+WORKSPACE_FILTER = "Metrology workspaces (*.mwkb *.wkb *.wmap *.wdyn *.wct *.waw *.spec *.bak);;Backups (*.bak)"
 MATCH_FILTER = "Match Workbook (*.mwkb *.wkb *.bak);;Backups (*.bak)"
 _UNCHECKED = object()
 REQUIRED_FRAMES = {"match_workbook": {"reference", "raw"}, "wafer_map": {"input_data"},
                    "dynamic": {"input_data"}, "correlation_trend": {"reference_data", "raw_data"},
-                   "auto_weighting": {"parameters", "steps"}}
+                   "auto_weighting": {"parameters", "steps"}, "spectra_viewer": {"spectra"}}
 
 
 @dataclass

@@ -378,6 +378,69 @@ Feature: Review spectral measurements by wafer
       When the engineer closes the viewer
       Then its queued drawing work is cancelled
 
+  Rule: Spectra can belong to a Match Workbook
+
+    Scenario: Use the same Viewer appearance from either entry point
+      Given a Spectra Viewer is opened from the main window and another from a Match Workbook
+      Then their controls and layout use the same application theme
+      When the engineer switches between the light and dark themes
+      Then both Viewers update their appearance
+      And the Workbook child's save shortcuts still target its owning Workbook
+
+    Scenario: Fit complete wafers on each map page
+      Given a map page contains twelve wafers with long identity titles
+      When the engineer resizes the map window or opens the last page
+      Then every wafer outline and measurement point remains inside its plot
+      And long titles wrap above the plots without clipping the measurement area
+
+    Scenario: Hide and restore legend groups from the context menu
+      Given plotted spectra have checked and selected states and manual axes
+      When the engineer chooses Hide All in a legend's context menu
+      Then that legend's curve groups are hidden
+      And checked states, selected spectra and manual axes remain unchanged
+      When the engineer chooses Show All in the same menu
+      Then those groups become visible again
+      And hidden groups absent from that legend remain hidden
+
+    Scenario: Carry source spectra and choices with the Workbook
+      Given a named Spectra Viewer child contains checked spectra and a baseline
+      When the engineer saves and reopens the Match Workbook
+      Then the child restores source measurements and metadata without reading the original SME paths
+      And check states, colors, baseline, analysis mode and manual axes are restored
+      And opening an unchanged child does not mark the Workbook modified
+      When the engineer unchecks a restored spectrum
+      Then the Workbook has unsaved changes
+
+    Scenario: Remove only one Spectra window
+      Given two named Spectra children belong to a Match Workbook
+      When the engineer confirms deletion of one child
+      Then the other child and other analysis tools retain their data and choices
+      And original SME files are unchanged
+
+  Rule: Spectra can be saved independently
+
+    Scenario: Save a Workbook child as a portable Spectra file
+      Given a Workbook Spectra child has checked spectra and a baseline
+      When the engineer chooses Save Spectra As
+      Then a .spec file contains the source samples and current settings
+      And the parent Workbook is not saved or marked clean
+      When the engineer opens the .spec file independently
+      Then the spectra and analysis choices are restored without the original SME files
+
+    Scenario: Saving shortcuts prioritize the owning Workbook
+      Given a Spectra child belongs to a Match Workbook
+      When the engineer presses Ctrl+S or Ctrl+Shift+S
+      Then the owning Workbook's Save or Save As action runs
+      And the separate Spectra save actions have no conflicting shortcuts
+      Given a Spectra Viewer is opened independently
+      Then Ctrl+S and Ctrl+Shift+S save or save as a .spec file
+
+    Scenario: Preserve the current session when opening an invalid file
+      Given spectra are loaded in the viewer
+      When the engineer opens a .spec with unsupported settings
+      Then an error is reported before replacing the current spectra
+
+  # Executable Workbook acceptance checks: tests.test_spectra_workbook.
   # Executable acceptance checks: tests.test_sme_spectra,
   # tests.test_spectra_viewer and tests.test_spectra_map.
   # Reproducible resize probe: scripts/benchmark_spectra_splitter.py.

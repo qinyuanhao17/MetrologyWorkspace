@@ -1540,6 +1540,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertRegex(child.reference_footer.text(), r"^\d[\d,]* rows × \d+ columns$")
         def exclude_all():
             dialog = APP.activeModalWidget()
+            dialog.findChild(QLineEdit, "dataSelectionSearch").clear()
             next(b for b in dialog.findChildren(QPushButton) if b.text() == "Uncheck Visible").click()
             dialog.accept()
         QTimer.singleShot(0, exclude_all)

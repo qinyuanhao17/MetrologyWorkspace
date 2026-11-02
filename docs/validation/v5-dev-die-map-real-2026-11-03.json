@@ -1,0 +1,12 @@
+{
+  "spectra": 1890,
+  "maps": 12,
+  "rectangle_selected_sources": 21,
+  "double_click_toggles_checks": true,
+  "unchecked_sites_retained": true,
+  "map_widgets_and_sizes_unchanged": true,
+  "similar_wafers": 50,
+  "skipped_wafers": 39,
+  "title": "Spectrum Die Map",
+  "scale_factor": 1.25
+}

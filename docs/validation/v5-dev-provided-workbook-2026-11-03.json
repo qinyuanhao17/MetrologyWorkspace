@@ -1,0 +1,18 @@
+{
+  "workbook": "JC1913/matching-analysis.mwkb",
+  "spectra": 1890,
+  "exact_paths_before_relocation_match": 0,
+  "checked": 1869,
+  "excluded": 21,
+  "filters_transferred": true,
+  "identity_fields": [
+    "wafer_id",
+    "lot_id",
+    "pad_name",
+    "die"
+  ],
+  "script_version": 2,
+  "no_path_or_filename_matching": true,
+  "clipboard_script_applied_in_spectra_ui": true,
+  "workbook_file_unchanged": true
+}

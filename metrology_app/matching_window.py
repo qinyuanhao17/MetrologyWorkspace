@@ -817,6 +817,7 @@ class MatchingWindow(QMainWindow):
         self._stage_window_context = {}
         self._workspace_states = {}
         self._workspace_frames = {}
+        self._spectra_windows = {}
         self._recovered_children = {}
         self.second_axis_ratio = 10.0
         self.metric_highlighting = _metric_highlighting_limits()
@@ -920,6 +921,13 @@ class MatchingWindow(QMainWindow):
                                               "analysis_states": {key: deepcopy(value) for key, value in draft.states.items() if key != "ui"}}
                     for name, frame in draft.frames.items():
                         snapshot.frames[f"{scope}.{name}"] = frame
+        if self._spectra_windows:
+            from .spectra_workbook import snapshot as spectra_snapshot
+        for scope, child in self._spectra_windows.items():
+            draft = spectra_snapshot(child)
+            snapshot.states[scope] = {"window": dict(window_metadata(scope, self._workspace_states.get(scope, {}))),
+                                      "ui": draft.states["ui"], "workspace_type": "spectra_viewer", "data_override": True}
+            snapshot.frames[f"{scope}.spectra"] = draft.frames["spectra"]
         return snapshot
 
     def _accepted_workspace_state(self):
@@ -959,6 +967,9 @@ class MatchingWindow(QMainWindow):
                 for name, labels in selections.items()
             ):
                 raise ValueError("Invalid single-wafer plot selection.")
+        if self._spectra_windows:
+            from .spectra_workbook import close_children
+            close_children(self)
         self._close_stage_workspaces(tuple(self._stage_windows))
         self._clear_plot_groups()
         self.set_plot_labels(labels)
@@ -1172,6 +1183,10 @@ class MatchingWindow(QMainWindow):
         mode_row.addWidget(self.final_dynamic_button)
         mode_row.addWidget(self.preview_open_button)
         mode_row.addWidget(self.final_open_button)
+        self.spectra_button = QToolButton(text="Open Spectra Viewer", objectName="primary")
+        self.spectra_button.clicked.connect(lambda: self._open_checked_windows("spectra", "preview"))
+        self._configure_window_button(self.spectra_button, "spectra", "preview")
+        mode_row.addWidget(self.spectra_button)
         for button, kind, stage in ((self.correlation_button, "correlation", None),
                                     (self.preview_dynamic_button, "dynamic", "preview"),
                                     (self.final_dynamic_button, "dynamic", "final"),
@@ -3187,6 +3202,11 @@ class MatchingWindow(QMainWindow):
             QMessageBox.StandardButton.Cancel)
         if answer != QMessageBox.StandardButton.Yes:
             return
+        if kind == "spectra" and scope in self._spectra_windows:
+            child = self._spectra_windows.pop(scope)
+            child._workbook_on_close = None
+            child.close()
+            child.deleteLater()
         children = tuple(child for child in self._stage_windows if getattr(child, "_managed_scope", None) == scope)
         try:
             self._close_stage_workspaces(children)
@@ -3198,7 +3218,7 @@ class MatchingWindow(QMainWindow):
         for name in tuple(self._workspace_frames):
             if name.startswith(scope + "."):
                 del self._workspace_frames[name]
-        if scope == f"{kind}.{stage}":
+        if kind != "spectra" and scope == f"{kind}.{stage}":
             if kind in ("map", "dynamic"):
                 setattr(self, f"{stage}_{kind}_frame", None)
             selections = (self._correlation_selection_states if kind == "correlation" else
@@ -3251,18 +3271,27 @@ class MatchingWindow(QMainWindow):
             QMessageBox.warning(self, "Invalid window name", "Enter a non-empty, unique name for this tool and stage.")
             return
         self._workspace_states.setdefault(scope, {})["window"] = {**metadata, "name": name}
-        for child in self._stage_windows:
+        for child in (*self._stage_windows, *self._spectra_windows.values()):
             if getattr(child, "_managed_scope", None) == scope:
                 child._analysis_window_name = name
-                child.document.refresh_identity()
+                if hasattr(child, "document"):
+                    child.document.refresh_identity()
+                else:
+                    child.setWindowTitle(name + " — Match Workbook")
         self.document.refresh_identity()
 
     def _open_analysis_scope(self, kind, stage, scope):
+        if kind == "spectra":
+            return self.open_spectra_workspace(scope=scope)
         if kind == "correlation":
             return self.open_correlation_workspace(scope=scope)
         if kind == "map":
             return self.open_stage_workspace(stage, scope=scope)
         return self.open_dynamic_workspace(stage, scope=scope)
+
+    def open_spectra_workspace(self, *, scope="spectra.preview"):
+        from .spectra_workbook import open_child
+        return open_child(self, scope)
 
     def _open_checked_windows(self, kind, stage):
         entries = self._analysis_window_entries(kind, stage)
@@ -4110,11 +4139,20 @@ class MatchingWindow(QMainWindow):
         frames.append(("Reference", self.reference_frame.iloc[allowed].reset_index(drop=True)))
         return frames
 
-    def apply_child_selection_scope(self, workspace):
+    def apply_child_selection_scope(self, workspace, *, refresh_source=True):
         """Choose participation without replacing manual or locked Map data."""
         context = self._stage_window_context.get(workspace)
         if context is None:
             return False
+        if not refresh_source:
+            book = self._analysis_workspace_workbook()
+            if book is not None:
+                workspace.set_workbook_participation(book)
+            else:
+                workspace._refresh_selection_badge()
+                workspace.update_plan()
+            workspace.document.refresh_identity()
+            return True
         kind, stage = context
         if kind == "map" and (not getattr(workspace, "_copy_from_wkb", True)
                               or not self._workspace_data_follows_workbook()
@@ -4523,6 +4561,8 @@ class MatchingWindow(QMainWindow):
         if not self.document.confirm_close():
             event.ignore()
             return
+        from .spectra_workbook import close_children
+        close_children(self)
         self._cancel_main_plot_refresh()
         self._cancel_linked_refresh()
         self.group_settings_dialog.hide()
@@ -6104,6 +6144,9 @@ class MatchingWindow(QMainWindow):
             _metric_highlighting_limits(snapshot.states.get("match_ui", {}).get("metric_highlighting"))
             if not snapshot.states.get("match", {}).get("draft"):
                 MatchWorkbook.from_snapshot(snapshot)
+        if self._spectra_windows:
+            from .spectra_workbook import close_children
+            close_children(self)
         self._close_stage_workspaces(tuple(self._stage_windows))
         if "recovery" in snapshot.states:
             self.document.recover(path, snapshot)

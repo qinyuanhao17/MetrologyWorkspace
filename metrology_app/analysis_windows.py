@@ -1,7 +1,7 @@
 """Named child identities, independent of display names and Qt widgets."""
 import re
 
-LABELS = {"correlation": "Correlation and Trend", "dynamic": "Dynamic", "map": "Wafer Map / Radius"}
+LABELS = {"correlation": "Correlation and Trend", "dynamic": "Dynamic", "map": "Wafer Map / Radius", "spectra": "Spectra Viewer"}
 
 
 def scope_parts(scope):

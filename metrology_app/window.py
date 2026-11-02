@@ -132,7 +132,8 @@ class MainWindow(QMainWindow):
         self._input_draw_pending = {}
         self._managed_close_handler = None
         self._local_selection_excluded = set()
-        self._local_view = {"filters": [], "row_bools": [], "group_bools": [], "show": "all"}
+        self._local_view = {"filters": [], "row_bools": [], "group_bools": [], "show": "all",
+                            "search": "", "hide_excluded": False}
         self._workbook_selection_applies = True
         self._copy_from_wkb = False
         self.source_path = ""
@@ -300,6 +301,8 @@ class MainWindow(QMainWindow):
                     "row_bools": deepcopy(saved_view.get("row_bools", [])),
                     "group_bools": deepcopy(saved_view.get("group_bools", [])),
                     "show": str(saved_view.get("show", "all")),
+                    "search": str(saved_view.get("search", "")),
+                    "hide_excluded": bool(saved_view.get("hide_excluded", False)),
                 }
         self._restore_workspace_tables(snapshot)
         restore_analysis_state(self, snapshot.states.get("ui", {}))
@@ -1003,6 +1006,7 @@ class MainWindow(QMainWindow):
         if prepared is None or prepared["book"] is not book:
             prepared = prepare_workbook_participation(book)
         self._hide_workbook_excluded = prepared["hide_excluded"]
+        self._workbook_selection_view = deepcopy(prepared["view"])
         source = book.final_match_raw if book.result_mode == "final" and book.final_match_raw is not None else book.raw
         self._participation_excluded = set(prepared["excluded"])
         if self.workspace_type != "correlation_trend" and not any(
@@ -1019,7 +1023,8 @@ class MainWindow(QMainWindow):
         from .match_groups import participation_source_keys
         excluded = set(getattr(self, "_local_selection_excluded", set()))
         if getattr(self, "_workbook_selection_applies", True):
-            excluded |= getattr(self, "_participation_excluded", set())
+            inherited = getattr(self, "_participation_excluded", set())
+            excluded = set(inherited) if hasattr(self, "_workbook_selection_view") else excluded | inherited
         if not excluded:
             return set(range(len(frame)))
         return set(i for i, key in enumerate(participation_source_keys(frame)) if key not in excluded)
@@ -1059,7 +1064,8 @@ class MainWindow(QMainWindow):
     def _refresh_table_projection(self):
         """A reversible editor view; the complete document remains authoritative."""
         hidden = bool(getattr(self, "_hide_workbook_excluded", False)
-                      and getattr(self, "_workbook_selection_applies", True))
+                      if getattr(self, "_workbook_selection_applies", True)
+                      else getattr(self, "_local_view", {}).get("hide_excluded", False))
         for name, view, model in (("raw", getattr(self, "sheet", None), self.model),
                                   ("reference", getattr(self, "reference_sheet", None), getattr(self, "reference_model", None))):
             if view is None or model is None:
@@ -1106,22 +1112,31 @@ class MainWindow(QMainWindow):
         context = getattr(owner, "child_selection_context", None) if owner is not None else None
         extra_frames = context(self) if callable(context) else []
         saved_view = getattr(self, "_local_view", {}) or {}
-        dialog = FrameSelectionDialog(frame, getattr(self, "_local_selection_excluded", set()),
+        excluded = getattr(self, "_local_selection_excluded", set())
+        if self._workbook_selection_applies and hasattr(self, "_workbook_selection_view"):
+            saved_view = self._workbook_selection_view
+            excluded = self._participation_excluded
+        dialog = FrameSelectionDialog(frame, excluded,
                                       self, extra_frames=extra_frames,
                                       filters=saved_view.get("filters"),
                                       row_bools=saved_view.get("row_bools"),
                                       group_bools=saved_view.get("group_bools"),
-                                      show=saved_view.get("show", "all"))
+                                      show=saved_view.get("show", "all"),
+                                      search=saved_view.get("search", ""),
+                                      hide_excluded=saved_view.get("hide_excluded", False))
+        initial = (set(dialog.model.checked), dialog.view_state())
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            self._local_selection_excluded = set(dialog.excluded)
-            self._local_view = {
-                "filters": dialog.saved_filters,
-                "row_bools": dialog.saved_row_bools,
-                "group_bools": dialog.saved_group_bools,
-                "show": dialog.saved_show,
-            }
-            self._refresh_selection_badge()
-            self.update_plan()
+            if initial != (dialog.model.checked, dialog.view_state()):
+                self._local_selection_excluded = set(dialog.excluded)
+                self._local_view = dialog.view_state()
+                self._workbook_selection_applies = False
+                self.full_data_action.setChecked(True)
+                apply_scope = getattr(owner, "apply_child_selection_scope", None) if owner else None
+                if callable(apply_scope):
+                    apply_scope(self, refresh_source=False)
+                else:
+                    self._refresh_selection_badge()
+                    self.update_plan()
         dialog.deleteLater()
 
     def update_plan(self, *_args):

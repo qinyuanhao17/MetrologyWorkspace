@@ -22,6 +22,24 @@ APP = QApplication.instance() or QApplication([])
 
 
 class SpectraMapWindowTests(unittest.TestCase):
+    def test_check_changes_reuse_plots_ranges_and_unchecked_points(self):
+        spectra = (make_spectrum(1), make_spectrum(2))
+        self.window.show()
+        self.window.set_data(spectra, checked_keys={s.key for s in spectra})
+        self.settle_page(1)
+        APP.processEvents()
+        plot = next(iter(self.window.wafer_plots.values()))
+        size, ranges, labels = plot.plot.size(), plot.plot.getViewBox().viewRange(), tuple(plot.labels)
+        self.window.set_data(spectra, checked_keys={spectra[1].key})
+        APP.processEvents()
+        self.assertIs(next(iter(self.window.wafer_plots.values())), plot)
+        self.assertEqual(plot.plot.size(), size)
+        self.assertEqual(plot.plot.getViewBox().viewRange(), ranges)
+        self.assertEqual(tuple(plot.labels), labels)
+        self.assertEqual(len(plot.scatter.points()), 2)
+        self.assertEqual(plot.scatter.points()[0].brush().color().name(), "#d6d9de")
+        self.assertEqual(plot.scatter.points()[1].brush().color().name(), "#3e8bd8")
+
     def setUp(self):
         self.window = SpectraMapWindow()
 
@@ -37,7 +55,35 @@ class SpectraMapWindowTests(unittest.TestCase):
             time.sleep(0.005)
         self.assertEqual(len(self.window.wafer_plots), expected)
 
-    def test_one_map_per_wafer_and_only_checked_files_make_points(self):
+    def test_long_titles_keep_whole_wafers_visible_on_full_pages_and_resize(self):
+        spectra = tuple(replace(make_spectrum(die, wafer=f"AI01750.00-{index:02d}", lot="AI01750.00", pad="2026-8-18-15-8-39"),
+                                x_mm=x, y_mm=0.0)
+                        for index in range(13) for die, x in ((1, -125.0), (2, 125.0)))
+        self.window.resize(1600, 1000)
+        self.window.show()
+        self.window.set_data(spectra, checked_keys={s.key for s in spectra})
+        self.settle_page(12)
+
+        def assert_complete():
+            QTest.qWait(30)
+            self.window.grab()
+            for plot in self.window.wafer_plots.values():
+                view = plot.plot.getViewBox()
+                for x, y in ((-150, 0), (150, 0), (0, -150), (0, 150)):
+                    position = plot.plot.mapFromScene(view.mapViewToScene(QPointF(x, y)))
+                    self.assertTrue(plot.plot.viewport().rect().contains(position),
+                                    f"{plot.wafer}: {position}, viewport {plot.plot.viewport().rect()}")
+
+        assert_complete()
+        self.window.resize(960, 650)
+        assert_complete()
+        self.window.change_page(1)
+        self.settle_page(1)
+        assert_complete()
+        last = next(iter(self.window.wafer_plots.values()))
+        self.assertGreater(last.plot.height(), 300)
+
+    def test_one_map_per_wafer_retains_unchecked_points(self):
         spectra = (
             make_spectrum(1, wafer="W1"),
             make_spectrum(2, wafer="W1"),
@@ -52,7 +98,7 @@ class SpectraMapWindowTests(unittest.TestCase):
 
         self.window.set_data(spectra, checked_keys={spectra[0].key})
         self.assertEqual(self.window.wafer_count, 2)
-        self.assertEqual(self.window.point_count, 1)
+        self.assertEqual(self.window.point_count, 3)
 
     def test_pages_contain_at_most_twelve_wafer_maps(self):
         spectra = tuple(
@@ -111,7 +157,7 @@ class SpectraMapWindowTests(unittest.TestCase):
     def test_left_drag_selects_point_clusters_without_zoom_and_modifiers_add_points(self):
         spectra = tuple(replace(make_spectrum(i + 1), x_mm=x, y_mm=y)
                         for i, (x, y) in enumerate(((-20, -10), (20, 10), (0, 30), (-20, -10))))
-        self.window.set_data(spectra, checked_keys={s.key for s in spectra})
+        self.window.set_data(spectra, checked_keys=set())
         self.window.show()
         self.settle_page(1)
         APP.processEvents()
@@ -180,7 +226,7 @@ class SpectraMapWindowTests(unittest.TestCase):
         self.assertEqual(self.window.point_count, 3)
         self.settle_page(3)
         plot = self.window.wafer_plots[("W1", "L1", "P1")]
-        self.assertEqual(plot.plot.getPlotItem().titleLabel.text, "W1 · L1 · P1")
+        self.assertEqual(plot.title_label.text(), "W1 · L1 · P1")
         outline = [item for item in plot.plot.listDataItems()
                    if isinstance(item, pg.PlotDataItem)]
         self.assertEqual(len(outline), 1)

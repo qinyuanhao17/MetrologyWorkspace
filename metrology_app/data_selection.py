@@ -3,10 +3,10 @@ from copy import deepcopy
 
 import numpy as np
 import pandas as pd
-from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QAbstractTableModel, QModelIndex, QSignalBlocker, Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFrame, QHBoxLayout,
-    QLabel, QLineEdit, QMenu, QPushButton, QTableView, QToolButton,
+    QApplication, QLabel, QLineEdit, QMenu, QPlainTextEdit, QPushButton, QTableView, QToolButton,
     QVBoxLayout, QWidget,
 )
 
@@ -14,6 +14,7 @@ from .match_groups import participation_ids, participation_source_keys, row_ids,
 from .match_group_ui import ColumnFilterDialog
 from .table_clipboard import attach_copy_feedback
 from .table_selection import RangeSelectionTableView
+from .selection_script import export_script, import_script, selection_view
 
 
 _PARTICIPATION_FLAGS = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
@@ -139,11 +140,12 @@ class ParticipationView(RangeSelectionTableView):
 
 class SelectionDialog(QDialog):
     """Shared row/column selection body over one displayed table."""
+    selectionChanged = pyqtSignal()
 
     def __init__(self, frame, record_ids, checked, groups, parent=None, *,
                  object_name="dataSelectionDialog",
                  title="Data selection — analysis participation",
-                 row_bools=None, group_bools=None, show="all"):
+                 row_bools=None, group_bools=None, show="all", search="", hide_excluded=False):
         super().__init__(parent, objectName=object_name)
         self.setWindowTitle(title)
         self.resize(1100, 650)
@@ -174,6 +176,10 @@ class SelectionDialog(QDialog):
         clear = QPushButton("Clear filters")
         conditions.addWidget(clear)
         conditions.addStretch(1)
+        self.script_dialog = None
+        self.selection_script_button = QPushButton("Selection Script…", objectName="selectionScript")
+        self.selection_script_button.clicked.connect(self.open_selection_script)
+        conditions.addWidget(self.selection_script_button)
         layout.addLayout(conditions)
         self.filter_rows = QVBoxLayout()
         self.filter_rows.setContentsMargins(0, 0, 0, 0)
@@ -182,6 +188,7 @@ class SelectionDialog(QDialog):
         tools = QHBoxLayout()
         self.search = QLineEdit(objectName="dataSelectionSearch")
         self.search.setPlaceholderText("Find across Order, Reference and Raw Data…")
+        self.search.setText(search)
         self.show_rows = QComboBox(objectName="dataSelectionShow")
         for label, key in (("All rows", "all"), ("Filtered rows", "filtered"),
                            ("Checked rows", "checked"), ("Unchecked rows", "unchecked")):
@@ -219,11 +226,20 @@ class SelectionDialog(QDialog):
         apply.setObjectName("primary")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        self.hide_excluded = QCheckBox("Hide excluded rows in tables", objectName="hideExcludedRows")
+        self.hide_excluded.setChecked(hide_excluded)
+        self.hide_excluded.setToolTip("Hide unchecked records in this window's tables. Source data is retained.")
+        footer = QHBoxLayout()
+        footer.addWidget(self.hide_excluded)
+        footer.addStretch(1)
+        footer.addWidget(buttons)
+        layout.addLayout(footer)
         clear.clicked.connect(self.clear_filters)
         self.search.textChanged.connect(self.refresh_rows)
         self.show_rows.currentIndexChanged.connect(self.refresh_rows)
         self.model.changed.connect(self.update_status)
+        self.model.changed.connect(self.selectionChanged.emit)
+        self.hide_excluded.toggled.connect(self.selectionChanged.emit)
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
         self._refresh_timer.timeout.connect(self.refresh_rows)
@@ -231,6 +247,37 @@ class SelectionDialog(QDialog):
         self.model.modelReset.connect(lambda: setattr(self.table, "anchor", None))
         self._rebuild_filter_rows()
         self.refresh_rows()
+
+    def view_state(self):
+        return {"filters": deepcopy(self.filter_groups),
+                "row_bools": [self._normalized_row_bools(i) for i in range(len(self.filter_groups))],
+                "group_bools": self._normalized_group_bools(),
+                "show": self.show_rows.currentData(), "search": self.search.text(),
+                "hide_excluded": self.hide_excluded.isChecked()}
+
+    def selection_script(self):
+        state = {"checked": [i for i, key in enumerate(self.model.ids) if key in self.model.checked], **self.view_state()}
+        return export_script(self.model.frame, state)
+
+    def apply_selection_script(self, text):
+        state = import_script(self.model.frame, text)
+        self.filter_groups = state["filters"]
+        self.filter_row_bools, self.filter_group_bools = state["row_bools"], state["group_bools"]
+        self.model.checked = {self.model.ids[i] for i in state["checked"]}
+        blockers = [QSignalBlocker(widget) for widget in (self.search, self.show_rows, self.hide_excluded)]
+        self.search.setText(state["search"])
+        self.show_rows.setCurrentIndex(self.show_rows.findData(state["show"]))
+        self.hide_excluded.setChecked(state["hide_excluded"])
+        del blockers
+        self._rebuild_filter_rows()
+        self.refresh_rows()
+
+    def open_selection_script(self):
+        if self.script_dialog is None:
+            self.script_dialog = SelectionScriptDialog(self)
+        self.script_dialog.show()
+        self.script_dialog.refresh_script()
+        self.script_dialog.raise_()
 
     def update_status(self):
         text = (f"{len(self.model.frame):,} rows × {len(self.model.frame.columns)} columns · "
@@ -295,6 +342,7 @@ class SelectionDialog(QDialog):
             mask &= checked if show == "checked" else ~checked
         self.model.set_rows(np.flatnonzero(mask))
         self.update_status()
+        self.selectionChanged.emit()
 
     def check_visible(self, checked):
         keys = {self.model.ids[row] for row in self.model.rows}
@@ -544,6 +592,67 @@ class SelectionDialog(QDialog):
         if found is not None:
             self._remove_condition(*found)
 
+class SelectionScriptDialog(QDialog):
+    """A live, copyable recipe; imports edit the surrounding selection draft."""
+    def __init__(self, selection):
+        super().__init__(selection, objectName="selectionScriptDialog")
+        self.selection = selection
+        self.setWindowTitle("Selection Script")
+        self.resize(760, 560)
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Copy this selection to another window, or paste a script and apply it here."))
+        self.editor = QPlainTextEdit(objectName="selectionScriptText")
+        self.editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        layout.addWidget(self.editor, 1)
+        self.message = QLabel(objectName="hint")
+        self.message.setWordWrap(True)
+        layout.addWidget(self.message)
+        buttons = QHBoxLayout()
+        self.copy_button = QPushButton("Copy Selection Script")
+        self.copy_button.clicked.connect(self.copy_script)
+        buttons.addWidget(self.copy_button)
+        self.paste_button = QPushButton("Paste from Clipboard")
+        self.paste_button.clicked.connect(lambda: self.editor.setPlainText(QApplication.clipboard().text()))
+        buttons.addWidget(self.paste_button)
+        buttons.addStretch(1)
+        self.apply_button = QPushButton("Apply Script", objectName="primary")
+        self.apply_button.clicked.connect(self.apply_script)
+        buttons.addWidget(self.apply_button)
+        close = QPushButton("Close")
+        close.clicked.connect(self.hide)
+        buttons.addWidget(close)
+        layout.addLayout(buttons)
+        selection.selectionChanged.connect(self.refresh_script)
+
+    def refresh_script(self):
+        if self.isVisible():
+            try:
+                text = self.selection.selection_script()
+            except ValueError as error:
+                self.editor.clear()
+                self.message.setText(str(error))
+                self.copy_button.setEnabled(False)
+                return False
+            self.editor.setPlainText(text)
+            self.copy_button.setEnabled(True)
+            self.message.clear()
+            return True
+
+    def copy_script(self):
+        if not self.refresh_script():
+            return
+        QApplication.clipboard().setText(self.editor.toPlainText())
+        self.message.setText("Selection script copied.")
+
+    def apply_script(self):
+        try:
+            self.selection.apply_selection_script(self.editor.toPlainText())
+        except ValueError as error:
+            self.message.setText(str(error))
+            return
+        self.message.setText("Script applied to this selection. Use Apply in Data selection to accept it.")
+
+
 class DataSelectionDialog(SelectionDialog):
     """The Match Workbook's Order / Reference / Raw participation dialog."""
 
@@ -555,32 +664,11 @@ class DataSelectionDialog(SelectionDialog):
                            for name, data in frames], axis=1)
         ids = participation_ids(plan.raw, self.selection)
         checked = [ids[row] for row in plan.included_rows]
-        saved_groups = (self.selection or {}).get("view_filter_groups")
-        saved_row_bools = (self.selection or {}).get("view_filter_row_bools")
-        saved_group_bools = (self.selection or {}).get("view_filter_group_bools")
-        if saved_groups is None:
-            # Files written before rows existed stored one flat filter list.
-            flat = list((self.selection or {}).get("view_filters", []))
-            flat_bools = (self.selection or {}).get("view_filter_bools")
-            if flat_bools is None:
-                mode = (self.selection or {}).get("view_filter_mode", "all")
-                flat_bools = ["or" if mode == "any" else "and"] * max(0, len(flat) - 1)
-            saved_groups = [flat] if flat else []
-            saved_row_bools = [list(flat_bools)] if flat else []
-            saved_group_bools = []
-        super().__init__(frame, ids, checked, saved_groups, parent,
-                         row_bools=saved_row_bools, group_bools=saved_group_bools,
-                         show=(self.selection or {}).get("view_show", "all"))
-        self.hide_excluded = QCheckBox("Hide excluded rows in tables", objectName="hideExcludedRows")
-        self.hide_excluded.setChecked(bool((self.selection or {}).get("hide_excluded", False)))
+        view = selection_view(self.selection)
+        super().__init__(frame, ids, checked, view["filters"], parent,
+                         row_bools=view["row_bools"], group_bools=view["group_bools"],
+                         show=view["show"], search=view["search"], hide_excluded=view["hide_excluded"])
         self.hide_excluded.setToolTip("Apply hides unchecked records in Order, Reference, Raw Data and linked Match-selection views. Uncheck and Apply to restore them; source data is never deleted.")
-        buttons = self.findChild(QDialogButtonBox)
-        self.layout().removeWidget(buttons)
-        footer = QHBoxLayout()
-        footer.addWidget(self.hide_excluded)
-        footer.addStretch()
-        footer.addWidget(buttons)
-        self.layout().addLayout(footer)
 
     def accept(self):
         self.selection = {"records": [{"key": key, "id": identifier} for key, identifier in zip(row_ids(self.plan.raw), self.model.ids)],
@@ -589,6 +677,7 @@ class DataSelectionDialog(SelectionDialog):
                           "view_filter_row_bools": [list(bools) for bools in self.filter_row_bools],
                           "view_filter_group_bools": list(self.filter_group_bools),
                           "view_show": self.show_rows.currentData(),
+                          "view_search": self.search.text(),
                           "hide_excluded": self.hide_excluded.isChecked()}
         super().accept()
 
@@ -597,7 +686,8 @@ class FrameSelectionDialog(SelectionDialog):
     """One workspace table (Wafer Map / Correlation) and its own row selection."""
 
     def __init__(self, frame, excluded=(), parent=None, extra_frames=None, *,
-                 filters=None, row_bools=None, group_bools=None, show="all"):
+                 filters=None, row_bools=None, group_bools=None, show="all", search="", hide_excluded=False,
+                 prefix_raw=False):
         self.excluded = []
         self.saved_filters = deepcopy([list(row) for row in (filters or [])])
         self.saved_row_bools = [list(bools) for bools in (row_bools or [])]
@@ -611,7 +701,7 @@ class FrameSelectionDialog(SelectionDialog):
         extras = [(name, extra.reset_index(drop=True))
                   for name, extra in (extra_frames or [])
                   if extra is not None and len(extra) == len(frame)]
-        if extras:
+        if extras or prefix_raw:
             columns = [extra.rename(columns=lambda column, prefix=name: f"{prefix} / {column}")
                        for name, extra in extras]
             columns.append(frame.rename(columns=lambda column: f"Raw Data / {column}"))
@@ -620,7 +710,7 @@ class FrameSelectionDialog(SelectionDialog):
                          object_name="frameSelectionDialog",
                          title="Data selection — rows used by this window",
                          row_bools=self.saved_row_bools, group_bools=self.saved_group_bools,
-                         show=self.saved_show)
+                         show=self.saved_show, search=search, hide_excluded=hide_excluded)
 
     def accept(self):
         self.excluded = [key for key in self.model.ids if key not in self.model.checked]

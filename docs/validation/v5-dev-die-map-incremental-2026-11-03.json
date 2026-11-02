@@ -1,0 +1,27 @@
+{
+  "mode": "incremental",
+  "spectra": 1890,
+  "maps": 12,
+  "milliseconds": [
+    64.13439998868853,
+    60.957000008784235,
+    59.4596000155434,
+    48.146899964194745,
+    48.573500011116266
+  ],
+  "median_ms": 59.4596000155434,
+  "plots_replaced": [
+    false,
+    false,
+    false,
+    false,
+    false
+  ],
+  "final_sizes_stable": [
+    true,
+    true,
+    true,
+    true,
+    true
+  ]
+}

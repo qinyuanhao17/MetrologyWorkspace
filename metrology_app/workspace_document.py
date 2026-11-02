@@ -508,7 +508,7 @@ class WkbDocument:
         stage = getattr(self.window, "_managed_scope", "").split(".")[-1].title() if owner else ""
         label = WORKSPACE_LABELS[self.window.workspace_type]
         title = f"{stage + ' ' if stage else ''}{label} — {name}"
-        window_name = getattr(self.window, "_analysis_window_name", "") if owner else ""
+        window_name = getattr(self.window, "_analysis_window_name", "") if owner or self.window.workspace_type == "spectra_viewer" else ""
         if window_name:
             title = f"{window_name} · {title}"
         self.window.setWindowTitle(title + " [*]")

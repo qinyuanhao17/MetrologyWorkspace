@@ -10,6 +10,7 @@ from PyQt6.QtGui import QAction, QActionGroup, QColor, QIcon, QPainter, QPalette
 from PyQt6.QtWidgets import (
     QAbstractScrollArea,
     QComboBox,
+    QDialog,
     QFileDialog,
     QAbstractItemView,
     QFrame,
@@ -31,7 +32,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .appearance import fit_window_to_screen
+from .appearance import fit_window_to_screen, style_titlebar
+from .settings import apply_theme as apply_window_theme, get_settings, theme_stylesheet
 from .sme_spectra import (
     M_COLS,
     ChannelKey,
@@ -141,6 +143,8 @@ class SpectraLoadThread(QThread):
     def __init__(self, folder: Path, parent=None):
         super().__init__(parent)
         self.folder = Path(folder)
+        self.pack_workbook = bool(getattr(parent, "_workbook_embedded", False))
+        self.workbook_samples = {}
 
     def run(self):
         last_progress = 0.0
@@ -158,6 +162,12 @@ class SpectraLoadThread(QThread):
                 progress=progress,
                 cancelled=self.isInterruptionRequested,
             )
+            if self.pack_workbook and not result.cancelled:
+                from .spectra_workbook import encode_sources
+                self.progress.emit(0, 0, "Preparing embedded Workbook spectra…")
+                self.workbook_samples = encode_sources(result.spectra, cancelled=self.isInterruptionRequested)
+                if self.isInterruptionRequested():
+                    result = LoadResult(result.spectra, result.issues, True)
         except Exception as error:
             result = LoadResult(
                 (),
@@ -166,8 +176,36 @@ class SpectraLoadThread(QThread):
         self.completed.emit(result)
 
 
+class SpectraExportThread(QThread):
+    progress = pyqtSignal(int, int, str)
+    completed = pyqtSignal(str)
+
+    def __init__(self, paths, destination, parent):
+        super().__init__(parent)
+        self.paths, self.destination = tuple(paths), Path(destination)
+
+    def run(self):
+        from .spectra_export import export_spectra
+        last_progress = 0.0
+        def progress(done, total, name):
+            nonlocal last_progress
+            now = monotonic()
+            if done == total or now - last_progress >= .05:
+                self.progress.emit(done, total, name)
+                last_progress = now
+        try:
+            exported = export_spectra(self.paths, self.destination,
+                                      cancelled=self.isInterruptionRequested, progress=progress)
+            message = f"Exported {len(exported)} checked spectra to {self.destination}"
+        except Exception as error:
+            message = str(error)
+        self.completed.emit(message)
+
+
 class SpectraViewerWindow(QMainWindow):
     """A minimal source-preserving spectrum browser and plotting workspace."""
+    stateChanged = pyqtSignal()
+    workspace_type = "spectra_viewer"
 
     def __init__(self):
         super().__init__()
@@ -204,6 +242,7 @@ class SpectraViewerWindow(QMainWindow):
         self.map_window: SpectraMapWindow | None = None
         self._map_data_signature = None
         self._loader: SpectraLoadThread | None = None
+        self._exporter: SpectraExportThread | None = None
         self._load_replace = True
         self._expanded_paths: set[tuple[str, ...]] = set()
         self._syncing_tree = False
@@ -215,10 +254,93 @@ class SpectraViewerWindow(QMainWindow):
         self._spectrum_groups_by_key: dict[str, QTreeWidgetItem] = {}
         self.view_actions: dict[str, QAction] = {}
         self._plot_layout_signature = None
+        from .selection_script import selection_view
+        self._data_selection_view = selection_view(None)
+        apply_window_theme(self)
         self._build_view_actions()
         self._build_ui()
         self._build_menus()
         self.apply_theme(self.palette())
+        from .workspace_document import WkbDocument
+        self._workbook_embedded = True
+        self.document = WkbDocument(self)
+        self.stateChanged.connect(self.document.identity_timer.start)
+        self.tree.itemSelectionChanged.connect(self.document.identity_timer.start)
+        for panel in (*self.plot_panels.values(), *self.mueller_panel.mij_plots.values()):
+            panel.plot.getViewBox().sigRangeChanged.connect(lambda *_: self.document.identity_timer.start())
+            if panel.secondary is not None:
+                panel.secondary.sigRangeChanged.connect(lambda *_: self.document.identity_timer.start())
+        self.document.mark_clean()
+
+    def workspace_snapshot(self):
+        from .spectra_workbook import snapshot
+        return snapshot(self)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        style_titlebar(self, get_settings()["theme"])
+        if getattr(self, "_spec_shown", False):
+            return
+        self._spec_shown = True
+        document = self.document
+        if document.path is not None or document.forced_dirty or self.catalog.spectra:
+            return
+        current = self.workspace_snapshot()
+        baseline = document.baseline
+        if baseline is None or not baseline.frames["spectra"].empty:
+            return
+        # Qt resolves initial splitter geometry on first show. Accept geometry
+        # alone; explicit source or control edits made before show stay dirty.
+        controls = lambda state: {key: value for key, value in state.items() if key != "splitters"}
+        if controls(current.states["ui"]) == controls(baseline.states["ui"]):
+            document.mark_clean(current)
+
+    def restore_workspace(self, snapshot):
+        from .spectra_workbook import restore
+        restore(self, snapshot)
+
+    def save_spec(self, path=None, *, save_as=False):
+        return self.document.save(path, save_as=save_as)
+
+    def save_wkb(self):
+        try:
+            return self.save_spec()
+        except Exception as error:
+            QMessageBox.warning(self, "Cannot save Spectra", str(error))
+            return None
+
+    def load_workspace(self, path):
+        from .workspace_store import load_workspace, file_revision
+        draft = load_workspace(path, expected_type=self.workspace_type)
+        if not self.document.confirm_close():
+            return None
+        if draft.revision != file_revision(path):
+            draft = load_workspace(path, expected_type=self.workspace_type)
+        if "recovery" in draft.states:
+            self.document.recover(path, draft)
+            return draft
+        self.restore_workspace(draft)
+        self.document.path = Path(path).resolve()
+        self.document.revision = draft.revision
+        self.document.untrusted_recovery = False
+        self.document.mark_clean()
+        self.document.remember_recent()
+        return draft
+
+    def open_spec_dialog(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Open Spectra", "", "Spectra files (*.spec);;Backups (*.bak)")
+        if path:
+            try:
+                self.load_workspace(path)
+            except Exception as error:
+                QMessageBox.warning(self, "Cannot open Spectra", str(error))
+
+    def save_spec_as_dialog(self):
+        try:
+            return self.save_spec(save_as=True)
+        except Exception as error:
+            QMessageBox.warning(self, "Cannot save Spectra", str(error))
+            return None
 
     def _build_view_actions(self):
         for key, label in VIEW_LABELS:
@@ -230,6 +352,16 @@ class SpectraViewerWindow(QMainWindow):
 
     def _build_menus(self):
         self.file_menu = self.menuBar().addMenu("File")
+        self.open_spec_action = self.file_menu.addAction("Open Spectra File…")
+        self.open_spec_action.setShortcut("Ctrl+O")
+        self.open_spec_action.triggered.connect(self.open_spec_dialog)
+        self.save_spec_action = self.file_menu.addAction("Save Spectra")
+        self.save_spec_action.setShortcut("Ctrl+S")
+        self.save_spec_action.triggered.connect(self.save_wkb)
+        self.save_spec_as_action = self.file_menu.addAction("Save Spectra As…")
+        self.save_spec_as_action.setShortcut("Ctrl+Shift+S")
+        self.save_spec_as_action.triggered.connect(self.save_spec_as_dialog)
+        self.file_menu.addSeparator()
         self.load_spectra_action = QAction("Load Spectra…", self)
         self.load_spectra_action.triggered.connect(
             lambda: self.choose_folder(replace=True)
@@ -241,6 +373,10 @@ class SpectraViewerWindow(QMainWindow):
             lambda: self.choose_folder(replace=False)
         )
         self.file_menu.addAction(self.add_spectra_action)
+
+        self.data_menu = self.menuBar().addMenu("Data")
+        self.data_selection_action = self.data_menu.addAction("Data selection…")
+        self.data_selection_action.triggered.connect(self.open_data_selection)
 
         self.options_menu = self.menuBar().addMenu("Options")
         self.views_menu = _ViewMenu("Views", self.options_menu)
@@ -287,7 +423,7 @@ class SpectraViewerWindow(QMainWindow):
         self.baseline_label = QLabel("BSL: —", objectName="hint")
         self.baseline_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         heading.addWidget(self.baseline_label, 1)
-        self.open_map_button = QPushButton("Open Wafer Map", objectName="primary")
+        self.open_map_button = QPushButton("Open Die Map", objectName="primary")
         self.open_map_button.setEnabled(False)
         self.open_map_button.clicked.connect(self.open_wafer_map)
         heading.addWidget(self.open_map_button)
@@ -317,9 +453,11 @@ class SpectraViewerWindow(QMainWindow):
         self.cancel_load.setVisible(False)
         self.cancel_load.clicked.connect(self.cancel_loading)
         footer.addWidget(self.cancel_load)
-        footer_widget.setMinimumHeight(max(self.cancel_load.sizeHint().height(), self.progress.sizeHint().height()))
         outer.addWidget(footer_widget)
         self.setCentralWidget(root)
+        self.cancel_load.ensurePolished()
+        self.progress.ensurePolished()
+        footer_widget.setMinimumHeight(max(self.cancel_load.sizeHint().height(), self.progress.sizeHint().height()))
 
     def _build_tree_panel(self):
         panel = QFrame(objectName="panel")
@@ -361,6 +499,8 @@ class SpectraViewerWindow(QMainWindow):
 
     def _build_plot_panel(self):
         frame = QFrame(objectName="panel")
+        frame.setMinimumWidth(0)
+        frame.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
         layout = QVBoxLayout(frame)
         self.plot_panel_layout = layout
         layout.setContentsMargins(8, 8, 8, 8)
@@ -475,7 +615,7 @@ class SpectraViewerWindow(QMainWindow):
             self.start_loading(Path(folder), replace=replace)
 
     def start_loading(self, folder: Path, *, replace: bool):
-        if self._loader is not None:
+        if self._loader is not None or self._exporter is not None:
             return
         if replace and self.catalog.spectra:
             answer = QMessageBox.question(
@@ -499,6 +639,8 @@ class SpectraViewerWindow(QMainWindow):
         self._loader.start()
 
     def cancel_loading(self):
+        if self._exporter is not None:
+            self._exporter.requestInterruption()
         if self._loader is not None:
             self._loader.requestInterruption()
             self.status.setText("Cancelling after the current file…")
@@ -516,6 +658,8 @@ class SpectraViewerWindow(QMainWindow):
         if result.cancelled:
             self.status.setText("Spectrum loading cancelled; existing data was kept.")
             return
+        if self._loader is not None and self._loader.workbook_samples:
+            self._workbook_samples = {**getattr(self, "_workbook_samples", {}), **self._loader.workbook_samples}
         self.apply_load_result(result, replace=self._load_replace)
 
     def _loading_finished(self):
@@ -590,6 +734,10 @@ class SpectraViewerWindow(QMainWindow):
     def changeEvent(self, event):
         super().changeEvent(event)
         if event.type() == QEvent.Type.PaletteChange and hasattr(self, "plot_panels"):
+            style = theme_stylesheet()
+            if self.styleSheet() != style:
+                self.setStyleSheet(style)
+            style_titlebar(self, get_settings()["theme"])
             self.apply_theme(self.palette())
 
     def visible_view_keys(self) -> tuple[str, ...]:
@@ -751,7 +899,73 @@ class SpectraViewerWindow(QMainWindow):
         menu.addAction("Unfold Tree", self.unfold_tree)
         menu.addAction("Delete Tree", self.delete_selected_tree).setEnabled(
             bool(self._selected_keys) and self._loader is None)
+        menu.addSeparator()
+        menu.addAction("Export Checked Spectra…", self.choose_spectra_export).setEnabled(
+            bool(self._checked_keys) and self._loader is None and self._exporter is None)
         return menu
+
+    def choose_spectra_export(self):
+        if self._exporter is not None or not self._checked_keys:
+            return
+        folder = QFileDialog.getExistingDirectory(self, "Export checked spectra")
+        if folder:
+            self.export_checked_spectra(folder)
+
+    def export_checked_spectra(self, folder):
+        if self._exporter is not None or self._loader is not None:
+            return
+        self._exporter = SpectraExportThread([s.path for s in self.checked_spectra()], folder, self)
+        self._exporter.progress.connect(self._export_progress)
+        self._exporter.completed.connect(self._export_completed)
+        self._exporter.finished.connect(self._export_finished)
+        self.load_spectra_action.setEnabled(False)
+        self.add_spectra_action.setEnabled(False)
+        self.progress.setRange(0, len(self._checked_keys))
+        self.progress.setValue(0)
+        self.progress.show()
+        self.cancel_load.show()
+        self.status.setText("Exporting checked spectra…")
+        self._exporter.start()
+
+    def _export_progress(self, done, total, name):
+        self.progress.setRange(0, total)
+        self.progress.setValue(done)
+        self.status.setText(f"Exporting {done} / {total} · {name}")
+
+    def _export_completed(self, message):
+        self.status.setText(message)
+        self.status.setToolTip(message)
+
+    def _export_finished(self):
+        worker, self._exporter = self._exporter, None
+        if worker is not None:
+            worker.deleteLater()
+        self.progress.hide()
+        self.cancel_load.hide()
+        self.load_spectra_action.setEnabled(True)
+        self.add_spectra_action.setEnabled(bool(self.catalog.spectra))
+
+    def open_data_selection(self):
+        from .data_selection import FrameSelectionDialog
+        from .sme_spectra import file_metadata_dataframe
+        from .match_groups import participation_source_keys
+        if not self.catalog.spectra or self._loader is not None:
+            return
+        spectra = self.catalog.spectra
+        frame = file_metadata_dataframe(spectra)
+        ids = participation_source_keys(frame)
+        excluded = [key for key, source in zip(ids, spectra) if source.key not in self._checked_keys]
+        view = self._data_selection_view
+        dialog = FrameSelectionDialog(frame, excluded, self, prefix_raw=True,
+                                      filters=view.get("filters"), row_bools=view.get("row_bools"),
+                                      group_bools=view.get("group_bools"), show=view.get("show", "all"),
+                                      search=view.get("search", ""), hide_excluded=view.get("hide_excluded", False))
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._checked_keys = {source.key for key, source in zip(ids, spectra) if key in dialog.model.checked}
+            self._data_selection_view = dialog.view_state()
+            self._rebuild_tree()
+            self._refresh_selection_outputs()
+        dialog.deleteLater()
 
     def _tree_context_menu(self, position):
         self.build_tree_menu().exec(self.tree.viewport().mapToGlobal(position))
@@ -841,10 +1055,13 @@ class SpectraViewerWindow(QMainWindow):
     def _set_selected_spectra_checked(self, checked):
         if not self._selected_keys:
             return
-        if checked:
-            self._checked_keys.update(self._selected_keys)
-        else:
-            self._checked_keys.difference_update(self._selected_keys)
+        self.set_spectrum_checks({key: checked for key in self._selected_keys})
+
+    def set_spectrum_checks(self, updates):
+        valid = {s.key for s in self.catalog.spectra}
+        for key, checked in updates.items():
+            if key in valid:
+                self._checked_keys.add(key) if checked else self._checked_keys.discard(key)
         self._syncing_tree = True
         try:
             for key, item in self.spectrum_items.items():
@@ -960,6 +1177,7 @@ class SpectraViewerWindow(QMainWindow):
                 font.setBold(spectrum.key == self._baseline_key)
                 leaf.setFont(0, font)
                 group_item.addChild(leaf)
+                leaf.setHidden(bool(self._data_selection_view.get("hide_excluded") and spectrum.key not in self._checked_keys))
                 self.spectrum_items[spectrum.key] = leaf
         finally:
             self.tree.blockSignals(blocked)
@@ -1245,6 +1463,7 @@ class SpectraViewerWindow(QMainWindow):
         return "?" if angle is None else f"{float(angle):g}°"
 
     def _refresh_plots(self):
+        self._refresh_tree_visibility()
         if self._pending_plot_updates:
             self._cancel_plot_paints()
         checked = self.checked_spectra()
@@ -1350,6 +1569,17 @@ class SpectraViewerWindow(QMainWindow):
                 self.status.setToolTip("")
         if changed_panels:
             self._schedule_plot_paints(changed_panels, large)
+        self.stateChanged.emit()
+
+    def _refresh_tree_visibility(self):
+        hide = bool(self._data_selection_view.get("hide_excluded", False))
+        if not hide and not getattr(self, "_tree_hiding_excluded", False):
+            return
+        self._tree_hiding_excluded = hide
+        for key, item in self.spectrum_items.items():
+            item.setHidden(hide and key not in self._checked_keys)
+        for item in self._all_group_items:
+            item.setHidden(hide and item.checkState(0) == Qt.CheckState.Unchecked)
 
     def _schedule_plot_paints(self, panels, large):
         remaining = [panel for panel in self._pending_plot_paints if not sip.isdeleted(panel)]
@@ -1453,8 +1683,18 @@ class SpectraViewerWindow(QMainWindow):
 
     def build_legend_menu(self, section):
         menu = QMenu(self.legends[section])
-        menu.addAction("Show All", lambda: self.show_all_channels(section))
+        legend = self.legends[section]
+        keys = {legend.item(index).data(Qt.ItemDataRole.UserRole) for index in range(legend.count())}
+        menu.addAction("Show All", lambda: self.show_all_channels(section)).setEnabled(bool(keys & self._hidden_channel_keys))
+        menu.addAction("Hide All", lambda: self.hide_all_channels(section)).setEnabled(bool(keys - self._hidden_channel_keys))
         return menu
+
+    def hide_all_channels(self, section):
+        legend = self.legends[section]
+        keys = {legend.item(index).data(Qt.ItemDataRole.UserRole) for index in range(legend.count())}
+        if keys - self._hidden_channel_keys:
+            self._hidden_channel_keys.update(keys)
+            self._refresh_plots()
 
     def toggle_channel(self, key: ChannelKey | WaferChannelKey):
         keys = ({key} if isinstance(key, WaferChannelKey) else {
@@ -1562,6 +1802,7 @@ class SpectraViewerWindow(QMainWindow):
         self.map_window.spectra_selected.connect(self.select_spectrum_keys)
         self.map_window.check_selected_requested.connect(self.check_selected_spectra)
         self.map_window.uncheck_selected_requested.connect(self.uncheck_selected_spectra)
+        self.map_window.checks_changed.connect(self.set_spectrum_checks)
         self.map_window.destroyed.connect(self._map_window_destroyed)
         self._sync_map()
         self.map_window.show()
@@ -1578,13 +1819,12 @@ class SpectraViewerWindow(QMainWindow):
             return
         signature = (
             tuple(
-                (spectrum.key, spectrum.size_bytes, spectrum.mtime_ns)
+                (spectrum.key, id(spectrum))
                 for spectrum in self.catalog.spectra
             ),
-            frozenset(self._checked_keys),
         )
         if signature == self._map_data_signature:
-            self.map_window.select_spectrum_keys(self._selected_keys)
+            self.map_window.update_checks(self._checked_keys, selected_keys=self._selected_keys)
             return
         self.map_window.set_data(
             self.catalog.spectra,
@@ -1604,7 +1844,13 @@ class SpectraViewerWindow(QMainWindow):
         super().mousePressEvent(event)
 
     def closeEvent(self, event):
+        if not getattr(self, "_workbook_child", False) and not self.document.confirm_close():
+            event.ignore()
+            return
         self._cancel_plot_paints()
+        if self._exporter is not None:
+            self._exporter.requestInterruption()
+            self._exporter.wait()
         for panel in (*self.plot_panels.values(), *self.mueller_panel.mij_plots.values()):
             panel.cancel_rendering()
         if self._loader is not None:
@@ -1618,5 +1864,9 @@ class SpectraViewerWindow(QMainWindow):
             if not sip.isdeleted(window):
                 window.close()
         self.floating_plot_windows.clear()
+        callback = getattr(self, "_workbook_on_close", None)
+        if callable(callback):
+            callback(self)
+        self.document.closed()
         super().closeEvent(event)
 

@@ -90,6 +90,40 @@ def make_spectrum(die, *, wafer="W1", lot="L1", pad="P1"):
 
 
 class SpectraViewerTreeTests(unittest.TestCase):
+    def test_die_map_apply_to_similar_wafer_updates_checks_once_and_retains_maps(self):
+        spectra = tuple(replace(make_spectrum(die, wafer=wafer), x_mm=float(die)+(5 if wafer == "Far" else 0))
+                        for wafer in ("W1", "Near", "Far") for die in (1, 2))
+        self.window.apply_load_result(LoadResult(spectra, ()), replace=True)
+        self.window.check_all_spectra()
+        self.window.set_spectrum_checks({spectra[1].key: False})
+        maps = self.window.open_wafer_map()
+        QTest.qWait(100)
+        original = dict(maps.wafer_plots)
+        action = next(a for a in maps.build_selection_menu(("W1", "L1", "P1")).actions()
+                      if a.text() == "Apply to Similar Wafer")
+        action.trigger()
+        self.assertEqual({s.key for s in self.window.checked_spectra()},
+                         {spectra[i].key for i in (0, 2, 4, 5)})
+        self.assertEqual(maps.wafer_plots, original)
+        self.assertIn("Applied to 1", maps.statusBar().currentMessage())
+
+    def test_die_map_double_click_toggles_checks_without_recreating_plots(self):
+        self.window.uncheck_all_spectra()
+        self.window.show()
+        maps = self.window.open_wafer_map()
+        QTest.qWait(100)
+        plot = next(iter(maps.wafer_plots.values()))
+        self.assertEqual(self.window.open_map_button.text(), "Open Die Map")
+        self.assertEqual(maps.windowTitle(), "Spectrum Die Map")
+        spectrum = self.window.catalog.spectra[0]
+        position = plot.plot.mapFromScene(plot.plot.getViewBox().mapViewToScene(QPointF(spectrum.x_mm, spectrum.y_mm)))
+        for expected in (True, False):
+            QTest.mouseDClick(plot.plot.viewport(), Qt.MouseButton.LeftButton, pos=position)
+            QTest.mouseRelease(plot.plot.viewport(), Qt.MouseButton.LeftButton, pos=position)
+            APP.processEvents()
+            self.assertEqual(spectrum.key in {s.key for s in self.window.checked_spectra()}, expected)
+            self.assertIs(next(iter(maps.wafer_plots.values())), plot)
+
     def setUp(self):
         self.window = SpectraViewerWindow()
         self.spectra = (
@@ -105,6 +139,35 @@ class SpectraViewerTreeTests(unittest.TestCase):
         self.window.close()
         self.window.deleteLater()
         APP.processEvents()
+
+    def test_legend_hide_all_preserves_checks_selection_axes_and_other_sections(self):
+        reference = make_spectrum(3, wafer="Reflectance")
+        channel = replace(reference.channels[0], spectrum_type="reflectance", numeric=reference.channels[0].numeric[:, :2])
+        reference = replace(reference, channels=(channel,))
+        self.window.apply_load_result(LoadResult((*self.spectra, reference), ()), replace=True)
+        self.window.check_all_spectra()
+        self.window.select_spectrum_keys({self.spectra[0].key})
+        panel = self.window.plot_panels["S"]
+        panel.plot.setXRange(250, 350, padding=0)
+        checked = tuple(s.key for s in self.window.checked_spectra())
+        reference_key = self.window.plot_panels["reflectance"].groups[0].key
+        self.window.toggle_channel(reference_key)
+        menu = self.window.build_legend_menu("Mueller")
+        actions = {action.text(): action for action in menu.actions()}
+        self.assertIn("Hide All", actions)
+        self.assertTrue(actions["Hide All"].isEnabled())
+        actions["Hide All"].trigger()
+        self.assertFalse(panel.groups)
+        self.assertEqual(tuple(s.key for s in self.window.checked_spectra()), checked)
+        self.assertEqual(panel.selected_keys, {self.spectra[0].key})
+        self.assertEqual(panel.plot.getViewBox().viewRange()[0], [250, 350])
+        actions = {action.text(): action for action in self.window.build_legend_menu("Mueller").actions()}
+        self.assertFalse(actions["Hide All"].isEnabled())
+        self.assertTrue(actions["Show All"].isEnabled())
+        actions["Show All"].trigger()
+        self.assertTrue(panel.groups)
+        self.assertFalse(self.window.plot_panels["reflectance"].groups)
+        self.assertEqual(panel.plot.getViewBox().viewRange()[0], [250, 350])
 
     def test_tree_groups_wafer_lot_pad_and_orders_die_numerically(self):
         tree = self.window.tree
@@ -158,6 +221,8 @@ class SpectraViewerTreeTests(unittest.TestCase):
         wafer.setExpanded(True)
         lot.setExpanded(True)
         APP.processEvents()
+        self.assertAlmostEqual(self.window.main_splitter.sizes()[0] /
+                               sum(self.window.main_splitter.sizes()), .25, delta=.03)
         self.assertEqual(pad.childCount(), 0)
         rect = tree.visualItemRect(pad)
         arrow = QPoint(rect.left() - tree.indentation() // 2, rect.center().y())
@@ -345,7 +410,7 @@ class SpectraViewerTreeTests(unittest.TestCase):
         actions["Uncheck Selected"].trigger()
         APP.processEvents()
         self.assertEqual({s.key for s in self.window.checked_spectra()}, {spectra[2].key})
-        self.assertEqual(mapping.point_count, 1)
+        self.assertEqual(mapping.point_count, 3)
         actions["Check Selected"].trigger()
         APP.processEvents()
         self.assertEqual({s.key for s in self.window.checked_spectra()}, {s.key for s in spectra})
@@ -1044,7 +1109,7 @@ class SpectraViewerTreeTests(unittest.TestCase):
                 menu.close()
         QTimer.singleShot(0, choose_show_all)
         self.window.legends["NCS"].customContextMenuRequested.emit(QPoint(15, 15))
-        self.assertEqual(popup_actions, ["Show All"])
+        self.assertEqual(popup_actions, ["Show All", "Hide All"])
         self.assertFalse(any(b.text() == "Show All" for b in self.window.findChildren(QPushButton)))
         self.assertFalse(self.window.channel_hidden(ncs))
         self.assertTrue(self.window.channel_hidden(reflectance))
@@ -1198,8 +1263,8 @@ class SpectraViewerTreeTests(unittest.TestCase):
         self.assertIsInstance(self.window.load_spectra_action, QAction)
         self.assertIsInstance(self.window.add_spectra_action, QAction)
         self.assertEqual(
-            [action.text() for action in self.window.file_menu.actions()],
-            ["Load Spectra…", "Add Spectra…"],
+            [action.text() for action in self.window.file_menu.actions() if not action.isSeparator()],
+            ["Open Spectra File…", "Save Spectra", "Save Spectra As…", "Load Spectra…", "Add Spectra…"],
         )
         self.assertEqual(self.window.options_menu.title(), "Options")
         self.assertEqual(self.window.views_menu.title(), "Views")
@@ -1224,7 +1289,7 @@ class SpectraViewerTreeTests(unittest.TestCase):
         menu = self.window.build_tree_menu()
         actions = menu.actions()
         self.assertEqual([actions[i + 1].text() for i, a in enumerate(actions) if a.isSeparator()],
-                         ["Check Selected", "Set as BSL", "Fold Tree"])
+                         ["Check Selected", "Set as BSL", "Fold Tree", "Export Checked Spectra…"])
         self.assertEqual(
             [action.text() for action in menu.actions() if action.text()],
             [
@@ -1237,6 +1302,7 @@ class SpectraViewerTreeTests(unittest.TestCase):
                 "Fold Tree",
                 "Unfold Tree",
                 "Delete Tree",
+                "Export Checked Spectra…",
             ],
         )
         self.window.check_all_spectra()
@@ -1495,7 +1561,7 @@ class SpectraViewerTreeTests(unittest.TestCase):
 
         first = self.window.open_wafer_map()
         self.assertIs(self.window.open_wafer_map(), first)
-        self.assertEqual(first.point_count, 1)
+        self.assertEqual(first.point_count, 2)
 
         pad.child(1).setCheckState(0, Qt.CheckState.Checked)
         APP.processEvents()

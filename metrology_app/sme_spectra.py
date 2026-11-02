@@ -828,6 +828,21 @@ class SpectrumFile:
         return tuple(sorted({channel.key for channel in self.channels}, key=lambda key: key.sort_key))
 
 
+def file_metadata_dataframe(spectra) -> Any:
+    """One participation row per SME, including files with multiple channels."""
+    import pandas as pd
+    return pd.DataFrame.from_records([
+        {"Cur SME File Path": str(s.path), "Wafer ID": s.identity.wafer,
+         "Lot ID": s.identity.lot, "PAD Name": s.identity.pad,
+         "Die Seq": s.identity.die_seq, "SME Name": s.path.name,
+         "Tool SN": s.identity.tool_sn, "FIELD X": s.identity.field_x,
+         "FIELD Y": s.identity.field_y, "Time": s.identity.timestamp,
+         "Folder": str(s.path.parent), "Instrument": ", ".join(dict.fromkeys(c.instrument for c in s.channels)),
+         "Channel Count": len(s.channels)} for s in spectra], columns=[
+             "Cur SME File Path", "Wafer ID", "Lot ID", "PAD Name", "Die Seq", "SME Name",
+             "Tool SN", "FIELD X", "FIELD Y", "Time", "Folder", "Instrument", "Channel Count"])
+
+
 def metadata_dataframe(spectra) -> Any:
     """Return one Excel-friendly metadata row for every parsed channel."""
     import pandas as pd

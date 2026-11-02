@@ -22,6 +22,69 @@ APP = QApplication.instance() or QApplication([])
 
 
 class WorkbookCopyDataTests(unittest.TestCase):
+    def test_linked_selection_dialog_follows_parent_then_local_edits_switch_to_full_data(self):
+        parent = MatchingWindow()
+        self.addCleanup(self.close_window, parent)
+        reference, raw, mappings = self.sources()
+        parent.set_reference_frame(reference)
+        parent.set_raw_frame(raw)
+        parent._populate_mappings(mappings)
+        parent.run_analysis()
+        errors = []
+        parent_script = []
+
+        def parent_selection():
+            dialog = APP.activeModalWidget()
+            try:
+                import json
+                recipe = json.loads(dialog.selection_script())
+                recipe.update(filters=[[{"column": "Raw Data / Die Seq", "values": ["002"]},
+                                        {"column": "Raw Data / CD", "minimum": 1, "maximum": 1}],
+                                       [{"column": "Raw Data / Wafer ID", "query": "001"}]],
+                              row_bools=[["or"], []], group_bools=["and"], show="filtered")
+                dialog.apply_selection_script(json.dumps(recipe))
+                dialog.check_visible(False)
+                dialog.hide_excluded.setChecked(True)
+                parent_script.append(dialog.selection_script())
+                dialog.accept()
+            except Exception as error:
+                errors.append(error)
+                dialog.reject()
+        QTimer.singleShot(0, parent_selection)
+        parent.data_selection_action.trigger()
+        self.assertEqual(errors, [])
+        for child in (parent.open_correlation_workspace(), parent.open_stage_workspace("preview")):
+            self.addCleanup(self.close_window, child)
+            original = child.model.document_frame()
+            for change in (False, True):
+                def inspect():
+                    dialog = APP.activeModalWidget()
+                    try:
+                        import json
+                        self.assertEqual(json.loads(dialog.selection_script()), json.loads(parent_script[0]))
+                        self.assertEqual(len(dialog.model.checked), 3)
+                        self.assertTrue(dialog.hide_excluded.isChecked())
+                        if change:
+                            dialog.clear_filters()
+                            dialog.search.setText("036")
+                            dialog.check_visible(False)
+                            dialog.hide_excluded.setChecked(False)
+                        dialog.accept()
+                    except Exception as error:
+                        errors.append(error)
+                        dialog.reject()
+                QTimer.singleShot(0, inspect)
+                child.data_selection_action.trigger()
+                self.assertEqual(errors, [])
+                self.assertEqual(child.workbook_selection_action.isChecked(), not change)
+                self.assertEqual(child.full_data_action.isChecked(), change)
+            self.assertEqual(child.participating_positions(child.model.frame()), {2, 3})
+            self.assertIs(child.sheet.model(), child.model)
+            pd.testing.assert_frame_equal(child.model.document_frame(), original)
+            child.workbook_selection_action.trigger()
+            self.assertEqual(child.participating_positions(child.model.frame()), {1, 2, 3})
+        self.assertEqual(parent.result.source_rows, (1, 2, 3))
+
     def test_parent_cut_keeps_linked_correlation_until_raw_is_replaced(self):
         from benchmarks.benchmark_memory_storage import settle
 
