@@ -1,6 +1,6 @@
-"""Full-resolution dense dashed curves, rasterized off the GUI thread.
+"""Dense curves cached outside the GUI process, with full-data native export.
 
-Only detached QPainterPath/QPen values are sent to the worker. Qt widgets,
+Only detached arrays and QPainterPath/QPen values reach the workers. Qt widgets,
 scene items, source arrays, axis labels and export painting stay with Qt's owner.
 """
 from concurrent.futures import ProcessPoolExecutor
@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import QGraphicsPixmapItem
 
 
 _RENDERER = None
+_SOLID_RENDERER = None
 
 
 def _cancel_pending(holder):
@@ -23,7 +24,22 @@ def _cancel_pending(holder):
         holder[0].cancel()
 
 
-def _render_path(payload, width, height, antialias):
+def _screen_path(x, y, transform, tolerance):
+    """Simplify only dense screen geometry in physical pixels, preserving NaN gaps."""
+    from matplotlib.path import Path
+    from matplotlib.transforms import Affine2D
+    source = Path(np.column_stack((x, y)))
+    source.simplify_threshold = tolerance
+    affine = Affine2D.from_values(transform.m11(), transform.m12(), transform.m21(),
+                                 transform.m22(), transform.dx(), transform.dy())
+    cleaned = source.cleaned(transform=affine, remove_nans=True, simplify=True, snap=False)
+    vertices, codes = cleaned.vertices[:-1], cleaned.codes[:-1]  # omit STOP sentinel
+    connect = np.zeros(len(codes), dtype=np.int32)
+    connect[:-1] = codes[1:] == Path.LINETO
+    return pg.functions.arrayToQPath(vertices[:, 0], vertices[:, 1], connect=connect, finiteCheck=False)
+
+
+def _render_path(payload, width, height, antialias, segments=None, colored_segments=None, screen_error=0.0):
     buffer = QByteArray(payload)
     stream = QDataStream(buffer, QIODevice.OpenModeFlag.ReadOnly)
     path, pen, transform = QPainterPath(), QPen(), QTransform()
@@ -35,7 +51,34 @@ def _render_path(payload, width, height, antialias):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, antialias)
         painter.setPen(pen)
         painter.setWorldTransform(transform)
-        painter.drawPath(path)
+        if colored_segments is not None:
+            from pyqtgraph.graphicsItems.PlotCurveItem import arrayToLineSegments
+            simplify = screen_error and sum(len(x) for x, _, _ in colored_segments) > 32_000
+            for x, y, pen_bytes in colored_segments:
+                pen_buffer = QByteArray(pen_bytes)
+                pen_stream = QDataStream(pen_buffer, QIODevice.OpenModeFlag.ReadOnly)
+                color_pen = QPen()
+                pen_stream >> color_pen
+                painter.setPen(color_pen)
+                if simplify:
+                    # Native/export painting always keeps every source sample.
+                    # Small or zoomed paths cost less to draw directly.
+                    screen_path = _screen_path(x, y, transform, screen_error)
+                    painter.save()
+                    painter.resetTransform()
+                    painter.drawPath(screen_path)
+                    painter.restore()
+                elif not antialias and color_pen.widthF() > 1:
+                    lines = arrayToLineSegments(x, y, connect='finite', finiteCheck=True)
+                    painter.drawLines(*lines.drawargs())
+                else:
+                    painter.drawPath(pg.functions.arrayToQPath(x, y, connect='finite', finiteCheck=True))
+        elif segments is None:
+            painter.drawPath(path)
+        else:
+            from pyqtgraph.graphicsItems.PlotCurveItem import arrayToLineSegments
+            lines = arrayToLineSegments(*segments, connect='finite', finiteCheck=True)
+            painter.drawLines(*lines.drawargs())
     finally:
         painter.end()
     return bytes(image.constBits().asstring(image.sizeInBytes()))
@@ -43,9 +86,13 @@ def _render_path(payload, width, height, antialias):
 
 class _CurveRasterizer(QObject):
     rendering_changed = pyqtSignal()
-    def __init__(self, curve):
+    def __init__(self, curve, *, solid=False, screen_error=0.0):
         super().__init__(curve)
         self.curve = curve
+        self._solid = solid
+        self._screen_error = screen_error
+        self._disposed = False
+        self._visible = True
         self._native_export_mode = curve.setExportMode
         curve.setExportMode = self._set_export_mode
         self.image_item = QGraphicsPixmapItem(curve.parentItem())
@@ -73,6 +120,12 @@ class _CurveRasterizer(QObject):
         # Keep the native curve's identity and paint method untouched. The
         # screen image is a native Qt item; no Python paint override is needed.
         self._changed()
+        if solid:
+            view = curve.getViewBox()
+            if view is not None and view.scene() is not None and view.scene().views():
+                self._viewport = view.scene().views()[0].viewport()
+                self._viewport.installEventFilter(self)
+                view.sigRangeChanged.connect(self._request_later)
 
     @property
     def opts(self):
@@ -87,6 +140,8 @@ class _CurveRasterizer(QObject):
         return self.curve._exportOpts
 
     def _changed(self, *_):
+        if self._disposed:
+            return
         self._revision += 1
         self._cached = None
         self._latest = None
@@ -94,26 +149,79 @@ class _CurveRasterizer(QObject):
         pen = self.opts['pen']
         self._needs_render = bool(self.xData is not None and len(self.xData) >= 2000
                                   and pen is not None and pen.isCosmetic()
-                                  and pen.style() not in (Qt.PenStyle.SolidLine, Qt.PenStyle.NoPen))
-        self._prepare.start(0)
+                                  and pen.style() != Qt.PenStyle.NoPen
+                                  and (self._solid or pen.style() != Qt.PenStyle.SolidLine))
+        if not self._visible:
+            self.cancel()
+            return
+        if self._solid:
+            # Suppress native paint before a synchronous viewport repaint can
+            # run; the preparation timer installs the detached image job.
+            self._show_curve(not self._needs_render)
+        self._prepare.start(16 if self._solid else 0)
+
+    def _show_curve(self, visible):
+        if self._solid:
+            # A standalone curve is also the ViewBox's bounds authority. Keep
+            # it visible for auto-range, without invoking native screen paint.
+            self.curve.setOpacity(1.0 if visible else 0.0)
+        else:
+            self.curve.setVisible(visible)
+
+    def cancel(self):
+        self._prepare.stop()
+        self._poll.stop()
+        _cancel_pending(self._future_holder)
+        self._future_holder[0] = None
+        self._future = self._latest = self._running = None
+        self._needs_render = False
+
+    def set_visible(self, visible):
+        """Toggle a standalone curve and its sibling raster without losing data/cache."""
+        visible = bool(visible)
+        if self._visible == visible:
+            return
+        self._visible = visible
+        self.curve.setVisible(visible)
+        if visible:
+            self._request_later()
+        else:
+            self.image_item.hide()
+            self.cancel()
+
+    def dispose(self):
+        self._disposed = True
+        self.cancel()
+        self.image_item.hide()
+        if self.image_item.scene() is not None:
+            self.image_item.scene().removeItem(self.image_item)
+        self.image_item.setParentItem(None)
 
     @property
     def render_pending(self):
-        return (self._needs_render or self._future is not None or self._latest is not None
+        return (self._prepare.isActive() or self._needs_render or self._future is not None or self._latest is not None
                 and (self._cached is None or self._latest[0] != self._cached[0]))
 
     def eventFilter(self, watched, event):
+        if self._disposed or not self._visible:
+            return False
+        if self._solid and event.type() in (QEvent.Type.Paint, QEvent.Type.Resize, QEvent.Type.Show):
+            self._request_later()
+            return False
         if event.type() in (QEvent.Type.Paint, QEvent.Type.Resize, QEvent.Type.Show):
             self._request()
         return False
 
     def _request(self):
+        if self._disposed or not self._visible:
+            return
         pen = self.opts['pen']
         # File/PNG/vector export uses the original complete painting directly.
         # Unsupported styles also retain pyqtgraph's full implementation.
         eligible = not (self._failed or isinstance(self._exportOpts, dict)
                 or self.xData is None or len(self.xData) < 2000
-                or pen is None or not pen.isCosmetic() or pen.style() in (Qt.PenStyle.SolidLine, Qt.PenStyle.NoPen)
+                or pen is None or not pen.isCosmetic() or pen.style() == Qt.PenStyle.NoPen
+                or not self._solid and pen.style() == Qt.PenStyle.SolidLine
                 or self.opts['fillLevel'] is not None or self.opts['shadowPen'] is not None
                 or self.opts['compositionMode'] is not None or self.opts['segmentedLineMode'] == 'on'
                 or getattr(self.curve, 'clickable', False))
@@ -121,8 +229,8 @@ class _CurveRasterizer(QObject):
         if not eligible:
             self._needs_render = False
             self.image_item.hide()
-            self.curve.setVisible(self.xData is not None and
-                                  (pen is not None or self.opts['fillLevel'] is not None))
+            self._show_curve(self.xData is not None and
+                             (pen is not None or self.opts['fillLevel'] is not None))
             return
         view = self.curve.getViewBox()
         if view is None or view.scene() is None or not view.scene().views():
@@ -144,27 +252,37 @@ class _CurveRasterizer(QObject):
             self._needs_render = False
             self._screen_enabled = False
             self.image_item.hide()
-            self.curve.show()
+            self._show_curve(True)
             return
         matrix = (transform.m11(), transform.m12(), transform.m21(), transform.m22(),
                   transform.dx(), transform.dy())
         # Moving the enclosing scroll area changes only the backing-store
         # origin. Reuse the image unless its local pixel geometry changed.
         local_matrix = (*matrix[:4], transform.dx() - rect.x(), transform.dy() - rect.y())
-        key = (self._revision, QPen(pen), bool(self.opts['antialias']),
+        segmented = self._solid and self.curve._shouldUseDrawLineSegments(pen)
+        key = (self._revision, QPen(pen), bool(self.opts['antialias']), segmented,
                local_matrix, rect.width(), rect.height())
         if self._cached is None or self._cached[0] != key:
             if self._latest is None or self._latest[0] != key:
-                path = QPainterPath(self.curve.getPath())
+                if hasattr(self.curve, 'raster_components'):
+                    path = self.curve.raster_components()
+                else:
+                    path = ((self.curve.xData.copy(), self.curve.yData.copy()) if segmented
+                            else QPainterPath(self.curve.getPath()))
                 self._latest = (key, QTransform(transform), rect, path, QPen(pen), bool(self.opts['antialias']))
+                if self._solid and self._future is not None and self._future.cancel():
+                    self._future = self._running = None
+                    self._future_holder[0] = None
             self._start()
         self._needs_render = False
-        self.curve.hide()
+        self._show_curve(False)
+        self.image_item.setZValue(self.curve.zValue())
         if self._cached is not None:
             self.image_item.show()
 
     def _request_later(self, *_args):
-        self._prepare.start(0)
+        if not self._disposed and self._visible:
+            self._prepare.start(16 if self._solid else 0)
 
     def _set_export_mode(self, export, opts=None):
         # Scene exporters do not deliver a QWidget paint event. Expose the
@@ -172,9 +290,9 @@ class _CurveRasterizer(QObject):
         self._native_export_mode(export, opts)
         if export:
             self.image_item.hide()
-            if self._screen_enabled:
-                self.curve.show()
-        else:
+            if self._screen_enabled and self._visible:
+                self._show_curve(True)
+        elif self._visible:
             self._prepare.start(0)
 
     def _start(self):
@@ -187,20 +305,28 @@ class _CurveRasterizer(QObject):
         transform = self._running[1]
         local = QTransform(transform.m11(), transform.m12(), transform.m21(), transform.m22(),
                            transform.dx() - rect.x(), transform.dy() - rect.y())
-        stream << path << pen << local
-        global _RENDERER
-        if _RENDERER is None:
-            # QPainter's long raster call retains the Python GIL in this Qt
-            # runtime. A single persistent spawned process isolates that cost.
-            _RENDERER = ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context('spawn'))
+        segments = path if isinstance(path, tuple) else None
+        colored_segments = path if isinstance(path, list) else None
+        stream << (QPainterPath() if segments is not None or colored_segments is not None else path) << pen << local
+        global _RENDERER, _SOLID_RENDERER
+        if self._solid:
+            if _SOLID_RENDERER is None:
+                _SOLID_RENDERER = ProcessPoolExecutor(max_workers=2, mp_context=multiprocessing.get_context('spawn'))
+            renderer = _SOLID_RENDERER
+        else:
+            if _RENDERER is None:
+                # QPainter retains the GIL in this runtime; isolate raster work.
+                _RENDERER = ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context('spawn'))
+            renderer = _RENDERER
         try:
-            self._future = _RENDERER.submit(_render_path, bytes(payload), rect.width(), rect.height(), antialias)
+            self._future = renderer.submit(_render_path, bytes(payload), rect.width(), rect.height(), antialias,
+                                           segments, colored_segments, self._screen_error)
         except Exception:
             self._failed = True
             self._latest = None
             self._needs_render = False
             self._screen_enabled = False
-            self.curve.show()
+            self._show_curve(True)
             self.curve.update()
             return
         self._poll.start()
@@ -223,7 +349,7 @@ class _CurveRasterizer(QObject):
             self._latest = None
             self._needs_render = False
             self._screen_enabled = False
-            self.curve.show()
+            self._show_curve(True)
         else:
             if self._latest is not None and request[0] == self._latest[0]:
                 self._cached = (*request[:3], image)
@@ -236,6 +362,17 @@ class _CurveRasterizer(QObject):
                 self._start()
         self.curve.update()
         self.rendering_changed.emit()
+
+
+def cache_curve_image(curve, *, screen_error=0.0):
+    """Cache a standalone dense curve in workers; retain native bounds/export.
+
+    Call dispose() before removing the curve from its scene. render_pending
+    exposes completion; only detached data and Qt values reach the workers.
+    screen_error optionally enables display-only simplification at that physical
+    pixel tolerance for dense multicolor paths. Native/export data is untouched.
+    """
+    return _CurveRasterizer(curve, solid=True, screen_error=screen_error)
 
 
 class _UniformSymbolAtlas:

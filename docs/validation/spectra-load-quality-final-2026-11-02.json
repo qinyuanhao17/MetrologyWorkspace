@@ -1,0 +1,116 @@
+{
+  "folder": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\JC1913",
+  "window_size": [
+    2000,
+    1100
+  ],
+  "device_pixel_ratio": 1.0,
+  "platform": "offscreen",
+  "actions": {
+    "load": {
+      "submit_seconds": 0.0007223999709822237,
+      "complete_seconds": 1.9557686999905854,
+      "max_heartbeat_gap_seconds": 0.12274859996978194
+    },
+    "check_all": {
+      "submit_seconds": 0.07453569996869192,
+      "complete_seconds": 5.238024199963547,
+      "max_heartbeat_gap_seconds": 0.24150290002580732
+    },
+    "select_one": {
+      "submit_seconds": 0.028428299992810935,
+      "complete_seconds": 0.18162469996605068,
+      "max_heartbeat_gap_seconds": 0.028438499954063445
+    },
+    "uncheck_one": {
+      "submit_seconds": 0.052852700056973845,
+      "complete_seconds": 1.1387672000564635,
+      "max_heartbeat_gap_seconds": 0.07251049997285008
+    },
+    "recheck_one": {
+      "submit_seconds": 0.05386730004101992,
+      "complete_seconds": 1.2423205000231974,
+      "max_heartbeat_gap_seconds": 0.08057190000545233
+    },
+    "hide_legend": {
+      "submit_seconds": 0.04393589997198433,
+      "complete_seconds": 0.6556634000153281,
+      "max_heartbeat_gap_seconds": 0.04395869997097179
+    },
+    "restore_legend": {
+      "submit_seconds": 0.042468200030270964,
+      "complete_seconds": 0.7762880999944173,
+      "max_heartbeat_gap_seconds": 0.042483000026550144
+    },
+    "resize": {
+      "submit_seconds": 0.04942189995199442,
+      "complete_seconds": 6.854611499991734,
+      "max_heartbeat_gap_seconds": 0.2120024999603629
+    },
+    "restore_size": {
+      "submit_seconds": 0.032158899994101375,
+      "complete_seconds": 5.682518500019796,
+      "max_heartbeat_gap_seconds": 0.2423842999851331
+    },
+    "zoom_M01": {
+      "submit_seconds": 0.016920300025958568,
+      "complete_seconds": 0.16467450000345707,
+      "max_heartbeat_gap_seconds": 0.024384999996982515
+    },
+    "view_all_M01": {
+      "submit_seconds": 0.02269960002740845,
+      "complete_seconds": 0.2227887000190094,
+      "max_heartbeat_gap_seconds": 0.04164040001342073
+    }
+  },
+  "spectra": 1890,
+  "issues": 0,
+  "color_groups": 90,
+  "base_antialias": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+  ],
+  "source_arrays_unchanged": true,
+  "native_reference": {
+    "M01_full": {
+      "max_byte_error": 95,
+      "mean_byte_error": 0.2535337552742616,
+      "fraction_bytes_over_16": 0.004968354430379747
+    },
+    "M01_zoom": {
+      "max_byte_error": 2,
+      "mean_byte_error": 0.0015348101265822785,
+      "fraction_bytes_over_16": 0.0
+    },
+    "M23_full": {
+      "max_byte_error": 152,
+      "mean_byte_error": 0.23753691983122363,
+      "fraction_bytes_over_16": 0.004699367088607595
+    },
+    "M23_zoom": {
+      "max_byte_error": 2,
+      "mean_byte_error": 0.0014873417721518987,
+      "fraction_bytes_over_16": 0.0
+    },
+    "PsiDelta_full": {
+      "max_byte_error": 116,
+      "mean_byte_error": 0.19450533677809964,
+      "fraction_bytes_over_16": 0.0036535400193115687
+    },
+    "PsiDelta_zoom": {
+      "max_byte_error": 2,
+      "mean_byte_error": 0.0027303687465748063,
+      "fraction_bytes_over_16": 0.0
+    }
+  }
+}

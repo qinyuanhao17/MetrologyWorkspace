@@ -2,6 +2,24 @@
 from .sheet import prepare_sheet_frame, prepare_sheet_version
 
 
+def copy_linked_workbook(book):
+    """Detach a request, copying proven string record tables without recursion."""
+    from copy import deepcopy
+    memo = {}
+    for state in (book.grouping_state, book.grouping_state.get('applied', {})):
+        records = (state.get('data_selection') or {}).get('records')
+        if (isinstance(records, list) and id(records) not in memo
+                and all(type(record) is dict and all(type(key) is str and type(value) is str
+                        for key, value in record.items()) for record in records)):
+            copied = []
+            memo[id(records)] = copied
+            for record in records:
+                if id(record) not in memo:
+                    memo[id(record)] = record.copy()
+                copied.append(memo[id(record)])
+    return deepcopy(book, memo)
+
+
 def prepare_linked_values(frame, baseline, *, cancelled=None):
     """Qualify a detached numeric-only Correlation update, without Qt mutation."""
     import numpy as np
@@ -53,7 +71,11 @@ def prepare_linked_values(frame, baseline, *, cancelled=None):
 
 
 def prepare_linked_sources(request, cancelled):
+    if cancelled():
+        return None
     book = request["book"]
+    from .input_planning import prepare_workbook_participation
+    participation = prepare_workbook_participation(book) if book is not None else None
     prepared = {}
     for key, kind, stage, follows, locked, options in request["children"]:
         if cancelled():
@@ -77,9 +99,31 @@ def prepare_linked_sources(request, cancelled):
         table = (prepare_linked_values(frame, options.get('value_baseline'), cancelled=cancelled)
                  if kind == 'correlation' else None)
         if table is None and kind == 'correlation':
-            table = prepare_sheet_version(frame, request.get('raw_version'),
+            version = request.get('raw_version')
+            if version is None:
+                from .table_version import LiteralTableVersion
+                try:
+                    version = LiteralTableVersion.from_frame(frame)
+                except (TypeError, ValueError):
+                    pass  # Unnormalized/sparse inputs keep the ordinary loader.
+            table = prepare_sheet_version(frame, version,
                                           source=request.get('raw_source'))
+        elif table is None and kind == 'map':
+            from .table_version import LiteralTableVersion
+            table = prepare_sheet_version(frame, LiteralTableVersion.from_frame(frame))
         table = prepared[key] = table if table is not None else prepare_sheet_frame(frame)
+        table["source_frame"] = frame
+        if table.get('version') is not None:
+            table['load_frame'] = table['document']
+        current = options.get('document')
+        if current is not None and table.get('version') is not None:
+            document = table['document']
+            same_document = document.equals(current)
+            same_values = same_document
+            if (not same_document and document.shape == current.shape
+                    and not document.columns.equals(current.columns)):
+                same_values = current.set_axis(document.columns, axis=1, copy=False).equals(document)
+            table['comparison'] = (options['revision'], same_document, same_values)
         analysis = table["analysis"]
         if cancelled():
             return None
@@ -100,4 +144,4 @@ def prepare_linked_sources(request, cancelled):
                 group_result["trend_parts"] = (group_result["plan"], split, groups,
                     prepare_trend_parts(group_result["plan"], split, groups))
     return {"generation": request["generation"], "book": book,
-            "inputs": request["inputs"], "tables": prepared}
+            "inputs": request["inputs"], "tables": prepared, "participation": participation}

@@ -1,0 +1,175 @@
+{
+  "folder": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\JC1913",
+  "readable": 198,
+  "qt_platform": "windows",
+  "device_pixel_ratio": 1.25,
+  "initial_window_size": [
+    1800,
+    1000
+  ],
+  "actions": {
+    "check_pad": {
+      "submit_seconds": 0.06066580000333488,
+      "complete_seconds": 1.2700742000015453,
+      "max_heartbeat_gap_seconds": 0.06574849999742582,
+      "checked": 198,
+      "selected": 0
+    },
+    "uncheck_one": {
+      "submit_seconds": 0.05418649999774061,
+      "complete_seconds": 0.9448745000117924,
+      "max_heartbeat_gap_seconds": 0.054200999991735443,
+      "checked": 197,
+      "selected": 0
+    },
+    "recheck_one": {
+      "submit_seconds": 0.051468799996655434,
+      "complete_seconds": 0.9534878999984358,
+      "max_heartbeat_gap_seconds": 0.05148269998608157,
+      "checked": 198,
+      "selected": 0
+    },
+    "resize_larger": {
+      "submit_seconds": 0.0174710999999661,
+      "complete_seconds": 1.3147624999983236,
+      "max_heartbeat_gap_seconds": 0.06090539999422617,
+      "checked": 198,
+      "selected": 0
+    },
+    "resize_smaller": {
+      "submit_seconds": 0.016076100000645965,
+      "complete_seconds": 1.068009600014193,
+      "max_heartbeat_gap_seconds": 0.02797249998548068,
+      "checked": 198,
+      "selected": 0
+    },
+    "fullscreen": {
+      "submit_seconds": 0.04318840001360513,
+      "complete_seconds": 1.4068033999938052,
+      "max_heartbeat_gap_seconds": 0.054117899999255314,
+      "checked": 198,
+      "selected": 0
+    },
+    "normal": {
+      "submit_seconds": 0.032207799988100305,
+      "complete_seconds": 1.0544834999891464,
+      "max_heartbeat_gap_seconds": 0.037411199999041855,
+      "checked": 198,
+      "selected": 0
+    },
+    "drag_plot_boundary": {
+      "submit_seconds": 0.06100479999440722,
+      "complete_seconds": 0.3802099000022281,
+      "max_heartbeat_gap_seconds": 0.034590499999467283,
+      "checked": 198,
+      "selected": 0
+    },
+    "drag_mueller_boundary": {
+      "submit_seconds": 0.00759180000750348,
+      "complete_seconds": 0.01935450002201833,
+      "max_heartbeat_gap_seconds": 0.010207300016190857,
+      "checked": 198,
+      "selected": 0
+    }
+  },
+  "drag_samples": [
+    {
+      "move_seconds": [
+        0.0017096000083256513,
+        0.00238100002752617,
+        0.0014610000071115792,
+        0.0034730000188574195,
+        0.0026036000053863972,
+        0.0022505999950226396,
+        0.0024231999996118248,
+        0.0022923999931663275
+      ],
+      "release_seconds": 0.04230549998464994
+    },
+    {
+      "move_seconds": [
+        0.006890200020279735,
+        0.00022319998242892325,
+        7.430001278407872e-05,
+        1.4100020052865148e-05,
+        1.0099989594891667e-05,
+        9.299983503296971e-06,
+        8.800008799880743e-06,
+        8.799979696050286e-06
+      ],
+      "release_seconds": 0.00021430000197142363
+    }
+  ],
+  "pixel_byte_differences": {
+    "all": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "zoom": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "phase": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "background_cache_failures": 0
+}

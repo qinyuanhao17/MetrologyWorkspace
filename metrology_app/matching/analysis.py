@@ -300,6 +300,7 @@ class MatchAnalysisResult:
         )
         self._mapping_by_name = {mapping.name: mapping for mapping in mappings}
         self._measurements = {}
+        self._measurement_spans = {}
         self.summary = pd.DataFrame([
             {
                 "Parameter": mapping.name,
@@ -516,6 +517,10 @@ class MatchAnalysisResult:
         ``collect_wafers`` describes the row axis of an expanded panel: each
         Wafer identity occupies one range, exactly as it is drawn there.
         """
+        key = (wafer_column, show_pad, show_lot, collect_wafers,
+               self.group_plan.state["trend_order"])
+        if key in self._measurement_spans:
+            return list(self._measurement_spans[key])
         source, measurements = self._measurement_groups(wafer_column)
         runs = []
         if collect_wafers or self.group_plan.state["trend_order"] == "wafers":
@@ -534,8 +539,10 @@ class MatchAnalysisResult:
                         runs.append(run)
         labels = wafer_identity_labels(source, runs, wafer_column,
                                        show_pad=show_pad, show_lot=show_lot)
-        return sorted((float(run[0]) + .5, float(run[-1]) + 1.5, label)
-                      for run, label in zip(runs, labels))
+        spans = sorted((float(run[0]) + .5, float(run[-1]) + 1.5, label)
+                       for run, label in zip(runs, labels))
+        self._measurement_spans[key] = tuple(spans)
+        return spans
 
     def _measurement_groups(self, wafer_column=None):
         # Analysis owns its paired source slices. Metadata is shared by its
@@ -803,14 +810,17 @@ class MatchWorkbook:
             and result.source_rows == plan.included_rows
         )
 
-    def analyze(self, reuse=None, *, prepared_plan=None):
+    def analyze(self, reuse=None, *, prepared_plan=None, metadata_from=None):
         """Fit every mapping against the paired rows the current Group plan keeps.
 
         ``reuse`` is a result from an untouched workbook: its Cards stay and
         only the Group plan, wafer summaries and Bias limits are refreshed.
+        ``metadata_from`` may supply label metadata after a numeric edit; every
+        source dependency is compared and fitted Cards are still recomputed.
         """
         plan, analysis_raw = self.plan_inputs(prepared_plan)
         if self.reuses(reuse, plan):
+            reuse._measurement_spans.clear()
             reuse.group_plan = plan
             reuse.source_rows = plan.included_rows
             reuse._group_cards = {}
@@ -844,6 +854,20 @@ class MatchWorkbook:
         result.group_plan = plan
         result.source_rows = plan.included_rows
         result._group_cards = {}
+        if (metadata_from is not None and result.source_rows == metadata_from.source_rows
+                and plan.state == metadata_from.group_plan.state):
+            for requested, (old_source, measurements) in metadata_from._measurements.items():
+                try:
+                    source, column = _wafer_groups(result._reference, result._raw, requested)
+                except ValueError:
+                    continue
+                aliases = {"waferid", "wafer", "waferno", "lotid", "lot", "lotno", "padname", "pad"}
+                columns = [name for name in source if name == column or _normalized(name) in aliases]
+                if (len(source) == len(old_source) and source.columns.equals(old_source.columns)
+                        and source[columns].equals(old_source[columns])):
+                    result._measurements[requested] = source, measurements
+                    result._measurement_spans.update({key: value for key, value in metadata_from._measurement_spans.items()
+                                                      if key[0] == requested})
         return result
 
     def participating_frame(self, frame, *, paired_source=False, apply_selection=True):

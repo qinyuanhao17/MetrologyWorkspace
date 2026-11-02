@@ -1,0 +1,169 @@
+{
+  "folder": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\JC1913",
+  "readable": 198,
+  "actions": {
+    "check_pad": {
+      "submit_seconds": 0.07322300001396798,
+      "complete_seconds": 1.4838554000016302,
+      "max_heartbeat_gap_seconds": 0.08058760000858456,
+      "checked": 198,
+      "selected": 0
+    },
+    "uncheck_one": {
+      "submit_seconds": 0.06382760000997223,
+      "complete_seconds": 1.0658129999937955,
+      "max_heartbeat_gap_seconds": 0.06384170000092126,
+      "checked": 197,
+      "selected": 0
+    },
+    "recheck_one": {
+      "submit_seconds": 0.09168149999459274,
+      "complete_seconds": 1.3527033999853302,
+      "max_heartbeat_gap_seconds": 0.09170190000440925,
+      "checked": 198,
+      "selected": 0
+    },
+    "resize_larger": {
+      "submit_seconds": 0.021747499995399266,
+      "complete_seconds": 1.8214714000059757,
+      "max_heartbeat_gap_seconds": 0.04794800002127886,
+      "checked": 198,
+      "selected": 0
+    },
+    "resize_smaller": {
+      "submit_seconds": 0.017175100016174838,
+      "complete_seconds": 1.3241410000191536,
+      "max_heartbeat_gap_seconds": 0.04279800000949763,
+      "checked": 198,
+      "selected": 0
+    },
+    "fullscreen": {
+      "submit_seconds": 8.910000906325877e-05,
+      "complete_seconds": 1.359382700000424,
+      "max_heartbeat_gap_seconds": 0.032707300008041784,
+      "checked": 198,
+      "selected": 0
+    },
+    "normal": {
+      "submit_seconds": 7.440001354552805e-05,
+      "complete_seconds": 1.3751079000066966,
+      "max_heartbeat_gap_seconds": 0.028597600001376122,
+      "checked": 198,
+      "selected": 0
+    },
+    "drag_plot_boundary": {
+      "submit_seconds": 0.0898936000012327,
+      "complete_seconds": 0.533634899999015,
+      "max_heartbeat_gap_seconds": 0.0419236000161618,
+      "checked": 198,
+      "selected": 0
+    },
+    "drag_mueller_boundary": {
+      "submit_seconds": 0.004973199975211173,
+      "complete_seconds": 0.015774299972690642,
+      "max_heartbeat_gap_seconds": 0.008231599989812821,
+      "checked": 198,
+      "selected": 0
+    }
+  },
+  "drag_samples": [
+    {
+      "move_seconds": [
+        0.0023222000163514167,
+        0.0022336000110954046,
+        0.002153700013877824,
+        0.005238200013991445,
+        0.005074899992905557,
+        0.003307499981019646,
+        0.003678199980640784,
+        0.006038200022885576
+      ],
+      "release_seconds": 0.05972200000542216
+    },
+    {
+      "move_seconds": [
+        0.0043252999894320965,
+        0.0001340000017080456,
+        5.020000389777124e-05,
+        9.899988071992993e-06,
+        8.90000956133008e-06,
+        8.500006515532732e-06,
+        8.700008038431406e-06,
+        9.299983503296971e-06
+      ],
+      "release_seconds": 0.00027540000155568123
+    }
+  ],
+  "pixel_byte_differences": {
+    "all": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "zoom": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "phase": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "background_cache_failures": 0
+}

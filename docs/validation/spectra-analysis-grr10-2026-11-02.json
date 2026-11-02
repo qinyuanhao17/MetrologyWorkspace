@@ -1,0 +1,22 @@
+{
+  "spectra": 10,
+  "load_issues": 0,
+  "baseline": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\JC1913\\EP01_20260822_AI04283.05\\EP01-BITLE-AEI_21P-2-FM.rcp\\AI04283.05\\AI04283.00-25\\2026-08-21\\Spectrum\\11-04-29\\AZI45\\AI04283.00-25_AI04283.05_A03-090_2026-8-21-10-53-55_Die1_C1_R0_20260821110439761.sme",
+  "qt_platform": "offscreen",
+  "residual": {
+    "S_spectra_verified": 10,
+    "submit_seconds": 0.04709999999613501,
+    "complete_seconds": 0.3261231999786105
+  },
+  "three_sigma": {
+    "curves_verified": 21,
+    "submit_seconds": 0.03249770001275465,
+    "complete_seconds": 0.26309910000418313,
+    "ddof": 1,
+    "grouping": "Wafer ID and channel",
+    "wavelength_alignment": "exact"
+  },
+  "source_arrays_sha256": "9d5ff784f322f1c8532c81da7ec5762a5314f9b30419bda2aaaea9473c35032f",
+  "source_arrays_unchanged": true,
+  "legend_restore_keeps_curve_items": true
+}

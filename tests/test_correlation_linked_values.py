@@ -5,7 +5,7 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 from PyQt6.QtCore import Qt
-from PyQt6.QtTest import QSignalSpy
+from PyQt6.QtTest import QSignalSpy, QTest
 from PyQt6.QtWidgets import QApplication
 
 from benchmarks.benchmark_memory_storage import fixture, settle
@@ -152,6 +152,29 @@ class LinkedCorrelationValueTests(unittest.TestCase):
         settle(APP, [self.parent, self.child])
         pd.testing.assert_frame_equal(self.child.raw_model.document_frame(), expected)
         self.assertFalse(self.child.copy_from_wkb_action.isChecked())
+
+    def test_parent_cut_preserves_selection_then_large_replacement_resumes_link(self):
+        original = self.parent.raw_model.document_frame()
+        selection = self.child.selection_state()
+        self.parent.raw_view.selectAll()
+        QTest.keyClick(self.parent.raw_view, Qt.Key.Key_X, Qt.KeyboardModifier.ControlModifier)
+        settle(APP, [self.parent, self.child])
+        self.assertTrue(self.parent.raw_model.document_frame().empty)
+        pd.testing.assert_frame_equal(self.child.raw_model.document_frame(), original)
+        self.assertEqual(self.child.selection_state(), selection)
+        self.assertTrue(self.child.copy_from_wkb_action.isChecked())
+        self.assertTrue(self.child.correlation_page.ready)
+        self.assertTrue(self.child.sequence_page.ready)
+
+        incoming = original.copy()
+        incoming.loc[0, 'P0'] = '10.23456789000001'
+        APP.clipboard().setText(incoming.to_csv(sep='\t', index=False))
+        self.parent.raw_view.setCurrentIndex(self.parent.raw_view.model().index(0, 0))
+        QTest.keyClick(self.parent.raw_view, Qt.Key.Key_V, Qt.KeyboardModifier.ControlModifier)
+        self.assert_current()
+        pd.testing.assert_frame_equal(self.child.raw_model.document_frame(), incoming)
+        self.assertEqual(self.child.selection_state(), selection)
+        self.assertTrue(self.child.copy_from_wkb_action.isChecked())
 
     def test_dense_paste_borrowed_snapshots_and_both_draws_stay_current_on_data_tab(self):
         original = self.parent.raw_model.document_frame()

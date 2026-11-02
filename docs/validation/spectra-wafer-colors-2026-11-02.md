@@ -1,0 +1,13 @@
+# Wafer-specific spectral colours
+
+Previously curve batching and colour assignment used only the instrument/channel/angle key. Spectra from different wafers sharing that key were merged into the same painted curve and legend entry. Rendering now uses a separate `WaferChannelKey` containing Wafer ID and the unchanged physical channel key. Source metadata, numerical arrays, checked file identity and physical channel statistics are preserved.
+
+Colours are allocated from all available wafer/channel combinations before drawing checked spectra, retained through participation and grouping changes, and shared by legends, normal curves, highlights and floating plots. Legend entries include Wafer ID. Double-clicking an entry toggles only its wafer/channel; the existing programmatic physical-channel toggle still supports all matching wafers. Category10 is retained for the first ten combinations, with unique additional colours rather than cycling the first ten. Colours are not a claim of unlimited perceptual distinguishability.
+
+The new regression failed before implementation (two groups instead of twelve). Six wafers with two shared channels now yield twelve distinct colours, matching legend icons, stable after rechecking/regrouping, and only two physical channels. Existing ten-channel, legend toggling, selection and floating-plot tests are included: **53 viewer/map tests passed in 23.390 s**.
+
+A native Windows preview combined the original 198-file wafer with the 396 generated ±30 nm files: **594 spectra, three wafers, six coloured groups, two physical angular channels**. All curves completed drawing. Exact colour assignments are in [the preview record](spectra-wafer-colors-preview-2026-11-02.json); screenshot `qa_spectra_wafer_colors.png` is in the repository root.
+
+Broad regression status and the existing AutoWeighting exclusion list are in [spectra-wafer-colors-2026-11-02.json](spectra-wafer-colors-2026-11-02.json). AutoWeighting remains deferred. Settings and source SME files were not written by validation.
+
+The broad run completed **1303 tests** (662 + 641), with two errors and two failures. All spectrum tests passed. The errors are the preceding fake Correlation workspace `raw_model` error and read-only pandas assignment error. The Correlation pending-render timing failure passed a serial retry. The Match Workbook Wafer Map opening budget remained above 0.4 s (0.431 s in the broad run, 0.509 s in serial retry). That non-spectra threshold failure remains unresolved; the corresponding source modules were not changed by this colour work. This is not a clean full-suite pass.

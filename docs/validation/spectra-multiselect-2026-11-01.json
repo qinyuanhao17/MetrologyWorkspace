@@ -1,0 +1,44 @@
+{
+  "date": "2026-11-01",
+  "focused_tests": {"count": 52, "result": "passed", "seconds": 14.279},
+  "full_suite": {
+    "result": "interrupted",
+    "reason": "Stopped when the user deferred AutoWeighting and requested that it no longer be tested.",
+    "log": "spectra-multiselect-2026-11-01-tests.log"
+  },
+  "regression_excluding_auto_weighting": {
+    "manifest": "spectra-regression-excluding-auto-weighting-2026-11-01.json",
+    "tests": 1282,
+    "failures": 3,
+    "errors": 2,
+    "serial_recheck": "Two scheduling-related failures passed in a three-test serial rerun. The separate Wafer Map opening test still exceeded its 0.4 s budget at 0.411 s.",
+    "errors_detail": "Existing non-Spectra read-only pandas array and FakeCorrelationWorkspace.raw_model errors remain.",
+    "snapshot_note": "The final thick-stroke edge overscan and its new regression test were added while the broad regression was running; all 52 focused Spectra tests were rerun on the final implementation."
+  },
+  "environment": {
+    "python": "metrology-workspace conda environment",
+    "temporary_paths": "Child process TEMP and TMP use C:/Users/Yuanhao Qin/AppData/Local/Temp to avoid Windows short/long alias assertion mismatches; run_tests.py still isolates settings, recovery, reminders and Matplotlib.",
+    "previous_path_failures": "The four recovery/recent-path/publication tests (six assertion failures including subtests) pass with resolved long temporary paths."
+  },
+  "checked_behaviour": [
+    "Tree Ctrl selection toggles individual spectra and Shift selection retains the native row-range anchor",
+    "Collapsed Wafer selection checks its spectra without materializing leaves or changing another Wafer",
+    "Map Ctrl selection works across different Wafers; clicking a highlighted point again toggles it off",
+    "Map Shift selection adds points; Check Selected and Uncheck Selected preserve other spectra and the selection",
+    "Spectrum Ctrl clicks add and remove spectra; selection stays synchronized with tree and map",
+    "Native context-menu events open the tree and wafer-plot menus with both batch actions and preserve two selected spectra",
+    "Four channel legend sections filter by available NCS, Psi Delta, Mueller and Reflectance data",
+    "An overflowing legend responds to the mouse wheel",
+    "Legend sections follow Options visibility, with NCS retained while any of N/C/S is enabled",
+    "Tree menu order is Check All, Uncheck All, Check Selected, Uncheck Selected, Fold, Unfold",
+    "Open Wafer Map reuses the WKB primary button style",
+    "Mueller plots retain at least 150 by 120 pixels; narrow windows scroll instead of squeezing neighbours",
+    "Viewport clipping retains source samples, NaN separators, full-data bounds and stroke-width overscan"
+  ],
+  "real_fixture": {
+    "files": 42,
+    "channels": 47,
+    "legend_counts": {"NCS": 2, "Psi Delta": 2, "Mueller": 7, "Reflectance": 1},
+    "visual_check": "Rendered the full viewer and wafer maps with two selected IMSE spectra. Verified solid pens for both Psi and Delta, 5 px highlight pens and two highlighted map points."
+  }
+}

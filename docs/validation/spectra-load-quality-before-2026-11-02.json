@@ -1,0 +1,73 @@
+{
+  "folder": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\JC1913",
+  "window_size": [
+    2000,
+    1100
+  ],
+  "device_pixel_ratio": 1.0,
+  "platform": "offscreen",
+  "actions": {
+    "load": {
+      "submit_seconds": 0.0007977000204846263,
+      "complete_seconds": 1.9977704000193626,
+      "max_heartbeat_gap_seconds": 0.1950030000298284
+    },
+    "check_all": {
+      "submit_seconds": 0.5152549000340514,
+      "complete_seconds": 9.17730219999794,
+      "max_heartbeat_gap_seconds": 0.515682100027334
+    },
+    "select_one": {
+      "submit_seconds": 0.021992399997543544,
+      "complete_seconds": 0.12106269999640062,
+      "max_heartbeat_gap_seconds": 0.022001000004820526
+    },
+    "uncheck_one": {
+      "submit_seconds": 0.5108868999523111,
+      "complete_seconds": 8.875894299999345,
+      "max_heartbeat_gap_seconds": 0.5109042999683879
+    },
+    "recheck_one": {
+      "submit_seconds": 0.49370980000821874,
+      "complete_seconds": 8.932006899965927,
+      "max_heartbeat_gap_seconds": 0.49372719996608794
+    },
+    "hide_legend": {
+      "submit_seconds": 2.1075759999803267,
+      "complete_seconds": 10.203944900014903,
+      "max_heartbeat_gap_seconds": 2.1075920999865048
+    },
+    "restore_legend": {
+      "submit_seconds": 2.169175900053233,
+      "complete_seconds": 10.463010200008284,
+      "max_heartbeat_gap_seconds": 2.169193100009579
+    },
+    "resize": {
+      "submit_seconds": 0.05686359998071566,
+      "complete_seconds": 10.344615200010594,
+      "max_heartbeat_gap_seconds": 0.19839049997972324
+    },
+    "restore_size": {
+      "submit_seconds": 0.02844529994763434,
+      "complete_seconds": 10.235489399987273,
+      "max_heartbeat_gap_seconds": 0.19661899999482557
+    },
+    "zoom_M01": {
+      "submit_seconds": 0.02562740002758801,
+      "complete_seconds": 0.15724170004250482,
+      "max_heartbeat_gap_seconds": 0.02784230001270771
+    },
+    "view_all_M01": {
+      "submit_seconds": 0.05471890000626445,
+      "complete_seconds": 0.9040818000212312,
+      "max_heartbeat_gap_seconds": 0.054729900031816214
+    }
+  },
+  "spectra": 1890,
+  "issues": 0,
+  "color_groups": 90,
+  "base_antialias": [
+    false
+  ],
+  "source_arrays_unchanged": true
+}

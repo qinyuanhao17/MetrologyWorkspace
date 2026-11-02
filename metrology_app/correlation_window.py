@@ -139,7 +139,7 @@ class CorrelationWindow(DataWorkspaceWindow):
             self.raw_model._linked_prepared_load = None
             if self._set_workbook_values(raw, mappings, mode, prepared):
                 return
-        reference = self.reference_model.document_frame()
+        reference = self.reference_model._document_view()
         if not reference.empty and len(reference) != len(raw):
             # Keep the manual Reference literally intact. A changed Raw row
             # count cannot establish new cross-table pairs on its behalf.
@@ -208,11 +208,11 @@ class CorrelationWindow(DataWorkspaceWindow):
     def set_workbook_groups(self, book):
         """Classification belongs to exact source records, not just wafer names."""
         from .correlation_groups import prepare_group_context
-        raw = self.raw_model.frame()
+        raw = self.raw_model._analysis_view()
         applies = getattr(self, "_workbook_selection_applies", True)
         prepared = getattr(self, "_prepared_group_result", None)
         if (prepared is not None and prepared["book_state"] is book.grouping_state
-                and prepared["applies"] == applies and prepared["raw"].equals(raw)
+                and prepared["applies"] == applies and self.raw_model.matches_analysis(prepared["raw"])
                 and prepared["reference"].equals(self.reference_model.frame())):
             self._match_groups, self._group_plan = prepared["context"], prepared["plan"]
             self._trend_parts_cache = prepared.get("trend_parts")
@@ -259,7 +259,11 @@ class CorrelationWindow(DataWorkspaceWindow):
             self.statusBar().showMessage(f"Group analysis unavailable: {error}")
 
     def set_workbook_participation(self, book):
-        if self._match_groups:
+        prepared = getattr(self, "_prepared_group_result", None)
+        installed = (prepared is not None and self._match_groups is prepared["context"]
+                     and prepared["book_state"] is book.grouping_state
+                     and prepared["applies"] == getattr(self, "_workbook_selection_applies", True))
+        if self._match_groups and not installed:
             from .match_groups import applied_state
             selection = applied_state(book.grouping_state)["data_selection"]
             if not getattr(self, "_workbook_selection_applies", True):
@@ -863,9 +867,13 @@ class CorrelationWindow(DataWorkspaceWindow):
             self._reset_reference_selection = True
         reference_frame = (_aligned_reference_frame(reference, raw)
                            if align_reference and not reference.empty else reference.copy())
-        raw_frame = raw.reset_index(drop=True)
+        prepared = getattr(self.raw_model, '_linked_prepared_load', None)
+        prepared_source = prepared.get('source_frame') if prepared is not None else None
+        source_matches = prepared_source is not None and (self.raw_model._prepared_source_matches(prepared, raw)
+                                                        or prepared_source.equals(raw))
+        raw_frame = prepared_source if source_matches else raw.reset_index(drop=True)
         same_raw = (bool(self._workbook_sources)
-                    and raw_frame.fillna("").astype(str).equals(self.raw_model.document_frame()))
+                    and self.raw_model.matches_document(raw if source_matches else raw_frame.fillna("").astype(str)))
         self._loading_workbook_sources = True
         try:
             if not same_raw:

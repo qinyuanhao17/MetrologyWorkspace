@@ -1,0 +1,36 @@
+{
+  "spectra": 594,
+  "physical_channels": 2,
+  "entries": [
+    {
+      "wafer": "AI04283.00-25",
+      "channel": "UVSE_II+ \u00b7 CH1 \u00b7 AOI 65\u00b0 \u00b7 AZI 45\u00b0",
+      "color": "#1f77b4"
+    },
+    {
+      "wafer": "AI04283.00-25",
+      "channel": "UVSE_II+ \u00b7 CH1 \u00b7 AOI 65\u00b0 \u00b7 AZI 90\u00b0",
+      "color": "#ff7f0e"
+    },
+    {
+      "wafer": "SYNBLUE.00-02",
+      "channel": "UVSE_II+ \u00b7 CH1 \u00b7 AOI 65\u00b0 \u00b7 AZI 45\u00b0",
+      "color": "#2ca02c"
+    },
+    {
+      "wafer": "SYNBLUE.00-02",
+      "channel": "UVSE_II+ \u00b7 CH1 \u00b7 AOI 65\u00b0 \u00b7 AZI 90\u00b0",
+      "color": "#d62728"
+    },
+    {
+      "wafer": "SYNRED.00-01",
+      "channel": "UVSE_II+ \u00b7 CH1 \u00b7 AOI 65\u00b0 \u00b7 AZI 45\u00b0",
+      "color": "#9467bd"
+    },
+    {
+      "wafer": "SYNRED.00-01",
+      "channel": "UVSE_II+ \u00b7 CH1 \u00b7 AOI 65\u00b0 \u00b7 AZI 90\u00b0",
+      "color": "#8c564b"
+    }
+  ]
+}

@@ -1,0 +1,104 @@
+{
+  "folder": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\JC1913",
+  "readable": 198,
+  "qt_platform": "windows",
+  "device_pixel_ratio": 1.25,
+  "initial_window_size": [
+    1800,
+    1000
+  ],
+  "actions": {
+    "check_pad": {
+      "submit_seconds": 0.36296200001379475,
+      "complete_seconds": 2.170764300011797,
+      "max_heartbeat_gap_seconds": 0.3679507999913767,
+      "checked": 198,
+      "selected": 0
+    },
+    "uncheck_one": {
+      "submit_seconds": 0.29120860001421534,
+      "complete_seconds": 1.9283801999990828,
+      "max_heartbeat_gap_seconds": 0.2912192000076175,
+      "checked": 197,
+      "selected": 0
+    },
+    "recheck_one": {
+      "submit_seconds": 0.35050249999039806,
+      "complete_seconds": 1.9751917000103276,
+      "max_heartbeat_gap_seconds": 0.3514439999999013,
+      "checked": 198,
+      "selected": 0
+    },
+    "resize_larger": {
+      "submit_seconds": 0.015529900003457442,
+      "complete_seconds": 3.618060400011018,
+      "max_heartbeat_gap_seconds": 1.7995231999957468,
+      "checked": 198,
+      "selected": 0
+    },
+    "resize_smaller": {
+      "submit_seconds": 0.012175200012279674,
+      "complete_seconds": 2.287006200000178,
+      "max_heartbeat_gap_seconds": 1.3123113000183366,
+      "checked": 198,
+      "selected": 0
+    },
+    "fullscreen": {
+      "submit_seconds": 1.7081591000023764,
+      "complete_seconds": 1.8116869000077713,
+      "max_heartbeat_gap_seconds": 1.7303036999946926,
+      "checked": 198,
+      "selected": 0
+    },
+    "normal": {
+      "submit_seconds": 1.3029226000071503,
+      "complete_seconds": 2.242952200002037,
+      "max_heartbeat_gap_seconds": 1.3029420000093523,
+      "checked": 198,
+      "selected": 0
+    },
+    "drag_plot_boundary": {
+      "submit_seconds": 0.40179879998322576,
+      "complete_seconds": 0.4120379999803845,
+      "max_heartbeat_gap_seconds": 0.3873144999961369,
+      "checked": 198,
+      "selected": 0
+    },
+    "drag_mueller_boundary": {
+      "submit_seconds": 0.006262099981540814,
+      "complete_seconds": 0.017436399997677654,
+      "max_heartbeat_gap_seconds": 0.009014900017064065,
+      "checked": 198,
+      "selected": 0
+    }
+  },
+  "drag_samples": [
+    {
+      "move_seconds": [
+        0.0012762999976985157,
+        0.0011184000177308917,
+        0.001233500021044165,
+        0.0021938999998383224,
+        0.002199300011852756,
+        0.001984399976208806,
+        0.0019428000086918473,
+        0.0019506000098772347
+      ],
+      "release_seconds": 0.3877799000183586
+    },
+    {
+      "move_seconds": [
+        0.0057864000264089555,
+        0.00012280000373721123,
+        4.839999019168317e-05,
+        1.0299991117790341e-05,
+        9.199982741847634e-06,
+        8.90000956133008e-06,
+        8.500006515532732e-06,
+        9.100011084228754e-06
+      ],
+      "release_seconds": 0.00015879998682066798
+    }
+  ],
+  "baseline_snapshot": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\MyCodes\\MetrologyWorkspace\\.cache\\spectra-interaction-baseline-20261101"
+}

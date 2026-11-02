@@ -4,6 +4,14 @@ Feature: Refresh an established plot selection
   itself, but a new box selection, or a changed wafer/parameter list, must not
   draw with the stale selection.
 
+  # Automation: MatchingValueRefreshTests.test_large_automatic_refresh_yields_before_plotting_and_finishes_latest_values
+  Scenario: Keep responding while an established large Workbook refreshes
+    Given the engineer has analyzed a large Match Workbook and drawn its parameter plots
+    When the engineer changes a measurement and then uses Undo and Redo
+    Then input can be processed between analysis and plot updates
+    And the completed curves match a fresh analysis of the latest source
+    And each plotted observation retains its original Die identity
+
   Scenario: Change only the data behind an established Wafer Map selection
     Given the engineer has successfully drawn a Wafer Map selection
     When only the measurement data changes

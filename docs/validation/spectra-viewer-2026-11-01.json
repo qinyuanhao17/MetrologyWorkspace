@@ -1,0 +1,46 @@
+{
+  "date": "2026-11-01",
+  "fixture": "all_uploaded_SME_spectra_42_files",
+  "files": 42,
+  "channels": 47,
+  "focused_tests": {"count": 43, "result": "passed", "seconds": 7.191},
+  "full_suite": {
+    "result": "failed",
+    "tests": 1316,
+    "failures": 8,
+    "errors": 4,
+    "seconds": 743.165,
+    "log": "spectra-viewer-2026-11-01-tests.log",
+    "snapshot_note": "This run started before the last curve-removal cleanup and its new test; the final cleanup was revalidated by all 43 focused spectra tests.",
+    "non_spectra_findings": [
+      "OCR import fails because cv2 is unavailable; rapidocr and onnxruntime are also absent from the installed environment. Background OCR tests also fail.",
+      "Two recovery tests fail (including three cancellation subtests); both failures reproduce in an isolated two-test run.",
+      "Recent settings and workspace publication assertions compare Windows short and long aliases of the same temporary paths.",
+      "Literal-frame source test attempts to edit a read-only pandas backing array.",
+      "Matching-window test fake lacks the raw_model attribute used by the existing implementation."
+    ]
+  },
+  "splitter_probe": {
+    "command": "python scripts/benchmark_spectra_splitter.py [--opaque]",
+    "environment": "Installed metrology-workspace environment, Qt offscreen, registered application fonts, light theme",
+    "method": "Same final renderer and real fixture; --opaque reproduces continuous resizing. Each of three trials moves the splitter through 12 positions and releases 40 pixels from the start. Total time includes event processing and release repaint.",
+    "plots": 21,
+    "continuous_resize": {
+      "drag_ms": [8972.41, 9389.82, 8214.76],
+      "plot_resize_events": [252, 252, 252],
+      "during_drag_resize_events": [252, 252, 252]
+    },
+    "release_resize": {
+      "drag_ms": [829.93, 951.14, 970.52],
+      "plot_resize_events": [21, 21, 21],
+      "during_drag_resize_events": [0, 0, 0]
+    },
+    "tradeoff": "Dragging shows the native splitter boundary preview; expensive plot layout and painting occur once on release. These probe totals are not native desktop frame-time measurements."
+  },
+  "visual_checks": [
+    "Real batch: three separate Wafer/Lot/PAD maps with circular outlines and no interpolated surface",
+    "White spectral and wafer plot backgrounds in both light and dark application themes, integer angle labels, compact Die tree rows and tight wavelength ranges",
+    "Standard Tableau Category10 channel colours shared by legend and plots"
+  ],
+  "palette_source": "https://matplotlib.org/stable/gallery/color/named_colors.html"
+}

@@ -1,0 +1,79 @@
+{
+  "folder": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\JC1913",
+  "readable": 198,
+  "actions": {
+    "check_pad": {
+      "submit_seconds": 0.38164740000502206,
+      "complete_seconds": 1.5314421000075527,
+      "max_heartbeat_gap_seconds": 0.386638199997833
+    },
+    "uncheck_one": {
+      "submit_seconds": 0.29718950000824407,
+      "complete_seconds": 1.1113114999898244,
+      "max_heartbeat_gap_seconds": 0.29719899999327026
+    },
+    "recheck_one": {
+      "submit_seconds": 0.3054528000066057,
+      "complete_seconds": 1.1204038000141736,
+      "max_heartbeat_gap_seconds": 0.3054627000237815
+    },
+    "resize_larger": {
+      "submit_seconds": 0.015503300004638731,
+      "complete_seconds": 1.191261800006032,
+      "max_heartbeat_gap_seconds": 0.21630080000613816
+    },
+    "resize_smaller": {
+      "submit_seconds": 0.013422300020465627,
+      "complete_seconds": 0.9871769000019412,
+      "max_heartbeat_gap_seconds": 0.14795760001288727
+    },
+    "fullscreen": {
+      "submit_seconds": 5.169998621568084e-05,
+      "complete_seconds": 0.4862676999764517,
+      "max_heartbeat_gap_seconds": 0.10250479998649098
+    },
+    "normal": {
+      "submit_seconds": 4.499999340623617e-05,
+      "complete_seconds": 1.022741099994164,
+      "max_heartbeat_gap_seconds": 0.12722200001007877
+    },
+    "drag_plot_boundary": {
+      "submit_seconds": 0.07255880002048798,
+      "complete_seconds": 0.2984345000004396,
+      "max_heartbeat_gap_seconds": 0.052751899987924844
+    },
+    "drag_mueller_boundary": {
+      "submit_seconds": 0.004784699995070696,
+      "complete_seconds": 0.016451300005428493,
+      "max_heartbeat_gap_seconds": 0.009175999992294237
+    }
+  },
+  "drag_samples": [
+    {
+      "move_seconds": [
+        0.002394999988609925,
+        0.0025224999990314245,
+        0.0020012000168208033,
+        0.002541699999710545,
+        0.0026277999859303236,
+        0.0027058999985456467,
+        0.0023668999783694744,
+        0.0024985999916680157
+      ],
+      "release_seconds": 0.05281730002025142
+    },
+    {
+      "move_seconds": [
+        0.004097800003364682,
+        0.00017010001465678215,
+        9.270000737160444e-05,
+        1.1500000255182385e-05,
+        9.200011845678091e-06,
+        9.799987310543656e-06,
+        9.200011845678091e-06,
+        8.800008799880743e-06
+      ],
+      "release_seconds": 0.0002728999825194478
+    }
+  ]
+}

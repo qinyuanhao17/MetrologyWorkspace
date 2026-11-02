@@ -516,6 +516,12 @@ class GroupControls(QWidget):
                     # infer equality from row counts/numeric approximations.
                     cached = copy(previous)
                     cached.raw, cached.reference = self.raw, self.reference
+                else:
+                    for _ref, _raw, saved, plan in reversed(self._source_plans):
+                        if saved == state:
+                            cached = plan.rebind_sources(self.raw, self.reference)
+                            if cached is not None:
+                                break
             self.plan = cached or GroupPlan(self.raw, self.order_model.flags_frame(len(self.raw)),
                                             state, self.reference)
             self._source_plans = [(ref, raw, saved, plan) for ref, raw, saved, plan in self._source_plans

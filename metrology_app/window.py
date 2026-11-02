@@ -883,7 +883,7 @@ class MainWindow(QMainWindow):
         previous_metrics = set(self.selected(self.parameter_list))
         previous_groups = [c for c, check in self.group_checks.items() if check.isChecked()]
         try:
-            frame = self.model.frame()
+            frame = self.model._analysis_view()
             # The table keeps the loaded values; the Card option only changes
             # what the plots and their statistics are computed from.
             frame = self.carded_frame(frame)
@@ -892,7 +892,7 @@ class MainWindow(QMainWindow):
             if (reset and prepared is not None
                     and not (getattr(self, "card_check", None) and self.card_check.isChecked())
                     and prepared["include_fit_quality"] == self.include_fit_quality
-                    and prepared["frame"].equals(frame)):
+                    and self.model.matches_analysis(prepared["frame"])):
                 choices = prepared["choices"]
             else:
                 choices = prepare_measurement_choices(frame, reset, previous_groups,
@@ -998,14 +998,13 @@ class MainWindow(QMainWindow):
 
     def set_workbook_participation(self, book):
         """Update traceable exclusions without replacing a child's editable data."""
-        from .match_groups import participation_rows, participation_source_keys
-        # MatchWorkbook already validated this owned state. This read-only
-        # operation needs no second copy/normalization of every record mapping.
-        selection = book.grouping_state.get("applied", book.grouping_state)["data_selection"]
-        self._hide_workbook_excluded = bool((selection or {}).get("hide_excluded", False))
+        from .input_planning import prepare_workbook_participation
+        prepared = getattr(self, "_prepared_participation", None)
+        if prepared is None or prepared["book"] is not book:
+            prepared = prepare_workbook_participation(book)
+        self._hide_workbook_excluded = prepared["hide_excluded"]
         source = book.final_match_raw if book.result_mode == "final" and book.final_match_raw is not None else book.raw
-        allowed = set(participation_rows(source, selection)) if selection is not None else set(range(len(source)))
-        self._participation_excluded = {key for row, key in enumerate(participation_source_keys(source)) if row not in allowed}
+        self._participation_excluded = set(prepared["excluded"])
         if self.workspace_type != "correlation_trend" and not any(
                 "".join(c.lower() for c in str(column) if c.isalnum()) in ("waferid", "cursmefilepath") for column in source):
             self._participation_excluded = set()

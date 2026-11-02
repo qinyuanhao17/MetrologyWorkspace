@@ -1,6 +1,6 @@
 # Metrology Workspace
 
-Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、径向图、相关性图和趋势图。主窗口提供 **Match Workbook**、**Wafer Map**、**Correlation and Trend**、**Dynamic** 和 **AutoWeighting Writer** 五个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例；窗口可命名、勾选随 WKB 保存。当前发布版本为 **v4.3.1**；功能、验证及已知限制见 [v4.3.1 发布说明](docs/releases/v4.3.1.md)。历史版本与开发版标签保持不变。
+Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、光谱、径向图、相关性图和趋势图。主窗口提供 **Match Workbook**、**Wafer Map**、**Spectra Viewer**、**Correlation and Trend**、**Dynamic** 和 **AutoWeighting Writer** 六个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例；窗口可命名、勾选随 WKB 保存。当前源码标签为 **v5.0.0**；功能、验证及已知限制见 [v5.0.0 发布说明](docs/releases/v5.0.0.md)。历史版本与开发版标签保持不变。
 
 v4.3.1 修复 Match Group / Wafer 导出中曲线、Wafer 标签和分界线不一致的问题：原生 Trend、Bias 与 Bias % 改为绑定单元格的 XY series，Show Wafer Group 的真实宽度会同步作用于数据；Wafer 标签保持各自 span 中心。单独 Group 页始终展示全部 Wafer，Match Wafer 改为不分页的一张完整图，数值轴只保留一个 Die Seq 标题，并在每个 Wafer 内按可用宽度生成密集刻度。完整 Undo、宽表粘贴/删除和多窗口阶段切换仍可能等待，不能把局部提速理解为整体流畅度全部达标。
 
@@ -22,7 +22,7 @@ python main.py
 
 主窗口通常以约 1180 × 820 的尺寸居中打开；在小屏幕或高缩放比例下，会按任务栏以上的可用空间自动缩小。分析窗口依次错开，窗口变小时仍可通过滚动条查看内容。
 
-程序启动后不会自动打开分析工具。点击左侧的 **Match Workbook**、**Wafer Map**、**Correlation and Trend** 或 **Dynamic** 即可新建窗口。右侧 Activity 保留本次会话的窗口与文件事件，横跨主窗口底部的 Log 会记录 Python 运行环境、错误，以及 WKB 打开和保存位置，便于调试；上下区域可拖动调整，实际拖动后的 Log 高度会在正常关闭时保存并在下次启动恢复。Shell 不显示重复的全局 Close all、Ready、绿色状态点或空闲 `No tools open` 文本。Log 使用 Cascadia Mono、Consolas 等系统等宽字体，随 Light/Dark 主题切换背景，并以蓝色、琥珀色和红色区分 INFO、WARNING、ERROR 标签。
+程序启动后不会自动打开分析工具。点击左侧的 **Match Workbook**、**Wafer Map**、**Spectra Viewer**、**Correlation and Trend** 或 **Dynamic** 即可新建窗口。右侧 Activity 保留本次会话的窗口与文件事件，横跨主窗口底部的 Log 会记录 Python 运行环境、错误，以及 WKB 打开和保存位置，便于调试；上下区域可拖动调整，实际拖动后的 Log 高度会在正常关闭时保存并在下次启动恢复。Shell 不显示重复的全局 Close all、Ready、绿色状态点或空闲 `No tools open` 文本。Log 使用 Cascadia Mono、Consolas 等系统等宽字体，随 Light/Dark 主题切换背景，并以蓝色、琥珀色和红色区分 INFO、WARNING、ERROR 标签。
 
 如果不使用 Conda，也可以在 Python 3.10+ 环境中安装依赖：
 
@@ -112,6 +112,36 @@ python -m PyInstaller --noconfirm --clean MetrologyWorkspace.spec
 - 只有手动保存才会写回 CSV。关闭窗口或替换表格前，程序会提示尚未保存的修改。
 
 这个表格用于整理绘图数据，不支持 Excel 公式、合并单元格或完整的 Excel 格式。
+
+## Spectra Viewer
+
+顶部 **Color By** 可选 **Wafer** 或 **SME Name**。Wafer 按 Wafer ID、Lot、PAD 的完整组合区分颜色；SME Name 按具体光谱文件区分颜色，重复文件名仍按源路径区分。两种方式都为不同 Channel 分配不同颜色，各图、图例与悬浮图保持一致。勾选、分类、缩放及切回已有模式时保留已分配颜色；双击图例只切换对应着色组的显示。优先使用 Tableau Category10，较多组合扩展色相、饱和度和亮度，避免循环复用相同 RGB。3σ 每条曲线汇总多个文件，因此仍按 Wafer/通道着色；此时 Color By 显示 Wafer 并禁用，离开 3σ 后恢复原选择。物理 Channel 数量统计不受着色分组影响。
+
+勾选只更新受影响的 Wafer/Channel 曲线组；超过 32 个颜色组时，按稳定顺序拆成最多 16 个批次，只更新受影响批次，其他曲线及屏幕缓存保留。legend 隐藏或恢复也按批次更新。主图和悬浮图保留手动坐标范围，自动轴随可见数据更新。重复勾选保持原有曲线覆盖顺序。当前真实数据对比见 [读取与画质验证](docs/validation/spectra-load-quality-2026-11-02.md)。
+
+在 legend 分区右键选择 **Show All** 可恢复本区隐藏的通道，不改变光谱勾选，分区标题栏不放按钮。树中单选一条光谱后右键 **Set as BSL**，顶部显示基准身份，树中基准行加粗，并切换到 Residual；BSL 本身可以不勾选。树右键 **Clear BSL** 可取消基准并清除标记，当前为 Residual 时恢复 Original，保留勾选与选择。**Options → Plot Mode** 可选 Original、Residual、3-Sigma，主图与悬浮图同步标注模式。Residual 为“光谱 − BSL”，仅在波长完全相同且值有效时计算，其他点保留空缺，不插值、不外推、不折返 Delta 相位；优先匹配相同通道，否则只接受 AOI/AZI 完全相同且唯一、具有该指标的 BSL 通道，无法匹配时提示。3-Sigma 按 **Wafer ID / Lot / PAD 与通道** 分别对已勾选的原始光谱计算每个波长的 **3×样本标准差（n−1）**，每个波长至少需要两条有效观测；不同 Wafer、不同通道不混合，也不绘制均值±3σ带。点击 3σ 曲线选中其全部参与光谱。切换模式保留 X 缩放、重新自动调整 Y 范围；删除 BSL 后退出 Residual，替换源文件夹时清除 BSL，磁盘源文件及其数据始终不变。计算规则与真实文件核对见 [BSL 与 3σ 验证](docs/validation/spectra-analysis-2026-11-02.md)。
+
+顶部 **Filter By** 可选 Wafer ID、Lot、PAD Name、Die，改变树的首层分类，其他身份继续保留在下层。切换分类保留光谱源身份、勾选、多选与当前绘图缩放。树底部的 Channel 数按同一仪器内不同 AOI/AZI 组合去重；缺少角度时使用文件内 Channel ID，相同通道不会按 Die 或文件重复累加。成功加载后不再在窗口底部重复显示 Loaded 统计。
+
+该工具递归读取指定文件夹中的 `.sme` 光谱；**Load Spectra** 与 **Add Spectra** 位于 File 菜单，后者用于合并其他文件夹。树按 `Wafer → Lot → Pad → Spectrum` 展示，并显示 SME 文件名、Lot、Tool SN、PAD、Die、FIELD X/Y、时间、目录以及 Channel 信息。内部文件名优先，外部文件名只补缺失字段；依次识别 Wafer ID、Lot、Tool SN、PAD，旧命名缺 PAD 时使用第四段日期作为 PAD。Spectrum 行名只显示 Die 编号，测量时间保留在 Time 列。Spectrum 可单独勾选，同一 Spectrum 内的多个 Channel 在图中一起显示，图例按仪器、Channel、AOI（angle 1）和 AZI（angle 3）区分；角度标签显示整数，原始角度精度保持不变。树右键支持 Check All / Uncheck All 以及 Fold Tree / Unfold Tree。双击图例隐藏或恢复该 Channel。
+
+绘图块包括完整的 4×4 Mueller 矩阵、N、C、S、Psi/Delta 双轴图和 DTS Reflectance，由 **Options → Views** 的勾选动作控制，菜单保持打开以便连续调整。各块与 Mueller 子图之间使用可拖动分隔条，拖动时预览边界、松手后更新布局；树与绘图区默认按约 1:3 分配宽度；所有分隔条都可收窄或折叠相邻区域，右侧或下方图占用腾出的空间，双击恢复初始比例；图例分区也可拖动调整；左键框选放大，右键拖动平移，滚轮缩放，图内左下角的 A 恢复自动范围。双击单个图会打开独立的悬浮放大窗口。绘图区使用白色背景、加粗曲线和标准 Tableau Category10 配色，X 轴范围紧贴可见数据；只显示图块标题和 X 轴标题，不显示 Y 轴标题。Psi 和 Delta 均用实线；选中光谱的曲线以 5 px 线宽高亮。图例分为 NCS、Psi Delta、Mueller、Reflectance 四区，只列出各类图有数据的通道，过多时在区内滚轮浏览；Options 关闭某类全部图后，对应 legend 区一并隐藏；双击任一区的通道仍会在所有图中同步隐藏或恢复该通道。
+
+点击曲线或晶圆位点联动选择树中的光谱；Ctrl 点击可增减选择，Shift 点击可追加选择，树中的 Shift 点击可连续选择一段。树中选中分类分支代表选中其下全部光谱，包括未勾选项。树菜单按 Check All、Uncheck All、Check Selected、Uncheck Selected、Fold、Unfold、Delete Tree 排列；**Delete Tree** 仅从本次会话移除选中的光谱或分支，保留磁盘上的 SME 文件，没有选中时禁用。树和晶圆窗口的右键菜单均提供 **Check Selected / Uncheck Selected**，只切换当前选中光谱的绘图参与状态，保留其他光谱的勾选状态和当前多选结果。点击主窗口、悬浮光谱图或晶圆图的空白处（包括图块外侧留白），同步清除树中选中、曲线加粗和位点高亮，保留勾选状态与缩放。Open Wafer Map 使用与 WKB 子窗口入口相同的主按钮样式。
+
+主窗口与悬浮光谱图的右键使用 PyQtGraph 原生 ViewBox 菜单：View All、X axis、Y axis、Mouse Mode，可编辑坐标范围及选择自动范围、轴反转和鼠标模式。View All 恢复完整数据并保持紧凑的波长范围。图块显示开关仍位于 Options → Views。
+
+光谱绘图按每条源光谱裁剪视口外数据，并在边界保留线宽范围与相邻点。曲线开启抗锯齿；多颜色密集全览的屏幕折线使用 0.25 个物理像素的简化容差，放大或调整尺寸时按新像素比例重新生成。NaN 间断、源身份和完整源样本保留，不平滑、不平均或插值；计算、点击选中和原生导出仍使用原始数据。真实数据性能与全点原生绘制对照见 `scripts/benchmark_spectra_load_quality.py --verify-pixels`。
+
+读取在后台进行，进度提示限制刷新频率，长文件名和加载控件不会挤压已有绘图区。TSD 加密封装单独标记为 encrypted，并提示从授权环境导出解密后的 SME 副本；其余可读取文件照常载入。重复 Add 不累积相同错误或重建未变化的曲线，保留现有缩放。密集绘图的数据准备与布局重绘逐图处理，曲线图像由两个后台进程绘制；窗口缩放时保留已有曲线预览，后台完成后换成新尺寸的清晰图像。连续更改只发布最新数据和坐标版本，取消勾选或关闭窗口会取消过期工作；高亮保持原线宽且不改变轴范围。全量图像仍需后台更新时间，具体耗时与输入停顿分别记录在 [读取与画质验证](docs/validation/spectra-load-quality-2026-11-02.md)。
+
+**Open Wafer Map** 打开独立非模态窗口，每张图对应一个 Wafer ID、Lot、PAD 组合，标题包含这三个字段，最多 12 张图一页；图块保持正方形，并沿用按 X/Y 范围识别常见 100/200/300 mm 晶圆的规则。图内只绘制晶圆轮廓、位点和 Die 编号，不插值或绘制色阶面。只有已勾选且具有有效坐标的 Spectrum 会产生测量点。点击点会同步选择树中的 Spectrum 和高亮曲线。
+
+首版不含光谱编辑、WKB 保存、图片/CSV 导出、插值或 OpenGL。BBSE 仿真样本保留在 `Simulation` 树分组中，但不会虚构 Wafer Map 点；未知格式进入 `Load errors`。
+
+Wafer Map 支持鼠标左键拖动框选，框内重合位点的全部光谱一起选中，树与曲线高亮同步。Ctrl/Shift 拖动追加选择；普通空框或空白单击清空选择。框选不会缩放或移动晶圆视图。
+
+Mueller 横轴只显示自动生成的等间隔主刻度文字，保留次网格线与 tight 数据范围，缩放时重新选择间距。Die 标注使用固定的紧凑像素间距紧靠位点下方，不随晶圆直径向下一行偏移。树菜单在 All、Selected、BSL 三组之后显示分隔线，Unfold Tree 与 Delete Tree 之间不分隔。
 
 ## Match Workbook（v2 开发中）
 
@@ -305,6 +335,10 @@ metrology_app/             应用主包
   measurements.py          Wafer/Lot/PAD 测量身份识别
   sheet.py                 表格编辑、复制粘贴和撤销
   window.py                Wafer Map 主窗口和页签联动
+  sme_spectra.py           SME 解析、身份、坐标和批次合并
+  spectra_plots.py         Mueller/NCS/Psi-Delta 的 PyQtGraph 面板
+  spectra_viewer.py        Spectra Viewer 树、图例和多面板绘图
+  spectra_map.py           按 Wafer 分页的可点击测量点图
   plot.py                  单张 Wafer Map 插值和绘制
   array_plot.py            阵列数据准备、检查和布局
   map_selector.py          方框选择

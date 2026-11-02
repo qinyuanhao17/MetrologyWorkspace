@@ -591,7 +591,7 @@ class CorrelationPage(QWidget):
         self.drawn_cells = set(cells)
         self.selector.set_selected_cells(cells, notify=False)
         if background:
-            self.request_background_draw()
+            self.request_background_draw(deferred=True)
         else:
             self.redraw_keeping_page()
 
@@ -714,13 +714,36 @@ class CorrelationPage(QWidget):
                     or self._batch_state is not None)
 
     def _cancel_background_draw(self):
+        timer = getattr(self, "_draw_request_timer", None)
+        if timer is not None:
+            timer.stop()
         self._cancel_interactive_render()
         task = getattr(self, "_draw_task", None)
         if task is not None:
             task.cancel()
         self._background_requested = False
 
-    def request_background_draw(self):
+    def request_background_draw(self, *, deferred=False):
+        if deferred:
+            self._cancel_background_draw()
+            self.input_refresh_timer.stop()
+            self.ready = False
+            self._background_requested = True
+            for button in (self.export_button, self.export_all_button, self.copy_button):
+                button.setEnabled(False)
+            if not hasattr(self, "_draw_request_timer"):
+                self._draw_request_timer = QTimer(self, interval=0, singleShot=True)
+                self._draw_request_timer.timeout.connect(self.request_background_draw)
+            self._draw_request_timer.start()
+            return
+        timer = getattr(self, "_draw_request_timer", None)
+        owner = getattr(self.window(), "_managed_owner", None)
+        if (timer is not None and getattr(self, "_background_requested", False)
+                and owner is not None and owner.linked_updates_pending):
+            timer.start(1)
+            return
+        if timer is not None:
+            timer.stop()
         self._cancel_interactive_render()
         from .background_task import LatestTask
         from .correlation_data import prepare_correlations

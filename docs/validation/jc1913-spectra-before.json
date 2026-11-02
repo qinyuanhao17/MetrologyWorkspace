@@ -1,0 +1,798 @@
+{
+  "folder": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\JC1913",
+  "sme_count": 354,
+  "load_seconds": 0.5835567000031006,
+  "readable": 198,
+  "issues": [
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die1_C1_R0_20260912132856345.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die2_C0_R1_20260912132858796.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die3_C-1_R0_20260912132901246.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die4_C0_R-2_20260912132903345.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die5_C2_R-2_20260912132905795.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die6_C3_R0_20260912132908245.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die7_C1_R2_20260912132910696.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die8_C-2_R-1_20260912132913146.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die9_C-1_R-3_20260912132915595.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die10_C3_R-4_20260912132918046.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die11_C4_R-2_20260912132920495.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die12_C3_R2_20260912132922945.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die13_C-2_R2_20260912132925395.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die14_C-4_R-2_20260912132927845.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die15_C-2_R-4_20260912132929954.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die16_C1_R-4_20260912132932395.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die17_C5_R-3_20260912132934845.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die18_C5_R0_20260912132937294.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die19_C5_R2_20260912132939745.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die20_C1_R4_20260912132942545.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die21_C-4_R1_20260912132944995.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die22_C-1_R4_20260912132947095.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die23_C0_R4_20260912132949195.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die24_C2_R4_20260912132951644.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die25_C-3_R3_20260912132953744.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die26_C-2_R3_20260912132955845.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die27_C-1_R3_20260912132957944.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die28_C0_R3_20260912133000044.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die29_C1_R3_20260912133002144.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die30_C2_R3_20260912133004244.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die31_C3_R3_20260912133006344.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die32_C4_R3_20260912133009144.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die33_C-4_R2_20260912133011244.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die34_C-3_R2_20260912133013344.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die35_C-1_R2_20260912133015444.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die36_C0_R2_20260912133017544.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die37_C2_R2_20260912133019644.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die38_C4_R2_20260912133022444.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die39_C-3_R1_20260912133024544.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die40_C-2_R1_20260912133026643.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die41_C-1_R1_20260912133028743.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die42_C1_R1_20260912133030844.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die43_C2_R1_20260912133032943.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die44_C3_R1_20260912133035043.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die45_C4_R1_20260912133037143.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die46_C5_R1_20260912133039943.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die47_C-4_R0_20260912133042044.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die48_C-3_R0_20260912133044143.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die49_C-2_R0_20260912133046593.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die50_C2_R0_20260912133048693.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die51_C4_R0_20260912133051492.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die52_C-4_R-1_20260912133053896.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die53_C-3_R-1_20260912133056043.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die54_C-1_R-1_20260912133058142.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die55_C0_R-1_20260912133100243.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die56_C1_R-1_20260912133102342.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die57_C2_R-1_20260912133104442.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die58_C3_R-1_20260912133106542.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die59_C4_R-1_20260912133108642.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die60_C5_R-1_20260912133111442.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die61_C-3_R-2_20260912133113542.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die62_C-2_R-2_20260912133115642.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die63_C-1_R-2_20260912133117742.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die64_C1_R-2_20260912133119842.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die65_C3_R-2_20260912133121942.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die66_C5_R-2_20260912133124742.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die67_C-4_R-3_20260912133126842.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die68_C-3_R-3_20260912133128942.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die69_C-2_R-3_20260912133131042.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die70_C0_R-3_20260912133133142.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die71_C1_R-3_20260912133135242.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die72_C2_R-3_20260912133137342.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die73_C3_R-3_20260912133139442.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die74_C4_R-3_20260912133141891.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die75_C-1_R-4_20260912133143992.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die76_C0_R-4_20260912133146091.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die77_C2_R-4_20260912133148191.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20260924_AIT0104.00\\Spectrum\\13-28-45\\2026_8_21_10_53_55\\AIT0104.00-24_AIT0104.67_A03-090_2026-8-21-10-53-55_Die78_C4_R-4_20260912133148223.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die1_C1_R0_20261001205124524.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die2_C0_R1_20261001205126974.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die3_C-1_R0_20261001205129424.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die4_C0_R-2_20261001205131524.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die5_C2_R-2_20261001205133975.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die6_C3_R0_20261001205136077.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die7_C1_R2_20261001205138524.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die8_C-2_R-1_20261001205140975.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die9_C-1_R-3_20261001205143424.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die10_C3_R-4_20261001205145874.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die11_C4_R-2_20261001205148324.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die12_C3_R2_20261001205150774.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die13_C-2_R2_20261001205153224.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die14_C-4_R-2_20261001205155674.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die15_C-2_R-4_20261001205157774.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die16_C1_R-4_20261001205200224.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die17_C5_R-3_20261001205202674.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die18_C5_R0_20261001205204774.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die19_C5_R2_20261001205206874.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die20_C1_R4_20261001205209674.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die21_C-4_R1_20261001205212124.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die22_C-1_R4_20261001205214223.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die23_C0_R4_20261001205216326.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die24_C2_R4_20261001205218773.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die25_C-3_R3_20261001205220874.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die26_C-2_R3_20261001205222973.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die27_C-1_R3_20261001205225074.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die28_C0_R3_20261001205227174.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die29_C1_R3_20261001205229274.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die30_C2_R3_20261001205231374.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die31_C3_R3_20261001205233473.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die32_C4_R3_20261001205236273.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die33_C-4_R2_20261001205238373.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die34_C-3_R2_20261001205240473.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die35_C-1_R2_20261001205242573.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die36_C0_R2_20261001205244673.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die37_C2_R2_20261001205246773.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die38_C4_R2_20261001205249573.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die39_C-3_R1_20261001205251673.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die40_C-2_R1_20261001205253773.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die41_C-1_R1_20261001205255872.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die42_C1_R1_20261001205257973.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die43_C2_R1_20261001205300073.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die44_C3_R1_20261001205302172.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die45_C4_R1_20261001205304272.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die46_C5_R1_20261001205307073.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die47_C-4_R0_20261001205309172.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die48_C-3_R0_20261001205311273.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die49_C-2_R0_20261001205313722.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die50_C2_R0_20261001205315822.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die51_C4_R0_20261001205318622.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die52_C-4_R-1_20261001205320722.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die53_C-3_R-1_20261001205322822.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die54_C-1_R-1_20261001205324922.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die55_C0_R-1_20261001205327022.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die56_C1_R-1_20261001205329122.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die57_C2_R-1_20261001205331222.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die58_C3_R-1_20261001205333322.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die59_C4_R-1_20261001205335422.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die60_C5_R-1_20261001205338222.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die61_C-3_R-2_20261001205340322.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die62_C-2_R-2_20261001205342422.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die63_C-1_R-2_20261001205344521.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die64_C1_R-2_20261001205346622.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die65_C3_R-2_20261001205348722.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die66_C5_R-2_20261001205351171.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die67_C-4_R-3_20261001205353622.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die68_C-3_R-3_20261001205355722.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die69_C-2_R-3_20261001205357821.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die70_C0_R-3_20261001205359921.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die71_C1_R-3_20261001205402022.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die72_C2_R-3_20261001205404121.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die73_C3_R-3_20261001205406222.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die74_C4_R-3_20261001205408671.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die75_C-1_R-4_20261001205410771.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die76_C0_R-4_20261001205412871.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die77_C2_R-4_20261001205414971.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    },
+    {
+      "path": "EP01_20261009_AIT0080.00-22\\Spectrum\\20-51-13\\2026_8_21_10_53_55\\AIT0080.00-22_AIT0080.42_A03-090_2026-8-21-10-53-55_Die78_C4_R-4_20261001205415006.sme",
+      "message": "Missing SE3 envelope",
+      "status": "unsupported"
+    }
+  ],
+  "issue_counts": {
+    "Missing SE3 envelope": 156
+  },
+  "channels": 198,
+  "channel_identities": 2,
+  "apply_seconds": 0.023282599984668195,
+  "check_all_seconds": 3.2516818000003695,
+  "zoom_seconds": 0.021483599994098768,
+  "unfold_seconds": 0.03468000001157634,
+  "tree_leaves": 198
+}

@@ -1,0 +1,43 @@
+{
+  "spectra": 594,
+  "actions": {
+    "check_wafer": {
+      "submit_seconds": 0.13104629999725148,
+      "complete_seconds": 3.0879850999917835,
+      "max_heartbeat_gap_seconds": 0.20160209998721257,
+      "S_groups": 6,
+      "S_distinct_colors": 6
+    },
+    "sme": {
+      "submit_seconds": 0.9343481999821961,
+      "complete_seconds": 6.001553599984618,
+      "max_heartbeat_gap_seconds": 0.9953257000015583,
+      "S_groups": 594,
+      "S_distinct_colors": 594
+    },
+    "uncheck_one_sme": {
+      "submit_seconds": 0.7797111000108998,
+      "complete_seconds": 6.042631499993149,
+      "max_heartbeat_gap_seconds": 0.9870283000054769,
+      "S_groups": 593,
+      "S_distinct_colors": 593
+    },
+    "recheck_one_sme": {
+      "submit_seconds": 0.8000356999982614,
+      "complete_seconds": 6.021376599994255,
+      "max_heartbeat_gap_seconds": 0.8593895999947563,
+      "S_groups": 594,
+      "S_distinct_colors": 594
+    },
+    "wafer": {
+      "submit_seconds": 0.24104130000341684,
+      "complete_seconds": 4.79496850000578,
+      "max_heartbeat_gap_seconds": 0.5802385999995749,
+      "S_groups": 6,
+      "S_distinct_colors": 6
+    }
+  },
+  "platform": "offscreen",
+  "main_tree_fraction": 0.24987251402345742,
+  "splitters_collapsed_and_restored": 9
+}

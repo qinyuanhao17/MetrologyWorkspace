@@ -1,0 +1,18 @@
+{
+  "folder": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\JC1913\\SME_RedBlue20_20261102",
+  "files": 396,
+  "issues": 0,
+  "angular_channels": 2,
+  "wafers": [
+    "SYNBLUE.00-02",
+    "SYNRED.00-01"
+  ],
+  "lots": [
+    "SYNBLUE.02",
+    "SYNRED.01"
+  ],
+  "map_count": 2,
+  "map_points": 156,
+  "all_checked_and_drawn": true,
+  "file_and_source_hashes_verified": true
+}

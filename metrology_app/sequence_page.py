@@ -317,7 +317,7 @@ class SequencePage(QWidget):
         self.selector.set_selected_cells(cells, notify=False)
         self.invalidate(preserve_plot=True)
         if background:
-            self.request_background_draw()
+            self.request_background_draw(deferred=True)
         else:
             self.draw_plot()
 
@@ -855,6 +855,9 @@ class SequencePage(QWidget):
                     or (task is not None and task.busy) or getattr(self, "_batch_state", None))
 
     def _cancel_background_draw(self):
+        timer = getattr(self, "_draw_request_timer", None)
+        if timer is not None:
+            timer.stop()
         self._render_generation = getattr(self, "_render_generation", 0) + 1
         task = getattr(self, "_draw_task", None)
         if task is not None:
@@ -870,7 +873,27 @@ class SequencePage(QWidget):
             self.panel_hosts = []
             self.home_views = []
 
-    def request_background_draw(self):
+    def request_background_draw(self, *, deferred=False):
+        if deferred:
+            self._cancel_background_draw()
+            self.input_refresh_timer.stop()
+            self.ready = False
+            self._background_requested = True
+            self.export_button.setEnabled(False)
+            self.copy_button.setEnabled(False)
+            if not hasattr(self, "_draw_request_timer"):
+                self._draw_request_timer = QTimer(self, interval=0, singleShot=True)
+                self._draw_request_timer.timeout.connect(self.request_background_draw)
+            self._draw_request_timer.start()
+            return
+        timer = getattr(self, "_draw_request_timer", None)
+        owner = getattr(self.window(), "_managed_owner", None)
+        if (timer is not None and getattr(self, "_background_requested", False)
+                and owner is not None and owner.linked_updates_pending):
+            timer.start(1)
+            return
+        if timer is not None:
+            timer.stop()
         from .background_task import LatestTask
         from .sequence_data import prepare_sequence_values
         if not self.selector.selected_cells() or self.frame.empty:

@@ -1,0 +1,49 @@
+{
+  "folder": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\JC1913",
+  "spectra": 1161,
+  "load_issues": 0,
+  "selected_spectra": 21,
+  "checks": [
+    {
+      "plot": "S",
+      "color_groups": 33,
+      "colors_unchanged": true,
+      "selection_and_highlight_unchanged": true,
+      "tight_full_x_range": [
+        159.64686306434663,
+        930.0179074809226
+      ]
+    },
+    {
+      "plot": "Mueller M01",
+      "color_groups": 33,
+      "colors_unchanged": true,
+      "selection_and_highlight_unchanged": true,
+      "tight_full_x_range": [
+        159.64686306434663,
+        930.0179074809226
+      ]
+    },
+    {
+      "plot": "Psi Delta",
+      "color_groups": 33,
+      "colors_unchanged": true,
+      "selection_and_highlight_unchanged": true,
+      "tight_full_x_range": [
+        159.64686306434663,
+        930.0179074809226
+      ]
+    },
+    {
+      "plot": "floating M01",
+      "color_groups": 33,
+      "colors_unchanged": true,
+      "selection_and_highlight_unchanged": true,
+      "tight_full_x_range": [
+        159.64686306434663,
+        930.0179074809226
+      ]
+    }
+  ],
+  "result": "passed"
+}

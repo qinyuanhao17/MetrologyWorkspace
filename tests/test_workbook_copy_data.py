@@ -22,6 +22,60 @@ APP = QApplication.instance() or QApplication([])
 
 
 class WorkbookCopyDataTests(unittest.TestCase):
+    def test_parent_cut_keeps_linked_correlation_until_raw_is_replaced(self):
+        from benchmarks.benchmark_memory_storage import settle
+
+        parent = MatchingWindow()
+        self.addCleanup(self.close_window, parent)
+        reference, raw, mappings = self.sources()
+        parent.set_reference_frame(reference)
+        parent.set_raw_frame(raw)
+        parent._populate_mappings(mappings)
+        parent.run_analysis()
+        wafer_map = parent.open_stage_workspace("preview")
+        self.addCleanup(self.close_window, wafer_map)
+        child = parent.open_correlation_workspace()
+        self.addCleanup(self.close_window, child)
+        child.set_reference_table(reference)
+        for page in (child.correlation_page, child.sequence_page):
+            page.selector.selectAll()
+            page.draw_plot()
+        settle(APP, [parent, child, wafer_map])
+        saved_reference = child.reference_model.document_frame()
+        saved_selection = child.selection_state()
+        saved_map = wafer_map.model.document_frame()
+
+        parent.raw_view.selectAll()
+        QTest.keyClick(parent.raw_view, Qt.Key.Key_X, Qt.KeyboardModifier.ControlModifier)
+        settle(APP, [parent, child, wafer_map])
+        self.assertTrue(parent.raw_model.document_frame().empty)
+        pd.testing.assert_frame_equal(wafer_map.model.document_frame(), saved_map)
+        pd.testing.assert_frame_equal(child.raw_model.document_frame(), raw)
+        pd.testing.assert_frame_equal(child.reference_model.document_frame(), saved_reference)
+        self.assertEqual(child.selection_state(), saved_selection)
+        self.assertTrue(child.copy_from_wkb_action.isChecked())
+        self.assertTrue(child.correlation_page.ready)
+        self.assertTrue(child.sequence_page.ready)
+
+        incoming = raw.copy()
+        incoming.loc[0, "CD"] = "1.23456789000001"
+        APP.clipboard().setText(incoming.to_csv(sep="\t", index=False))
+        parent.raw_view.setCurrentIndex(parent.raw_view.model().index(0, 0))
+        QTest.keyClick(parent.raw_view, Qt.Key.Key_V, Qt.KeyboardModifier.ControlModifier)
+        settle(APP, [parent, child, wafer_map])
+        pd.testing.assert_frame_equal(child.raw_model.document_frame(), incoming)
+        pd.testing.assert_frame_equal(child.reference_model.document_frame(), saved_reference)
+        self.assertEqual(child.selection_state(), saved_selection)
+        self.assertTrue(child.copy_from_wkb_action.isChecked())
+
+        parent.raw_model.undo.undo()  # Undo replacement returns to the temporary blank.
+        settle(APP, [parent, child, wafer_map])
+        pd.testing.assert_frame_equal(child.raw_model.document_frame(), incoming)
+        parent.raw_model.undo.undo()  # Undo cut restores the original source.
+        settle(APP, [parent, child, wafer_map])
+        pd.testing.assert_frame_equal(child.raw_model.document_frame(), raw)
+        self.assertEqual(child.selection_state(), saved_selection)
+
     def test_manual_raw_saved_before_parent_refresh_keeps_literal_edits_and_detaches_copy(self):
         parent = MatchingWindow()
         self.addCleanup(self.close_window, parent)

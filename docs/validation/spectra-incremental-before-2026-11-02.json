@@ -1,0 +1,91 @@
+{
+  "spectra": 594,
+  "qt_platform": "offscreen",
+  "device_pixel_ratio": 1.0,
+  "actions": {
+    "uncheck_0": {
+      "submit_seconds": 0.13190400000894442,
+      "complete_seconds": 3.9327520000224467,
+      "max_heartbeat_gap_seconds": 0.13193080000928603,
+      "new_curve_items": 126,
+      "manual_range_preserved": false
+    },
+    "recheck_0": {
+      "submit_seconds": 0.1394369000045117,
+      "complete_seconds": 4.056603400007589,
+      "max_heartbeat_gap_seconds": 0.14523490000283346,
+      "new_curve_items": 126,
+      "manual_range_preserved": false
+    },
+    "legend_hide_0": {
+      "submit_seconds": 0.13508100001490675,
+      "complete_seconds": 3.293988999997964,
+      "max_heartbeat_gap_seconds": 0.1351137000019662,
+      "new_curve_items": 105,
+      "manual_range_preserved": false
+    },
+    "legend_show_0": {
+      "submit_seconds": 0.12852509997901507,
+      "complete_seconds": 3.4215246999810915,
+      "max_heartbeat_gap_seconds": 0.12854029997834004,
+      "new_curve_items": 126,
+      "manual_range_preserved": false
+    },
+    "uncheck_1": {
+      "submit_seconds": 0.23037390000536107,
+      "complete_seconds": 5.206795100006275,
+      "max_heartbeat_gap_seconds": 0.23039839998818934,
+      "new_curve_items": 126,
+      "manual_range_preserved": false
+    },
+    "recheck_1": {
+      "submit_seconds": 0.23045380000257865,
+      "complete_seconds": 5.019055800017668,
+      "max_heartbeat_gap_seconds": 0.23048040000139736,
+      "new_curve_items": 126,
+      "manual_range_preserved": false
+    },
+    "legend_hide_1": {
+      "submit_seconds": 0.21624510001856834,
+      "complete_seconds": 4.255497000005562,
+      "max_heartbeat_gap_seconds": 0.21626490002381615,
+      "new_curve_items": 105,
+      "manual_range_preserved": false
+    },
+    "legend_show_1": {
+      "submit_seconds": 0.21740829999907874,
+      "complete_seconds": 5.111025099991821,
+      "max_heartbeat_gap_seconds": 0.21742839997750707,
+      "new_curve_items": 126,
+      "manual_range_preserved": false
+    },
+    "uncheck_2": {
+      "submit_seconds": 0.21698369999649003,
+      "complete_seconds": 4.986156099999789,
+      "max_heartbeat_gap_seconds": 0.21700800000689924,
+      "new_curve_items": 126,
+      "manual_range_preserved": false
+    },
+    "recheck_2": {
+      "submit_seconds": 0.22111169999698177,
+      "complete_seconds": 4.926270299998578,
+      "max_heartbeat_gap_seconds": 0.22113140000146814,
+      "new_curve_items": 126,
+      "manual_range_preserved": false
+    },
+    "legend_hide_2": {
+      "submit_seconds": 0.21455999999307096,
+      "complete_seconds": 4.149705499992706,
+      "max_heartbeat_gap_seconds": 0.21457889999146573,
+      "new_curve_items": 105,
+      "manual_range_preserved": false
+    },
+    "legend_show_2": {
+      "submit_seconds": 0.3293522000021767,
+      "complete_seconds": 5.094257699995069,
+      "max_heartbeat_gap_seconds": 0.329377599991858,
+      "new_curve_items": 126,
+      "manual_range_preserved": false
+    }
+  }
+}

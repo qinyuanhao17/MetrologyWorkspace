@@ -11,6 +11,23 @@ from metrology_app.match_groups import GroupPlan, group_state, row_ids
 
 
 class MatchGroupTests(unittest.TestCase):
+    def test_numeric_source_rebind_retains_classification_but_rejects_metadata_or_filters(self):
+        raw = pd.DataFrame({'Wafer ID': ['W1', 'W1', 'W2'], 'Die Seq': ['001', '002', '001'],
+                            'Lot ID': ['L1'] * 3, 'CD': ['1.00', '2.00', '3.00']})
+        reference = pd.DataFrame({'Ref': ['2', '4', '6']})
+        plan = GroupPlan(raw, pd.DataFrame({'TestFlag': ['0', '1', '0']}), {'enabled': True}, reference)
+        incoming = raw.assign(CD=['1.123456789', '2.00', '3.00'])
+        rebound = plan.rebind_sources(incoming, reference)
+        self.assertIsNotNone(rebound)
+        self.assertEqual(rebound.row_groups, ('All:0', 'All:1', 'All:0'))
+        self.assertEqual(rebound.included_rows, (0, 1, 2))
+        self.assertEqual(rebound.raw.CD.iloc[0], '1.123456789')
+        self.assertEqual(plan.raw.CD.iloc[0], '1.00')
+        self.assertIsNone(plan.rebind_sources(incoming.assign(**{'Lot ID': ['L1', 'L2', 'L1']}), reference))
+        self.assertIsNone(plan.rebind_sources(incoming, reference.assign(Ref=['3', '4', '6'])))
+        filtered = GroupPlan(raw, state={'filters': [{'table': 'raw', 'column': 'CD', 'minimum': 2}]}, reference=reference)
+        self.assertIsNone(filtered.rebind_sources(incoming, reference))
+
     def test_group_state_copies_detach_nested_records_and_mark_assignments(self):
         from metrology_app.match_groups import copy_group_state
         state = {"mark_rows": {"New": ["001", "002"]},

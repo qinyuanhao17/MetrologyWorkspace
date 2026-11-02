@@ -655,7 +655,7 @@ class SheetModel(QAbstractTableModel):
         prepared = getattr(self, "_linked_prepared_load", None)
         self._linked_prepared_load = None
         if (not report_paste and prepared is not None
-                and (prepared["document"].equals(frame)
+                and (self._prepared_source_matches(prepared, frame) or prepared["document"].equals(frame)
                      or prepared["document"].equals(frame.fillna("").astype(str).reset_index(drop=True)))):
             self._load_prepared_frame(prepared)
             return
@@ -679,9 +679,11 @@ class SheetModel(QAbstractTableModel):
         if prepared["exact_extent"]:
             self._extent = (prepared["rows"] + 1, len(document.columns))
         if self.cells:
-            self._frames["document"] = document.iloc[:, :self._cell_extent()[1]].copy()
+            readonly = version is not None and not document.to_numpy(copy=False).flags.writeable
+            self._frames["document"] = document.iloc[:, :self._cell_extent()[1]].copy(deep=not readonly)
             if prepared.get("analysis") is not None:
-                self._frames["analysis"] = prepared["analysis"].copy()
+                self._frames["analysis"] = prepared["analysis"].copy(deep=not readonly)
+            self._borrowed_frames = readonly
         self.undo.clear()
         self.undo.setClean()
         self._prepared_load = True
@@ -692,11 +694,26 @@ class SheetModel(QAbstractTableModel):
 
     def update_headers(self, frame):
         """Refresh linked aliases only when every literal data cell is unchanged."""
-        current = self.document_frame()
         prepared = getattr(self, "_linked_prepared_load", None)
+        comparison = self._prepared_comparison(prepared, frame)
+        if comparison is not None and not comparison[2]:
+            return False
+        if (self.literal_version is not None and prepared is not None
+                and self._prepared_source_matches(prepared, frame)):
+            old, new = self.literal_version, prepared['version']
+            if len(old.headers) != len(new.headers) or old.row_count != new.row_count or old.columns != new.columns:
+                return False
+            changes = {(0, column): name for column, name in enumerate(new.headers)
+                       if old.headers[column] != name}
+            if changes:
+                self.apply(changes)
+            self.undo.clear()
+            self.undo.setClean()
+            return True
+        current = self._document_view()
         incoming = (prepared["document"] if prepared is not None and prepared["document"].equals(frame)
                     else frame.fillna("").astype(str).reset_index(drop=True))
-        if current.shape != incoming.shape or not current.set_axis(incoming.columns, axis=1).equals(incoming):
+        if comparison is None and (current.shape != incoming.shape or not current.set_axis(incoming.columns, axis=1, copy=False).equals(incoming)):
             return False
         changes = {(0, column): str(name) for column, name in enumerate(incoming.columns)
                    if current.columns[column] != str(name)}
@@ -706,6 +723,37 @@ class SheetModel(QAbstractTableModel):
         self.undo.clear()
         self.undo.setClean()
         return True
+
+    @staticmethod
+    def _prepared_source_matches(prepared, frame):
+        version = prepared.get('version')
+        return any(isinstance(source, LiteralFrameSource) and source.matches(frame, version)
+                   for source in (prepared.get('input_source'), prepared.get('document_source')))
+
+    def matches_document(self, frame):
+        """Compare literal sources, reusing a proved incoming immutable version."""
+        prepared = getattr(self, '_linked_prepared_load', None)
+        comparison = self._prepared_comparison(prepared, frame)
+        if comparison is not None:
+            return comparison[1]
+        if (self.literal_version is not None and prepared is not None
+                and self._prepared_source_matches(prepared, frame)):
+            old, new = self.literal_version, prepared['version']
+            return old.headers == new.headers and old.row_count == new.row_count and old.columns == new.columns
+        return self._document_view().equals(frame)
+
+    def _prepared_comparison(self, prepared, frame):
+        comparison = prepared.get('comparison') if prepared is not None else None
+        if (comparison is not None and comparison[0] == self.revision
+                and self._prepared_source_matches(prepared, frame)):
+            return comparison
+        return None
+
+    def matches_analysis(self, frame):
+        """Recognize the current readonly source without rescanning its literals."""
+        if self._literal_source(frame) is not None:
+            return True
+        return self._analysis_view().equals(frame)
 
     def load_matrix(self, matrix, *, report_paste=False):
         """Replace every cell with a rectangular clipboard matrix."""
@@ -981,7 +1029,6 @@ class SheetModel(QAbstractTableModel):
         return self._read_frame_view('analysis')
 
     def _read_frame_view(self, kind):
-        import numpy as np
         reader = self.document_frame if kind == 'document' else self.frame
         version = self.literal_version
         if version is None:
@@ -997,12 +1044,8 @@ class SheetModel(QAbstractTableModel):
             return reader()
         # A readonly buffer export also prevents callers from reenabling array
         # writes. Fresh pandas metadata wrappers never share mutable attrs.
-        values = np.asarray(memoryview(frame.to_numpy(copy=False)).toreadonly())
-        result = pd.DataFrame(values, index=frame.index.copy(deep=True),
-                              columns=frame.columns.copy(deep=True), copy=False)
-        result.attrs = deepcopy(frame.attrs)
         self._borrowed_frames = True
-        return result
+        return _readonly_frame(frame)
 
     def headers(self, columns=None):
         """Row-1 header text, falling back to the column letter when it is blank."""
@@ -1490,6 +1533,15 @@ class PasteFeedbackBar(QFrame):
             "<br>Feedback clears on the next edit, Undo, table reload, or ×.")
 
 
+def _readonly_frame(frame):
+    import numpy as np
+    values = np.asarray(memoryview(frame.to_numpy(copy=False)).toreadonly())
+    result = pd.DataFrame(values, index=frame.index.copy(deep=True),
+                          columns=frame.columns.copy(deep=True), copy=False)
+    result.attrs = deepcopy(frame.attrs)
+    return result
+
+
 def prepare_sheet_version(frame, version, *, source=None):
     """Reuse a proved immutable source, while keeping mutable GUI frames owned."""
     if not isinstance(version, LiteralTableVersion) or not version.dense:
@@ -1497,17 +1549,20 @@ def prepare_sheet_version(frame, version, *, source=None):
     proved = isinstance(source, LiteralFrameSource) and source.matches(frame, version)
     if not proved and not version.matches_frame(frame):
         return None
-    document = version.to_frame()
+    document = _readonly_frame(version.to_frame())
     headers = [name.strip() or f'Column {column_letter(column)}'
                for column, name in enumerate(version.headers)]
     analysis = None
     if len(set(headers)) == len(headers):
         if document.iloc[:, 0].str.strip().ne('').all():
-            analysis = document.set_axis(headers, axis=1)
+            analysis = document.set_axis(headers, axis=1, copy=False)
         else:
             analysis = document.loc[document.apply(lambda col: col.str.strip().ne('')).any(axis=1)]
             analysis = analysis.set_axis(headers, axis=1).reset_index(drop=True)
+            analysis = _readonly_frame(analysis)
     return {'document': document, 'analysis': analysis, 'version': version,
+            'document_source': LiteralFrameSource(version, document),
+            'input_source': source if proved else None,
             'height': max(100, version.row_count + 21), 'width': max(26, len(headers) + 3),
             'rows': version.row_count, 'exact_extent': True}
 

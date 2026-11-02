@@ -86,3 +86,51 @@ Cucumber dependency). Scenarios map to public workflow regression tests:
 - 共用 Data 编辑器、上下独立滚动的逐参数表格，以及“横向紧凑 legend 的全部参数比较 + 各参数独立”的无数据点三列柱图网格 → `DynamicWindowTests.test_selected_parameters_render_separate_vertical_table_and_plot_sections`、`DynamicWindowTests.test_more_than_three_parameter_charts_wrap_to_the_next_row`
 - Wafer Map 阵列不显示底部 RBF / edge / size 说明 → `ArrayTests.test_map_array_omits_interpolation_footer`
 - 替换 Data 表时保留仍存在的 Dynamic 参数并刷新 3σ → `DynamicWindowTests.test_replacing_dynamic_data_keeps_available_parameters_and_refreshes_plots`；Wafer Map 共用行为由 `WorkspaceTests.test_replacing_table_keeps_available_wafer_and_parameter_selections` 覆盖
+
+`spectra_viewer.feature` 的多选与分区图例由现有 Python 测试执行：
+
+- Color By 的 Wafer/Lot/PAD 与单文件模式、通道颜色区分、勾选和缩放保留 → `SpectraViewerTreeTests.test_color_by_wafer_identity_or_sme_keeps_channels_distinct_and_state_stable`。
+- 3σ 继续按 Wafer/通道汇总，退出后恢复 SME Name 颜色选择 → `SpectraViewerTreeTests.test_three_sigma_preserves_wafer_statistics_and_restores_sme_color_choice`。
+- 多颜色批量绘制保持原生全览与缩放像素结果 → `SpectraViewerTreeTests.test_many_individual_colors_are_batched_and_match_native_rendering`；真实文件及 125% 缩放验证见 `scripts/benchmark_spectra_color_layout.py --verify-pixels`。
+
+- Show All 只恢复本分区，不重新勾选光谱 → `SpectraViewerTreeTests.test_legend_show_all_restores_its_section_without_rechecking_spectra`。
+- Show All 位于 legend 右键，不放标题栏按钮；真实弹出菜单并触发菜单项由同一测试覆盖。
+- 树右键 Clear BSL 清除基准标记、退出 Residual 且保留光谱勾选 → `SpectraViewerTreeTests.test_clear_bsl_exits_residual_and_keeps_checked_sources`。
+- Wafer Map 左键框选、Ctrl/Shift 追加、重合位点包含全部源光谱、空框清除且不缩放 → `SpectraMapWindowTests.test_left_drag_selects_point_clusters_without_zoom_and_modifiers_add_points`。
+- 树菜单按 All / Selected / BSL / Fold-Unfold-Delete 分组并显示分隔线 → `SpectraViewerTreeTests.test_tree_menu_checks_and_unchecks_every_spectrum`。
+- Mueller 横轴只标注等间隔主刻度，全览与缩放均不再逐级抽取首尾标签 → `SpectraViewerTreeTests.test_mueller_wavelength_major_labels_are_uniform_at_full_and_zoomed_ranges`。
+- Die 文字在 100/300 mm 晶圆上都保持距点中心 8 个逻辑像素的文字框偏移 → `SpectraMapWindowTests.test_map_uses_equal_aspect_and_infers_common_wafer_diameters`。
+- 单选 Set as BSL、未勾选基准可用、删除基准恢复 Original → `SpectraViewerTreeTests.test_set_as_bsl_uses_one_selected_spectrum_without_checking_it`、`SpectraViewerTreeTests.test_baseline_mode_subtracts_exact_wavelengths_and_syncs_floating_plot`。
+- 精确波长差谱、原值不变、通道匹配和歧义提示、Delta 不折返 → `SpectraAnalysisTests`（`tests.test_spectra_analysis`）。
+- 每个 Wafer/通道独立 3×样本标准差、样本不足留空提示、聚合曲线选择全部源记录 → `SpectraViewerTreeTests.test_three_sigma_groups_checked_samples_by_wafer_and_channel_without_a_baseline`、`SpectraViewerTreeTests.test_analysis_reports_insufficient_samples_and_no_common_wavelengths`。
+
+- 勾选仅更新受影响的 Wafer/Channel 组，保留其他曲线与手动轴范围；legend 隐藏恢复复用曲线，隐藏项不进入图像或导出，重复勾选保持覆盖顺序 → `SpectraViewerTreeTests.test_check_changes_reuse_other_wafer_curves_and_preserve_manual_axes`、`SpectraViewerTreeTests.test_legend_visibility_reuses_dense_curves_and_their_cached_images`。
+- 自动轴跟随有效可见数据、tight X 保留 → `SpectraViewerTreeTests.test_incremental_changes_recompute_enabled_auto_axes_from_visible_data`。
+
+- 不同 Wafer 的相同通道使用不同且稳定的颜色，图例一致，单项隐藏不影响其他 Wafer，超过十色不直接复用 → `SpectraViewerTreeTests.test_wafer_channel_colours_are_distinct_stable_and_match_legends`。
+- Filter By 分类保留源身份、勾选、多选、曲线与缩放 → `SuppliedSpectrumBatchTests.test_catalog_can_regroup_by_lot_and_die_without_changing_sources`、`SpectraViewerTreeTests.test_filter_by_reclassifies_tree_without_changing_participation_selection_or_plots`。
+- Channel 去重统计且无底部重复 Loaded 提示 → `SpectraViewerTreeTests.test_channel_summary_counts_instrument_angle_pairs_without_duplicate_footer`。
+- Delete Tree 仅删除选中会话数据，保留磁盘文件及未选分支 → `SuppliedSpectrumBatchTests.test_catalog_removes_selected_records_without_touching_source_files`、`SpectraViewerTreeTests.test_delete_tree_removes_only_selected_folded_branch_and_keeps_disk_files`。
+- 主图和悬浮图恢复原生坐标轴菜单，可输入范围并 View All → `SpectraViewerTreeTests.test_native_axis_menu_edits_ranges_in_matrix_and_floating_plots`、`SpectraViewerTreeTests.test_plot_navigation_uses_box_zoom_native_axis_menu_and_auto_button`。
+- PAD 光谱行尚未创建时，点击箭头即可展开，折叠再展开不重复创建 → `SpectraViewerTreeTests.test_pad_arrow_opens_lazy_spectra_with_a_mouse_click`。
+- 树中 Ctrl 增减、Shift 连选及选中项批量勾选 → `SpectraViewerTreeTests.test_tree_ctrl_and_shift_selection_can_check_and_uncheck_only_selected_spectra`
+- 跨晶圆多选、Ctrl 取消、Shift 追加及晶圆菜单批量勾选 → `SpectraViewerTreeTests.test_map_ctrl_selection_across_wafers_and_context_check_actions_sync_tree`
+- 选中折叠分支后批量勾选，保留其他晶圆状态 → `SpectraViewerTreeTests.test_selected_collapsed_wafer_checks_all_its_spectra_without_checking_others`
+- 曲线 Ctrl 增减选择及空白处清除 → `SpectraViewerTreeTests.test_ctrl_curve_clicks_add_and_remove_spectra_from_the_selection`、`SpectraViewerTreeTests.test_curve_and_blank_clicks_sync_selection_with_map_and_floating_plot`
+- 晶圆图、Mueller 主图、悬浮图和窗口留白处点击清除全部联动高亮，保留勾选与缩放 → `SpectraViewerTreeTests.test_blank_map_and_main_plot_background_clear_the_linked_selection`。
+- 四区图例按有效数据区分通道，并在区内滚轮浏览 → `SpectraViewerTreeTests.test_legends_are_grouped_by_plot_family_and_scroll_with_the_wheel`
+- Psi/Delta 实线、5 px 选中曲线及原生右键菜单通过真实 42 文件预览与交互检查，记录见 `docs/validation/spectra-multiselect-2026-11-01.json`。
+- Options 隐藏对应 legend，并由剩余区占用空间 → `SpectraViewerTreeTests.test_legend_sections_follow_view_choices_and_reclaim_the_space`
+- 所有分隔条支持折叠相邻区、双击恢复默认比例；主分栏默认约 1/4 → `SpectraViewerTreeTests.test_all_spectrum_splitters_can_collapse_and_double_click_restore_defaults`
+- 多颜色编辑保留无关批次，主图与悬浮图使用抗锯齿 → `SpectraViewerTreeTests.test_many_color_edits_retain_unaffected_curve_batches`、`SpectraViewerTreeTests.test_spectrum_screen_curves_use_antialiasing_in_main_and_floating_plots`。
+- 密集全览使用 0.25 物理像素容差简化屏幕折线，保留峰形、NaN 间断及放大细节，原始数据和导出不变 → `SpectraViewerTreeTests.test_dense_screen_geometry_preserves_peaks_gaps_and_full_detail_on_zoom`；当前对比命令为 `python scripts/benchmark_spectra_load_quality.py <folder> <report.json> --verify-pixels`，见 `docs/validation/spectra-load-quality-2026-11-02.md`。以下早期性能记录的逐像素一致性只适用于当时未简化的绘制路径。
+- 缩放只裁剪视口外数据，保留原始样本、NaN 间断与全数据范围 → `SpectraViewerTreeTests.test_zoom_clips_each_spectrum_without_changing_gaps_bounds_or_source_samples`
+- 密集数据在视口边界保留粗线，和全数据绘制逐像素一致 → `SpectraViewerTreeTests.test_viewport_clipping_preserves_thick_strokes_at_dense_view_edges`；真实文件复测命令为 `python scripts/benchmark_spectra_viewport.py --verify-pixels`。
+- 混合批次识别 TSD 加密文件并保留可读文件、重复 Add 不重复报错 → `SpectrumIdentityTests.test_encrypted_files_are_reported_with_recovery_instructions`、`SpectrumIdentityTests.test_repeated_add_does_not_duplicate_encrypted_file_issues`、`RealJC1913Tests.test_every_real_file_is_readable_or_identified_as_encrypted`。
+- 错误行显示原始目录，悬浮提示包含完整文件路径及解密指引 → `SpectraViewerTreeTests.test_encrypted_file_rows_show_source_and_decryption_guidance`。
+- 重复加载不重置缩放、高亮不改变轴范围 → `SpectraViewerTreeTests.test_unchanged_selection_and_added_duplicates_keep_existing_plot_zoom`、`SpectraViewerTreeTests.test_highlighting_spectra_does_not_change_axis_ranges`。
+- 大批量分步绘图可取消、加载控件不引发绘图区重排 → `SpectraViewerTreeTests.test_large_selection_paints_in_cancellable_steps`、`SpectraViewerTreeTests.test_loading_long_filename_does_not_resize_existing_plot_views`。
+- 密集曲线后台绘制、尺寸变化后的原始绘制像素一致性 → `SpectraViewerTreeTests.test_dense_spectrum_background_render_matches_native_pixels_after_resize`。
+- 连续取消勾选只保留最新结果，悬浮图同步且关闭后取消后台任务 → `SpectraViewerTreeTests.test_rapid_dense_check_changes_keep_only_the_latest_spectra`、`SpectraViewerTreeTests.test_closing_a_dense_plot_cancels_its_background_work`。
+- Windows 原生窗口中勾选、全屏和分隔条的输入延迟与完整重绘时间分别测量 → `scripts/benchmark_spectra_interaction.py`；真实 JC1913 数据和 125% 系统缩放的对照记录见 `docs/validation/spectra-interaction-2026-11-01.md`。
+- JC1913 缓存前后全览及放大逐像素一致、实际后台 Add 延迟 → `python scripts/benchmark_spectra_catalog.py "C:\Users\Yuanhao Qin\OneDrive\Desktop\JC1913" docs/validation/jc1913-spectra-after.json --verify-pixels`。

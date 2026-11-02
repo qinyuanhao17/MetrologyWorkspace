@@ -17,6 +17,7 @@ from metrology_app.appearance import configure_fonts, fit_window_to_screen
 from metrology_app.module_registry import (
     ComponentRegistry, ComponentSpec, create_default_registry,
 )
+from metrology_app.spectra_viewer import SpectraViewerWindow
 from metrology_app.settings_dialog import SettingsDialog
 from metrology_app.shell import MainWindow
 
@@ -236,17 +237,34 @@ class ShellTests(unittest.TestCase):
             [
                 "card_matching",
                 "wafer_map",
+                "spectra_viewer",
                 "correlation_analysis",
                 "dynamic_analysis",
                 "auto_weighting_writer",
             ],
         )
 
+    def test_spectra_viewer_is_an_independent_analysis_tool(self):
+        shell = MainWindow()
+        try:
+            self.assertEqual(
+                shell.module_buttons["spectra_viewer"].title_label.text(),
+                "Spectra Viewer",
+            )
+            window = shell.open_component("spectra_viewer")
+            APP.processEvents()
+            self.assertIsInstance(window, SpectraViewerWindow)
+            self.assertEqual(shell.instance_count("spectra_viewer"), 1)
+        finally:
+            shell.close()
+            shell.deleteLater()
+            APP.processEvents()
+
     def test_wafer_workspace_supports_multiple_instances(self):
         shell = MainWindow()
         try:
             self.assertEqual(shell.loaded_component_ids, ())
-            self.assertEqual(len(shell.module_buttons), 5)
+            self.assertEqual(len(shell.module_buttons), 6)
             first = shell.open_component("wafer_map")
             second = shell.open_component("wafer_map")
             APP.processEvents()

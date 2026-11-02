@@ -1,0 +1,37 @@
+{
+  "date": "2026-11-01",
+  "pyqtgraph": "0.14.0",
+  "fixture": "all_uploaded_SME_spectra_42_files",
+  "files": 42,
+  "channels": 47,
+  "plots": 21,
+  "window": [2200, 1150],
+  "environment": "Qt offscreen, application fonts and light QSS, installed metrology-workspace environment",
+  "commands": [
+    "python scripts/benchmark_spectra_viewport.py --full-data",
+    "python scripts/benchmark_spectra_viewport.py --verify-pixels"
+  ],
+  "method": "Each trial changes all 21 plots to a 20 nm wavelength interval centred at 520, 530, 540, 550, 560 and 570 nm. Timings include Qt event processing and painting. The full-data reference disables clipping on the same renderer. Each command uses a fresh process. Timings are fixture and environment dependent.",
+  "full_data_reference": {
+    "all_points_including_separators": 493424,
+    "zoom_ms": [393.95, 384.28, 382.76, 386.72, 537.66, 643.0],
+    "zoom_median_ms": 390.34
+  },
+  "viewport_clipping": {
+    "all_points_including_separators": 493424,
+    "zoom_points_including_separators": [17425, 17105, 17325, 17106, 17106, 17326],
+    "zoom_ms": [124.32, 118.69, 121.31, 119.67, 118.06, 123.76],
+    "zoom_median_ms": 120.49,
+    "restored_all_points_including_separators": 493424
+  },
+  "equivalence": {
+    "real_fixture_comparisons": 63,
+    "views": ["full wavelength range", "520 to 540 nm", "390 to 420 nm phase-transition region"],
+    "differing_image_bytes": 0,
+    "selected_strokes_included": true,
+    "dense_edge_case": "An additional 50001-sample oscillatory curve with a 5 px selected stroke matches the full-data image byte for byte at the viewport edges.",
+    "source_integrity": "Focused tests preserve source arrays, NaN gaps and full-data auto-range bounds. Selection continues to use original CurveGroup segments."
+  },
+  "rendering_policy": "Full view retains every original sample. Zooming clips each individual spectrum with stroke-width overscan and neighbouring samples. No averaging, interpolation or downsampling is applied.",
+  "official_reference": "https://pyqtgraph.readthedocs.io/en/latest/api_reference/graphicsItems/plotdataitem.html"
+}

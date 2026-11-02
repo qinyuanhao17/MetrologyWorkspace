@@ -3,6 +3,17 @@ from .data import inspect_table
 from .measurements import default_identity_columns, detect_measurements
 
 
+def prepare_workbook_participation(book):
+    """Detach the shared source exclusions before publishing any child widgets."""
+    from .match_groups import participation_rows, participation_source_keys
+    selection = book.grouping_state.get("applied", book.grouping_state)["data_selection"]
+    source = book.final_match_raw if book.result_mode == "final" and book.final_match_raw is not None else book.raw
+    allowed = set(participation_rows(source, selection)) if selection is not None else set(range(len(source)))
+    return {"book": book, "hide_excluded": bool((selection or {}).get("hide_excluded", False)),
+            "excluded": frozenset(key for row, key in enumerate(participation_source_keys(source))
+                                  if row not in allowed)}
+
+
 def prepare_measurement_choices(frame, reset=True, previous_groups=(), *, include_fit_quality=True):
     detected_wafer, counts, metrics = inspect_table(
         frame, include_fit_quality=include_fit_quality

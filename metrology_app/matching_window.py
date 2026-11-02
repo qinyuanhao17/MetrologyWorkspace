@@ -803,6 +803,10 @@ class MatchingWindow(QMainWindow):
         self._queued_stage_inputs = None
         self._linked_update_pending = False
         self._background_stage_refresh = False
+        self._main_plot_refresh = None
+        self._defer_main_wafer_metrics = False
+        self._main_plot_timer = QTimer(self, interval=1, singleShot=True)
+        self._main_plot_timer.timeout.connect(self._render_main_plot_step)
         self._linked_prepare_timer = QTimer(self, interval=10, singleShot=True)
         self._linked_prepare_timer.timeout.connect(self.queue_stage_refresh)
         self._linked_commit_timer = QTimer(self, interval=5, singleShot=True)
@@ -3297,6 +3301,9 @@ class MatchingWindow(QMainWindow):
             workspace.set_reference_table(reference, f"{mode} Reference")
         else:
             reference, scoped_raw = self._child_correlation_frames(workspace, book=book)
+            prepared = getattr(workspace.raw_model, '_linked_prepared_load', None)
+            if prepared is not None and 'load_frame' in prepared:
+                scoped_raw = prepared['load_frame']
             if ("ui" not in self._workspace_states.get(scope, {})
                     or len(reference) != len(scoped_raw)):
                 reference = pd.DataFrame()
@@ -3623,7 +3630,8 @@ class MatchingWindow(QMainWindow):
     @property
     def linked_updates_pending(self):
         return (self._linked_update_pending or self._linked_task.busy
-                or self._linked_prepare_timer.isActive() or self._linked_commit_timer.isActive())
+                or self._linked_prepare_timer.isActive() or self._linked_commit_timer.isActive()
+                or self._main_plot_refresh is not None)
 
     def _cancel_linked_refresh(self):
         self._linked_generation += 1
@@ -3654,9 +3662,14 @@ class MatchingWindow(QMainWindow):
                     return True
         return False
 
-    def queue_stage_refresh(self):
+    def queue_stage_refresh(self, *, book=None):
         """Prepare one owned source version; newer edits replace its request."""
         if not self._stage_windows or self._syncing_stage_windows:
+            return
+        if self._main_plot_refresh is not None:
+            # Finish the bounded main-plot steps before the child data worker
+            # competes with them for Python execution and large array copies.
+            self._linked_prepare_timer.start()
             return
         if any(not isinstance(child, QWidget) for child in self._stage_windows):
             self.sync_stage_windows()
@@ -3677,7 +3690,7 @@ class MatchingWindow(QMainWindow):
                 and not any(getattr(child, "_source_refresh_pending", False)
                             for child in self._stage_windows)):
             return
-        book = self._analysis_workspace_workbook()
+        book = book if book is not None else self._analysis_workspace_workbook()
         descriptors = []
         for child in tuple(self._stage_windows):
             context = self._stage_window_context.get(child)
@@ -3690,6 +3703,9 @@ class MatchingWindow(QMainWindow):
             options = {"include_fit_quality": getattr(child, "include_fit_quality", True),
                        "carded": bool(getattr(child, "card_check", None) and child.card_check.isChecked()),
                        "applies": getattr(child, "_workbook_selection_applies", True)}
+            if follows and not child.model.clipboard_locks:
+                options['document'] = child.model._document_view()
+                options['revision'] = child.model.revision
             if kind == "correlation":
                 options["reference"] = child.reference_model.frame().copy(deep=True)
                 options["trend_groups"] = deepcopy(child.selection.get("groups", {}))
@@ -3709,8 +3725,9 @@ class MatchingWindow(QMainWindow):
         source_model = (self.final_raw_model if self.result_mode.currentText().lower() == 'final'
                         else self.raw_model)
         source = source_model._literal_source(inputs[1])
+        from .linked_refresh import copy_linked_workbook
         self._linked_task.submit({"generation": self._linked_generation,
-            "inputs": inputs, "book": deepcopy(book), "raw": inputs[1],
+            "inputs": inputs, "book": copy_linked_workbook(book) if book is not None else None, "raw": inputs[1],
             "raw_version": source_model.literal_version, "raw_source": source,
             "children": tuple(descriptors)})
 
@@ -3748,6 +3765,7 @@ class MatchingWindow(QMainWindow):
                 child.model._linked_prepared_load = table
                 child._prepared_recognition = table.get("recognition") if table else None
                 child._prepared_group_result = table.get("group_result") if table else None
+                child._prepared_participation = result.get("participation")
                 if follows:
                     self._refresh_stage_workspace(child, kind, stage, book=book)
                 elif book is not None:
@@ -3760,6 +3778,7 @@ class MatchingWindow(QMainWindow):
                 child.model._linked_prepared_load = None
                 child._prepared_recognition = None
                 child._prepared_group_result = None
+                child._prepared_participation = None
                 child._defer_plot_refresh = False
                 self._syncing_stage_windows = False
         if result["generation"] == self._linked_generation:
@@ -3876,6 +3895,10 @@ class MatchingWindow(QMainWindow):
             self._syncing_stage_windows = False
 
     def _refresh_stage_workspace(self, workspace, kind, stage, *, reset_data=False, book=None):
+        if kind == "correlation" and not reset_data and self._active_raw_frame().empty:
+            # A parent Cut can leave Raw temporarily blank before replacement.
+            # Keep the last linked data and choices, as Map does for invalid input.
+            return
         book = book or (self._analysis_workspace_workbook() if kind == "correlation" else self.current_workbook())
         transaction = getattr(workspace, 'input_update', nullcontext)
         views = self._workspace_views(workspace)
@@ -3886,9 +3909,11 @@ class MatchingWindow(QMainWindow):
                  if kind == "map" and page is not None and page.has_drawn_once
                  and not page.selector.pending_draw]
         with transaction():
-            if book is not None and hasattr(workspace, 'set_workbook_participation'):
+            if book is not None and kind != "correlation" and hasattr(workspace, 'set_workbook_participation'):
                 workspace.set_workbook_participation(book)
             self._commit_stage_workspace(workspace, kind, stage, reset_data=reset_data, book=book)
+            if book is not None and kind == "correlation" and hasattr(workspace, 'set_workbook_participation'):
+                workspace.set_workbook_participation(book)
             restored_pages = set(getattr(workspace, "_input_draw_pending", ()))
         if previous_groups != getattr(workspace, "selection", {}).get("groups", {}):
             # Participation can remove a whole wafer without changing its source
@@ -3951,7 +3976,7 @@ class MatchingWindow(QMainWindow):
                         recreated.append(source)
             reference, scoped_raw = self._child_correlation_frames(workspace, book=book)
             if source_policy is not None:
-                old_raw = workspace.raw_model.document_frame()
+                old_raw = workspace.raw_model._document_view()
                 if saved is not None and old_raw.shape == scoped_raw.shape:
                     # Value/Card/Group changes cannot rename an unchanged
                     # schema. Only normalize the table when a rename is possible.
@@ -3984,7 +4009,10 @@ class MatchingWindow(QMainWindow):
         else:
             self.workbook = book
             applies = getattr(workspace, "_workbook_selection_applies", True)
-            if kind == "map" and not self._workspace_data_follows_workbook():
+            prepared = getattr(getattr(workspace, "model", None), "_linked_prepared_load", None)
+            if kind == "map" and prepared is not None and "source_frame" in prepared:
+                frame = prepared.get('load_frame', prepared["source_frame"])
+            elif kind == "map" and not self._workspace_data_follows_workbook():
                 source = book.final_match_raw if stage == "final" and book.final_match_raw is not None else book.raw
                 frame = book.participating_frame(source, paired_source=True, apply_selection=False)
             else:
@@ -3999,7 +4027,7 @@ class MatchingWindow(QMainWindow):
             if protects_metadata:
                 frame = workspace.model.merge_clipboard_frame(frame)
             self._offer_parameter_cards(workspace, raw_columns=frame.attrs.get("raw_parameter_columns", ()))
-            if not reset_data and hasattr(workspace, 'model') and frame.equals(workspace.model.frame()):
+            if not reset_data and hasattr(workspace, 'model') and workspace.model.matches_document(frame):
                 page = getattr(workspace, 'plot_page', None) if kind == 'map' else None
                 if (page is not None and page.dirty and page.has_drawn_once
                         and not page.selector.pending_draw and not page.pending_input_refresh):
@@ -4495,6 +4523,7 @@ class MatchingWindow(QMainWindow):
         if not self.document.confirm_close():
             event.ignore()
             return
+        self._cancel_main_plot_refresh()
         self._cancel_linked_refresh()
         self.group_settings_dialog.hide()
         self.raw_floating_editor.dock()
@@ -4630,7 +4659,8 @@ class MatchingWindow(QMainWindow):
         inputs = self._analysis_inputs(workbook.result_mode)
         cached = self._result_cache.get(workbook.result_mode)
         reuse = cached[1] if cached is not None and cached[0] == inputs else None
-        result = workbook.analyze(reuse=reuse, prepared_plan=self.group_controls.plan)
+        result = workbook.analyze(reuse=reuse, prepared_plan=self.group_controls.plan,
+                                  metadata_from=cached[1] if cached is not None else None)
         self._result_cache[workbook.result_mode] = (inputs, result)
         return result
 
@@ -4661,6 +4691,7 @@ class MatchingWindow(QMainWindow):
         )
 
     def run_analysis(self, *, apply_groups=True):
+        self._cancel_main_plot_refresh()
         self._raw_keyboard_timer.stop()
         self._auto_run_pending = False
         self._pending_auto_view_state = None
@@ -4690,7 +4721,9 @@ class MatchingWindow(QMainWindow):
         # Open analysis windows mirror the workbook tables they were built from.
         try:
             if self._background_stage_refresh:
-                self.queue_stage_refresh()
+                generation, book = self._linked_generation, self.workbook
+                QTimer.singleShot(0, lambda: self.queue_stage_refresh(book=book)
+                                  if generation == self._linked_generation else None)
             else:
                 self.sync_stage_windows()
         except Exception as error:
@@ -4710,6 +4743,7 @@ class MatchingWindow(QMainWindow):
             QMessageBox.warning(self, "Cannot run analysis", str(error))
 
     def _draw_all_parameters(self):
+        self._cancel_main_plot_refresh()
         splitter_sizes = tuple(self.setup_splitter.sizes())
         if self.result is None:
             self._clear_plot_groups()
@@ -4746,43 +4780,96 @@ class MatchingWindow(QMainWindow):
                     group[key].deleteLater()
         self._plot_layout_key = layout_key
         identity = self._plot_group_identity()
+        if (self._background_stage_refresh and reuse and self._parameter_order
+                and self._active_raw_frame().size >= 8192
+                and all(parameter in self.plot_groups for parameter in self._parameter_order)):
+            self._main_plot_refresh = {"result": self.result, "identity": identity,
+                "revisions": self._main_plot_revisions(), "splitter_sizes": splitter_sizes,
+                "previous_key": previous_key, "layout_key": layout_key,
+                "jobs": [("parameter", parameter) for parameter in self._parameter_order]}
+            self.result_status.setText("Updating plots…")
+            self._main_plot_timer.start()
+            return
         for parameter in self._parameter_order:
-            data = self._parameter_plot_data(parameter)
-            mapping = next(m for m in self.workbook.mappings if m.name == parameter)
-            source_mapping = (mapping.reference_column, mapping.raw_column)
-            group = self.plot_groups.get(parameter)
-            same_data = (group is not None
-                         and group.get("source_mapping") == source_mapping
-                         and data.equals(group.get("source_data")))
-            if same_data and group.get("source_identity") == identity:
-                self._draw_bias_limit(parameter)
-                continue
-            if group is None:
-                group = self._create_plot_group(parameter)
-                self.plot_groups[parameter] = group
-                self.plot_groups_layout.addWidget(group["card"])
-                self.wafer_groups_layout.addWidget(group["wafer_card"])
-                mode = "full"
-            elif same_data:
-                # Same curves, new Group names/order/boundaries: keep the
-                # plotted items and repaint only the axes that read the plan.
-                mode = "axes"
-            elif (group.get("source_mapping") == source_mapping
-                    and group.get("source_identity") == identity
-                    and self._can_refresh_parameter_values(parameter, group, data)):
-                mode = "values"
+            self._draw_one_parameter(parameter, identity)
+        self._finish_main_plot_refresh(previous_key, layout_key, splitter_sizes)
+
+    def _main_plot_revisions(self):
+        return (self.reference_model.revision, self.raw_model.revision, self.final_raw_model.revision)
+
+    def _cancel_main_plot_refresh(self):
+        self._main_plot_timer.stop()
+        self._main_plot_refresh = None
+
+    def _render_main_plot_step(self):
+        state = self._main_plot_refresh
+        if state is None:
+            return
+        if state["result"] is not self.result or state["revisions"] != self._main_plot_revisions():
+            self._cancel_main_plot_refresh()
+            return
+        try:
+            kind, parameter = state["jobs"].pop(0)
+            if kind == "parameter":
+                self._defer_main_wafer_metrics = True
+                try:
+                    self._draw_one_parameter(parameter, state["identity"])
+                finally:
+                    self._defer_main_wafer_metrics = False
+                group = self.plot_groups[parameter]
+                if group.get("wafer_metrics_pending") and (not self.isVisible() or self.wafer_groups_widget.isVisible()):
+                    state["jobs"].insert(0, ("wafer", parameter))
             else:
-                mode = "full"
-            if mode == "full":
-                for plot in group["plots"].values():
-                    plot.clear()
-                    if plot.getPlotItem().legend is not None:
-                        plot.getPlotItem().legend.clear()
-            self._draw_parameter_group(parameter, group, refresh=mode, data=data)
-            group["source_identity"] = identity
-            group["source_mapping"] = source_mapping
-            group["source_data"] = data.copy()
-        if reuse and previous_key[0] != layout_key[0]:
+                self._draw_wafer_metrics(parameter, self.plot_groups[parameter])
+            if state["jobs"]:
+                self._main_plot_timer.start()
+            else:
+                self._main_plot_refresh = None
+                self._finish_main_plot_refresh(state["previous_key"], state["layout_key"], state["splitter_sizes"])
+        except Exception as error:
+            self._cancel_main_plot_refresh()
+            self._set_status(f"Could not update plots: {error}", warning=True)
+            LOGGER.exception("Automatic parameter plot refresh failed")
+
+    def _draw_one_parameter(self, parameter, identity):
+        data = self._parameter_plot_data(parameter)
+        mapping = next(m for m in self.workbook.mappings if m.name == parameter)
+        source_mapping = (mapping.reference_column, mapping.raw_column)
+        group = self.plot_groups.get(parameter)
+        same_data = (group is not None and group.get("source_mapping") == source_mapping
+                     and data.equals(group.get("source_data")))
+        if same_data and group.get("source_identity") == identity:
+            self._draw_bias_limit(parameter)
+            return
+        if group is None:
+            group = self._create_plot_group(parameter)
+            self.plot_groups[parameter] = group
+            self.plot_groups_layout.addWidget(group["card"])
+            self.wafer_groups_layout.addWidget(group["wafer_card"])
+            mode = "full"
+        elif same_data:
+            # Same curves, new Group names/order/boundaries: keep the
+            # plotted items and repaint only the axes that read the plan.
+            mode = "axes"
+        elif (group.get("source_mapping") == source_mapping
+                and group.get("source_identity") == identity
+                and self._can_refresh_parameter_values(parameter, group, data)):
+            mode = "values"
+        else:
+            mode = "full"
+        if mode == "full":
+            for plot in group["plots"].values():
+                plot.clear()
+                if plot.getPlotItem().legend is not None:
+                    plot.getPlotItem().legend.clear()
+        self._draw_parameter_group(parameter, group, refresh=mode, data=data)
+        group["source_identity"] = identity
+        group["source_mapping"] = source_mapping
+        group["source_data"] = data.copy()
+
+    def _finish_main_plot_refresh(self, previous_key, layout_key, splitter_sizes):
+        if (previous_key is not None and previous_key[1:] == layout_key[1:]
+                and self.plot_groups and previous_key[0] != layout_key[0]):
             self._apply_parameter_order()
         if not any(
             not group["wafer_card"].isHidden()
@@ -4976,6 +5063,7 @@ class MatchingWindow(QMainWindow):
         card = self.result.card(parameter)
         if (self.result.group_plan.enabled or old is None or data.empty
                 or not old.index.equals(data.index)
+                or not np.isfinite(old[["Raw", "Reference"]].to_numpy(float)).all()
                 or not np.isfinite(data[["Raw", "Reference"]].to_numpy(float)).all()
                 or not np.isfinite([card.slope, card.intercept]).all()):
             return False
@@ -5193,7 +5281,8 @@ class MatchingWindow(QMainWindow):
                 plot.wafer_boundaries = plot._measurement_boundaries
         self._decorate_sequence_plots(group, data)
         if "wafer_card" in group:
-            if self.isVisible() and not self.wafer_groups_widget.isVisible() and "wafer_summary" in group:
+            if (self._defer_main_wafer_metrics
+                    or (self.isVisible() and not self.wafer_groups_widget.isVisible() and "wafer_summary" in group)):
                 group["wafer_metrics_pending"] = True
             else:
                 self._draw_wafer_metrics(parameter, group)
@@ -5333,6 +5422,11 @@ class MatchingWindow(QMainWindow):
             summary = pd.DataFrame()
             enabled = False
         group["wafer_card"].setVisible(enabled)
+        previous = group.get("wafer_summary")
+        reuse_points = (previous is not None and previous.get("Wafer", pd.Series(dtype=object)).equals(summary.get("Wafer", pd.Series(dtype=object)))
+                        and all(len(group[key].listDataItems()) == 2 and key in group.get("wafer_highlights", {})
+                                for key in ("wafer_r2", "wafer_slope")))
+        metric_points = {key: group[key].listDataItems()[0] for key in ("wafer_r2", "wafer_slope")} if reuse_points else {}
         # One line per wafer: the identity's newline-separated fields (wafer,
         # PAD, Lot, ...) are joined with "/" in classification order so the
         # cell shows the whole label instead of eliding after the first line.
@@ -5368,8 +5462,10 @@ class MatchingWindow(QMainWindow):
         group["wafer_tick_count"] = len(summary)
         group["wafer_tick_levels"] = None
         for key in ("wafer_r2", "wafer_slope"):
-            group[key].clear()
-        group["wafer_highlights"] = {}
+            if not reuse_points:
+                group[key].clear()
+        if not reuse_points:
+            group["wafer_highlights"] = {}
         group["wafer_selected_row"] = None
         if summary.empty:
             self._draw_single_wafer_plots(parameter)
@@ -5382,17 +5478,23 @@ class MatchingWindow(QMainWindow):
         slope = summary["Slope"].to_numpy(float)
         valid_r2 = np.isfinite(r_squared)
         valid_slope = np.isfinite(slope)
-        if valid_r2.any():
+        if reuse_points:
+            metric_points["wafer_r2"].setData(x[valid_r2], r_squared[valid_r2], data=np.flatnonzero(valid_r2))
+            metric_points["wafer_slope"].setData(x[valid_slope], slope[valid_slope], data=np.flatnonzero(valid_slope))
+        elif valid_r2.any():
             curve = wafer_r2.plot(x[valid_r2], r_squared[valid_r2], pen=None,
                                  symbol="o", symbolSize=8, symbolBrush="#4f8bd6", data=np.flatnonzero(valid_r2))
             curve.sigPointsClicked.connect(lambda _curve, points, _event: self._select_wafer(parameter, int(points[0].data()), toggle=True))
-        if valid_slope.any():
+        if valid_slope.any() and not reuse_points:
             curve = wafer_slope.plot(x[valid_slope], slope[valid_slope], pen=None,
                                     symbol="o", symbolSize=8, symbolBrush="#e09f3e", data=np.flatnonzero(valid_slope))
             curve.sigPointsClicked.connect(lambda _curve, points, _event: self._select_wafer(parameter, int(points[0].data()), toggle=True))
         wafer_r2.setTitle("Single-Wafer R²")
         wafer_slope.setTitle("Single-Wafer slope")
         for key in ("wafer_r2", "wafer_slope"):
+            if reuse_points:
+                group["wafer_highlights"][key].setData([], [])
+                continue
             highlight = pg.ScatterPlotItem(size=14, pen=pg.mkPen("#dc2626", width=2), brush=pg.mkBrush(None))
             highlight.setZValue(10)
             # pyqtgraph dispatches clicks to the ring above the data point;
@@ -5498,6 +5600,24 @@ class MatchingWindow(QMainWindow):
             detail = details.get(label)
             if (detail is not None and detail["source_reference"].equals(reference)
                     and detail["source_raw"].equals(raw) and detail["signature"] == signature):
+                continue
+            reuse_detail = (detail is not None and detail["signature"] == signature
+                            and detail["source_reference"].equals(reference)
+                            and detail["source_raw"].drop(columns=[mapping.raw_column]).equals(raw.drop(columns=[mapping.raw_column]))
+                            and all(np.isfinite(pd.to_numeric(frame[column], errors="coerce")).all()
+                                    for frame, column in ((reference, mapping.reference_column),
+                                                          (raw, mapping.raw_column),
+                                                          (detail["source_raw"], mapping.raw_column)))
+                            and all(len(detail["plots"][name].listDataItems()) == count
+                                    for name, count in (("match", 2), ("trend", 2)))
+                            and np.isfinite([summary.iloc[row]["Slope"], summary.iloc[row]["Intercept"]]).all())
+            if reuse_detail:
+                book = MatchWorkbook(reference, raw, [mapping], match_type=self.workbook.match_type,
+                                     result_mode=self.workbook.result_mode, bias_views=self.workbook.bias_views,
+                                     bias_mode=self.workbook.bias_mode, bias_limit=self.workbook.bias_limit)
+                detail.update(workbook=book, result=book.analyze(metadata_from=detail["result"]),
+                              source_reference=reference, source_raw=raw)
+                self._draw_parameter_group(parameter, detail, refresh="values")
                 continue
             if detail is not None:
                 group["wafer_detail_layout"].removeWidget(detail["card"])

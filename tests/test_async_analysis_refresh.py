@@ -388,6 +388,19 @@ class BackgroundPlotTests(unittest.TestCase):
             self.assertEqual((actual.slope, actual.intercept, actual.rsquared),
                              (fit.slope, fit.intercept, fit.rsquared))
 
+    def test_deferred_draw_can_be_finished_or_cancelled_before_submission(self):
+        for kind in (CorrelationPage, SequencePage):
+            with self.subTest(page=kind.__name__):
+                page = self.page(kind)
+                page.request_background_draw(deferred=True)
+                self.assertTrue(page.background_render_pending)
+                page.finish_background_draw()
+                self.assertTrue(page.ready, page.status.text())
+                page.request_background_draw(deferred=True)
+                page.stop_background_draw()
+                QTest.qWait(30)
+                self.assertFalse(page.background_render_pending)
+
     def test_two_source_background_keeps_source_pairs_order_and_nan_filtering(self):
         from metrology_app.correlation_page import source_pairwise_linear_fits
         page = self.page(CorrelationPage)

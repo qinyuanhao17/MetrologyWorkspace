@@ -1,5 +1,6 @@
 """Source-preserving measurement classification and one paired row projection."""
 from collections import Counter
+from copy import copy
 from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 from threading import current_thread, main_thread, local
@@ -484,6 +485,23 @@ class GroupPlan:
         ))
         self.group_keys = tuple(key for key in order if self.rows(key))
         self.plot_group_keys = self.group_keys + tuple(spec["id"] for spec in self.state["combined_groups"])
+
+    def rebind_sources(self, raw, reference):
+        """Reuse classification only after proving its source dependencies unchanged."""
+        if (self.state["filters"] or self.state["sort"] or len(raw) != len(self.raw)
+                or not raw.columns.equals(self.raw.columns) or not raw.index.equals(self.raw.index)
+                or (reference is not self.reference and not reference.equals(self.reference))):
+            return None
+        aliases = {"waferid", "wafer", "waferno", "lotid", "lot", "lotno", "padname", "pad",
+                   "dieseq", "cursmefilepath", "testflag"}
+        columns = [column for column in raw
+                   if column in self.identity_columns or normalized(column) in aliases]
+        if columns and not raw[columns].equals(self.raw[columns]):
+            return None
+        result = copy(self)
+        result.raw, result.reference = raw, reference
+        reuse_row_ids(self.raw, raw)
+        return result
 
     def head(self, flag):
         return self.state["head_names"].get(flag, f"TestFlag {flag}" if flag else "Not provided")

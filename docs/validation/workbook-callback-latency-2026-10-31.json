@@ -1,0 +1,816 @@
+{
+  "date": "2026-10-31",
+  "baseline_tag": "v4.3.6",
+  "status": "partial; 100 ms acceptance not met",
+  "limit_ms": 100,
+  "callbacks": [
+    {
+      "scenario": "real-nova-7731",
+      "shape": [
+        7731,
+        33
+      ],
+      "methods": {
+        "MatchingWindow.run_analysis": {
+          "before": {
+            "median_ms": 452.0974999977625,
+            "max_ms": 544.8085000025458,
+            "samples_ms": [
+              435.5462000021362,
+              544.8085000025458,
+              458.74100000219187,
+              451.1246999973082,
+              452.0974999977625
+            ]
+          },
+          "after": {
+            "median_ms": 90.48620000248775,
+            "max_ms": 112.25259999628179,
+            "samples_ms": [
+              90.48620000248775,
+              106.74529999960214,
+              86.46439999574795,
+              59.95899999834364,
+              112.25259999628179
+            ]
+          }
+        },
+        "MatchingWindow._commit_linked_step:CorrelationWindow": {
+          "before": {
+            "median_ms": 159.04639999644132,
+            "max_ms": 163.58670000045095,
+            "samples_ms": [
+              163.58670000045095,
+              160.17410000495147,
+              159.04639999644132,
+              158.87559999828227,
+              156.3733000002685
+            ]
+          },
+          "after": {
+            "median_ms": 108.08239999460056,
+            "max_ms": 111.45889999897918,
+            "samples_ms": [
+              111.45889999897918,
+              109.15590000513475,
+              107.28779999772087,
+              108.08239999460056,
+              90.49870000308147
+            ]
+          }
+        },
+        "MatchingWindow._commit_linked_step:MainWindow": {
+          "before": {
+            "median_ms": 154.44990000105463,
+            "max_ms": 162.19590000400785,
+            "samples_ms": [
+              113.5054999977001,
+              154.44990000105463,
+              162.19590000400785,
+              146.0229000003892,
+              157.05690000322647
+            ]
+          },
+          "after": {
+            "median_ms": 94.00440000172239,
+            "max_ms": 103.19339999841759,
+            "samples_ms": [
+              103.19339999841759,
+              92.07069999683881,
+              96.51060000032885,
+              92.34029999788618,
+              94.00440000172239
+            ]
+          }
+        },
+        "MatchingWindow._render_main_plot_step": {
+          "before": null,
+          "after": {
+            "median_ms": 47.890099995129276,
+            "max_ms": 132.32019999850309,
+            "samples_ms": [
+              43.271399998047855,
+              132.32019999850309,
+              45.38139999931445,
+              89.97339999768883,
+              47.890099995129276
+            ]
+          }
+        }
+      }
+    },
+    {
+      "scenario": "synthetic-10000x56",
+      "shape": [
+        10000,
+        56
+      ],
+      "methods": {
+        "MatchingWindow.run_analysis": {
+          "before": {
+            "median_ms": 310.54890000086743,
+            "max_ms": 528.9875000016764,
+            "samples_ms": [
+              307.9183000008925,
+              528.9875000016764,
+              332.54930000111926,
+              308.94619999889983,
+              310.54890000086743
+            ]
+          },
+          "after": {
+            "median_ms": 87.24449999863282,
+            "max_ms": 89.62500000052387,
+            "samples_ms": [
+              76.94269999774406,
+              85.93549999932293,
+              87.24449999863282,
+              89.62500000052387,
+              88.1359999984852
+            ]
+          }
+        },
+        "MatchingWindow._commit_linked_step:CorrelationWindow": {
+          "before": {
+            "median_ms": 267.2471999976551,
+            "max_ms": 438.3386999979848,
+            "samples_ms": [
+              242.40979999740375,
+              265.1311000008718,
+              267.2471999976551,
+              438.3386999979848,
+              269.1947999992408
+            ]
+          },
+          "after": {
+            "median_ms": 199.64060000347672,
+            "max_ms": 210.8148999977857,
+            "samples_ms": [
+              179.2628000039258,
+              199.64060000347672,
+              210.8148999977857,
+              207.99410000472562,
+              192.8697999974247
+            ]
+          }
+        },
+        "MatchingWindow._commit_linked_step:MainWindow": {
+          "before": {
+            "median_ms": 242.8407999977935,
+            "max_ms": 251.92229999811389,
+            "samples_ms": [
+              236.7697000008775,
+              251.92229999811389,
+              242.8407999977935,
+              181.3378000006196,
+              244.89170000015292
+            ]
+          },
+          "after": {
+            "median_ms": 124.87780000083148,
+            "max_ms": 157.11819999705767,
+            "samples_ms": [
+              157.11819999705767,
+              125.58529999660095,
+              122.05810000159545,
+              124.87780000083148,
+              122.4075999998604
+            ]
+          }
+        },
+        "MatchingWindow._render_main_plot_step": {
+          "before": null,
+          "after": {
+            "median_ms": 71.24550000298768,
+            "max_ms": 215.65779999946244,
+            "samples_ms": [
+              71.24550000298768,
+              56.57059999794001,
+              215.65779999946244,
+              56.401900001219474,
+              178.09130000387086
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "heavy": {
+    "before": {
+      "scenario": "linked",
+      "rows": 10000,
+      "raw_parameters": 50,
+      "raw_shape": [
+        10000,
+        56
+      ],
+      "mapped_parameters": 2,
+      "cycles": 1,
+      "platform": "offscreen",
+      "baseline_tag": null,
+      "light": false,
+      "profiled": false,
+      "samples": [
+        {
+          "operation": "initial_complete",
+          "maps": 50,
+          "cycle": 0,
+          "dispatch_ms": 0.3491000024951063,
+          "complete_ms": 347.5749999997788,
+          "max_qt_gap_ms": 309.1236999971443,
+          "max_gui_callback_ms": 201.12669999798527,
+          "cpu_ms": 343.75,
+          "methods": {
+            "WaferImage.paint": {
+              "calls": 15,
+              "inclusive_ms": 3.250400004617404,
+              "max_ms": 0.33849999454105273,
+              "gui": true
+            },
+            "WaferPanel.paint": {
+              "calls": 15,
+              "inclusive_ms": 196.60930001555244,
+              "max_ms": 16.136500002176035,
+              "gui": true
+            },
+            "StaticMapView.paintEvent": {
+              "calls": 1,
+              "inclusive_ms": 201.12669999798527,
+              "max_ms": 201.12669999798527,
+              "gui": true
+            }
+          },
+          "memory_before": {
+            "rss": 1045528576,
+            "private": 2414612480,
+            "peak": 1560285184
+          },
+          "memory_after": {
+            "rss": 1046216704,
+            "private": 2415345664,
+            "peak": 1560285184
+          }
+        },
+        {
+          "operation": "paste",
+          "maps": 50,
+          "cycle": 0,
+          "dispatch_ms": 604.1002999991179,
+          "complete_ms": 49108.60949999915,
+          "max_qt_gap_ms": 1619.3510000011884,
+          "max_gui_callback_ms": 1564.3688999989536,
+          "cpu_ms": 76640.625,
+          "methods": {
+            "WaferMapGrid.cancel_render": {
+              "calls": 9,
+              "inclusive_ms": 0.03300002572359517,
+              "max_ms": 0.005699999746866524,
+              "gui": true
+            },
+            "MatchingWindow.queue_stage_refresh": {
+              "calls": 4,
+              "inclusive_ms": 112.75369999202667,
+              "max_ms": 80.32870000170078,
+              "gui": true
+            },
+            "WaferImage.paint": {
+              "calls": 60,
+              "inclusive_ms": 12.347300013061613,
+              "max_ms": 0.4241999995429069,
+              "gui": true
+            },
+            "WaferPanel.paint": {
+              "calls": 60,
+              "inclusive_ms": 938.4493999750703,
+              "max_ms": 24.614800000563264,
+              "gui": true
+            },
+            "StaticMapView.paintEvent": {
+              "calls": 4,
+              "inclusive_ms": 959.0214000054402,
+              "max_ms": 318.69169999845326,
+              "gui": true
+            },
+            "MatchingWindow.run_analysis": {
+              "calls": 1,
+              "inclusive_ms": 315.0757000039448,
+              "max_ms": 315.0757000039448,
+              "gui": true
+            },
+            "CorrelationPage.request_background_draw": {
+              "calls": 1,
+              "inclusive_ms": 44.4841999997152,
+              "max_ms": 44.4841999997152,
+              "gui": true
+            },
+            "MatchingWindow._commit_linked_step": {
+              "calls": 3,
+              "inclusive_ms": 936.271399994439,
+              "max_ms": 548.6558999982662,
+              "gui": true
+            },
+            "CorrelationPage.render_interactive": {
+              "calls": 1,
+              "inclusive_ms": 1564.3688999989536,
+              "max_ms": 1564.3688999989536,
+              "gui": true
+            },
+            "SurfaceJob.run": {
+              "calls": 1,
+              "inclusive_ms": 43519.14129999932,
+              "max_ms": 43519.14129999932,
+              "gui": false
+            },
+            "WaferMapGrid.set_result": {
+              "calls": 1,
+              "inclusive_ms": 0.25520000053802505,
+              "max_ms": 0.25520000053802505,
+              "gui": true
+            },
+            "PlotPage.render_result": {
+              "calls": 1,
+              "inclusive_ms": 0.32389999978477135,
+              "max_ms": 0.32389999978477135,
+              "gui": true
+            },
+            "WaferImage.setImage": {
+              "calls": 50,
+              "inclusive_ms": 1.6412000404670835,
+              "max_ms": 0.0453000029665418,
+              "gui": true
+            },
+            "WaferPanel.update_palette": {
+              "calls": 50,
+              "inclusive_ms": 65.03669999801787,
+              "max_ms": 1.8882999938796274,
+              "gui": true
+            },
+            "WaferPanel.__init__": {
+              "calls": 50,
+              "inclusive_ms": 220.79660000599688,
+              "max_ms": 5.821500002639368,
+              "gui": true
+            },
+            "WaferPanel._prepare_labels": {
+              "calls": 50,
+              "inclusive_ms": 452.1670000103768,
+              "max_ms": 11.670200001390185,
+              "gui": true
+            },
+            "WaferPanel._prepare_bar": {
+              "calls": 50,
+              "inclusive_ms": 26.640800009772647,
+              "max_ms": 0.7120000009308569,
+              "gui": true
+            },
+            "WaferPanel.set_geometry": {
+              "calls": 50,
+              "inclusive_ms": 566.0840999844368,
+              "max_ms": 14.347299998917151,
+              "gui": true
+            },
+            "WaferImage.render": {
+              "calls": 50,
+              "inclusive_ms": 1.7016999481711537,
+              "max_ms": 0.07789999654050916,
+              "gui": true
+            },
+            "WaferMapGrid._render_batch": {
+              "calls": 25,
+              "inclusive_ms": 818.0705000195303,
+              "max_ms": 64.77520000044024,
+              "gui": true
+            },
+            "PlotPage.refresh_canvas": {
+              "calls": 1,
+              "inclusive_ms": 0.15639999764971435,
+              "max_ms": 0.15639999764971435,
+              "gui": true
+            },
+            "PlotPage._publish_map_result": {
+              "calls": 1,
+              "inclusive_ms": 0.8167000050889328,
+              "max_ms": 0.8167000050889328,
+              "gui": true
+            },
+            "WaferMapGrid._publish": {
+              "calls": 1,
+              "inclusive_ms": 15.466100005141925,
+              "max_ms": 15.466100005141925,
+              "gui": true
+            }
+          },
+          "memory_before": {
+            "rss": 1046368256,
+            "private": 2415427584,
+            "peak": 1560285184
+          },
+          "memory_after": {
+            "rss": 1031680000,
+            "private": 2402873344,
+            "peak": 1766002688
+          },
+          "map_data_sha256": "8c95da516f08dfbf1aced8012762f9d343e301acba695e641e35b3fe27abf32e",
+          "grid_stats": {
+            "requests": 2,
+            "published": 2,
+            "panels_created": 100,
+            "templates_reused": 0,
+            "images_reused": 0,
+            "cancelled": 0,
+            "failed": 0
+          },
+          "correlation_pairs": 1225,
+          "correlation_panels": 24,
+          "source_rows_and_strings_exact": true
+        }
+      ],
+      "cleanup": [
+        {
+          "cycle": 0,
+          "widgets": 1,
+          "memory": {
+            "rss": 857387008,
+            "private": 2222673920,
+            "peak": 1766002688
+          }
+        }
+      ],
+      "methodology": "Inclusive method spans overlap; complete includes worker/data/graphics and viewport paint. Capture is outside timing.",
+      "source_sha256": {
+        "wafer_graphics": "b54aa387b04d5c9a747568dee3014d883bcdb63e4a5433ff1895d3e5bae8fe74",
+        "plot_page": "b90fabaf3f1ff00c207c6eae64c7553e0ce133ce2df7465eb62dec516157c9ed",
+        "matching_window": "c0b464f61f4e03ac08c6bfecaa7a3f8af26a9aeb15227db96de0639928aad7f5",
+        "correlation_page": "b6be84c4ffdc822b5efcbaad274089a8448bef33ce63f5d252021ac79cea2877"
+      },
+      "p50_ms": {
+        "50/initial_complete": {
+          "dispatch_ms": 0.3491000024951063,
+          "complete_ms": 347.5749999997788,
+          "max_qt_gap_ms": 309.1236999971443,
+          "max_gui_callback_ms": 201.12669999798527
+        },
+        "50/paste": {
+          "dispatch_ms": 604.1002999991179,
+          "complete_ms": 49108.60949999915,
+          "max_qt_gap_ms": 1619.3510000011884,
+          "max_gui_callback_ms": 1564.3688999989536
+        }
+      }
+    },
+    "after": {
+      "scenario": "linked",
+      "rows": 10000,
+      "raw_parameters": 50,
+      "raw_shape": [
+        10000,
+        56
+      ],
+      "mapped_parameters": 2,
+      "cycles": 1,
+      "platform": "offscreen",
+      "baseline_tag": null,
+      "light": false,
+      "profiled": false,
+      "samples": [
+        {
+          "operation": "initial_complete",
+          "maps": 50,
+          "cycle": 0,
+          "dispatch_ms": 0.26280000020051375,
+          "complete_ms": 348.67949999897974,
+          "max_qt_gap_ms": 311.8398000005982,
+          "max_gui_callback_ms": 200.74899999599438,
+          "cpu_ms": 328.125,
+          "methods": {
+            "WaferImage.paint": {
+              "calls": 15,
+              "inclusive_ms": 3.066800010856241,
+              "max_ms": 0.374700000975281,
+              "gui": true
+            },
+            "WaferPanel.paint": {
+              "calls": 15,
+              "inclusive_ms": 196.2364999926649,
+              "max_ms": 16.197299999475945,
+              "gui": true
+            },
+            "StaticMapView.paintEvent": {
+              "calls": 1,
+              "inclusive_ms": 200.74899999599438,
+              "max_ms": 200.74899999599438,
+              "gui": true
+            }
+          },
+          "memory_before": {
+            "rss": 1046364160,
+            "private": 2415718400,
+            "peak": 1569968128
+          },
+          "memory_after": {
+            "rss": 1047023616,
+            "private": 2416369664,
+            "peak": 1569968128
+          }
+        },
+        {
+          "operation": "paste",
+          "maps": 50,
+          "cycle": 0,
+          "dispatch_ms": 454.3435000014142,
+          "complete_ms": 48059.5794999972,
+          "max_qt_gap_ms": 1622.2325999988243,
+          "max_gui_callback_ms": 1602.750999998534,
+          "cpu_ms": 75109.375,
+          "methods": {
+            "WaferMapGrid.cancel_render": {
+              "calls": 9,
+              "inclusive_ms": 0.04099999205209315,
+              "max_ms": 0.00839999847812578,
+              "gui": true
+            },
+            "MatchingWindow.queue_stage_refresh": {
+              "calls": 6,
+              "inclusive_ms": 58.48429998877691,
+              "max_ms": 58.22339999576798,
+              "gui": true
+            },
+            "WaferImage.paint": {
+              "calls": 60,
+              "inclusive_ms": 12.502900004619732,
+              "max_ms": 0.41459999920334667,
+              "gui": true
+            },
+            "WaferPanel.paint": {
+              "calls": 60,
+              "inclusive_ms": 894.9539000168443,
+              "max_ms": 23.920799998450093,
+              "gui": true
+            },
+            "StaticMapView.paintEvent": {
+              "calls": 4,
+              "inclusive_ms": 915.510800004995,
+              "max_ms": 312.30649999633897,
+              "gui": true
+            },
+            "MatchingWindow.run_analysis": {
+              "calls": 1,
+              "inclusive_ms": 76.15829999849666,
+              "max_ms": 76.15829999849666,
+              "gui": true
+            },
+            "MatchingWindow._render_main_plot_step": {
+              "calls": 2,
+              "inclusive_ms": 217.66710000520106,
+              "max_ms": 162.87430000375025,
+              "gui": true
+            },
+            "CorrelationPage.request_background_draw": {
+              "calls": 4,
+              "inclusive_ms": 45.94899999938207,
+              "max_ms": 45.758200001728255,
+              "gui": true
+            },
+            "MatchingWindow._commit_linked_step": {
+              "calls": 3,
+              "inclusive_ms": 559.8429999954533,
+              "max_ms": 345.5360000007204,
+              "gui": true
+            },
+            "CorrelationPage.render_interactive": {
+              "calls": 1,
+              "inclusive_ms": 1602.750999998534,
+              "max_ms": 1602.750999998534,
+              "gui": true
+            },
+            "SurfaceJob.run": {
+              "calls": 1,
+              "inclusive_ms": 42940.41880000441,
+              "max_ms": 42940.41880000441,
+              "gui": false
+            },
+            "WaferMapGrid.set_result": {
+              "calls": 1,
+              "inclusive_ms": 0.2586999980849214,
+              "max_ms": 0.2586999980849214,
+              "gui": true
+            },
+            "PlotPage.render_result": {
+              "calls": 1,
+              "inclusive_ms": 0.3308000013930723,
+              "max_ms": 0.3308000013930723,
+              "gui": true
+            },
+            "WaferImage.setImage": {
+              "calls": 50,
+              "inclusive_ms": 1.8457000114722177,
+              "max_ms": 0.10399999882793054,
+              "gui": true
+            },
+            "WaferPanel.update_palette": {
+              "calls": 50,
+              "inclusive_ms": 76.19880000129342,
+              "max_ms": 2.096500000334345,
+              "gui": true
+            },
+            "WaferPanel.__init__": {
+              "calls": 50,
+              "inclusive_ms": 261.2894000048982,
+              "max_ms": 6.397299999662209,
+              "gui": true
+            },
+            "WaferPanel._prepare_labels": {
+              "calls": 50,
+              "inclusive_ms": 518.9263999855029,
+              "max_ms": 11.53649999469053,
+              "gui": true
+            },
+            "WaferPanel._prepare_bar": {
+              "calls": 50,
+              "inclusive_ms": 27.27610001602443,
+              "max_ms": 0.7841000042390078,
+              "gui": true
+            },
+            "WaferPanel.set_geometry": {
+              "calls": 50,
+              "inclusive_ms": 650.1427000403055,
+              "max_ms": 14.35479999781819,
+              "gui": true
+            },
+            "WaferImage.render": {
+              "calls": 50,
+              "inclusive_ms": 1.546000006783288,
+              "max_ms": 0.04159999662078917,
+              "gui": true
+            },
+            "WaferMapGrid._render_batch": {
+              "calls": 25,
+              "inclusive_ms": 943.1930999999167,
+              "max_ms": 64.88760000502225,
+              "gui": true
+            },
+            "PlotPage.refresh_canvas": {
+              "calls": 1,
+              "inclusive_ms": 0.17859999934444204,
+              "max_ms": 0.17859999934444204,
+              "gui": true
+            },
+            "PlotPage._publish_map_result": {
+              "calls": 1,
+              "inclusive_ms": 0.8367000045836903,
+              "max_ms": 0.8367000045836903,
+              "gui": true
+            },
+            "WaferMapGrid._publish": {
+              "calls": 1,
+              "inclusive_ms": 15.23760000418406,
+              "max_ms": 15.23760000418406,
+              "gui": true
+            }
+          },
+          "memory_before": {
+            "rss": 1047191552,
+            "private": 2416693248,
+            "peak": 1569968128
+          },
+          "memory_after": {
+            "rss": 963403776,
+            "private": 2335203328,
+            "peak": 1697849344
+          },
+          "map_data_sha256": "8c95da516f08dfbf1aced8012762f9d343e301acba695e641e35b3fe27abf32e",
+          "grid_stats": {
+            "requests": 2,
+            "published": 2,
+            "panels_created": 100,
+            "templates_reused": 0,
+            "images_reused": 0,
+            "cancelled": 0,
+            "failed": 0
+          },
+          "correlation_pairs": 1225,
+          "correlation_panels": 24,
+          "source_rows_and_strings_exact": true
+        }
+      ],
+      "cleanup": [
+        {
+          "cycle": 0,
+          "widgets": 1,
+          "memory": {
+            "rss": 788881408,
+            "private": 2154401792,
+            "peak": 1697849344
+          }
+        }
+      ],
+      "methodology": "Inclusive method spans overlap; complete includes worker/data/graphics and viewport paint. Capture is outside timing.",
+      "source_sha256": {
+        "wafer_graphics": "b54aa387b04d5c9a747568dee3014d883bcdb63e4a5433ff1895d3e5bae8fe74",
+        "plot_page": "b90fabaf3f1ff00c207c6eae64c7553e0ce133ce2df7465eb62dec516157c9ed",
+        "matching_window": "72251a13bf6623b18b3924d20fda93f2ef81cf0b65a640bfbd63cf87fd80ab34",
+        "correlation_page": "fe92e5dff426c1490caa7a8e42e5f98c04c5c712c2317eeda8517da540445c21"
+      },
+      "p50_ms": {
+        "50/initial_complete": {
+          "dispatch_ms": 0.26280000020051375,
+          "complete_ms": 348.67949999897974,
+          "max_qt_gap_ms": 311.8398000005982,
+          "max_gui_callback_ms": 200.74899999599438
+        },
+        "50/paste": {
+          "dispatch_ms": 454.3435000014142,
+          "complete_ms": 48059.5794999972,
+          "max_qt_gap_ms": 1622.2325999988243,
+          "max_gui_callback_ms": 1602.750999998534
+        }
+      }
+    }
+  },
+  "real_numerical_qa": {
+    "rows": 7731,
+    "columns": 33,
+    "parameters": [
+      "AACut_TCDoff_Reference",
+      "CutDeponFin_Reference",
+      "OCD_DEPTH1"
+    ],
+    "summary_exact": true,
+    "series_exact": true,
+    "wafer_summary_exact": true,
+    "label_option_comparisons": 8,
+    "identity_change_recomputed": true,
+    "original_wkb_sha256": "2e5c35c62af4b8b7ab917b1f46444db0538c87430cca43942805e3e89af7be18",
+    "original_wkb_unchanged": true
+  },
+  "protected_unchanged_during_validation": true,
+  "post_validation_settings": {
+    "validation_end_sha256": "203a50a598875a0b76e430638efde246da6eaa83ca75bef85406a956c20d3555",
+    "final_observed_sha256": "44dc79ca55747eaa3be9b94e7650cd9663275c7c804aae7d93ef0a3ee8d69191",
+    "preserved_current_file": true,
+    "origin_of_later_change": "not established"
+  },
+  "source_sha256": {
+    "metrology_app/correlation_page.py": "fe92e5dff426c1490caa7a8e42e5f98c04c5c712c2317eeda8517da540445c21",
+    "metrology_app/correlation_window.py": "6f51067e805c435a093822a77e22d088d38d7ef694bc51c8cc5a45564706b797",
+    "metrology_app/input_planning.py": "b59f8458da283fda22c9ad3f36efa3a4757aadb0740e56e41a935451fe9eb2f1",
+    "metrology_app/linked_refresh.py": "3762ac098d4804a1100ce1aa395518ebcfaaff57a1d161f6c65ceab4b9356dcd",
+    "metrology_app/match_group_ui.py": "6892ccd905e1e5db33ed17afd6a9f42dca566253eb3b6f3e495661a326dbeb83",
+    "metrology_app/match_groups.py": "23bc0e80ed5a42d1ac09df8cd6e012a2005c19fb939d87ddbdb4d31ce3710262",
+    "metrology_app/matching/analysis.py": "7bae7691de54a0ad7d8f9060b88a2b06b9a1e67d293d986a49926b323bb3188a",
+    "metrology_app/matching_window.py": "72251a13bf6623b18b3924d20fda93f2ef81cf0b65a640bfbd63cf87fd80ab34",
+    "metrology_app/sequence_page.py": "0ffd99d2637683bc989565cf428fa7bd8a821a61ac6d7e64456fd2f548c7d24d",
+    "metrology_app/sheet.py": "99cdb733cbe3912f3571a99365601db13b0aee0d6a1940b72a71221cb0826fb9",
+    "metrology_app/window.py": "0ce799e7730ad8bfb6d58b26ca184a668b4b8945d02d6018a7a433f390236706"
+  },
+  "tests": {
+    "ran": 1272,
+    "seconds": 864.806,
+    "failures": 3,
+    "errors": 2,
+    "failed_names": [
+      "test_auto_weighting_ocr (unittest.loader._FailedTest.test_auto_weighting_ocr)",
+      "test_background_ocr_applies_only_after_review_dialog_acceptance (test_auto_weighting_window.WriterWindowTests.test_background_ocr_applies_only_after_review_dialog_acceptance)",
+      "test_cancelling_background_ocr_preserves_sources_and_existing_table (test_auto_weighting_window.WriterWindowTests.test_cancelling_background_ocr_preserves_sources_and_existing_table)",
+      "test_close_during_ocr_waits_for_cooperative_cancellation (test_auto_weighting_window.WriterWindowTests.test_close_during_ocr_waits_for_cooperative_cancellation)",
+      "test_wafer_window_opens_with_current_cards_and_uses_new_coefficients_after_edit (test_performance_regressions.WorkbookPerformanceTests.test_wafer_window_opens_with_current_cards_and_uses_new_coefficients_after_edit)"
+    ]
+  },
+  "opening_check": {
+    "baseline": {
+      "label": "baseline",
+      "exit_code": 1,
+      "opening_ms": [
+        197.45030000194674,
+        220.27389999857405,
+        419.6742999993148,
+        367.81790000532055,
+        223.49299999768846,
+        238.6317999989842
+      ],
+      "first_open_ms": [
+        197.45030000194674,
+        419.6742999993148,
+        223.49299999768846
+      ]
+    },
+    "current": {
+      "label": "current",
+      "exit_code": 0,
+      "opening_ms": [
+        198.9246999946772,
+        226.22469999623718,
+        193.240100001276,
+        177.71540000103414,
+        196.60069999372354,
+        240.6704000022728
+      ],
+      "first_open_ms": [
+        198.9246999946772,
+        193.240100001276,
+        196.60069999372354
+      ]
+    }
+  },
+  "methodology": "Five unprofiled single-cell edits per callback scenario; sixth cProfile excluded. No child plots drawn there. Heavy: one full paste, 10000 rows, 50 parameters, 24 Correlation panels, 50 Maps. Offscreen Qt. Inclusive method times overlap."
+}

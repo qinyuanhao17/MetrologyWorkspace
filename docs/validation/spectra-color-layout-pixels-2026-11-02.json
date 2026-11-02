@@ -1,0 +1,122 @@
+{
+  "spectra": 40,
+  "actions": {
+    "check_wafer": {
+      "submit_seconds": 0.054203799983952194,
+      "complete_seconds": 0.6532860999868717,
+      "max_heartbeat_gap_seconds": 0.09849959998973645,
+      "S_groups": 1,
+      "S_distinct_colors": 1,
+      "S_scene_curves": 1
+    },
+    "sme": {
+      "submit_seconds": 0.04749560001073405,
+      "complete_seconds": 0.3112078999984078,
+      "max_heartbeat_gap_seconds": 0.10873030000948347,
+      "S_groups": 40,
+      "S_distinct_colors": 40,
+      "S_scene_curves": 1
+    },
+    "uncheck_one_sme": {
+      "submit_seconds": 0.04142739999224432,
+      "complete_seconds": 0.3585650000022724,
+      "max_heartbeat_gap_seconds": 0.1401012999995146,
+      "S_groups": 39,
+      "S_distinct_colors": 39,
+      "S_scene_curves": 1
+    },
+    "recheck_one_sme": {
+      "submit_seconds": 0.04915320000145584,
+      "complete_seconds": 0.3720514999877196,
+      "max_heartbeat_gap_seconds": 0.13911109999753535,
+      "S_groups": 40,
+      "S_distinct_colors": 40,
+      "S_scene_curves": 2
+    },
+    "wafer": {
+      "submit_seconds": 0.048459700017701834,
+      "complete_seconds": 0.44991830000071786,
+      "max_heartbeat_gap_seconds": 0.18365089999861084,
+      "S_groups": 1,
+      "S_distinct_colors": 1,
+      "S_scene_curves": 2
+    }
+  },
+  "platform": "offscreen",
+  "device_pixel_ratio": 1.25,
+  "main_tree_fraction": 0.24987251402345742,
+  "splitters_collapsed_and_restored": 9,
+  "pixel_byte_differences": {
+    "full": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "zoom": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "phase": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "source_arrays_sha256": "d032a4b17a0aa94f6a11b8dd9470d1b248b448caf221da0eed8014f0d083ef44",
+  "source_arrays_unchanged": true
+}

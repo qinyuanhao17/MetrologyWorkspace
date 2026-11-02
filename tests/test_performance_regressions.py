@@ -1388,6 +1388,40 @@ class WorkbookPerformanceTests(unittest.TestCase):
             window.deleteLater()
             app.processEvents()
 
+    def test_repeated_measurement_spans_stay_fast_and_detached_for_each_label_option(self):
+        raw = pd.DataFrame({"Wafer ID": np.repeat([f"W{i:04}" for i in range(1000)], 6),
+                            "Lot ID": "L0", "PAD Name": "ARRAY",
+                            "Die Seq": [1, 2, 3, 4, 5, 6] * 1000, "CD": np.arange(6000.) + 1})
+        book = MatchWorkbook(pd.DataFrame({"Ref": raw["CD"] * 1.03 + 2}), raw,
+                             [ParameterMapping("CD", "Ref", "CD")])
+        result = book.analyze()
+        spans = result.measurement_spans()
+        spans.clear()
+        self.assertEqual(result.measurement_spans()[0], (.5, 6.5, "W0000\nLOT: L0\nPAD: ARRAY"))
+        self.assertEqual(result.measurement_spans(show_pad=False, show_lot=False)[0], (.5, 6.5, "W0000"))
+        start = perf_counter()
+        for _ in range(10):
+            self.assertEqual(len(result.measurement_spans()), 1000)
+        self.assertLess(perf_counter() - start, .1, "Repeated spans must not rescan every source row")
+
+    def test_numeric_refit_reuses_proven_metadata_without_reusing_measurements(self):
+        raw = pd.DataFrame({'Wafer ID': ['W1', 'W1', 'W2', 'W2'], 'Die Seq': ['001', '002'] * 2,
+                            'Lot ID': ['L1'] * 4, 'CD': ['1.00', '2.00', '3.00', '4.00']})
+        book = MatchWorkbook(pd.DataFrame({'Ref': [2., 4., 6., 8.]}), raw,
+                             [ParameterMapping('CD', 'Ref', 'CD')])
+        previous = book.analyze()
+        spans = previous.measurement_spans()
+        book.raw = raw.assign(CD=['2.00', '3.00', '4.00', '5.00'])
+        current = book.analyze(metadata_from=previous)
+        self.assertEqual(current.measurement_spans(), spans)
+        self.assertAlmostEqual(current.card('CD').intercept, -2.)
+        self.assertAlmostEqual(previous.card('CD').intercept, 0.)
+        self.assertEqual(current.wafer_frames(0)[1].CD.tolist(), ['2.00', '3.00'])
+        book.raw = book.raw.assign(**{'Lot ID': ['L1', 'L2', 'L1', 'L1']})
+        changed = book.analyze(metadata_from=current)
+        self.assertEqual(len(changed.measurement_spans()), 3)
+        self.assertEqual(current.measurement_spans(), spans)
+
     def test_measurement_metadata_is_reused_only_within_one_analysis_result(self):
         raw = pd.DataFrame({"Wafer ID": np.repeat([f"W{i:04}" for i in range(1000)], 6),
                             "Lot ID": "L0", "PAD Name": "ARRAY",

@@ -2,6 +2,18 @@ Feature: Recognize editable Reference and Raw identities without replacing data
   Wafer grouping controls choose which measurements to plot.
   They do not rewrite either editable source table.
 
+  # Automation: WorkbookCopyDataTests.test_parent_cut_keeps_linked_correlation_until_raw_is_replaced
+  # Automation: LinkedCorrelationValueTests.test_parent_cut_preserves_selection_then_large_replacement_resumes_link
+  Scenario: Retain linked Correlation while Workbook Raw Data is temporarily empty
+    Given Correlation follows Raw Data from the Match Workbook
+    And the engineer has chosen Wafers and Parameters and drawn the analysis
+    When the engineer cuts all Raw Data in the Match Workbook
+    Then Correlation retains its last data, Wafers, Parameters and draw choices
+    And its manual Reference remains unchanged
+    When the engineer pastes replacement Raw Data in the Match Workbook
+    Then Correlation follows the new measurements with its surviving choices
+    And undoing the replacement retains that data until the source is restored
+
   # Automation: CorrelationSourceIdentityTests.test_pasting_cells_into_initially_blank_ref_enables_wafer_menu
   # Automation: CorrelationSourceIdentityTests.test_ref_only_edits_refresh_wafer_recognition_and_grouping_menu
   # Automation: CorrelationSourceIdentityTests.test_ref_only_measurements_can_draw_both_analysis_pages

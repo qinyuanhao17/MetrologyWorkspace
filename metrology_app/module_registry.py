@@ -76,6 +76,18 @@ def create_default_registry():
         create_wafer_map,
     ))
 
+    def create_spectra_viewer():
+        from .spectra_viewer import SpectraViewerWindow
+        return SpectraViewerWindow()
+
+    registry.register(ComponentSpec(
+        "spectra_viewer",
+        "Spectra Viewer",
+        "Load SME spectra, compare channels, and inspect measurement points by wafer.",
+        "Metrology analysis",
+        create_spectra_viewer,
+    ))
+
     def create_correlation_analysis():
         from .correlation_window import CorrelationWindow
         return CorrelationWindow()
