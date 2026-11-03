@@ -196,6 +196,7 @@ QTreeWidget { background: transparent; border: none; outline: none; }
 QTreeWidget::item { height: 32px; border-bottom: 1px solid #efeff1; padding: 2px 0; }
 QTreeWidget::item:hover { background: #f5f5f6; }
 QTreeWidget::item:selected { background: #ececee; }
+QListWidget#spectrumLegend::item:selected { background: #dbeafe; color: #1e3a8a; }
 QTreeWidget#combinedGroupMembers::item:selected, QTreeWidget#combinedGroupsList::item:selected { background: #dbeafe; color: #1e3a8a; }
 QTreeWidget QHeaderView::section { background: #ffffff; color: #6b6b70; border: none; border-bottom: 1px solid #ececef; padding: 7px 0; font-size: 11px; }
 QCheckBox { color: #4b4b53; spacing: 8px; font-size: 12px; }

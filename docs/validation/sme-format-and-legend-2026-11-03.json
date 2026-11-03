@@ -1,0 +1,212 @@
+{
+  "focused": {
+    "run": 115,
+    "passed": 115
+  },
+  "regression": {
+    "tests_run": 1357,
+    "passed": 1354,
+    "known_existing_failures": 3,
+    "new_failures": 0,
+    "excluded_test_modules": [
+      "test_auto_weighting",
+      "test_auto_weighting_ocr",
+      "test_auto_weighting_window",
+      "test_shell",
+      "test_writer_cell_serialization"
+    ],
+    "shards": [
+      {
+        "modules": [
+          "tests.test_matching_window",
+          "tests.test_workspace",
+          "tests.test_document_storage",
+          "tests.test_spectra_viewer",
+          "tests.test_array",
+          "tests.test_storage_v2",
+          "tests.test_table_clipboard",
+          "tests.test_parameter_filter",
+          "tests.test_case_switching",
+          "tests.test_named_analysis_windows",
+          "tests.test_trend",
+          "tests.test_sme_spectra",
+          "tests.test_core",
+          "tests.test_wafer_render_batches",
+          "tests.test_mapping_row_controls",
+          "tests.test_v4_release_exports",
+          "tests.test_trend_order",
+          "tests.test_settings",
+          "tests.test_correlation_render_batches",
+          "tests.test_measurements",
+          "tests.test_correlation_linked_values",
+          "tests.test_linked_plot_refresh",
+          "tests.test_radius",
+          "tests.test_export_hover_fixes",
+          "tests.test_source_plot_presentation",
+          "tests.test_reminder_panel",
+          "tests.test_linked_heavy_plot_refresh",
+          "tests.test_wafer_static",
+          "tests.test_trend_row_number",
+          "tests.test_snapshot_equality",
+          "tests.test_sheet_batch_transactions",
+          "tests.test_matching_value_refresh",
+          "tests.test_export_wkb_axes",
+          "tests.test_correlation_axes",
+          "tests.test_float_pin",
+          "tests.test_dynamic_compare_export",
+          "tests.test_workspace_source_frames",
+          "tests.test_wafer_label_index",
+          "tests.test_reference_source_columns",
+          "tests.test_hidden_row_markers",
+          "tests.test_analysis_input_frame_fast",
+          "tests.test_sheet_bounds",
+          "tests.test_participation_bulk",
+          "tests.test_export_source_layout",
+          "tests.test_analysis_close_performance",
+          "tests.test_selector_updates",
+          "tests.test_reference_edit_controls",
+          "tests.test_recovery_frame_sharing",
+          "tests.test_installer_packaging",
+          "tests.test_numeric_qualification",
+          "tests.test_identity_key_normalization",
+          "tests.test_spectra_analysis",
+          "tests.test_spectra_workbook",
+          "tests.test_selection_script",
+          "tests.test_die_selection",
+          "tests.test_spectra_release_smoke"
+        ],
+        "exit_code": 1,
+        "seconds": 247.3764666999923,
+        "summary": [
+          "Ran 712 tests in 241.665s",
+          "FAILED (failures=1, errors=1)"
+        ],
+        "failures": [
+          "ERROR: test_correlation_button_opens_active_reference_and_raw_sources (tests.test_matching_window.MatchingWindowTests.test_correlation_button_opens_active_reference_and_raw_sources)",
+          "FAIL: test_pagination_filter_and_threshold_changes_replace_pending_page (tests.test_correlation_render_batches.CorrelationRenderBatchTests.test_pagination_filter_and_threshold_changes_replace_pending_page)"
+        ],
+        "log": "legend-selection-regression-0.log"
+      },
+      {
+        "modules": [
+          "tests.test_correlation",
+          "tests.test_performance_regressions",
+          "tests.test_match_groups",
+          "tests.test_matching",
+          "tests.test_excel_report_layout",
+          "tests.test_async_analysis_refresh",
+          "tests.test_dynamic",
+          "tests.test_excel_export",
+          "tests.test_v41_workflows",
+          "tests.test_workbook_copy_data",
+          "tests.test_workbook_startup",
+          "tests.test_paste_feedback",
+          "tests.test_stage_selection_and_point_precision",
+          "tests.test_trend_wafer_labels",
+          "tests.test_export_opening_layout",
+          "tests.test_workspace_store",
+          "tests.test_metadata_locks",
+          "tests.test_export_selection",
+          "tests.test_table_selection_notifications",
+          "tests.test_p0_final_audit",
+          "tests.test_requested_plot_controls",
+          "tests.test_reminders",
+          "tests.test_literal_frame_source",
+          "tests.test_p1_storage_lifecycle",
+          "tests.test_correlation_source_identity",
+          "tests.test_uniform_scatter",
+          "tests.test_spectra_map",
+          "tests.test_sheet_read_views",
+          "tests.test_linked_table_versions",
+          "tests.test_correlation_batch_ols",
+          "tests.test_table_version",
+          "tests.test_sheet_cache_updates",
+          "tests.test_partial_reference_matching",
+          "tests.test_incomplete_workbook_workspaces",
+          "tests.test_export_native_die_categories",
+          "tests.test_sheet_versions",
+          "tests.test_plot_labels",
+          "tests.test_export_template_layout",
+          "tests.test_correlation_common_population",
+          "tests.test_test_environment",
+          "tests.test_map_page_zoom",
+          "tests.test_analysis_plot_style",
+          "tests.test_v411_float_scope",
+          "tests.test_sheet_bulk_load",
+          "tests.test_radius_static",
+          "tests.test_group_control_source_reuse",
+          "tests.test_correlation_multi_pair",
+          "tests.test_wafer_hover",
+          "tests.test_render_preparation",
+          "tests.test_recovery_snapshot_ownership",
+          "tests.test_parameter_plot_layout",
+          "tests.test_startup_imports",
+          "tests.test_menu_controls",
+          "tests.test_group_plan_snapshot_reuse"
+        ],
+        "exit_code": 1,
+        "seconds": 259.9126218999736,
+        "summary": [
+          "Ran 645 tests in 256.571s",
+          "FAILED (errors=1)"
+        ],
+        "failures": [
+          "ERROR: test_proved_source_retains_all_literals_without_rescanning_values (tests.test_literal_frame_source.LiteralFrameSourceTests.test_proved_source_retains_all_literals_without_rescanning_values)"
+        ],
+        "log": "legend-selection-regression-1.log"
+      }
+    ]
+  },
+  "visual": {
+    "real_sources": 43,
+    "themes": {
+      "light": {
+        "NCS": {
+          "selected": "LP300005.14_SPC_NAN-ANA_AZI0_Die1_C-2_R4_20260624125306673(1).sme \u00b7 IRSE_II(1700) \u00b7 CH1 \u00b7 AOI 65\u00b0 \u00b7 AZI 0\u00b0",
+          "visible": true,
+          "bold": true
+        },
+        "Psi Delta": {
+          "selected": "LP300005.14_SPC_NAN-ANA_AZI0_Die1_C-2_R4_20260624125306673(1).sme \u00b7 IRSE_II(1700) \u00b7 CH1 \u00b7 AOI 65\u00b0 \u00b7 AZI 0\u00b0",
+          "visible": true,
+          "bold": true
+        },
+        "Mueller": {
+          "selected": "LP300005.14_SPC_NAN-ANA_AZI0_Die1_C-2_R4_20260624125306673(1).sme \u00b7 IRSE_II(1700) \u00b7 CH1 \u00b7 AOI 65\u00b0 \u00b7 AZI 0\u00b0",
+          "visible": true,
+          "bold": true
+        },
+        "Reflectance": {
+          "selected": "LP300005.14_SPC_NAN-ANA_AZI45_Die1_C0_R4_20260624153007674.sme \u00b7 DTS \u00b7 CH1 \u00b7 AOI 0\u00b0 \u00b7 AZI 0\u00b0",
+          "visible": true,
+          "bold": true
+        }
+      },
+      "dark": {
+        "NCS": {
+          "selected": "LP300005.14_SPC_NAN-ANA_AZI0_Die1_C-2_R4_20260624125306673(1).sme \u00b7 IRSE_II(1700) \u00b7 CH1 \u00b7 AOI 65\u00b0 \u00b7 AZI 0\u00b0",
+          "visible": true,
+          "bold": true
+        },
+        "Psi Delta": {
+          "selected": "LP300005.14_SPC_NAN-ANA_AZI0_Die1_C-2_R4_20260624125306673(1).sme \u00b7 IRSE_II(1700) \u00b7 CH1 \u00b7 AOI 65\u00b0 \u00b7 AZI 0\u00b0",
+          "visible": true,
+          "bold": true
+        },
+        "Mueller": {
+          "selected": "LP300005.14_SPC_NAN-ANA_AZI0_Die1_C-2_R4_20260624125306673(1).sme \u00b7 IRSE_II(1700) \u00b7 CH1 \u00b7 AOI 65\u00b0 \u00b7 AZI 0\u00b0",
+          "visible": true,
+          "bold": true
+        },
+        "Reflectance": {
+          "selected": "LP300005.14_SPC_NAN-ANA_AZI45_Die1_C0_R4_20260624153007674.sme \u00b7 DTS \u00b7 CH1 \u00b7 AOI 0\u00b0 \u00b7 AZI 0\u00b0",
+          "visible": true,
+          "bold": true
+        }
+      }
+    }
+  },
+  "reader_change_scope": "Analysis only; preceding IRSE support is retained. No general structural parser was substituted.",
+  "delivery": "Local source; published v5-dev1 assets unchanged",
+  "settings": "scratch settings; config/settings.yaml unchanged"
+}

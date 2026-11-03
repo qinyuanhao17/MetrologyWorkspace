@@ -169,6 +169,45 @@ class SpectraViewerTreeTests(unittest.TestCase):
         self.assertFalse(self.window.plot_panels["reflectance"].groups)
         self.assertEqual(panel.plot.getViewBox().viewRange()[0], [250, 350])
 
+    def test_legend_selection_follows_wafer_and_sme_groups_without_changing_checks(self):
+        other_channel = replace(self.spectra[0].channels[0], metadata={
+            **self.spectra[0].channels[0].metadata, "channel_id": 2, "angle_3_deg": 90})
+        first = replace(self.spectra[0], channels=(*self.spectra[0].channels, other_channel))
+        other_wafer = make_spectrum(1, wafer="W2")
+        self.window.apply_load_result(LoadResult((first, self.spectra[1], other_wafer), ()), replace=True)
+        self.window.check_all_spectra()
+        checked = {s.key for s in self.window.checked_spectra()}
+        panel = self.window.plot_panels["S"]
+        panel.plot.setXRange(250, 350, padding=0)
+        for mode in ("wafer", "sme"):
+            self.window.set_color_mode(mode)
+            self.window.select_spectrum_keys({first.key})
+            for family in ("NCS", "Psi Delta", "Mueller"):
+                legend = self.window.legends[family]
+                selected = legend.selectedItems()
+                self.assertEqual(len(selected), 2, (mode, family))
+                self.assertEqual({item.data(Qt.ItemDataRole.UserRole).channel.channel_id for item in selected}, {1, 2})
+                self.assertTrue(all(item.font().bold() for item in selected))
+                self.assertTrue(all(item.data(Qt.ItemDataRole.UserRole).wafer == "W1" for item in selected))
+                if mode == "sme":
+                    self.assertTrue(all(item.data(Qt.ItemDataRole.UserRole).spectrum_key == first.key for item in selected))
+            self.window.select_spectrum_keys({first.key, other_wafer.key})
+            self.assertEqual(len(self.window.legends["NCS"].selectedItems()), 3)
+            selected_item = self.window.legends["NCS"].selectedItems()[0]
+            hidden_key = selected_item.data(Qt.ItemDataRole.UserRole)
+            self.window.toggle_channel(hidden_key)
+            self.assertTrue(selected_item.isSelected())
+            self.assertTrue(selected_item.font().bold())
+            self.assertTrue(selected_item.font().strikeOut())
+            self.assertTrue(self.window.channel_hidden(hidden_key))
+            self.window.toggle_channel(hidden_key)
+            self.window.select_spectrum_keys(set())
+            self.assertFalse(self.window.legends["NCS"].selectedItems())
+            self.assertTrue(all(not self.window.legends["NCS"].item(i).font().bold()
+                                for i in range(self.window.legends["NCS"].count())))
+            self.assertEqual({s.key for s in self.window.checked_spectra()}, checked)
+            self.assertEqual(panel.plot.getViewBox().viewRange()[0], [250, 350])
+
     def test_tree_groups_wafer_lot_pad_and_orders_die_numerically(self):
         tree = self.window.tree
         self.assertEqual(tree.topLevelItemCount(), 1)
@@ -504,6 +543,8 @@ class SpectraViewerTreeTests(unittest.TestCase):
         click(floating.panel.plot, 250, 0.5)
         self.assertEqual(panel.selected_keys, {spectrum.key})
         self.assertTrue(self.window.spectrum_items[spectrum.key].isSelected())
+        self.assertEqual(len(self.window.legends["NCS"].selectedItems()), 1)
+        self.assertTrue(self.window.legends["NCS"].selectedItems()[0].font().bold())
         wafer_plot = next(iter(map_window.wafer_plots.values()))
         self.assertEqual(len(wafer_plot.selection.data), 1)
         click(panel.plot, 300, 0.15)
@@ -511,6 +552,7 @@ class SpectraViewerTreeTests(unittest.TestCase):
         self.assertEqual(floating.panel.selected_keys, set())
         self.assertEqual(self.window.tree.selectedItems(), [])
         self.assertEqual(len(wafer_plot.selection.data), 0)
+        self.assertTrue(all(not legend.selectedItems() for legend in self.window.legends.values()))
 
     def test_blank_map_and_main_plot_background_clear_the_linked_selection(self):
         self.window.resize(1800, 1000)

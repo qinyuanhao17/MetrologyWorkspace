@@ -1,5 +1,6 @@
 """Portable Match Workbook Spectra workflows, independent of source SME paths."""
 from pathlib import Path
+from dataclasses import replace
 import tempfile
 import time
 import unittest
@@ -18,6 +19,63 @@ from tests.test_sme_spectra import SAMPLE_ROOT, copy_verified_samples
 
 
 class SpectraWorkbookTests(unittest.TestCase):
+    def test_escape_from_export_recovery_cancels_without_leaving_a_waiting_worker(self):
+        viewer = SpectraViewerWindow()
+        try:
+            with tempfile.TemporaryDirectory() as folder:
+                root = Path(folder).resolve()
+                source = replace(make_spectrum(1), path=root / "missing.sme")
+                viewer.apply_load_result(LoadResult((source,), ()), replace=True)
+                viewer.check_all_spectra()
+                viewer.export_checked_spectra(root / "output")
+                dialog = viewer.export_dialog
+                deadline = time.monotonic() + 3
+                while not dialog.retry_button.isVisible() and time.monotonic() < deadline:
+                    QTest.qWait(10)
+                QTest.keyClick(dialog, Qt.Key.Key_Escape)
+                while viewer._exporter is not None and time.monotonic() < deadline:
+                    QTest.qWait(10)
+                self.assertIsNone(viewer._exporter)
+                self.assertTrue(dialog.report["cancelled"])
+        finally:
+            viewer.document.force_close = True
+            viewer.close()
+
+    def test_export_dialog_retries_and_skips_missing_originals_then_lists_unexported_paths(self):
+        viewer = SpectraViewerWindow()
+        try:
+            with tempfile.TemporaryDirectory() as folder:
+                root = Path(folder).resolve()
+                available, retry, skip = (root / name for name in ("available.sme", "retry.sme", "skip.sme"))
+                available.write_bytes(b"original SME bytes")
+                spectra = tuple(replace(make_spectrum(i), path=path, key=str(path))
+                                for i, path in enumerate((available, retry, skip), 1))
+                viewer.apply_load_result(LoadResult(spectra, ()), replace=True)
+                viewer.check_all_spectra()
+                viewer.export_checked_spectra(root / "output")
+                dialog = viewer.export_dialog
+                deadline = time.monotonic() + 5
+                while not dialog.retry_button.isVisible() and time.monotonic() < deadline:
+                    QTest.qWait(10)
+                self.assertTrue(dialog.isVisible())
+                self.assertIn("retry.sme", dialog.issue_label.text())
+                retry.write_bytes(available.read_bytes())
+                QTest.mouseClick(dialog.retry_button, Qt.MouseButton.LeftButton)
+                while "skip.sme" not in dialog.issue_label.text() and time.monotonic() < deadline:
+                    QTest.qWait(10)
+                self.assertIn("skip.sme", dialog.issue_label.text())
+                QTest.mouseClick(dialog.skip_button, Qt.MouseButton.LeftButton)
+                while viewer._exporter is not None and time.monotonic() < deadline:
+                    QTest.qWait(10)
+                self.assertIsNone(viewer._exporter)
+                self.assertEqual(len(list((root / "output").rglob("*.sme"))), 2)
+                self.assertEqual([issue[0] for issue in dialog.report["skipped"]], [str(skip)])
+                self.assertIn(str(skip), dialog.summary.toPlainText())
+                self.assertIn("Exported 2", viewer.status.text())
+        finally:
+            viewer.document.force_close = True
+            viewer.close()
+
     def test_context_export_copies_only_checked_sme_in_original_folders(self):
         from metrology_app.sme_spectra import load_folder
         viewer = SpectraViewerWindow()

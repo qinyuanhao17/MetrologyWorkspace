@@ -1,7 +1,7 @@
 """Read verified SME spectra and preserve their source identity.
 
-The binary layouts below are the v3.1 layouts validated against the supplied
-UVSE, BBSE, DTS and IMSE files. Unknown layouts fail instead of guessing.
+The binary layouts below are validated against the supplied UVSE, BBSE, DTS,
+IMSE and IRSE files. Unknown layouts fail instead of guessing.
 """
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np
+from .file_paths import filesystem_path
 
 
 M_COLS = [f"M{i}{j}" for i in range(4) for j in range(4)]
@@ -298,7 +299,7 @@ def base_metadata(
         for field, value in merged_fields.items()
     )
     source_path = path.resolve()
-    source_stat = source_path.stat()
+    source_stat = filesystem_path(source_path).stat()
     return {
         "wafer_id_filename": business_value("wafer_id"),
         "lot_id_filename": business_value("lot_id"),
@@ -497,6 +498,43 @@ def parse_imse(reader: SMEReader, base: dict[str, Any]) -> list[ParsedChannel]:
     ]
 
 
+def parse_irse(reader: SMEReader, base: dict[str, Any]) -> list[ParsedChannel]:
+    if base["declared_channel_count"] != 1:
+        raise UnsupportedSME("IRSE multichannel layout not verified")
+    header = read_channel_header(reader)
+    if (header["instrument"], header["mode"]) != ("IRSE_II(1700)", "IRSE"):
+        raise UnsupportedSME("Unexpected IRSE channel header")
+    zero = reader.f64_array("IRSE_zero_channel")
+    count = len(zero)
+    for index in range(2):
+        reader.f64_array(f"IRSE_empty_before_parameter_{index}", expected=0)
+    unknown_parameter = reader.u32()
+    for index in range(2):
+        reader.f64_array(f"IRSE_empty_before_wavelength_{index}", expected=0)
+    wavelength = reader.f64_array("IRSE_wavelength", count)
+    psi = reader.f64_array("IRSE_psi", count)
+    delta = reader.f64_array("IRSE_delta", count)
+    n_value = reader.f64_array("IRSE_N", count)
+    c_value = reader.f64_array("IRSE_C", count)
+    s_value = reader.f64_array("IRSE_S", count)
+    matrix = reader.f64_array("IRSE_mueller", count * 16).reshape(count, 16)
+    reserved = [reader.u32() for _ in range(3)]
+    auxiliary = reader.f64_array("IRSE_aux_unknown", count)
+    tail = reader.take(len(reader.data) - reader.pos)
+    if len(tail) != 40:
+        raise UnsupportedSME(f"Unknown IRSE footer length: {len(tail)}")
+    numeric = np.column_stack(
+        (wavelength, psi, delta, n_value, c_value, s_value, zero, auxiliary, matrix)
+    )
+    return [create_channel(
+        base, header, 1, "mueller", wavelength, numeric,
+        irse_unknown_u32=unknown_parameter,
+        auxiliary_units="unknown",
+        reserved_after_matrix=str(reserved),
+        footer_length=len(tail),
+    )]
+
+
 def find_dts_arrays(reader: SMEReader) -> tuple[np.ndarray, np.ndarray, dict[str, int]]:
     data = reader.data
     start = reader.pos
@@ -563,7 +601,7 @@ def parse_dts(reader: SMEReader, base: dict[str, Any]) -> list[ParsedChannel]:
 
 
 def parse_one(path: Path) -> list[ParsedChannel]:
-    with path.open("rb") as stream:
+    with filesystem_path(path.resolve()).open("rb") as stream:
         prefix = stream.read(16)
         if prefix.startswith(b"%TSD-Header-###%"):
             raise EncryptedSME(
@@ -597,6 +635,8 @@ def parse_one(path: Path) -> list[ParsedChannel]:
             return parse_dts(reader, common)
         if header["instrument"] == "IMSE_III+":
             return parse_imse(reader, common)
+        if header["instrument"] == "IRSE_II(1700)":
+            return parse_irse(reader, common)
         raise UnsupportedSME(
             f"SE3.5 instrument {header['instrument']!r} unimplemented"
         )
@@ -935,15 +975,16 @@ def scan_sme_files(
     cancelled: Callable[[], bool] | None = None,
 ) -> list[Path]:
     folder = Path(folder)
-    if not folder.is_dir():
+    io_folder = filesystem_path(folder.resolve())
+    if not io_folder.is_dir():
         raise ValueError("Spectrum folder does not exist")
     paths: list[Path] = []
     errors: list[OSError] = []
-    for root, _directories, filenames in os.walk(folder, onerror=errors.append):
+    for root, _directories, filenames in os.walk(io_folder, onerror=errors.append):
         if cancelled and cancelled():
             break
         for filename in filenames:
-            path = Path(root) / filename
+            path = folder / Path(root).relative_to(io_folder) / filename
             if path.suffix.casefold() == ".sme":
                 paths.append(path)
     if errors and not paths:

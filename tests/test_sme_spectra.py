@@ -373,6 +373,39 @@ class SuppliedSpectrumBatchTests(unittest.TestCase):
         self.assertEqual(metadata["metadata_parse_status"], "ok")
 
 
+IRSE_SAMPLE = Path(
+    r"C:\Users\Yuanhao Qin\OneDrive\Desktop\JC1913\LP300005.14_SPC_NAN-ANA_AZI0_Die1_C-2_R4_20260624125306673(1).sme"
+)
+
+
+@unittest.skipUnless(IRSE_SAMPLE.is_file(), "supplied IRSE spectrum unavailable")
+class SuppliedIRSESpectrumTests(unittest.TestCase):
+    def test_irse_keeps_stored_mueller_and_ellipsometry_with_embedded_identity(self):
+        original = IRSE_SAMPLE.read_bytes()
+        spectrum = parse_sme_file(IRSE_SAMPLE)
+        self.assertEqual(len(spectrum.channels), 1)
+        self.assertEqual(
+            (spectrum.identity.wafer, spectrum.identity.lot, spectrum.identity.pad, spectrum.identity.die_seq),
+            ("LP300005.14", "SPC", "AZI0", 1),
+        )
+        self.assertAlmostEqual(spectrum.x_mm, -56.80517)
+        self.assertAlmostEqual(spectrum.y_mm, 123.164097)
+        channel = spectrum.channels[0]
+        self.assertEqual(channel.instrument, "IRSE_II(1700)")
+        self.assertEqual(channel.metadata["mode"], "IRSE")
+        self.assertEqual(channel.spectrum_type, "mueller")
+        self.assertEqual(channel.numeric.shape, (234, 24))
+        np.testing.assert_allclose(channel.wavelength[[0, -1]], [948.4381997217295, 1702.2720795433358], rtol=0, atol=1e-10)
+        np.testing.assert_allclose(channel.series("psi")[[0, -1]], [16.229100204273983, 16.700711110277144])
+        np.testing.assert_allclose(channel.series("delta")[[0, -1]], [176.29151733460404, 217.23916274580426])
+        np.testing.assert_array_equal(channel.series("M00"), np.ones(234))
+        self.assertAlmostEqual(channel.series("M03")[0], -0.00044101245963232196)
+        self.assertAlmostEqual(channel.series("M33")[-1], -0.3857479363481943)
+        np.testing.assert_allclose(channel.series("N"), np.cos(np.deg2rad(2 * channel.series("psi"))), rtol=0, atol=1e-9)
+        self.assertIsNone(channel.series("reflectance"))
+        self.assertEqual(IRSE_SAMPLE.read_bytes(), original)
+
+
 class RealJC1913Tests(unittest.TestCase):
     @unittest.skipUnless(Path(r"C:\Users\Yuanhao Qin\OneDrive\Desktop\JC1913").is_dir(), "JC1913 unavailable")
     def test_every_real_file_is_readable_or_identified_as_encrypted(self):

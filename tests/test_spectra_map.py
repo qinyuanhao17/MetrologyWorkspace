@@ -10,8 +10,8 @@ import pyqtgraph as pg
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtWidgets import QApplication, QScrollArea
+from PyQt6.QtCore import QPoint, QPointF, Qt
 from PyQt6.QtTest import QTest
 
 from metrology_app.spectra_map import SpectraMapWindow
@@ -22,6 +22,44 @@ APP = QApplication.instance() or QApplication([])
 
 
 class SpectraMapWindowTests(unittest.TestCase):
+    def test_blank_scroll_area_clears_selection_without_affecting_checks(self):
+        source = make_spectrum(1)
+        self.window.show()
+        self.window.set_data((source,), checked_keys={source.key}, selected_keys={source.key})
+        self.settle_page(1)
+        selected = []
+        self.window.spectra_selected.connect(selected.append)
+        viewport = self.window.scroll_area.viewport()
+        QTest.mouseClick(viewport, Qt.MouseButton.LeftButton, pos=QPoint(viewport.width() - 2, 2))
+        self.assertEqual(selected[-1], set())
+        self.assertEqual(self.window._checked_keys, {source.key})
+
+    def test_check_unselected_applies_only_to_points_in_the_context_wafer(self):
+        spectra = (make_spectrum(1), make_spectrum(2), make_spectrum(1, wafer="W2"))
+        self.window.set_data(spectra, checked_keys={s.key for s in spectra}, selected_keys={spectra[0].key})
+        updates = []
+        self.window.checks_changed.connect(updates.append)
+        actions = {a.text(): a for a in self.window.build_selection_menu(("W1", "L1", "P1")).actions()}
+        actions["Uncheck Unselected"].trigger()
+        self.assertEqual(updates[-1], {spectra[1].key: False})
+        actions["Check Unselected"].trigger()
+        self.assertEqual(updates[-1], {spectra[1].key: True})
+
+    def test_map_tiles_keep_their_size_and_use_scrollbars_when_window_shrinks(self):
+        spectra = tuple(make_spectrum(1, wafer=f"W{i}") for i in range(12))
+        self.window.show()
+        self.window.set_data(spectra, checked_keys={s.key for s in spectra})
+        self.settle_page(12)
+        QTest.qWait(30)
+        sizes = {key: plot.plot.size() for key, plot in self.window.wafer_plots.items()}
+        scroll = self.window.findChild(QScrollArea)
+        self.assertIsNotNone(scroll)
+        self.window.resize(960, 650)
+        QTest.qWait(40)
+        self.assertEqual({key: plot.plot.size() for key, plot in self.window.wafer_plots.items()}, sizes)
+        self.assertGreater(scroll.verticalScrollBar().maximum(), 0)
+        self.assertGreater(scroll.horizontalScrollBar().maximum(), 0)
+
     def test_check_changes_reuse_plots_ranges_and_unchecked_points(self):
         spectra = (make_spectrum(1), make_spectrum(2))
         self.window.show()

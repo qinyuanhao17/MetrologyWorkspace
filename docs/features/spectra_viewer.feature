@@ -194,6 +194,16 @@ Feature: Review spectral measurements by wafer
       Then its curves become thicker than the other curves
       And its Psi and Delta curves both use solid lines
 
+    Scenario: Find a selected spectrum in the channel legends
+      Given checked spectra have legends grouped by Wafer or SME Name
+      When the engineer selects spectra in the tree or on a curve
+      Then their corresponding legend entries are highlighted with bold labels and thicker color samples
+      And more than one matching legend entry can remain highlighted
+      And offscreen matching entries are brought into view
+      And checks, hidden channels, colors and plot ranges remain unchanged
+      When the engineer clears the spectrum selection
+      Then the legend highlights are also cleared
+
     Scenario: Resize the plot layout
       Given several spectral plots are visible
       When the engineer drags a plot boundary
@@ -387,11 +397,31 @@ Feature: Review spectral measurements by wafer
       Then both Viewers update their appearance
       And the Workbook child's save shortcuts still target its owning Workbook
 
-    Scenario: Fit complete wafers on each map page
+    Scenario: Keep complete wafers at a fixed readable size
       Given a map page contains twelve wafers with long identity titles
       When the engineer resizes the map window or opens the last page
       Then every wafer outline and measurement point remains inside its plot
+      And maps occupy fixed columns and keep the same size during loading and resizing
+      And scrollbars expose maps outside the available window area
       And long titles wrap above the plots without clipping the measurement area
+
+    Scenario: Change participation for points outside a selected region
+      Given some points are selected within one wafer
+      When the engineer chooses Check Unselected or Uncheck Unselected on that wafer
+      Then only its unselected points change participation
+      And selected points and other wafers keep their participation
+
+    Scenario: Export checked original spectra and recover unavailable files
+      Given checked spectra refer to original SME files in source folders
+      When the engineer exports checked spectra
+      Then a child window shows progress while the original bytes are copied with their folders
+      And long folder paths work for batch exports and subsequent reading
+      When an original file cannot be copied
+      Then the engineer can restore it and Retry or Skip that file
+      And the completed report lists every file that remains unavailable and its error
+      And existing target files are never overwritten and no SME is generated
+      When the engineer cancels or closes the export window
+      Then waiting work stops and files created by that export are rolled back
 
     Scenario: Hide and restore legend groups from the context menu
       Given plotted spectra have checked and selected states and manual axes

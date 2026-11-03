@@ -46,6 +46,7 @@ from .sme_spectra import (
 )
 from .spectra_map import SpectraMapWindow
 from .spectra_analysis import SpectralSeries, residual_series, three_sigma_series
+from .spectra_export_dialog import SpectraExportDialog, SpectraExportThread
 from .spectra_plots import (
     CurveGroup,
     CurveSegment,
@@ -103,12 +104,12 @@ CHANNEL_COLORS = (
 )
 
 
-def _line_icon(color: QColor) -> QIcon:
+def _line_icon(color: QColor, *, selected=False) -> QIcon:
     pixmap = QPixmap(24, 14)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    painter.setPen(QPen(color, 2.2))
+    painter.setPen(QPen(color, 4.4 if selected else 2.2))
     painter.drawLine(2, 7, 22, 7)
     painter.end()
     return QIcon(pixmap)
@@ -176,32 +177,6 @@ class SpectraLoadThread(QThread):
         self.completed.emit(result)
 
 
-class SpectraExportThread(QThread):
-    progress = pyqtSignal(int, int, str)
-    completed = pyqtSignal(str)
-
-    def __init__(self, paths, destination, parent):
-        super().__init__(parent)
-        self.paths, self.destination = tuple(paths), Path(destination)
-
-    def run(self):
-        from .spectra_export import export_spectra
-        last_progress = 0.0
-        def progress(done, total, name):
-            nonlocal last_progress
-            now = monotonic()
-            if done == total or now - last_progress >= .05:
-                self.progress.emit(done, total, name)
-                last_progress = now
-        try:
-            exported = export_spectra(self.paths, self.destination,
-                                      cancelled=self.isInterruptionRequested, progress=progress)
-            message = f"Exported {len(exported)} checked spectra to {self.destination}"
-        except Exception as error:
-            message = str(error)
-        self.completed.emit(message)
-
-
 class SpectraViewerWindow(QMainWindow):
     """A minimal source-preserving spectrum browser and plotting workspace."""
     stateChanged = pyqtSignal()
@@ -243,6 +218,7 @@ class SpectraViewerWindow(QMainWindow):
         self._map_data_signature = None
         self._loader: SpectraLoadThread | None = None
         self._exporter: SpectraExportThread | None = None
+        self.export_dialog = None
         self._load_replace = True
         self._expanded_paths: set[tuple[str, ...]] = set()
         self._syncing_tree = False
@@ -914,7 +890,11 @@ class SpectraViewerWindow(QMainWindow):
     def export_checked_spectra(self, folder):
         if self._exporter is not None or self._loader is not None:
             return
-        self._exporter = SpectraExportThread([s.path for s in self.checked_spectra()], folder, self)
+        if self.export_dialog is not None:
+            self.export_dialog.close()
+            self.export_dialog.deleteLater()
+        self.export_dialog = SpectraExportDialog([s.path for s in self.checked_spectra()], folder, self)
+        self._exporter = self.export_dialog.worker
         self._exporter.progress.connect(self._export_progress)
         self._exporter.completed.connect(self._export_completed)
         self._exporter.finished.connect(self._export_finished)
@@ -925,6 +905,7 @@ class SpectraViewerWindow(QMainWindow):
         self.progress.show()
         self.cancel_load.show()
         self.status.setText("Exporting checked spectra…")
+        self.export_dialog.show()
         self._exporter.start()
 
     def _export_progress(self, done, total, name):
@@ -932,7 +913,8 @@ class SpectraViewerWindow(QMainWindow):
         self.progress.setValue(done)
         self.status.setText(f"Exporting {done} / {total} · {name}")
 
-    def _export_completed(self, message):
+    def _export_completed(self, report):
+        message = report["message"]
         self.status.setText(message)
         self.status.setToolTip(message)
 
@@ -1458,6 +1440,36 @@ class SpectraViewerWindow(QMainWindow):
             else QColor("#2b2730")
         )
 
+    def _sync_legend_selection(self):
+        selected = {
+            self._color_key(spectrum, channel)
+            for spectrum in self.checked_spectra()
+            if spectrum.key in self._selected_keys
+            for channel in spectrum.channels
+        }
+        for legend in self.legends.values():
+            blocked = legend.blockSignals(True)
+            first_new = None
+            for index in range(legend.count()):
+                item = legend.item(index)
+                key = item.data(Qt.ItemDataRole.UserRole)
+                active = key in selected
+                font = item.font()
+                if item.isSelected() != active or font.bold() != active:
+                    legend.selectionModel().select(
+                        legend.indexFromItem(item),
+                        QItemSelectionModel.SelectionFlag.Select if active
+                        else QItemSelectionModel.SelectionFlag.Deselect,
+                    )
+                    font.setBold(active)
+                    item.setFont(font)
+                    item.setIcon(_line_icon(self._color_for(key), selected=active))
+                    if active and first_new is None:
+                        first_new = item
+            legend.blockSignals(blocked)
+            if first_new is not None:
+                legend.scrollToItem(first_new)
+
     def _angle_two(self, key: WaferChannelKey) -> str:
         angle = self._legend_angles.get(key)
         return "?" if angle is None else f"{float(angle):g}°"
@@ -1510,6 +1522,7 @@ class SpectraViewerWindow(QMainWindow):
             self._color_for(key)
         for name, legend in self.legends.items():
             self._refresh_legend(legend, [key for key in ordered_keys if key in legend_keys[name]])
+        self._sync_legend_selection()
         selected = set(self._selected_keys)
         colors = self._color_for
         families = {"N": "NCS", "C": "NCS", "S": "NCS", "psi_delta": "Psi Delta",
@@ -1750,6 +1763,7 @@ class SpectraViewerWindow(QMainWindow):
         self._selected_keys = selected
         if sync_tree:
             self._select_tree_keys()
+        self._sync_legend_selection()
         large = sum(channel.numeric.size for spectrum in self.checked_spectra()
                     if spectrum.key in selected for channel in spectrum.channels) > 1_000_000
         for panel in (*self.plot_panels.values(), *self.mueller_panel.mij_plots.values()):
@@ -1851,6 +1865,8 @@ class SpectraViewerWindow(QMainWindow):
         if self._exporter is not None:
             self._exporter.requestInterruption()
             self._exporter.wait()
+        if self.export_dialog is not None:
+            self.export_dialog.close()
         for panel in (*self.plot_panels.values(), *self.mueller_panel.mij_plots.values()):
             panel.cancel_rendering()
         if self._loader is not None:
