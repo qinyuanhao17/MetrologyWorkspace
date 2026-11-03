@@ -1,7 +1,7 @@
 """Read verified SME spectra and preserve their source identity.
 
-The binary layouts below are validated against the supplied UVSE, BBSE, DTS,
-IMSE and IRSE files. Unknown layouts fail instead of guessing.
+Layouts are validated against supplied counted-array and compressed legacy
+records. Instrument, mode and version are retained as metadata, not allowlists.
 """
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import math
 import os
 import re
 import struct
+import zlib
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -22,7 +23,7 @@ from .file_paths import filesystem_path
 M_COLS = [f"M{i}{j}" for i in range(4) for j in range(4)]
 M_COL_INDEX = {name: 8 + index for index, name in enumerate(M_COLS)}
 MAX_SPECTRAL_POINTS = 1_000_000
-PARSER_VERSION = "3.1.0"
+PARSER_VERSION = "3.2.0"
 SPECTRUM_GROUP_FIELDS = {
     "wafer": ("wafer", "lot", "pad"),
     "lot": ("lot", "wafer", "pad"),
@@ -51,7 +52,7 @@ METADATA_COLUMNS = (
     "Parse Error",
 )
 
-_DIE_PATTERN = re.compile(r"_Die(\d+)_C(-?\d+)_R(-?\d+)", flags=re.I)
+_DIE_PATTERN = re.compile(r"_Die(\d+)_(?:C(-?\d+)_R(-?\d+)|R(-?\d+)_C(-?\d+))", flags=re.I)
 _FILENAME_TIMESTAMP_PATTERN = re.compile(r"(?<!\d)(\d{17})(?!\d)")
 
 
@@ -92,6 +93,10 @@ def _display_timestamp(raw: Any) -> str:
     return text
 
 
+def _die_fields(match):
+    return int(match[1]), int(match[2] or match[5]), int(match[3] or match[4])
+
+
 def parse_spectrum_filename(filename: str) -> FilenameMetadata:
     """Parse the internal SME naming convention without guessing unknown data."""
     raw = str(filename or "").strip()
@@ -115,6 +120,7 @@ def parse_spectrum_filename(filename: str) -> FilenameMetadata:
         )
 
     prefix = name[:die_match.start()].strip("_")
+    die, field_x, field_y = _die_fields(die_match)
     tokens = [token for token in prefix.split("_") if token]
     if len(tokens) < 3:
         return FilenameMetadata(
@@ -123,9 +129,9 @@ def parse_spectrum_filename(filename: str) -> FilenameMetadata:
             lot_id="",
             tool_sn="",
             pad_name="",
-            die_seq=int(die_match[1]),
-            field_x=int(die_match[2]),
-            field_y=int(die_match[3]),
+            die_seq=die,
+            field_x=field_x,
+            field_y=field_y,
             time=_display_timestamp(timestamp_raw),
             timestamp_raw=timestamp_raw,
             parse_status="partial",
@@ -138,9 +144,9 @@ def parse_spectrum_filename(filename: str) -> FilenameMetadata:
         lot_id=tokens[1],
         tool_sn=tokens[2],
         pad_name=candidate_pad,
-        die_seq=int(die_match[1]),
-        field_x=int(die_match[2]),
-        field_y=int(die_match[3]),
+        die_seq=die,
+        field_x=field_x,
+        field_y=field_y,
         time=_display_timestamp(timestamp_raw),
         timestamp_raw=timestamp_raw,
         parse_status="ok" if timestamp_raw else "partial",
@@ -219,7 +225,7 @@ def read_channel_header(reader: SMEReader) -> dict[str, Any]:
 
 def validate_wavelength(wavelength: np.ndarray, label: str) -> None:
     if (
-        wavelength.size < 2
+        wavelength.size == 0
         or not np.isfinite(wavelength).all()
         or not np.all(np.diff(wavelength) > 0)
     ):
@@ -249,7 +255,8 @@ def base_metadata(
 
     match = _DIE_PATTERN.search(filename) or _DIE_PATTERN.search(path.name)
     if match:
-        tags.update(die=int(match[1]), die_col=int(match[2]), die_row=int(match[3]))
+        die, col, row = _die_fields(match)
+        tags.update(die=die, die_col=col, die_row=row)
     else:
         tags.update(die=None, die_col=None, die_row=None)
 
@@ -366,238 +373,121 @@ def create_channel(
     return ParsedChannel(metadata, numeric, spectrum_type)
 
 
-def parse_uvse(reader: SMEReader, base: dict[str, Any]) -> list[ParsedChannel]:
-    if base["declared_channel_count"] != 1:
-        raise UnsupportedSME("Unverified multichannel SE3.3 UVSE layout")
-    header = read_channel_header(reader)
-    if (header["instrument"], header["mode"]) != ("UVSE_II+", "UVSE"):
-        raise UnsupportedSME(
-            f"Unexpected SE3.3 instrument/mode: {header['instrument']}/{header['mode']}"
-        )
-    zero = reader.f64_array("zero_channel")
-    count = len(zero)
-    wavelength = reader.f64_array("wavelength", count)
-    psi = reader.f64_array("psi", count)
-    delta = reader.f64_array("delta", count)
-    n_value = reader.f64_array("N", count)
-    c_value = reader.f64_array("C", count)
-    s_value = reader.f64_array("S", count)
-    matrix = reader.f64_array("mueller", count * 16).reshape(count, 16)
-    reserved = [reader.u32() for _ in range(3)]
-    auxiliary = reader.f64_array("aux_raw", count)
-    tail = reader.take(len(reader.data) - reader.pos)
-    numeric = np.column_stack(
-        (wavelength, psi, delta, n_value, c_value, s_value, zero, auxiliary, matrix)
-    )
-    return [
-        create_channel(
-            base,
-            header,
-            1,
-            "mueller",
-            wavelength,
-            numeric,
-            post_matrix_reserved=str(reserved),
-            footer_length=len(tail),
-        )
-    ]
-
-
-def parse_bbse(reader: SMEReader, base: dict[str, Any]) -> list[ParsedChannel]:
+def parse_counted_channels(
+    reader: SMEReader, base: dict[str, Any], *, expanded: bool,
+) -> list[ParsedChannel]:
+    """Read counted arrays by structure; head, mode and version are metadata."""
     output = []
     for channel_id in range(1, base["declared_channel_count"] + 1):
         header = read_channel_header(reader)
-        if header["instrument"] != "BBSE":
-            raise UnsupportedSME(f"BBSE channel {channel_id} header mismatch")
-        for index in range(6):
-            reader.f64_array(f"BBSE_empty_before_wave_{index}", expected=0)
-        wavelength = reader.f64_array("BBSE_wavelength")
+        zero = reader.f64_array("zero_channel")
+        # These are fixed metadata words, not empty vectors. Some heads store
+        # nonzero settings here; their interpretation is deliberately left raw.
+        prefix_words = [reader.u32() for _ in range(5)] if expanded else []
+        wavelength = reader.f64_array("wavelength")
+        validate_wavelength(wavelength, "wavelength")
         count = len(wavelength)
-        for index in range(5):
-            reader.f64_array(f"BBSE_empty_before_mueller_{index}", expected=0)
-        matrix = reader.f64_array("BBSE_mueller", count * 16).reshape(count, 16)
-        tail = reader.take(56)
-        numeric = np.full((count, 24), np.nan, dtype=np.float64)
-        numeric[:, 0] = wavelength
-        numeric[:, 8:] = matrix
-        output.append(
-            create_channel(
-                base,
-                header,
-                channel_id,
-                "mueller",
-                wavelength,
-                numeric,
-                footer_length=len(tail),
-            )
-        )
+        if count > MAX_SPECTRAL_POINTS:
+            raise ValueError(f"Unreasonable wavelength count {count}")
+        scalars = [reader.f64_array(name) for name in ("psi", "delta", "N", "C", "S")]
+        matrix = reader.f64_array("mueller")
+        reflectance = reader.f64_array("reflectance")
+        for index in range(2):
+            reader.f64_array(f"reserved_{index}", expected=0)
+        auxiliary = reader.f64_array("aux_raw")
+        footer = reader.take(40)
+        for name, values in (("zero_channel", zero), ("aux_raw", auxiliary),
+                             ("reflectance", reflectance), *zip(("psi", "delta", "N", "C", "S"), scalars)):
+            if len(values) not in (0, count):
+                raise ValueError(f"{name}: length {len(values)}, expected 0 or {count}")
+            if not np.isfinite(values).all():
+                raise ValueError(f"Non-finite {name} data at channel {channel_id}")
+        if len(matrix) not in (0, 16 * count) or not np.isfinite(matrix).all():
+            raise ValueError(f"Invalid Mueller array at channel {channel_id}")
+        has_scalars = all(len(values) == count for values in scalars)
+        has_matrix = bool(np.count_nonzero(matrix))
+        if reflectance.size:
+            if has_matrix or any(values.size for values in scalars):
+                raise UnsupportedSME("Combined reflectance and ellipsometry layout not verified")
+            spectrum_type = "reflectance"
+            numeric = np.column_stack((wavelength, reflectance))
+        elif has_matrix:
+            spectrum_type = "mueller"
+            numeric = np.full((count, 24), np.nan, dtype=np.float64)
+            numeric[:, 0] = wavelength
+            for column, values in enumerate((*scalars, zero, auxiliary), start=1):
+                if values.size:
+                    numeric[:, column] = values
+            numeric[:, 8:] = matrix.reshape(count, 16)
+        elif has_scalars:
+            # An all-zero Mij block is a serialized placeholder, not measured
+            # Mueller data. Preserve the actual Psi/Delta/N/C/S vectors.
+            spectrum_type = "ellipsometry"
+            numeric = np.column_stack((wavelength, *scalars, *([auxiliary] if auxiliary.size else [])))
+        else:
+            raise UnsupportedSME("No supported measured series in channel")
+        output.append(create_channel(
+            base, header, channel_id, spectrum_type, wavelength, numeric,
+            serialized_layout="expanded" if expanded else "compact",
+            series_prefix_words=str(prefix_words), auxiliary_units="unknown",
+            mij_status="measured" if has_matrix else "all_zero_placeholder_not_measured" if matrix.size else "absent",
+            footer_length=len(footer),
+        ))
     if reader.pos != len(reader.data):
-        raise ValueError(f"BBSE contains {len(reader.data) - reader.pos} unexpected bytes")
+        raise ValueError(f"SME contains {len(reader.data) - reader.pos} unexpected bytes")
     return output
 
 
-def parse_imse(reader: SMEReader, base: dict[str, Any]) -> list[ParsedChannel]:
-    if base["declared_channel_count"] != 1:
-        raise UnsupportedSME("IMSE multichannel layout not verified")
-    header = read_channel_header(reader)
-    if (header["instrument"], header["mode"]) != ("IMSE_III+", "SE"):
-        raise UnsupportedSME("Unexpected IMSE channel header")
-    for index in range(3):
-        reader.f64_array(f"IMSE_empty_before_parameter_{index}", expected=0)
-    unknown_parameter = reader.u32()
-    for index in range(2):
-        reader.f64_array(f"IMSE_empty_before_wavelength_{index}", expected=0)
-    wavelength = reader.f64_array("IMSE_wavelength")
-    count = len(wavelength)
-    psi = reader.f64_array("IMSE_psi", count)
-    delta = reader.f64_array("IMSE_delta", count)
-    n_value = reader.f64_array("IMSE_N", count)
-    c_value = reader.f64_array("IMSE_C", count)
-    s_value = reader.f64_array("IMSE_S", count)
-    placeholder = reader.f64_array("IMSE_Mij_placeholder", 16 * count)
-    if np.count_nonzero(placeholder):
-        raise UnsupportedSME("IMSE Mij array not zero; unknown data layout")
-    reserved = [reader.u32() for _ in range(3)]
-    auxiliary = reader.f64_array("IMSE_aux_unknown", count)
-    tail = reader.take(len(reader.data) - reader.pos)
-    if len(tail) != 40:
-        raise UnsupportedSME(f"Unknown IMSE footer length: {len(tail)}")
-    rad_2psi = np.deg2rad(2.0 * psi)
-    rad_delta = np.deg2rad(delta)
-    if not (
-        np.allclose(n_value, np.cos(rad_2psi), rtol=0, atol=1e-9)
-        and np.allclose(
-            c_value,
-            np.sin(rad_2psi) * np.cos(rad_delta),
-            rtol=0,
-            atol=1e-9,
-        )
-        and np.allclose(
-            s_value,
-            np.sin(rad_2psi) * np.sin(rad_delta),
-            rtol=0,
-            atol=1e-9,
-        )
-    ):
-        raise ValueError("IMSE N/C/S inconsistent with Psi/Delta")
-    numeric = np.column_stack((wavelength, psi, delta, n_value, c_value, s_value, auxiliary))
-    return [
-        create_channel(
-            base,
-            header,
-            1,
-            "ellipsometry",
-            wavelength,
-            numeric,
-            auxiliary_units="unknown",
-            imse_unknown_u32=unknown_parameter,
-            imse_mij_status="all_zero_placeholder_not_measured",
-            reserved_after_matrix=str(reserved),
-            footer_length=len(tail),
-        )
-    ]
-
-
-def parse_irse(reader: SMEReader, base: dict[str, Any]) -> list[ParsedChannel]:
-    if base["declared_channel_count"] != 1:
-        raise UnsupportedSME("IRSE multichannel layout not verified")
-    header = read_channel_header(reader)
-    if (header["instrument"], header["mode"]) != ("IRSE_II(1700)", "IRSE"):
-        raise UnsupportedSME("Unexpected IRSE channel header")
-    zero = reader.f64_array("IRSE_zero_channel")
-    count = len(zero)
-    for index in range(2):
-        reader.f64_array(f"IRSE_empty_before_parameter_{index}", expected=0)
-    unknown_parameter = reader.u32()
-    for index in range(2):
-        reader.f64_array(f"IRSE_empty_before_wavelength_{index}", expected=0)
-    wavelength = reader.f64_array("IRSE_wavelength", count)
-    psi = reader.f64_array("IRSE_psi", count)
-    delta = reader.f64_array("IRSE_delta", count)
-    n_value = reader.f64_array("IRSE_N", count)
-    c_value = reader.f64_array("IRSE_C", count)
-    s_value = reader.f64_array("IRSE_S", count)
-    matrix = reader.f64_array("IRSE_mueller", count * 16).reshape(count, 16)
-    reserved = [reader.u32() for _ in range(3)]
-    auxiliary = reader.f64_array("IRSE_aux_unknown", count)
-    tail = reader.take(len(reader.data) - reader.pos)
-    if len(tail) != 40:
-        raise UnsupportedSME(f"Unknown IRSE footer length: {len(tail)}")
-    numeric = np.column_stack(
-        (wavelength, psi, delta, n_value, c_value, s_value, zero, auxiliary, matrix)
-    )
+def parse_legacy_compressed(raw: bytes, path: Path) -> list[ParsedChannel]:
+    """Read the verified fixed-capacity, little-endian legacy record."""
+    expected_size, capacity = 418540, 1025
+    decoder = zlib.decompressobj()
+    try:
+        data = decoder.decompress(raw, expected_size + 1)
+    except zlib.error as error:
+        raise ValueError("Invalid compressed SME data") from error
+    if (len(data) != expected_size or not decoder.eof
+            or decoder.unused_data or decoder.unconsumed_tail):
+        raise UnsupportedSME("Unverified or truncated compressed SME layout")
+    if struct.unpack_from("<I", data)[0] != 1:
+        raise UnsupportedSME("Legacy multi-channel layout not verified")
+    version = data[4:12].split(b"\0", 1)[0].decode("ascii")
+    filename = data[210:338].split(b"\0", 1)[0].decode("utf-8")
+    values = np.frombuffer(data, dtype="<f4", offset=340)
+    wavelength_buffer = values[:capacity]
+    count = int(np.count_nonzero(wavelength_buffer))
+    if count == 0 or np.any(wavelength_buffer[:count] <= 0) or np.any(wavelength_buffer[count:]):
+        raise ValueError("Legacy wavelength array has invalid padding or values")
+    wavelength = wavelength_buffer[:count].astype(np.float64)
+    matrix_buffer = values[2 * capacity:18 * capacity].reshape(capacity, 16)
+    parameters = values[66 * capacity:71 * capacity].reshape(capacity, 5)
+    if (np.any(matrix_buffer[count:]) or np.any(parameters[count:])
+            or np.any(parameters[:, 2:])
+            or np.any(values[18 * capacity:66 * capacity])
+            or np.any(values[71 * capacity:98 * capacity])
+            or np.any(values[99 * capacity:])):
+        raise UnsupportedSME("Legacy reserved data differs from the verified layout")
+    matrix = matrix_buffer[:count].astype(np.float64)
+    if not np.allclose(matrix[:, 0], 1.0, rtol=0, atol=1e-6):
+        raise ValueError("Legacy normalized Mueller M00 is invalid")
+    numeric = np.full((count, 24), np.nan)
+    numeric[:, 0] = wavelength
+    numeric[:, 1:3] = parameters[:count, :2]
+    numeric[:, 6] = values[capacity:capacity + count]
+    numeric[:, 7] = values[98 * capacity:98 * capacity + count]
+    numeric[:, 8:] = matrix
+    if not np.isfinite(numeric[:, [0, 1, 2, 6, 7]]).all():
+        raise ValueError("Non-finite legacy spectral data")
+    aoi, angle_radians = struct.unpack_from("<dd", data, 12)
+    header = {"instrument": "", "mode": "", "sample_id": "", "sample_type": 1,
+              "angle_1_deg": aoi if math.isclose(math.radians(aoi), angle_radians, abs_tol=1e-5) else None,
+              "angle_2_deg": None, "angle_3_deg": None, "coord_x": None, "coord_y": None}
     return [create_channel(
-        base, header, 1, "mueller", wavelength, numeric,
-        irse_unknown_u32=unknown_parameter,
-        auxiliary_units="unknown",
-        reserved_after_matrix=str(reserved),
-        footer_length=len(tail),
+        base_metadata(path, version, filename, 1, None), header, 1, "mueller", wavelength, numeric,
+        serialized_layout="legacy_fixed_float32", envelope="zlib", legacy_capacity=capacity,
+        legacy_ncs_status="not_stored", auxiliary_units="unknown",
+        legacy_unknown_angle_92=struct.unpack_from("<d", data, 92)[0],
     )]
-
-
-def find_dts_arrays(reader: SMEReader) -> tuple[np.ndarray, np.ndarray, dict[str, int]]:
-    data = reader.data
-    start = reader.pos
-    for candidate in range(start, min(start + 256, len(data) - 20), 4):
-        count = struct.unpack_from(">I", data, candidate)[0]
-        if not 32 <= count <= MAX_SPECTRAL_POINTS:
-            continue
-        end = candidate + 4 + count * 8
-        if end > len(data):
-            continue
-        wavelength = np.frombuffer(data, dtype=">f8", count=count, offset=candidate + 4)
-        if (
-            not np.isfinite(wavelength).all()
-            or wavelength[0] < 50
-            or wavelength[-1] > 10000
-            or not np.all(np.diff(wavelength) > 0)
-        ):
-            continue
-        for offset in range(end, min(end + 256, len(data) - 4), 4):
-            count_again = struct.unpack_from(">I", data, offset)[0]
-            if count_again != count or offset + 4 + count_again * 8 > len(data):
-                continue
-            reflectance = np.frombuffer(
-                data, dtype=">f8", count=count_again, offset=offset + 4
-            )
-            if (
-                np.isfinite(reflectance).all()
-                and -0.5 <= reflectance.min()
-                and reflectance.max() <= 2.0
-            ):
-                return (
-                    wavelength.astype(np.float64),
-                    reflectance.astype(np.float64),
-                    {
-                        "wavelength_offset": candidate,
-                        "reflectance_offset": offset,
-                        "trailing_byte_count": len(data) - (offset + 4 + count_again * 8),
-                    },
-                )
-    raise UnsupportedSME("Cannot identify DTS wavelength/reflectance counted arrays")
-
-
-def parse_dts(reader: SMEReader, base: dict[str, Any]) -> list[ParsedChannel]:
-    if base["declared_channel_count"] != 1:
-        raise UnsupportedSME("Multi-channel DTS layout not yet validated")
-    header = read_channel_header(reader)
-    if (header["instrument"], header["mode"]) != ("DTS", "DTS"):
-        raise UnsupportedSME(
-            f"Unexpected DTS header {header['instrument']}/{header['mode']}"
-        )
-    wavelength, reflectance, found = find_dts_arrays(reader)
-    numeric = np.column_stack((wavelength, reflectance))
-    return [
-        create_channel(
-            base,
-            header,
-            1,
-            "reflectance",
-            wavelength,
-            numeric,
-            **found,
-        )
-    ]
 
 
 def parse_one(path: Path) -> list[ParsedChannel]:
@@ -609,6 +499,8 @@ def parse_one(path: Path) -> list[ParsedChannel]:
                 "application/environment, then load that copy."
             )
         raw = prefix + stream.read()
+    if (len(raw) >= 2 and raw[0] & 15 == 8 and (raw[0] * 256 + raw[1]) % 31 == 0):
+        return parse_legacy_compressed(raw, path)
     if not raw.startswith(b"SE3"):
         raise UnsupportedSME("Missing SE3 envelope")
     try:
@@ -621,26 +513,33 @@ def parse_one(path: Path) -> list[ParsedChannel]:
     if not 1 <= channel_count <= 128:
         raise UnsupportedSME(f"Invalid channel count {channel_count}")
     embedded_name = reader.qstring()
-    global_tag = reader.u32() if version == "SE3.5" else None
-    common = base_metadata(path, version, embedded_name, channel_count, global_tag)
-    if version == "SE3.3":
-        return parse_uvse(reader, common)
-    if version == "SE3.5":
+    start = reader.pos
+    matches, errors = [], []
+    # The optional global word and numeric layout are structural candidates.
+    # Version/head spelling is preserved as metadata, not an allowlist.
+    for shift in (0, 4):
+        reader.pos = start
+        try:
+            global_tag = reader.u32() if shift else None
+        except ValueError as error:
+            errors.append(str(error))
+            continue
         at = reader.pos
-        header = read_channel_header(reader)
-        reader.pos = at
-        if header["instrument"] == "BBSE":
-            return parse_bbse(reader, common)
-        if header["instrument"] == "DTS":
-            return parse_dts(reader, common)
-        if header["instrument"] == "IMSE_III+":
-            return parse_imse(reader, common)
-        if header["instrument"] == "IRSE_II(1700)":
-            return parse_irse(reader, common)
-        raise UnsupportedSME(
-            f"SE3.5 instrument {header['instrument']!r} unimplemented"
-        )
-    raise UnsupportedSME(f"SME version {version!r} unimplemented")
+        common = base_metadata(path, version, embedded_name, channel_count, global_tag)
+        for expanded in (False, True):
+            reader.pos = at
+            try:
+                channels = parse_counted_channels(reader, common, expanded=expanded)
+            except ValueError as error:
+                errors.append(str(error))
+                continue
+            matches.append(channels)
+    if len(matches) == 1:
+        return matches[0]
+    if matches:
+        raise UnsupportedSME("Ambiguous SME numeric layout; refusing to guess")
+    raise UnsupportedSME(f"No validated SME numeric layout matches (version {version!r}): "
+                         + "; ".join(errors[:4]))
 
 
 def _number(value: Any) -> float | None:

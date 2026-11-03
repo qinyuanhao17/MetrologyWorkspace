@@ -1,0 +1,226 @@
+{
+  "date": "2026-11-03",
+  "baseline": "59828a439018851a0da410e5f4954167c5880df2",
+  "parser_version": "3.2.0",
+  "focused_tests": 139,
+  "compatibility_tests": 8,
+  "regression_tests": 1373,
+  "regression_passed": 1370,
+  "regression_existing_failures": 3,
+  "real_files": {
+    "batches": [
+      {
+        "folder": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\JC1913\\OCD_RP01_OFFSETLTO_JC_FM.rcp",
+        "readable_files": 404,
+        "issues": {},
+        "wavelength_point_counts": [
+          916
+        ],
+        "seconds": 0.5964416000060737
+      },
+      {
+        "folder": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\JC1913\\spectra_all_IRSE",
+        "readable_files": 470,
+        "issues": {
+          "encrypted": 1128
+        },
+        "wavelength_point_counts": [
+          234
+        ],
+        "seconds": 0.9428682000143453
+      }
+    ],
+    "source_sha256_unchanged": 2004,
+    "existing_files_numerically_identical_to_HEAD": 43,
+    "existing_numeric_sha256": "a43d1d1657f86f66359738fc92446088016e67cc07d1fa16695e60465449e96a",
+    "ui": {
+      "files": 6,
+      "channels": 12,
+      "legends": {
+        "NCS": 3,
+        "Psi Delta": 4,
+        "Mueller": 9,
+        "Reflectance": 2
+      },
+      "reflectance_points": [
+        902,
+        903
+      ],
+      "die_map_tiles": 5
+    },
+    "added_individuals": [
+      {
+        "path": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\JC1913\\DPC00703.10_DH0912.003-OCD_NAN-ANA_PAD-E-45_Die1_C-1_R4_20260909141623387.sme",
+        "instrument": [
+          "UVSE_II+"
+        ],
+        "points": [
+          903
+        ]
+      },
+      {
+        "path": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\JC1913\\LP300005.23_GK-PadN-PLDSR-Dynamic_A13-048_PAD N_Die1_C-5_R0_20261016111859433.sme",
+        "instrument": [
+          "LDSR-P",
+          "LDSR-P"
+        ],
+        "points": [
+          902,
+          903
+        ]
+      }
+    ]
+  },
+  "regression": {
+    "excluded_test_modules": [
+      "test_auto_weighting",
+      "test_auto_weighting_ocr",
+      "test_auto_weighting_window",
+      "test_shell",
+      "test_writer_cell_serialization"
+    ],
+    "shards": [
+      {
+        "modules": [
+          "tests.test_matching_window",
+          "tests.test_workspace",
+          "tests.test_document_storage",
+          "tests.test_spectra_viewer",
+          "tests.test_array",
+          "tests.test_storage_v2",
+          "tests.test_table_clipboard",
+          "tests.test_parameter_filter",
+          "tests.test_case_switching",
+          "tests.test_named_analysis_windows",
+          "tests.test_trend",
+          "tests.test_sme_spectra",
+          "tests.test_core",
+          "tests.test_wafer_render_batches",
+          "tests.test_mapping_row_controls",
+          "tests.test_v4_release_exports",
+          "tests.test_trend_order",
+          "tests.test_settings",
+          "tests.test_correlation_render_batches",
+          "tests.test_measurements",
+          "tests.test_correlation_linked_values",
+          "tests.test_linked_plot_refresh",
+          "tests.test_radius",
+          "tests.test_export_hover_fixes",
+          "tests.test_source_plot_presentation",
+          "tests.test_reminder_panel",
+          "tests.test_linked_heavy_plot_refresh",
+          "tests.test_wafer_static",
+          "tests.test_trend_row_number",
+          "tests.test_snapshot_equality",
+          "tests.test_sheet_batch_transactions",
+          "tests.test_matching_value_refresh",
+          "tests.test_export_wkb_axes",
+          "tests.test_correlation_axes",
+          "tests.test_float_pin",
+          "tests.test_dynamic_compare_export",
+          "tests.test_workspace_source_frames",
+          "tests.test_wafer_label_index",
+          "tests.test_reference_source_columns",
+          "tests.test_hidden_row_markers",
+          "tests.test_analysis_input_frame_fast",
+          "tests.test_sheet_bounds",
+          "tests.test_participation_bulk",
+          "tests.test_export_source_layout",
+          "tests.test_analysis_close_performance",
+          "tests.test_selector_updates",
+          "tests.test_reference_edit_controls",
+          "tests.test_recovery_frame_sharing",
+          "tests.test_installer_packaging",
+          "tests.test_numeric_qualification",
+          "tests.test_identity_key_normalization",
+          "tests.test_spectra_analysis",
+          "tests.test_spectra_workbook",
+          "tests.test_selection_script",
+          "tests.test_die_selection",
+          "tests.test_spectra_release_smoke",
+          "tests.test_spectra_export",
+          "tests.test_sme_compatibility"
+        ],
+        "exit_code": 1,
+        "seconds": 250.08471329999156,
+        "summary": [
+          "Ran 725 tests in 244.230s",
+          "FAILED (failures=1, errors=1)"
+        ],
+        "failures": [
+          "ERROR: test_correlation_button_opens_active_reference_and_raw_sources (tests.test_matching_window.MatchingWindowTests.test_correlation_button_opens_active_reference_and_raw_sources)",
+          "FAIL: test_pagination_filter_and_threshold_changes_replace_pending_page (tests.test_correlation_render_batches.CorrelationRenderBatchTests.test_pagination_filter_and_threshold_changes_replace_pending_page)"
+        ],
+        "log": "sme-compatibility-regression-0.log"
+      },
+      {
+        "modules": [
+          "tests.test_correlation",
+          "tests.test_performance_regressions",
+          "tests.test_match_groups",
+          "tests.test_matching",
+          "tests.test_excel_report_layout",
+          "tests.test_async_analysis_refresh",
+          "tests.test_dynamic",
+          "tests.test_excel_export",
+          "tests.test_v41_workflows",
+          "tests.test_workbook_copy_data",
+          "tests.test_workbook_startup",
+          "tests.test_paste_feedback",
+          "tests.test_stage_selection_and_point_precision",
+          "tests.test_trend_wafer_labels",
+          "tests.test_export_opening_layout",
+          "tests.test_workspace_store",
+          "tests.test_metadata_locks",
+          "tests.test_export_selection",
+          "tests.test_table_selection_notifications",
+          "tests.test_p0_final_audit",
+          "tests.test_requested_plot_controls",
+          "tests.test_reminders",
+          "tests.test_literal_frame_source",
+          "tests.test_p1_storage_lifecycle",
+          "tests.test_correlation_source_identity",
+          "tests.test_uniform_scatter",
+          "tests.test_spectra_map",
+          "tests.test_sheet_read_views",
+          "tests.test_linked_table_versions",
+          "tests.test_correlation_batch_ols",
+          "tests.test_table_version",
+          "tests.test_sheet_cache_updates",
+          "tests.test_partial_reference_matching",
+          "tests.test_incomplete_workbook_workspaces",
+          "tests.test_export_native_die_categories",
+          "tests.test_sheet_versions",
+          "tests.test_plot_labels",
+          "tests.test_export_template_layout",
+          "tests.test_correlation_common_population",
+          "tests.test_test_environment",
+          "tests.test_map_page_zoom",
+          "tests.test_analysis_plot_style",
+          "tests.test_v411_float_scope",
+          "tests.test_sheet_bulk_load",
+          "tests.test_radius_static",
+          "tests.test_group_control_source_reuse",
+          "tests.test_correlation_multi_pair",
+          "tests.test_wafer_hover",
+          "tests.test_render_preparation",
+          "tests.test_recovery_snapshot_ownership",
+          "tests.test_parameter_plot_layout",
+          "tests.test_startup_imports",
+          "tests.test_menu_controls",
+          "tests.test_group_plan_snapshot_reuse"
+        ],
+        "exit_code": 1,
+        "seconds": 258.27141129999654,
+        "summary": [
+          "Ran 648 tests in 255.166s",
+          "FAILED (errors=1)"
+        ],
+        "failures": [
+          "ERROR: test_proved_source_retains_all_literals_without_rescanning_values (tests.test_literal_frame_source.LiteralFrameSourceTests.test_proved_source_retains_all_literals_without_rescanning_values)"
+        ],
+        "log": "sme-compatibility-regression-1.log"
+      }
+    ]
+  }
+}
