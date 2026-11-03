@@ -1,0 +1,53 @@
+{
+  "date": "2026-11-04",
+  "version": "5.1.0",
+  "tag": "v5.1.0",
+  "focused": {
+    "tests": 47,
+    "passed": 47,
+    "seconds": 16.528,
+    "log": ".cache/v510-focused.log"
+  },
+  "full": {
+    "tests": 1421,
+    "seconds": 532.507,
+    "initial_passed": 1418,
+    "initial_errors": 3,
+    "initial_failures": 0,
+    "excluded_modules": [
+      "test_auto_weighting",
+      "test_auto_weighting_ocr",
+      "test_auto_weighting_window"
+    ],
+    "exclusion_reason": "User explicitly defers AutoWeighting and OCR checks",
+    "hardlink_retry": {
+      "passed": true,
+      "seconds": 0.237,
+      "context": "approved isolated outside-sandbox temporary directory"
+    },
+    "remaining_existing_errors": [
+      {
+        "test": "tests.test_literal_frame_source.LiteralFrameSourceTests.test_proved_source_retains_all_literals_without_rescanning_values",
+        "error": "ValueError: assignment destination is read-only"
+      },
+      {
+        "test": "tests.test_matching_window.MatchingWindowTests.test_correlation_button_opens_active_reference_and_raw_sources",
+        "error": "AttributeError: FakeCorrelationWorkspace has no raw_model"
+      }
+    ],
+    "all_spectra_tests_passed": true,
+    "fully_green": false,
+    "log": ".cache/v510-full.log"
+  },
+  "die_map_antialias": {
+    "view_antialias": true,
+    "outline_antialias": true,
+    "points_antialias": true,
+    "selection_antialias": true,
+    "flags_antialias": true,
+    "source_spectra": 20
+  },
+  "git_diff_check": true,
+  "production_settings_unchanged": true,
+  "artifact_validation": "Published as BUILD-VALIDATION.json from the exact isolated release commit"
+}

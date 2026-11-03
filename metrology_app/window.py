@@ -192,6 +192,11 @@ class MainWindow(QMainWindow):
         self.data_selection_action = QAction("Data selection…", self)
         self.data_selection_action.triggered.connect(self.open_data_selection)
         self.data_menu.addAction(self.data_selection_action)
+        self.copy_wkb_selection_action = QAction("Copy WKB Selection", self)
+        self.copy_wkb_selection_action.setEnabled(False)
+        self.copy_wkb_selection_action.setToolTip("Copy the Workbook Selection Script once, including checks, filters and view settings.")
+        self.copy_wkb_selection_action.triggered.connect(self.copy_wkb_selection)
+        self.data_menu.addAction(self.copy_wkb_selection_action)
         self.selection_scope_group.triggered.connect(lambda _action: self._selection_scope_changed())
         self.workspace_actions = []
         for text, handler, shortcut in (("Save", self.save_wkb, "Ctrl+S"),
@@ -304,6 +309,8 @@ class MainWindow(QMainWindow):
                     "search": str(saved_view.get("search", "")),
                     "hide_excluded": bool(saved_view.get("hide_excluded", False)),
                 }
+                if saved_view.get("context"):
+                    self._local_view["context"] = deepcopy(saved_view["context"])
         self._restore_workspace_tables(snapshot)
         restore_analysis_state(self, snapshot.states.get("ui", {}))
 
@@ -415,6 +422,7 @@ class MainWindow(QMainWindow):
             return
         selection_applies = self._workbook_selection_applies
         self._managed_owner, self._managed_scope = owner, scope
+        self.copy_wkb_selection_action.setEnabled(True)
         self.document.timer.stop()
         self.file_menu.removeAction(self.open_workspace_action)
         self.file_menu.removeAction(self.recent_workspace_menu.menuAction())
@@ -1102,12 +1110,9 @@ class MainWindow(QMainWindow):
             self._refresh_selection_badge()
             self.update_plan()
 
-    def open_data_selection(self):
-        """Choose the rows of this window's table that feed its plots."""
+    def _data_selection_dialog(self):
         from .data_selection import FrameSelectionDialog
         frame = self.model.frame()
-        if frame.empty:
-            return
         owner = getattr(self, "_managed_owner", None)
         context = getattr(owner, "child_selection_context", None) if owner is not None else None
         extra_frames = context(self) if callable(context) else []
@@ -1116,27 +1121,55 @@ class MainWindow(QMainWindow):
         if self._workbook_selection_applies and hasattr(self, "_workbook_selection_view"):
             saved_view = self._workbook_selection_view
             excluded = self._participation_excluded
-        dialog = FrameSelectionDialog(frame, excluded,
+        return FrameSelectionDialog(frame, excluded,
                                       self, extra_frames=extra_frames,
                                       filters=saved_view.get("filters"),
                                       row_bools=saved_view.get("row_bools"),
                                       group_bools=saved_view.get("group_bools"),
                                       show=saved_view.get("show", "all"),
                                       search=saved_view.get("search", ""),
-                                      hide_excluded=saved_view.get("hide_excluded", False))
+                                      hide_excluded=saved_view.get("hide_excluded", False),
+                                      context=saved_view.get("context"))
+
+    def _apply_data_selection_dialog(self, dialog):
+        self._local_selection_excluded = set(dialog.excluded)
+        self._local_view = dialog.view_state()
+        self._workbook_selection_applies = False
+        self.full_data_action.setChecked(True)
+        owner = getattr(self, "_managed_owner", None)
+        apply_scope = getattr(owner, "apply_child_selection_scope", None) if owner else None
+        if callable(apply_scope):
+            apply_scope(self, refresh_source=False)
+        else:
+            self._refresh_selection_badge()
+            self.update_plan()
+
+    def copy_wkb_selection(self):
+        owner = getattr(self, "_managed_owner", None)
+        if owner is None or self.model.frame().empty:
+            return False
+        dialog = self._data_selection_dialog()
+        try:
+            copied = dialog.apply_selection_script(owner.selection_script(), allow_partial=True)
+            dialog.accept()
+            self._apply_data_selection_dialog(dialog)
+            self.statusBar().showMessage(f"Copied WKB Selection Script to {copied['matched']} rows; {copied['unmatched']} unmatched rows kept their state.")
+            return True
+        except ValueError as error:
+            QMessageBox.warning(self, "Cannot copy WKB selection", str(error))
+            return False
+        finally:
+            dialog.deleteLater()
+
+    def open_data_selection(self):
+        """Choose the rows of this window's table that feed its plots."""
+        if self.model.frame().empty:
+            return
+        dialog = self._data_selection_dialog()
         initial = (set(dialog.model.checked), dialog.view_state())
         if dialog.exec() == QDialog.DialogCode.Accepted:
             if initial != (dialog.model.checked, dialog.view_state()):
-                self._local_selection_excluded = set(dialog.excluded)
-                self._local_view = dialog.view_state()
-                self._workbook_selection_applies = False
-                self.full_data_action.setChecked(True)
-                apply_scope = getattr(owner, "apply_child_selection_scope", None) if owner else None
-                if callable(apply_scope):
-                    apply_scope(self, refresh_source=False)
-                else:
-                    self._refresh_selection_badge()
-                    self.update_plan()
+                self._apply_data_selection_dialog(dialog)
         dialog.deleteLater()
 
     def update_plan(self, *_args):

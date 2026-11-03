@@ -8,7 +8,10 @@
   #error ReleaseOutputDir is required
 #endif
 #ifndef ReleaseVersion
-  #define ReleaseVersion "5.0.0-dev1"
+  #define ReleaseVersion "5.1.0"
+#endif
+#ifndef ReleaseFileVersion
+  #define ReleaseFileVersion "5.1.0.0"
 #endif
 
 [Setup]
@@ -24,11 +27,11 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
-VersionInfoVersion=5.0.0.1
+VersionInfoVersion={#ReleaseFileVersion}
 CreateUninstallRegKey=IntegrationEnabled
 UsePreviousAppDir=no
 OutputDir={#ReleaseOutputDir}
-OutputBaseFilename=MetrologyWorkspace-v5-dev1-Windows-x64-Setup
+OutputBaseFilename=MetrologyWorkspace-v{#ReleaseVersion}-Windows-x64-Setup
 Compression=lzma2/normal
 SolidCompression=yes
 WizardStyle=modern

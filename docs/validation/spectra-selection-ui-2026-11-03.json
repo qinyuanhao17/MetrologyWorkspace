@@ -1,0 +1,73 @@
+{
+  "date": "2026-11-03",
+  "baseline": "b50038a6806c4185c1691de19eddd943ceae6e02",
+  "status": "focused-validation-passed",
+  "focused_command": "python run_tests.py tests.test_selection_script tests.test_spectra_workbook tests.test_spectra_map -v",
+  "focused_tests": 44,
+  "focused_passed": 44,
+  "full_regression": "deferred at explicit user request",
+  "auto_weighting": "deferred and not tested",
+  "selection_script_real": {
+    "workbook_rows": 1890,
+    "matched_spectra": 1890,
+    "checked": 1870,
+    "dialog_checked": 1870,
+    "view": {
+      "filters": [
+        [
+          {
+            "column": "Raw Data / Wafer ID",
+            "query": "",
+            "values": [
+              "AI01750.00-06"
+            ]
+          }
+        ]
+      ],
+      "row_bools": [
+        []
+      ],
+      "group_bools": [],
+      "show": "filtered",
+      "search": "",
+      "hide_excluded": true
+    },
+    "all_filter_conditions_copied": true,
+    "selection_script_matches_view": true,
+    "parent_selection_unchanged": true,
+    "source_sha256_unchanged": 3896,
+    "die_map_tiles": 12,
+    "sizes_and_ranges_stable": true
+  },
+  "original_sme_export_real": {
+    "workbook_rows": 1890,
+    "parent_checked": 1869,
+    "spectra": 1891,
+    "all_readable_spectra": 2767,
+    "root_load_issues": 1128,
+    "matched_spectra": 1890,
+    "unmatched_spectra": 1,
+    "checked_after_copy": 1870,
+    "selection_dialog_checked": 1870,
+    "exported_original_files": 1870,
+    "exported_sha256_verified": true,
+    "die_map_wafers": 91,
+    "die_map_points": 1891,
+    "die_map_tiles": 12,
+    "die_map_sizes_and_ranges_stable": true,
+    "parent_selection_unchanged": true,
+    "original_sha256_unchanged": 3896
+  },
+  "export_result_format": [
+    {
+      "outcome": "Export Succeeded√",
+      "weight": 700,
+      "color": "#15803d"
+    },
+    {
+      "outcome": "Export Failed×",
+      "weight": 700,
+      "color": "#dc2626"
+    }
+  ]
+}

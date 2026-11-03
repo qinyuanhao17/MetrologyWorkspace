@@ -630,8 +630,9 @@ class MatchGroupTests(unittest.TestCase):
         app.processEvents()
 
     def test_mark_assignment_rows_stay_separated_and_the_picker_marks_wafers(self):
-        from PyQt6.QtCore import QTimer
-        from PyQt6.QtWidgets import QApplication, QTreeWidget
+        from PyQt6.QtCore import QTimer, QPoint, QPointF, Qt
+        from PyQt6.QtGui import QWheelEvent
+        from PyQt6.QtWidgets import QApplication, QTreeWidget, QComboBox
         from metrology_app.match_group_ui import GroupControls
         from metrology_app.settings import theme_stylesheet
         app = QApplication.instance() or QApplication([])
@@ -651,6 +652,14 @@ class MatchGroupTests(unittest.TestCase):
                 self.assertGreaterEqual(second.height(), 22)
                 combo = table.itemWidget(table.topLevelItem(1), 1)
                 self.assertEqual(combo.currentText(), "Old")
+                for picker in (combo, dialog.findChild(QComboBox, "markVisible")):
+                    previous = picker.currentText()
+                    picker.setFocus()
+                    event = QWheelEvent(QPointF(picker.rect().center()), QPointF(picker.mapToGlobal(picker.rect().center())),
+                                        QPoint(), QPoint(0, -120), Qt.MouseButton.NoButton,
+                                        Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
+                    app.sendEvent(picker, event)
+                    self.assertEqual(picker.currentText(), previous)
                 combo.setCurrentText("New")
                 dialog.accept()
             except Exception as error:

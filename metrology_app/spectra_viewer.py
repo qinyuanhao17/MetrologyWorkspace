@@ -193,11 +193,25 @@ class SpectraViewerWindow(QMainWindow):
         self._pending_plot_updates = {}
         self._plot_paint_timer = QTimer(self, singleShot=True, interval=0)
         self._plot_paint_timer.timeout.connect(self._paint_next_plot)
+        self._resizing_panels = set()
+        self._resize_paint_timer = QTimer(self, singleShot=True, interval=0)
+        self._resize_paint_timer.timeout.connect(self._flush_plot_resizes)
         self._plot_status_base = ""
         # Keep dense-view caches bounded while accommodating high-DPI plot grids.
         QPixmapCache.setCacheLimit(max(QPixmapCache.cacheLimit(), 64 * 1024))
         self._checked_keys: set[str] = set()
         self._hidden_channel_keys: set[WaferChannelKey] = set()
+        self.test_flags = {}
+        self.spec_save_type = "embedded"
+        self._unavailable_paths = {}
+        self._unavailable_checked = set()
+        self.test_flag_values = [0, 1, -1]
+        self.test_flag_grouping = ["wafer", "lot", "pad"]
+        self._spectra_info_source = None
+        self.info_window = None
+        self._info_refresh_timer = QTimer(self, singleShot=True, interval=0)
+        self._info_refresh_timer.timeout.connect(self._refresh_spectra_info)
+        self.stateChanged.connect(self._info_refresh_timer.start)
         self._channel_colors: dict[WaferChannelKey, QColor] = {}
         self._color_mode = "wafer"
         self._legend_angles = {}
@@ -232,6 +246,7 @@ class SpectraViewerWindow(QMainWindow):
         self._plot_layout_signature = None
         from .selection_script import selection_view
         self._data_selection_view = selection_view(None)
+        self._workbook_selection_source = None
         apply_window_theme(self)
         self._build_view_actions()
         self._build_ui()
@@ -353,12 +368,34 @@ class SpectraViewerWindow(QMainWindow):
         self.data_menu = self.menuBar().addMenu("Data")
         self.data_selection_action = self.data_menu.addAction("Data selection…")
         self.data_selection_action.triggered.connect(self.open_data_selection)
+        self.copy_wkb_selection_action = self.data_menu.addAction("Copy WKB Selection")
+        self.copy_wkb_selection_action.setEnabled(False)
+        self.copy_wkb_selection_action.setToolTip("Available in a Spectra Viewer opened from Match Workbook.")
+        self.copy_wkb_selection_action.triggered.connect(self.copy_wkb_selection)
+        self.test_flag_action = self.data_menu.addAction("Set Test Flag…")
+        self.test_flag_action.triggered.connect(self.open_test_flags)
 
         self.options_menu = self.menuBar().addMenu("Options")
+        self.spec_save_menu = self.options_menu.addMenu("Spec Save Type")
+        self.spec_save_group = QActionGroup(self)
+        self.spec_save_group.setExclusive(True)
+        self.spec_save_actions = {}
+        for mode, label in (("embedded", "Embed Spectra Data"), ("paths", "Spectra Paths Only")):
+            action = self.spec_save_menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(mode == self.spec_save_type)
+            self.spec_save_group.addAction(action)
+            action.triggered.connect(lambda _checked, mode=mode: self.set_spec_save_type(mode))
+            self.spec_save_actions[mode] = action
         self.views_menu = _ViewMenu("Views", self.options_menu)
         self.options_menu.addMenu(self.views_menu)
         for key, _label in VIEW_LABELS:
             self.views_menu.addAction(self.view_actions[key])
+        self.verify_spectra_time_action = self.options_menu.addAction("Verify Spectra Info Filename Timestamp")
+        self.verify_spectra_time_action.setCheckable(True)
+        self.verify_spectra_time_action.setChecked(True)
+        self.verify_spectra_time_action.setToolTip("Match the time at the end of the Raw Data SME filename to the time inside the spectrum.")
+        self.verify_spectra_time_action.toggled.connect(lambda _checked: self.stateChanged.emit())
         self.analysis_menu = self.options_menu.addMenu("Plot Mode")
         self.analysis_action_group = QActionGroup(self)
         self.analysis_actions = {}
@@ -402,6 +439,10 @@ class SpectraViewerWindow(QMainWindow):
         self.open_map_button = QPushButton("Open Die Map", objectName="primary")
         self.open_map_button.setEnabled(False)
         self.open_map_button.clicked.connect(self.open_wafer_map)
+        self.spectra_info_button = QPushButton("Spectra Info", objectName="primary")
+        self.spectra_info_button.setEnabled(False)
+        self.spectra_info_button.clicked.connect(self.open_spectra_info)
+        heading.addWidget(self.spectra_info_button)
         heading.addWidget(self.open_map_button)
         outer.addLayout(heading)
 
@@ -518,7 +559,7 @@ class SpectraViewerWindow(QMainWindow):
             legend.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
             legend.setSpacing(1)
             legend.setFixedHeight(92)
-            legend.setToolTip("Scroll to browse channels. Double-click to hide or restore a channel. Right-click for Show All.")
+            legend.setToolTip("Scroll to browse channels. Double-click to hide or restore a channel. Right-click for Select Channel, Show All or Hide All.")
             legend.itemDoubleClicked.connect(self._legend_double_clicked)
             section.addWidget(legend)
             legend_row.addWidget(section_widget)
@@ -556,14 +597,12 @@ class SpectraViewerWindow(QMainWindow):
             if isinstance(plot_widget, SpectrumPlotPanel):
                 plot_widget.sigDoubleClicked.connect(self.open_plot_window)
                 plot_widget.spectraSelected.connect(self.select_spectrum_keys)
-                plot_widget.resizeRequested.connect(
-                    lambda panel=plot_widget: self._schedule_plot_paints((panel,), True))
+                plot_widget.resizeRequested.connect(lambda panel=plot_widget: self._queue_plot_resize(panel))
             else:
                 for subplot in plot_widget.mij_plots.values():
                     subplot.sigDoubleClicked.connect(self.open_plot_window)
                     subplot.spectraSelected.connect(self.select_spectrum_keys)
-                    subplot.resizeRequested.connect(
-                        lambda panel=subplot: self._schedule_plot_paints((panel,), True))
+                    subplot.resizeRequested.connect(lambda panel=subplot: self._queue_plot_resize(panel))
         self.left_plot_splitter = ResizablePlotSplitter(Qt.Orientation.Vertical)
         self.left_plot_splitter.setObjectName("spectraLeftPlotSplitter")
         self.plot_splitter = ResizablePlotSplitter(Qt.Orientation.Horizontal, default_sizes=(1, 2))
@@ -647,10 +686,10 @@ class SpectraViewerWindow(QMainWindow):
         self.cancel_load.setVisible(False)
         self.progress.setVisible(False)
 
-    def apply_load_result(self, result: LoadResult, *, replace: bool):
+    def apply_load_result(self, result: LoadResult, *, replace: bool, allow_empty_replace=False):
         if result.cancelled:
             return
-        if replace and not result.spectra:
+        if replace and not result.spectra and not allow_empty_replace:
             self.catalog.issues = list(result.issues)
             self._rebuild_tree()
             self.status.setText(
@@ -660,14 +699,24 @@ class SpectraViewerWindow(QMainWindow):
             return
         if replace:
             self.catalog.replace(result)
+            self._unavailable_paths.clear()
+            self._unavailable_checked.clear()
+            self.spec_save_actions["embedded"].setEnabled(True)
             self._baseline_key = None
             self._plot_revision += 1
             self._checked_keys.clear()
             self._selected_keys.clear()
             self._hidden_channel_keys.clear()
+            self.test_flags.clear()
             self._channel_colors.clear()
         else:
             report = self.catalog.merge(result)
+            recovered = {source.key for source in result.spectra} & self._unavailable_paths.keys()
+            self._checked_keys.update(recovered & self._unavailable_checked)
+            for key in recovered:
+                self._unavailable_paths.pop(key, None)
+            self._unavailable_checked.difference_update(recovered)
+            self.spec_save_actions["embedded"].setEnabled(not self._unavailable_paths)
             if report.added or report.replaced:
                 self._plot_revision += 1
         self.status.clear()
@@ -682,6 +731,9 @@ class SpectraViewerWindow(QMainWindow):
 
     def _refresh_placeholder(self):
         spectra = self.catalog.spectra
+        self.spectra_info_button.setEnabled(self._spectra_info_source is not None and bool(spectra))
+        self.test_flag_action.setEnabled(bool(spectra))
+        self.copy_wkb_selection_action.setEnabled(self._workbook_selection_source is not None and bool(spectra))
         if not spectra:
             text = "Load a folder containing SME spectra."
         elif not self._checked_keys:
@@ -927,21 +979,119 @@ class SpectraViewerWindow(QMainWindow):
         self.load_spectra_action.setEnabled(True)
         self.add_spectra_action.setEnabled(bool(self.catalog.spectra))
 
-    def open_data_selection(self):
+    def set_workbook_selection_source(self, source):
+        """Bind a live source for explicit, one-time participation copying."""
+        self._workbook_selection_source = source
+        self.copy_wkb_selection_action.setToolTip(
+            "Copy the Workbook Selection Script once, including checks, filters and view settings."
+            if source is not None else "Available in a Spectra Viewer opened from Match Workbook.")
+        self._refresh_placeholder()
+
+    def set_spec_save_type(self, mode):
+        if mode not in ("embedded", "paths"):
+            raise ValueError("Unknown Spectra save type.")
+        if mode == "embedded" and self._unavailable_paths:
+            raise ValueError("Restore unavailable SME files before embedding spectra data.")
+        self.spec_save_type = mode
+        self.spec_save_actions[mode].setChecked(True)
+        self.stateChanged.emit()
+
+    def copy_wkb_selection(self):
+        if self._workbook_selection_source is None or self._loader is not None or not self.catalog.spectra:
+            return False
+        spectra = self.catalog.spectra
+        dialog = self._data_selection_dialog()
+        try:
+            copied = dialog.apply_selection_script(self._workbook_selection_source(), allow_partial=True)
+            self._data_selection_view = dialog.view_state()
+            checked = set(copied["checked"])
+            self.set_spectrum_checks({spectrum.key: row in checked for row, spectrum in enumerate(spectra)})
+        except ValueError as error:
+            QMessageBox.warning(self, "Cannot copy WKB selection", str(error))
+            return False
+        finally:
+            dialog.deleteLater()
+        self.status.setText(f"Copied WKB selection to {copied['matched']} spectra; {copied['unmatched']} unmatched spectra kept their state.")
+        return True
+
+    def _data_selection_dialog(self):
         from .data_selection import FrameSelectionDialog
         from .sme_spectra import file_metadata_dataframe
         from .match_groups import participation_source_keys
-        if not self.catalog.spectra or self._loader is not None:
-            return
         spectra = self.catalog.spectra
         frame = file_metadata_dataframe(spectra)
         ids = participation_source_keys(frame)
         excluded = [key for key, source in zip(ids, spectra) if source.key not in self._checked_keys]
         view = self._data_selection_view
-        dialog = FrameSelectionDialog(frame, excluded, self, prefix_raw=True,
+        return FrameSelectionDialog(frame, excluded, self, prefix_raw=True,
                                       filters=view.get("filters"), row_bools=view.get("row_bools"),
                                       group_bools=view.get("group_bools"), show=view.get("show", "all"),
-                                      search=view.get("search", ""), hide_excluded=view.get("hide_excluded", False))
+                                      search=view.get("search", ""), hide_excluded=view.get("hide_excluded", False),
+                                      context=view.get("context"))
+
+    def set_spectra_info_source(self, source):
+        """Bind current original-order Raw Data and row-aligned Reference frames."""
+        self._spectra_info_source = source
+        self._refresh_placeholder()
+
+    def spectra_info(self):
+        from .spectra_info import build_spectra_info
+        if self._spectra_info_source is None:
+            raise ValueError("Spectra Info requires the source Match Workbook's Raw Data and Reference.")
+        sources = self.catalog.spectra
+        raw, reference = self._spectra_info_source()
+        return build_spectra_info(raw, reference, sources, checked_keys=self._checked_keys,
+                                  visible_keys=self._checked_keys, verify_timestamp=self.verify_spectra_time_action.isChecked(),
+                                  flags=self.test_flags)
+
+    def open_spectra_info(self):
+        from .spectra_info_ui import SpectraInfoWindow
+        if self.info_window is None or sip.isdeleted(self.info_window):
+            self.info_window = SpectraInfoWindow(self)
+        else:
+            self.info_window.refresh()
+        self.info_window.show()
+        self.info_window.raise_()
+        self.info_window.activateWindow()
+        if self.info_window.problems:
+            QMessageBox.warning(self.info_window, "Spectra Info matching issues",
+                                "\n".join(self.info_window.problems[:8]) + "\nResolve these issues before exporting or copying.")
+        return self.info_window
+
+    def _refresh_spectra_info(self):
+        if self.info_window is not None and not sip.isdeleted(self.info_window) and self.info_window.isVisible():
+            self.info_window.refresh()
+
+    def set_test_flags(self, updates):
+        if any(type(value) is not int for value in updates.values()):
+            raise ValueError("Test Flags must be integers.")
+        valid = {source.key for source in self.catalog.spectra}
+        for key, value in updates.items():
+            if key in valid:
+                if value not in self.test_flag_values:
+                    self.test_flag_values.append(value)
+                if value:
+                    self.test_flags[key] = value
+                else:
+                    self.test_flags.pop(key, None)
+        self._sync_map()
+        self.stateChanged.emit()
+
+    def open_test_flags(self):
+        from .spectra_info_ui import TestFlagDialog
+        dialog = TestFlagDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.test_flag_values = dialog.flag_values()
+            self.test_flag_grouping = dialog.group_fields()
+            self.set_test_flags(dialog.assignments)
+        dialog.deleteLater()
+
+    def open_data_selection(self):
+        if not self.catalog.spectra or self._loader is not None:
+            return
+        dialog = self._data_selection_dialog()
+        spectra = self.catalog.spectra
+        ids = dialog.model.ids
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._checked_keys = {source.key for key, source in zip(ids, spectra) if key in dialog.model.checked}
             self._data_selection_view = dialog.view_state()
@@ -1013,7 +1163,10 @@ class SpectraViewerWindow(QMainWindow):
     def delete_selected_tree(self):
         if self._loader is not None or not self.catalog.remove(self._selected_keys):
             return
-        self._checked_keys.intersection_update(spectrum.key for spectrum in self.catalog.spectra)
+        remaining = {source.key for source in self.catalog.spectra}
+        self._checked_keys.intersection_update(remaining)
+        self.test_flags = {key: value for key, value in self.test_flags.items()
+                           if key in remaining}
         self._selected_keys.clear()
         self._plot_revision += 1
         self._rebuild_tree()
@@ -1594,6 +1747,18 @@ class SpectraViewerWindow(QMainWindow):
         for item in self._all_group_items:
             item.setHidden(hide and item.checkState(0) == Qt.CheckState.Unchecked)
 
+    def _queue_plot_resize(self, panel):
+        # Qt must keep painting the backing store while a window is exposed.
+        # The curve cache coalesces geometry work and keeps its previous image.
+        self._resizing_panels.add(panel)
+        self._resize_paint_timer.start()
+
+    def _flush_plot_resizes(self):
+        panels = [panel for panel in self._resizing_panels if not sip.isdeleted(panel)]
+        self._resizing_panels.clear()
+        for panel in panels:
+            panel.plot.viewport().update()
+
     def _schedule_plot_paints(self, panels, large):
         remaining = [panel for panel in self._pending_plot_paints if not sip.isdeleted(panel)]
         self._cancel_plot_paints(discard_updates=False)
@@ -1607,7 +1772,7 @@ class SpectraViewerWindow(QMainWindow):
 
     @property
     def plot_render_pending(self):
-        return (bool(self._pending_plot_paints) or self._plot_paint_timer.isActive()
+        return (bool(self._resizing_panels) or bool(self._pending_plot_paints) or self._plot_paint_timer.isActive()
                 or any(panel.render_pending for panel in
                        (*self.plot_panels.values(), *self.mueller_panel.mij_plots.values(),
                         *(window.panel for window in self.floating_plot_windows.values()))
@@ -1648,8 +1813,6 @@ class SpectraViewerWindow(QMainWindow):
                 if floating is not None and not sip.isdeleted(floating):
                     floating.sync_from(panel)
             panel.plot.setUpdatesEnabled(True)
-            if panel.isVisible():
-                panel.plot.viewport().repaint()
         if self._loader is None:
             done = self._plot_paint_total - len(self._pending_plot_paints)
             self.status.setText(f"Drawing {done} / {self._plot_paint_total} plots…")
@@ -1700,6 +1863,27 @@ class SpectraViewerWindow(QMainWindow):
         keys = {legend.item(index).data(Qt.ItemDataRole.UserRole) for index in range(legend.count())}
         menu.addAction("Show All", lambda: self.show_all_channels(section)).setEnabled(bool(keys & self._hidden_channel_keys))
         menu.addAction("Hide All", lambda: self.hide_all_channels(section)).setEnabled(bool(keys - self._hidden_channel_keys))
+        select = _ViewMenu("Select Channel", menu)
+        menu.addMenu(select).setEnabled(bool(keys))
+        channel_actions = {}
+        for channel in sorted({key.channel for key in keys}, key=lambda channel: channel.sort_key):
+            action = select.addAction(channel.legend_label)
+            action.setCheckable(True)
+            action.setToolTip("Show or hide this channel across all wafers and plots. Spectrum checks stay unchanged.")
+            action.triggered.connect(lambda visible, key=channel: self.set_channel_visible(key, visible))
+            channel_actions[channel] = action
+
+        def sync_actions(_checked=False):
+            menu.actions()[0].setEnabled(bool(keys & self._hidden_channel_keys))
+            menu.actions()[1].setEnabled(bool(keys - self._hidden_channel_keys))
+            for channel, action in channel_actions.items():
+                action.setChecked(any(key.channel == channel and key not in self._hidden_channel_keys for key in keys))
+
+        for action in (*menu.actions()[:2], *channel_actions.values()):
+            action.triggered.connect(sync_actions)
+        menu.aboutToShow.connect(sync_actions)
+        select.aboutToShow.connect(sync_actions)
+        sync_actions()
         return menu
 
     def hide_all_channels(self, section):
@@ -1710,10 +1894,13 @@ class SpectraViewerWindow(QMainWindow):
             self._refresh_plots()
 
     def toggle_channel(self, key: ChannelKey | WaferChannelKey):
+        self.set_channel_visible(key, self.channel_hidden(key))
+
+    def set_channel_visible(self, key: ChannelKey | WaferChannelKey, visible: bool):
         keys = ({key} if isinstance(key, WaferChannelKey) else {
             self._color_key(s, c) for s in self.catalog.spectra
             for c in s.channels if c.key == key})
-        if keys <= self._hidden_channel_keys:
+        if visible:
             self._hidden_channel_keys.difference_update(keys)
         else:
             self._hidden_channel_keys.update(keys)
@@ -1812,11 +1999,12 @@ class SpectraViewerWindow(QMainWindow):
             self.map_window.raise_()
             self.map_window.activateWindow()
             return self.map_window
-        self.map_window = SpectraMapWindow()
+        self.map_window = SpectraMapWindow(pin_owner=self)
         self.map_window.spectra_selected.connect(self.select_spectrum_keys)
         self.map_window.check_selected_requested.connect(self.check_selected_spectra)
         self.map_window.uncheck_selected_requested.connect(self.uncheck_selected_spectra)
         self.map_window.checks_changed.connect(self.set_spectrum_checks)
+        self.map_window.test_flags_changed.connect(self.set_test_flags)
         self.map_window.destroyed.connect(self._map_window_destroyed)
         self._sync_map()
         self.map_window.show()
@@ -1831,6 +2019,7 @@ class SpectraViewerWindow(QMainWindow):
     def _sync_map(self):
         if self.map_window is None or sip.isdeleted(self.map_window):
             return
+        self.map_window.update_test_flags(self.test_flags, flag_values=self.test_flag_values)
         signature = (
             tuple(
                 (spectrum.key, id(spectrum))
@@ -1861,6 +2050,14 @@ class SpectraViewerWindow(QMainWindow):
         if not getattr(self, "_workbook_child", False) and not self.document.confirm_close():
             event.ignore()
             return
+        self._resize_paint_timer.stop()
+        self._info_refresh_timer.stop()
+        if self.info_window is not None and not sip.isdeleted(self.info_window):
+            self.info_window.close()
+        for panel in self._resizing_panels:
+            if not sip.isdeleted(panel):
+                panel.plot.setUpdatesEnabled(True)
+        self._resizing_panels.clear()
         self._cancel_plot_paints()
         if self._exporter is not None:
             self._exporter.requestInterruption()
@@ -1883,6 +2080,8 @@ class SpectraViewerWindow(QMainWindow):
         callback = getattr(self, "_workbook_on_close", None)
         if callable(callback):
             callback(self)
+        self._workbook_selection_source = None
+        self._spectra_workbook_owner = None
         self.document.closed()
         super().closeEvent(event)
 

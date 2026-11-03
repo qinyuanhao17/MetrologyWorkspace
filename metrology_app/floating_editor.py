@@ -88,6 +88,61 @@ def _pin_icon():
     return icon
 
 
+class WindowPin(QObject):
+    """The editor's application-scoped pin for an already independent window."""
+
+    def __init__(self, window, owner=None):
+        super().__init__(window)
+        self.window, self.owner, self.pinned = window, owner or window, False
+        self.raise_timer = QTimer(self, singleShot=True, interval=0)
+        self.raise_timer.timeout.connect(self._raise_in_scope)
+        self.action = QAction(_pin_icon(), "Pin", window)
+        self.action.setCheckable(True)
+        self.action.setShortcut("Alt+P")
+        self.action.toggled.connect(self.set_pinned)
+        window.addAction(self.action)
+        self.set_pinned(False)
+        QApplication.instance().installEventFilter(self)
+
+    def _should_raise_for(self, widget):
+        return (self.window.isVisible() and isinstance(widget, QWidget) and widget.isWindow()
+                and widget is not self.window and QApplication.activeModalWidget() is None
+                and (self.pinned or widget is self.owner))
+
+    def _raise_in_scope(self):
+        if (QApplication.applicationState() == Qt.ApplicationState.ApplicationActive
+                and self._should_raise_for(QApplication.activeWindow())):
+            self.window.raise_()
+
+    def set_pinned(self, pinned):
+        self.pinned = bool(pinned)
+        self.action.setChecked(self.pinned)
+        scope = "all Metrology Workspace windows" if self.pinned else "its parent window only"
+        self.action.setToolTip(f"Above {scope}. Never above other software. Alt+P to toggle.")
+        state = QIcon.State.On if self.pinned else QIcon.State.Off
+        self.window.setWindowIcon(QIcon(self.action.icon().pixmap(24, 24, QIcon.Mode.Normal, state)))
+        if self._should_raise_for(QApplication.activeWindow()):
+            self.raise_timer.start()
+
+    def eventFilter(self, watched, event):
+        if not hasattr(self, 'window'):
+            return False
+        if event.type() == QEvent.Type.WindowActivate and self._should_raise_for(watched):
+            self.raise_timer.start()
+        return False
+
+    def native_event(self, event_type, message):
+        if sys.platform == "win32" and bytes(event_type) == b"windows_generic_MSG":
+            import ctypes
+            from ctypes.wintypes import MSG
+            native = MSG.from_address(int(message))
+            if native.wParam == 3 and native.message in (0xA1, 0xA3):
+                if native.message == 0xA1:
+                    self.action.trigger()
+                return True, 0
+        return None
+
+
 class FloatingEditor(QObject):
     def __init__(self, owner, panel, view, splitter, *, title="Raw Data"):
         super().__init__(owner)

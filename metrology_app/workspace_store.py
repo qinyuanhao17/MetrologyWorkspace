@@ -43,6 +43,25 @@ def is_workspace_path(path):
     return Path(path).suffix.lower() in {*EXTENSIONS.values(), ".wkb", ".bak"}
 
 
+def workspace_kind(path):
+    """Read routing metadata only. Opening still validates the whole document."""
+    source = Path(path).resolve()
+    if not source.is_file():
+        raise FileNotFoundError(source)
+    try:
+        with closing(sqlite3.connect(source.as_uri() + "?mode=ro", uri=True)) as connection:
+            tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if "workspace_manifest" in tables:
+                rows = connection.execute("SELECT format_version, workspace_type FROM workspace_manifest").fetchall()
+                if len(rows) == 1 and rows[0][0] == FORMAT_VERSION and rows[0][1] in WORKSPACE_TYPES:
+                    return rows[0][1]
+            elif "metadata" in tables and connection.execute("SELECT schema_version FROM metadata LIMIT 1").fetchone():
+                return "match_workbook"
+    except sqlite3.Error as error:
+        raise ValueError("Invalid workspace routing metadata.") from error
+    raise ValueError("Invalid workspace routing metadata.")
+
+
 def workspace_path(path, kind):
     """Normalize the final target without erasing dots in a user filename."""
     target = Path(path).expanduser()

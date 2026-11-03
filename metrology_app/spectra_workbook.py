@@ -44,14 +44,23 @@ def encode_sources(sources, cache=None, cancelled=None):
 
 
 def snapshot(viewer):
-    retained = encode_sources(viewer.catalog.spectra, getattr(viewer, "_workbook_samples", {}))
-    viewer._workbook_samples = retained
-    records = list(retained.values())
+    if viewer.spec_save_type == "paths":
+        records = [(source.key, json_text({"path": str(source.path)}), "") for source in viewer.catalog.spectra]
+        records.extend(viewer._unavailable_paths.values())
+    else:
+        if viewer._unavailable_paths:
+            raise ValueError("Cannot embed unavailable spectra. Restore the missing SME files or save Paths Only.")
+        retained = encode_sources(viewer.catalog.spectra, getattr(viewer, "_workbook_samples", {}))
+        viewer._workbook_samples = retained
+        records = list(retained.values())
     panels = {**viewer.plot_panels, **viewer.mueller_panel.mij_plots}
-    ui = {"version": 1, "checked": sorted(viewer._checked_keys), "selected": sorted(viewer._selected_keys),
+    ui = {"version": 1, "save_type": viewer.spec_save_type,
+          "checked": sorted(viewer._checked_keys | viewer._unavailable_checked), "selected": sorted(viewer._selected_keys),
           "baseline": viewer._baseline_key, "analysis": viewer.analysis_mode,
           "group_by": viewer.group_by_combo.currentData(), "color_by": viewer._color_mode,
           "data_selection": deepcopy(viewer._data_selection_view),
+          "test_flags": dict(viewer.test_flags), "verify_spectra_time": viewer.verify_spectra_time_action.isChecked(),
+          "test_flag_values": list(viewer.test_flag_values), "test_flag_grouping": list(viewer.test_flag_grouping),
           "views": {name: action.isChecked() for name, action in viewer.view_actions.items()},
           "colors": [[asdict(key), color.rgba()] for key, color in viewer._channel_colors.items()],
           "hidden": [asdict(key) for key in viewer._hidden_channel_keys],
@@ -85,6 +94,19 @@ def _restore_range(view, saved):
 def _validate_ui(viewer, draft):
     """Reject unsupported controls before replacing any live source data."""
     ui = draft.states.get("ui", {})
+    if ui.get("save_type", "embedded") not in ("embedded", "paths"):
+        raise ValueError("Invalid Spectra save type.")
+    flags = ui.get("test_flags", {})
+    values = ui.get("test_flag_values", [0, 1, -1])
+    grouping = ui.get("test_flag_grouping", ["wafer", "lot", "pad"])
+    if (not isinstance(flags, dict) or any(not isinstance(key, str) or type(value) is not int
+                                         for key, value in flags.items())
+            or type(ui.get("verify_spectra_time", True)) is not bool
+            or not isinstance(values, list) or not values or values[0] != 0
+            or any(type(value) is not int for value in values) or len(set(values)) != len(values)
+            or not isinstance(grouping, list) or any(field not in ("wafer", "lot", "tool_sn", "pad") for field in grouping)
+            or len(set(grouping)) != len(grouping)):
+        raise ValueError("Invalid Spectra Info or Test Flag settings.")
     if (ui.get("version") != 1 or ui.get("analysis") not in {"original", "residual", "3sigma"}
             or ui.get("color_by") not in {"wafer", "sme"}
             or ui.get("group_by") not in {"wafer", "lot", "pad", "die"}
@@ -126,17 +148,31 @@ def _validate_ui(viewer, draft):
         raise ValueError("Invalid Spectra grouping or color settings.") from error
 
 
-def restore(viewer, draft):
-    from PyQt6.QtGui import QColor
-    _validate_ui(viewer, draft)
+def decode_sources(draft):
+    """Decode detached arrays/references without touching Qt objects."""
     ui = draft.states["ui"]
-    if ui.get("version") != 1:
-        raise ValueError("Unsupported Spectra Workbook draft version.")
     spectra = []
     encoded = {}
+    unavailable = {}
+    path_issues = []
     seen = set()
     for _source, metadata, payload in draft.frames["spectra"].itertuples(index=False, name=None):
         values = json.loads(metadata)
+        if ui.get("save_type", "embedded") == "paths":
+            from .sme_spectra import parse_sme_file
+            if payload != "" or set(values) != {"path"} or not isinstance(values["path"], str) or _source in seen:
+                raise ValueError("Invalid spectrum path reference.")
+            seen.add(_source)
+            try:
+                source = parse_sme_file(Path(values["path"]))
+                if source.key != _source:
+                    raise ValueError("Spectrum path identity changed.")
+            except Exception as error:
+                unavailable[_source] = (_source, metadata, "")
+                path_issues.append(LoadIssue(Path(values["path"]), "unavailable", f"Referenced SME unavailable: {error}"))
+            else:
+                spectra.append(source)
+            continue
         with np.load(BytesIO(zlib.decompress(base64.b64decode(payload, validate=True))), allow_pickle=False) as arrays:
             channels = tuple(SpectrumChannel(c["metadata"], arrays[f"{i}_wavelength"].copy(),
                                              arrays[f"{i}_numeric"].copy(), c["spectrum_type"])
@@ -149,17 +185,40 @@ def restore(viewer, draft):
         seen.add(source.key)
         spectra.append(source)
         encoded[source.key, id(source)] = (_source, metadata, payload)
+    return spectra, encoded, unavailable, path_issues
+
+
+def restore(viewer, draft):
+    from PyQt6.QtGui import QColor
+    _validate_ui(viewer, draft)
+    ui = draft.states["ui"]
+    if ui.get("version") != 1:
+        raise ValueError("Unsupported Spectra Workbook draft version.")
+    from .workspace_document import document_io
+    decoded = (document_io(viewer, lambda: decode_sources(draft), "Opening spectra…")
+               if len(draft.frames["spectra"]) > 64 else decode_sources(draft))
+    spectra, encoded, unavailable, path_issues = decoded
     issues = tuple(LoadIssue(Path(i["path"]), i["status"], i["message"]) for i in ui.get("issues", ()))
+    issues += tuple(path_issues)
     from .selection_script import validate_view
     from .sme_spectra import file_metadata_dataframe
     selection_frame = file_metadata_dataframe(spectra).rename(columns=lambda c: f"Raw Data / {c}")
     view = validate_view(selection_frame, ui.get("data_selection", {}))
     # Restore on an invisible window, avoiding a separate redraw for each choice.
-    viewer.apply_load_result(LoadResult(tuple(spectra), issues), replace=True)
+    viewer.apply_load_result(LoadResult(tuple(spectra), issues), replace=True, allow_empty_replace=True)
+    viewer.spec_save_type = ui.get("save_type", "embedded")
+    viewer.spec_save_actions[viewer.spec_save_type].setChecked(True)
+    viewer._unavailable_paths = unavailable
+    viewer._unavailable_checked = set(ui["checked"]) & unavailable.keys()
+    viewer.spec_save_actions["embedded"].setEnabled(not unavailable)
     viewer._workbook_samples = encoded
     keys = {s.key for s in spectra}
     viewer._checked_keys = set(ui["checked"]) & keys
     viewer._data_selection_view = view
+    viewer.test_flags = {key: value for key, value in ui.get("test_flags", {}).items() if key in keys | unavailable.keys() and value}
+    viewer.test_flag_values = list(dict.fromkeys((*ui.get("test_flag_values", [0, 1, -1]), *viewer.test_flags.values())))
+    viewer.test_flag_grouping = list(ui.get("test_flag_grouping", ["wafer", "lot", "pad"]))
+    viewer.verify_spectra_time_action.setChecked(ui.get("verify_spectra_time", True))
     viewer._selected_keys = set(ui["selected"]) & keys
     viewer._baseline_key = ui.get("baseline") if ui.get("baseline") in keys else None
     viewer._analysis_mode = ui.get("analysis", "original")
@@ -223,8 +282,11 @@ def open_child(owner, scope):
         raise
     child._managed_scope = scope
     child._workbook_child = True
+    child._spectra_workbook_owner = owner
+    child.set_workbook_selection_source(owner.selection_script)
+    child.set_spectra_info_source(lambda: (owner._active_raw_frame(), owner.reference_frame))
     child._analysis_window_name = window_metadata(scope, saved)["name"]
-    child.setWindowTitle(child._analysis_window_name + " — Match Workbook")
+    child.document.refresh_identity()
     def closed(viewer):
         capture(owner, scope, viewer)
         owner._spectra_windows.pop(scope, None)

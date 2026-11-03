@@ -14,7 +14,7 @@ from .match_groups import participation_ids, participation_source_keys, row_ids,
 from .match_group_ui import ColumnFilterDialog
 from .table_clipboard import attach_copy_feedback
 from .table_selection import RangeSelectionTableView
-from .selection_script import export_script, import_script, selection_view
+from .selection_script import context_frame, export_script, import_script, selection_view
 
 
 _PARTICIPATION_FLAGS = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
@@ -145,10 +145,13 @@ class SelectionDialog(QDialog):
     def __init__(self, frame, record_ids, checked, groups, parent=None, *,
                  object_name="dataSelectionDialog",
                  title="Data selection — analysis participation",
-                 row_bools=None, group_bools=None, show="all", search="", hide_excluded=False):
+                 row_bools=None, group_bools=None, show="all", search="", hide_excluded=False, context=None):
         super().__init__(parent, objectName=object_name)
         self.setWindowTitle(title)
         self.resize(1100, 650)
+        self._base_frame = frame
+        self._selection_context = deepcopy(context or [])
+        frame = context_frame(frame, {"filters": groups or [], "context": self._selection_context})
         self.model = ParticipationModel(frame, record_ids, checked, self)
         self.filter_groups = [[dict(spec) for spec in group] for group in groups]
         self.filter_row_bools = [list(bools) for bools in (row_bools or [])]
@@ -195,8 +198,9 @@ class SelectionDialog(QDialog):
             self.show_rows.addItem(label, key)
         self.show_rows.setCurrentIndex(max(0, self.show_rows.findData(show)))
         self.show_rows.setToolTip(
-            "All rows ignores the filters. Filtered rows shows only rows that match them; "
-            "Check Visible / Uncheck Visible then act on exactly that set.")
+            "Only Filtered rows applies filter conditions. Checked rows / Unchecked rows show current "
+            "participation across the source data. Search refines every view; "
+            "Check Visible / Uncheck Visible act on exactly the displayed rows.")
         tools.addWidget(self.search, 1)
         tools.addWidget(self.show_rows)
         for title, checked_value in (("Check Visible", True), ("Uncheck Visible", False)):
@@ -249,18 +253,34 @@ class SelectionDialog(QDialog):
         self.refresh_rows()
 
     def view_state(self):
-        return {"filters": deepcopy(self.filter_groups),
+        view = {"filters": deepcopy(self.filter_groups),
                 "row_bools": [self._normalized_row_bools(i) for i in range(len(self.filter_groups))],
                 "group_bools": self._normalized_group_bools(),
                 "show": self.show_rows.currentData(), "search": self.search.text(),
                 "hide_excluded": self.hide_excluded.isChecked()}
+        if self._selection_context:
+            view["context"] = deepcopy(self._selection_context)
+        return view
 
     def selection_script(self):
         state = {"checked": [i for i, key in enumerate(self.model.ids) if key in self.model.checked], **self.view_state()}
         return export_script(self.model.frame, state)
 
-    def apply_selection_script(self, text):
-        state = import_script(self.model.frame, text)
+    def apply_selection_script(self, text, *, allow_partial=False):
+        state = import_script(self._base_frame, text, allow_partial=allow_partial,
+                              current_checked=[i for i, key in enumerate(self.model.ids) if key in self.model.checked])
+        frame = context_frame(self._base_frame, state)
+        self._selection_context = deepcopy(state.get("context", []))
+        self.model.beginResetModel()
+        self.model.frame = frame
+        self.model.headers = ["Use", "Source row"] + list(frame.columns)
+        if self.model.sort_column >= len(self.model.headers):
+            self.model.sort_column = 1
+        self.model.endResetModel()
+        self.filter_menu.clear()
+        for column in frame.columns:
+            action = self.filter_menu.addAction(column)
+            action.triggered.connect(lambda _=False, name=column: QTimer.singleShot(0, lambda: self.add_row(name)))
         self.filter_groups = state["filters"]
         self.filter_row_bools, self.filter_group_bools = state["row_bools"], state["group_bools"]
         self.model.checked = {self.model.ids[i] for i in state["checked"]}
@@ -271,6 +291,7 @@ class SelectionDialog(QDialog):
         del blockers
         self._rebuild_filter_rows()
         self.refresh_rows()
+        return state
 
     def open_selection_script(self):
         if self.script_dialog is None:
@@ -325,7 +346,7 @@ class SelectionDialog(QDialog):
         self._prune_filters()
         mask = np.ones(len(self.model.frame), dtype=bool)
         show = self.show_rows.currentData() or "all"
-        if show != "all" and any(self.filter_groups):
+        if show == "filtered" and any(self.filter_groups):
             row_masks = []
             for row_index, row in enumerate(self.filter_groups):
                 parts = [filter_mask(self.model.frame[spec["column"]], spec) for spec in row]
@@ -653,15 +674,19 @@ class SelectionScriptDialog(QDialog):
         self.message.setText("Script applied to this selection. Use Apply in Data selection to accept it.")
 
 
+def selection_frame(plan):
+    frames = [("Order", plan.order_frame), ("Reference", plan.reference), ("Raw Data", plan.raw)]
+    return pd.concat([data.reset_index(drop=True).rename(columns=lambda c: f"{name} / {c}")
+                      for name, data in frames], axis=1)
+
+
 class DataSelectionDialog(SelectionDialog):
     """The Match Workbook's Order / Reference / Raw participation dialog."""
 
     def __init__(self, plan, parent=None):
         self.plan = plan
         self.selection = deepcopy(plan.state["data_selection"])
-        frames = [("Order", plan.order_frame), ("Reference", plan.reference), ("Raw Data", plan.raw)]
-        frame = pd.concat([data.reset_index(drop=True).rename(columns=lambda c: f"{name} / {c}")
-                           for name, data in frames], axis=1)
+        frame = selection_frame(plan)
         ids = participation_ids(plan.raw, self.selection)
         checked = [ids[row] for row in plan.included_rows]
         view = selection_view(self.selection)
@@ -687,7 +712,7 @@ class FrameSelectionDialog(SelectionDialog):
 
     def __init__(self, frame, excluded=(), parent=None, extra_frames=None, *,
                  filters=None, row_bools=None, group_bools=None, show="all", search="", hide_excluded=False,
-                 prefix_raw=False):
+                 prefix_raw=False, context=None):
         self.excluded = []
         self.saved_filters = deepcopy([list(row) for row in (filters or [])])
         self.saved_row_bools = [list(bools) for bools in (row_bools or [])]
@@ -710,7 +735,7 @@ class FrameSelectionDialog(SelectionDialog):
                          object_name="frameSelectionDialog",
                          title="Data selection — rows used by this window",
                          row_bools=self.saved_row_bools, group_bools=self.saved_group_bools,
-                         show=self.saved_show, search=search, hide_excluded=hide_excluded)
+                         show=self.saved_show, search=search, hide_excluded=hide_excluded, context=context)
 
     def accept(self):
         self.excluded = [key for key in self.model.ids if key not in self.model.checked]

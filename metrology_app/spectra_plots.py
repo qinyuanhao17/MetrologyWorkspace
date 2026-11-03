@@ -193,7 +193,12 @@ class _MulticolorViewportCurve(_ViewportCurve):
             payload = QByteArray()
             stream = QDataStream(payload, QIODevice.OpenModeFlag.WriteOnly)
             stream << pen
-            detached.append((x.copy(), y.copy(), bytes(payload)))
+            # _components owns these joined buffers and never mutates them.
+            # Worker submissions can share that immutable snapshot; copying it
+            # again for every geometry update only stalls Qt's owner thread.
+            x.setflags(write=False)
+            y.setflags(write=False)
+            detached.append((x, y, bytes(payload)))
         return detached
 
     def paint(self, painter, option, widget=None):
@@ -368,6 +373,10 @@ class SpectrumPlotPanel(QWidget):
             self.secondary = None
 
     def eventFilter(self, watched, event):
+        if (watched is self.plot.viewport() and event.type() == QEvent.Type.Resize
+                and any(item.xData is not None and len(item.xData) >= 2000
+                        for item in (*self._curve_items, *self._highlight_items))):
+            self.resizeRequested.emit()
         if watched is self.plot.viewport() and event.type() == QEvent.Type.MouseButtonPress:
             # PyQtGraph's A button leaves its scene click unaccepted and can
             # disappear during auto-range. Record the hit before it handles it.
@@ -378,10 +387,6 @@ class SpectrumPlotPanel(QWidget):
                 and button.isVisible()
                 and button.contains(button.mapFromScene(position))
             )
-        if (watched is self.plot.viewport() and event.type() == QEvent.Type.Resize
-                and any(item.xData is not None and len(item.xData) >= 2000
-                        for item in (*self._curve_items, *self._highlight_items))):
-            self.resizeRequested.emit()
         if (
             watched is self.plot.viewport()
             and event.type() == QEvent.Type.MouseButtonDblClick
@@ -545,6 +550,14 @@ class SpectrumPlotPanel(QWidget):
                         (s.spectrum_key, *((a.__array_interface__["data"][0], a.shape, a.strides, a.dtype.str)
                                            for a in (s.x, s.y))) for s in g.segments)) for g in visible)
                     previous = existing.get(key)
+                    if previous is not None and not visible and not highlight:
+                        # A hidden batch is still a cached source, not empty data.
+                        # Restoring the channel can reuse its arrays and raster.
+                        item = previous[1]
+                        item.screen_cache.set_visible(False)
+                        desired.add(key)
+                        items.append(item)
+                        continue
                     if previous is None:
                         item = _MulticolorViewportCurve(visible, width=5.0 if highlight else 1.8)
                         view.addItem(item, ignoreBounds=highlight)
@@ -685,6 +698,12 @@ class FloatingPlotWindow(QMainWindow):
         self.setCentralWidget(self.panel)
         self.panel.apply_theme(source.palette())
         self.sync_from(source)
+        from .floating_editor import WindowPin
+        self.window_pin = WindowPin(self, source.window())
+
+    def nativeEvent(self, event_type, message):
+        result = self.window_pin.native_event(event_type, message) if hasattr(self, "window_pin") else None
+        return result if result is not None else (False, 0)
 
     def sync_from(self, source):
         self.source = source

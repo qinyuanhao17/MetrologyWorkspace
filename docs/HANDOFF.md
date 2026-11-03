@@ -1,6 +1,6 @@
 # Metrology Workspace 开发交接
 
-更新日期：2026 年 10 月 2 日
+更新日期：2026 年 11 月 4 日
 
 ## 当前状态
 
@@ -14,12 +14,19 @@ python main.py
 完整测试：
 
 ```powershell
-conda run -n metrology-workspace python -m unittest discover -s tests -v
+$testModules = Get-ChildItem tests/test_*.py | Where-Object { $_.BaseName -notlike 'test_auto_weighting*' } | ForEach-Object { 'tests.' + $_.BaseName }
+python run_tests.py @testModules -v
 ```
 
-## v2 Card Matching 当前状态
+## v5.1.0 当前交接
 
-v2 已回到 `main` 持续开发，本轮交付目标标记为 `v2.0.0-dev.4`，`VERSION` 仍为 `2.0.0-dev`。原独立 `v2` 分支已删除；`v2.0.0-dev.3`、`v2.0.0-dev.2`、`v2.0.0-dev.1`、v1.2.0 及更早的提交、标签和 Release 均不移动。
+当前版本为 5.1.0，发布内容为源码标签、Windows x64 Setup 与便携 ZIP，并按用户要求快进同步 CXMT。最新 Spectra Viewer / Die Map / Selection Script / Spectra Info / Test Flag / 路径保存模式及性能边界集中记录在 [根目录 HANDOFF](../HANDOFF.md) 和 [v5.1.0 发布说明](releases/v5.1.0.md)。下文 v2 模块说明保留为历史设计背景，不代表当前发布版本或测试结果。
+
+当前测试必须使用 `run_tests.py` 的 scratch 设置隔离。用户继续搁置 AutoWeighting，不运行对应模块或会打开 OCR 的 `main.py --self-test`；发布冒烟使用 `--spectra-smoke-test`。源码回归与打包/安装验证分开记录，失败不能因历史已有而省略。源测量文件、设置、未关联的本地工作簿及既有标签均须保留。当前变更和实际验证见 [性能及路径存储记录](validation/spectra-performance-storage-2026-11-03.md)。
+
+## v2 Card Matching 历史设计背景
+
+v2 阶段曾以 `v2.0.0-dev.4` 交付，当时 `VERSION` 为 `2.0.0-dev`。这些历史提交、标签和 Release 不随 v5.1.0 发布移动；当前分支与版本以本页上方交接为准。
 
 当前完成的纵向切片：
 
@@ -135,5 +142,5 @@ v2 结果图的极值保留降采样与“显示抽样、统计全量”披露�
 - Trend 的紧凑 X domain 是绘图语义，不是装饰性设置。
 - Correlation 仍允许 X/Y 自由 Auto Scale，不要把 Trend 的限制套到所有图。
 - 改动回归、插值、色阶或导出时，先检查数值和视觉等价性。
-- 开发时先跑最小测试，交付前跑完整测试和 `python main.py --self-test`。
+- 开发时先跑最小测试，交付前通过 `run_tests.py` 跑授权范围回归；AutoWeighting 搁置期间用 Spectra 专项发布冒烟，不能运行 `python main.py --self-test`。
 - 当前 v1 系列基线发布为 v1.2.0；后续 Card/Reference 匹配模块从 v2 开始开发，不覆盖 v1 发布。

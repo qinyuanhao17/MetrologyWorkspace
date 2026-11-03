@@ -467,11 +467,12 @@ class WorkspaceTests(unittest.TestCase):
             dialog.show_rows.setCurrentIndex(dialog.show_rows.findData("filtered"))
             self.assertEqual(dialog.model.rows, [2, 3])
             dialog.show_rows.setCurrentIndex(dialog.show_rows.findData("checked"))
-            self.assertEqual(dialog.model.rows, [2, 3])
+            self.assertEqual(dialog.model.rows, [0, 1, 2, 3])
             dialog.model.setData(dialog.model.index(0, 0), Qt.CheckState.Unchecked,
                                  Qt.ItemDataRole.CheckStateRole)
             dialog.show_rows.setCurrentIndex(dialog.show_rows.findData("unchecked"))
-            self.assertEqual(dialog.model.rows, [2])
+            self.assertEqual(dialog.model.rows, [0])
+            self.assertEqual(dialog.filter_groups, [[{"column": "CD", "minimum": 3}]])
         finally:
             dialog.deleteLater()
             app.processEvents()

@@ -1447,6 +1447,18 @@ class MatchingWindow(QMainWindow):
             except ValueError as error:
                 QMessageBox.warning(self, "Cannot plot Groups", str(error))
 
+    def selection_script(self):
+        from .data_selection import selection_frame
+        from .match_groups import GroupPlan
+        from .selection_script import export_script, selection_view
+        raw = self._active_raw_frame()
+        if raw.empty:
+            raise ValueError("The Match Workbook has no Raw Data to copy a selection from.")
+        reference = self.reference_frame if len(self.reference_frame) == len(raw) else None
+        plan = GroupPlan(raw, self.group_controls.flags_frame(), self.group_controls.state, reference)
+        return export_script(selection_frame(plan), {"checked": list(plan.included_rows),
+                             **selection_view(plan.state["data_selection"])})
+
     def select_analysis_data(self):
         from .match_groups import GroupPlan
         try:
@@ -5967,7 +5979,9 @@ class MatchingWindow(QMainWindow):
             # Candidate construction must not accept anything before durable IO.
             self._restore_accepted_workspace_state(previous)
         expected = self.document.revision if target == self.document.path else self.document.selected_target_revision
-        saved = save_workspace(target, snapshot, expected_revision=expected)
+        from .workspace_document import document_io, large_spectra_payload
+        saved = (document_io(self, lambda: save_workspace(target, snapshot, expected_revision=expected), "Saving Workbook…")
+                 if large_spectra_payload(snapshot, target) else save_workspace(target, snapshot, expected_revision=expected))
         self.document.last_warning = "; ".join(snapshot.warnings)
         self._restore_accepted_workspace_state(candidate)
         self.workbook_path = Path(saved).resolve()
@@ -5977,6 +5991,14 @@ class MatchingWindow(QMainWindow):
         if capture_children:
             self._recovered_children.clear()
         self.document.mark_clean(snapshot)
+        for scope, spectra in self._spectra_windows.items():
+            if spectra.document.path is None:
+                spectra.document.mark_clean(WorkspaceSnapshot(
+                    "spectra_viewer", {"spectra": snapshot.frames[f"{scope}.spectra"]},
+                    {"ui": snapshot.states[scope]["ui"]},
+                ))
+            else:
+                spectra.document.refresh_identity()
         for workspace, baseline in baselines.items():
             workspace.document.mark_clean(baseline)
             workspace._use_workbook_data = False
@@ -6007,6 +6029,7 @@ class MatchingWindow(QMainWindow):
         return saved
 
     def _refresh_recent_wkb_menu(self):
+        from .workspace_store import workspace_kind
         self.open_recent_menu.clear()
         if not self._recent_wkb_paths:
             empty_action = self.open_recent_menu.addAction("No Recent WKB")
@@ -6015,7 +6038,7 @@ class MatchingWindow(QMainWindow):
         for index, path in enumerate(self._recent_wkb_paths, start=1):
             if Path(path).is_file():
                 try:
-                    if load_workspace(path).workspace_type != "match_workbook":
+                    if workspace_kind(path) != "match_workbook":
                         continue
                 except (OSError, ValueError):
                     continue
@@ -6127,7 +6150,9 @@ class MatchingWindow(QMainWindow):
 
     @recovery_decision
     def load_workbook(self, path, *, analysis_settings=None):
-        snapshot = load_workspace(path, expected_type=self.workspace_type)
+        from .workspace_document import document_io, large_spectra_payload
+        snapshot = (document_io(self, lambda: load_workspace(path, expected_type=self.workspace_type), "Opening Workbook…")
+                    if large_spectra_payload(path=path) else load_workspace(path, expected_type=self.workspace_type))
         group_state(snapshot.states["match"].get("grouping_state"))
         normalize_plot_layouts(snapshot.states.get("match_ui", {}).get("plot_layouts"))
         _metric_highlighting_limits(snapshot.states.get("match_ui", {}).get("metric_highlighting"))

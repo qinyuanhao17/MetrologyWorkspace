@@ -1,9 +1,11 @@
 """Background original-SME copying with GUI retry/skip decisions and a report."""
 from pathlib import Path
+from html import escape
 from threading import Condition
 from time import monotonic
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtGui import QColor, QFont, QTextCharFormat
 from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPlainTextEdit, QProgressBar, QPushButton, QVBoxLayout
 
 from .appearance import fit_window_to_screen
@@ -66,6 +68,7 @@ class SpectraExportThread(QThread):
         message = ("Export cancelled; files copied by this run were removed." if cancelled else
                    f"Export failed: {error}" if error else
                    f"Exported {len(exported)} checked spectra; skipped {len(skipped)}. Folder: {self.destination}")
+        message += "\nExport Failed×" if error or cancelled or skipped or unresolved else "\nExport Succeeded√"
         self.completed.emit({"exported": tuple(map(str, exported)), "skipped": tuple(skipped),
                              "unavailable": tuple(unresolved.items()), "retries": retries,
                              "error": error, "cancelled": cancelled, "message": message})
@@ -139,6 +142,11 @@ class SpectraExportDialog(QDialog):
         self.skip_button.hide()
         self.issue_label.clear()
         self.status_label.setText(report["message"])
+        outcome = "Export Succeeded√" if report["message"].endswith("Export Succeeded√") else "Export Failed×"
+        color = "#15803d" if "Succeeded" in outcome else "#dc2626"
+        self.status_label.setTextFormat(Qt.TextFormat.RichText)
+        self.status_label.setText(escape(report["message"]).replace("\n", "<br>").replace(
+            outcome, f'<b style="color:{color}">{outcome}</b>'))
         text = [report["message"], f"Retry attempts: {report['retries']}"]
         if report["unavailable"]:
             text.extend(("", "Unavailable / not copied:"))
@@ -147,6 +155,11 @@ class SpectraExportDialog(QDialog):
         else:
             text.append("No unavailable originals remain.")
         self.summary.setPlainText("\n".join(text))
+        cursor = self.summary.document().find(outcome)
+        emphasis = QTextCharFormat()
+        emphasis.setForeground(QColor(color))
+        emphasis.setFontWeight(QFont.Weight.Bold)
+        cursor.mergeCharFormat(emphasis)
         self.close_button.setText("Close")
         self.close_button.setEnabled(True)
 

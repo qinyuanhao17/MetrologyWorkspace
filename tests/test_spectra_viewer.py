@@ -90,6 +90,154 @@ def make_spectrum(die, *, wafer="W1", lot="L1", pad="P1"):
 
 
 class SpectraViewerTreeTests(unittest.TestCase):
+    def test_hiding_and_restoring_a_batched_channel_retains_its_source_buffers(self):
+        spectra = tuple(make_spectrum(1, wafer=f"W{i:02}") for i in range(40))
+        self.window.apply_load_result(LoadResult(spectra, ()), replace=True)
+        self.window.check_all_spectra()
+        panel = self.window.plot_panels["S"]
+        items = tuple(panel._curve_items)
+        buffers = [(item.xData, item.yData) for item in items]
+        channel = spectra[0].channels[0].key
+        self.window.set_channel_visible(channel, False)
+        self.assertFalse(panel.groups)
+        self.window.set_channel_visible(channel, True)
+        self.assertEqual(tuple(panel._curve_items), items)
+        for item, (x, y) in zip(items, buffers):
+            self.assertIs(item.xData, x)
+            self.assertIs(item.yData, y)
+
+    def test_legend_select_channel_controls_all_wafers_without_rebuilding_curves(self):
+        first = make_spectrum(1)
+        second_channel = replace(first.channels[0], metadata={**first.channels[0].metadata,
+                                                               "channel_id": 2, "angle_3_deg": 90.0})
+        first = replace(first, channels=(*first.channels, second_channel))
+        second = replace(make_spectrum(2, wafer="W2"), channels=first.channels)
+        self.window.apply_load_result(LoadResult((first, second), ()), replace=True)
+        self.window.check_all_spectra()
+        self.window.select_spectrum_keys({first.key})
+        panel = self.window.plot_panels["S"]
+        floating = self.window.open_plot_window(panel)
+        panel.plot.setXRange(250, 350, padding=0)
+        items = tuple(panel._curve_items)
+        checked = self.window.checked_spectra()
+        menu = self.window.build_legend_menu("Mueller")
+        actions = {a.text(): a for a in menu.actions()}
+        self.assertIn("Select Channel", actions)
+        channels = actions["Select Channel"].menu()
+        entries = channels.actions()
+        self.assertEqual([a.text() for a in entries], [c.key.legend_label for c in first.channels])
+        self.assertTrue(all(a.isCheckable() and a.isChecked() for a in entries))
+        entries[0].trigger()
+        self.assertFalse(entries[0].isChecked())
+        self.assertTrue(entries[1].isChecked())
+        for target in (panel, floating.panel, self.window.mueller_panel.mij_plots["M01"]):
+            self.assertEqual({g.key.channel for g in target.groups}, {second_channel.key})
+        self.assertTrue(actions["Show All"].isEnabled())
+        self.assertEqual(tuple(panel._curve_items), items)
+        self.assertEqual(self.window.checked_spectra(), checked)
+        self.assertEqual(panel.selected_keys, {first.key})
+        self.assertEqual(panel.plot.getViewBox().viewRange()[0], [250, 350])
+        entries[1].trigger()
+        self.assertFalse(panel.groups)
+        self.assertFalse(actions["Hide All"].isEnabled())
+        actions["Show All"].trigger()
+        self.assertTrue(all(a.isChecked() for a in entries))
+        self.assertEqual(len(panel.groups), 4)
+        # Individual legend choices can leave a channel partly visible.
+        self.window.toggle_channel(panel.groups[0].key)
+        channels.aboutToShow.emit()
+        self.assertTrue(entries[0].isChecked())
+        entries[0].trigger()
+        self.assertTrue(self.window.channel_hidden(first.channels[0].key))
+        entries[0].trigger()
+        self.assertFalse(self.window.channel_hidden(first.channels[0].key))
+        self.window.color_by_combo.setCurrentIndex(self.window.color_by_combo.findData("sme"))
+        regrouped = self.window.build_legend_menu("Mueller")
+        submenu = next(a.menu() for a in regrouped.actions() if a.text() == "Select Channel")
+        self.assertEqual(len(submenu.actions()), 2)
+
+    def test_channel_checkboxes_remain_open_and_restore_hidden_checked_sources(self):
+        first = make_spectrum(1)
+        second_channel = replace(first.channels[0], metadata={**first.channels[0].metadata, "channel_id": 2})
+        first = replace(first, channels=(*first.channels, second_channel))
+        unchecked = make_spectrum(2, wafer="Unchecked")
+        self.window.apply_load_result(LoadResult((first, unchecked), ()), replace=True)
+        self.window.set_spectrum_checks({first.key: True})
+        self.window.hide_all_channels("Mueller")
+        self.window.show()
+        APP.processEvents()
+        menu = self.window.build_legend_menu("Mueller")
+        submenu = next(a.menu() for a in menu.actions() if a.text() == "Select Channel")
+        submenu.popup(QPoint(100, 100))
+        APP.processEvents()
+        first_action, second_action = submenu.actions()
+        self.assertFalse(first_action.isChecked())
+        QTest.mouseClick(submenu, Qt.MouseButton.LeftButton, pos=submenu.actionGeometry(first_action).center())
+        self.assertTrue(submenu.isVisible())
+        self.assertTrue(first_action.isChecked())
+        self.assertEqual({g.key.channel for g in self.window.plot_panels["S"].groups}, {first.channels[0].key})
+        submenu.setActiveAction(second_action)
+        QTest.keyClick(submenu, Qt.Key.Key_Space)
+        self.assertTrue(submenu.isVisible())
+        self.assertTrue(second_action.isChecked())
+        self.assertEqual(self.window.checked_spectra(), (first,))
+        submenu.close()
+
+    def test_map_and_enlarged_plot_support_application_scoped_pinning(self):
+        from unittest.mock import patch
+        from PyQt6.QtCore import QEvent
+        self.window.check_all_spectra()
+        maps = self.window.open_wafer_map()
+        enlarged = self.window.open_plot_window(self.window.plot_panels["N"])
+        for target in (maps, enlarged):
+            self.assertFalse(target.findChildren(QToolBar))
+            self.assertIn(target.window_pin.action, target.actions())
+            self.assertEqual(target.window_pin.action.shortcut().toString(), "Alt+P")
+            self.assertFalse(target.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+            self.assertFalse(target.window_pin.action.isChecked())
+            target.window_pin.action.trigger()
+            self.assertTrue(target.window_pin.pinned)
+            self.assertFalse(target.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+            target.window_pin.action.trigger()
+            self.assertFalse(target.window_pin.pinned)
+            peer = enlarged if target is maps else maps
+            with patch.object(target, "raise_") as raised, \
+                    patch.object(QApplication, "applicationState", return_value=Qt.ApplicationState.ApplicationActive), \
+                    patch.object(QApplication, "activeWindow", return_value=peer):
+                APP.sendEvent(peer, QEvent(QEvent.Type.WindowActivate))
+                APP.processEvents()
+                raised.assert_not_called()
+                target.window_pin.action.trigger()
+                APP.processEvents()
+                raised.assert_called_once()
+                raised.reset_mock()
+                with patch.object(QApplication, "activeModalWidget", return_value=peer):
+                    APP.sendEvent(peer, QEvent(QEvent.Type.WindowActivate))
+                    APP.processEvents()
+                raised.assert_not_called()
+            target.window_pin.set_pinned(False)
+
+    def test_resizing_dense_plots_keeps_curves_and_coalesces_paint_batches(self):
+        from unittest.mock import patch
+        source = self.spectra[0]
+        x = np.linspace(200, 900, 3000)
+        numeric = np.tile(source.channels[0].numeric[:1], (len(x), 1))
+        numeric[:, 0] = x
+        channel = replace(source.channels[0], wavelength=x, numeric=numeric)
+        self.window.apply_load_result(LoadResult((replace(source, channels=(channel,)),), ()), replace=True)
+        self.window.check_all_spectra()
+        self.window.show()
+        QTest.qWait(100)
+        panel = self.window.plot_panels["N"]
+        items = tuple(panel._curve_items)
+        with patch.object(self.window, "_schedule_plot_paints", wraps=self.window._schedule_plot_paints) as forced:
+            self.window.resize(1500, 850)
+            APP.processEvents()
+            self.assertLessEqual(forced.call_count, 1)
+            self.assertTrue(panel.plot.updatesEnabled())
+            self.assertTrue(panel.plot.viewport().updatesEnabled())
+        self.assertEqual(tuple(panel._curve_items), items)
+
     def test_die_map_apply_to_similar_wafer_updates_checks_once_and_retains_maps(self):
         spectra = tuple(replace(make_spectrum(die, wafer=wafer), x_mm=float(die)+(5 if wafer == "Far" else 0))
                         for wafer in ("W1", "Near", "Far") for die in (1, 2))
@@ -100,7 +248,7 @@ class SpectraViewerTreeTests(unittest.TestCase):
         QTest.qWait(100)
         original = dict(maps.wafer_plots)
         action = next(a for a in maps.build_selection_menu(("W1", "L1", "P1")).actions()
-                      if a.text() == "Apply to Similar Wafer")
+                      if a.text() == "Apply Check To Similar Wafer")
         action.trigger()
         self.assertEqual({s.key for s in self.window.checked_spectra()},
                          {spectra[i].key for i in (0, 2, 4, 5)})
@@ -116,8 +264,11 @@ class SpectraViewerTreeTests(unittest.TestCase):
         self.assertEqual(self.window.open_map_button.text(), "Open Die Map")
         self.assertEqual(maps.windowTitle(), "Spectrum Die Map")
         spectrum = self.window.catalog.spectra[0]
-        position = plot.plot.mapFromScene(plot.plot.getViewBox().mapViewToScene(QPointF(spectrum.x_mm, spectrum.y_mm)))
         for expected in (True, False):
+            # Qt lays out axes when paint updates resume. Target the current
+            # marker position after that event turn, as an actual user would.
+            QTest.qWait(20)
+            position = plot.plot.mapFromScene(plot.plot.getViewBox().mapViewToScene(QPointF(spectrum.x_mm, spectrum.y_mm)))
             QTest.mouseDClick(plot.plot.viewport(), Qt.MouseButton.LeftButton, pos=position)
             QTest.mouseRelease(plot.plot.viewport(), Qt.MouseButton.LeftButton, pos=position)
             APP.processEvents()
@@ -910,6 +1061,7 @@ class SpectraViewerTreeTests(unittest.TestCase):
 
     def test_dense_screen_geometry_preserves_peaks_gaps_and_full_detail_on_zoom(self):
         from scipy.ndimage import binary_dilation
+        self.window.check_all_spectra()
         self.window.resize(1800, 1000)
         self.window.show()
         panel = self.window.plot_panels["S"]
@@ -1151,7 +1303,7 @@ class SpectraViewerTreeTests(unittest.TestCase):
                 menu.close()
         QTimer.singleShot(0, choose_show_all)
         self.window.legends["NCS"].customContextMenuRequested.emit(QPoint(15, 15))
-        self.assertEqual(popup_actions, ["Show All", "Hide All"])
+        self.assertEqual(popup_actions, ["Show All", "Hide All", "Select Channel"])
         self.assertFalse(any(b.text() == "Show All" for b in self.window.findChildren(QPushButton)))
         self.assertFalse(self.window.channel_hidden(ncs))
         self.assertTrue(self.window.channel_hidden(reflectance))

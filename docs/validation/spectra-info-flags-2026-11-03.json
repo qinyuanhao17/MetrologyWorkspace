@@ -1,0 +1,39 @@
+{
+  "rows": 1890,
+  "raw_order_retained": true,
+  "issues": [],
+  "csv_column_equal_rows": {
+    "Tool SN": 1890,
+    "Relative Column": 1890,
+    "Relative Row": 1890,
+    "Time": 1890,
+    "Type": 1890,
+    "OCD_DEPTH1": 1890,
+    "Test Flag": 1155
+  },
+  "reference_source": "row-aligned Workbook Reference",
+  "test_flag_default": 0,
+  "company_csv_test_flags": {
+    "0": 1155,
+    "1": 735
+  },
+  "metadata_pairing_ms": 64.09340002574027,
+  "source_wkb_csv_hashes_unchanged": true,
+  "filtered_hidden_export_rows": 20,
+  "filtered_hidden_copy_rows": 20,
+  "copied_actual_wkb_selection_rows": 1869,
+  "output_scope": "current checked spectra; editor display filters do not narrow the report",
+  "reference_column_names": [
+    "OCD_Depth"
+  ],
+  "numeric_arrays": "not loaded; this probe validates original embedded metadata and Reference only",
+  "validation": {
+    "initial_related_tests": 171,
+    "post_copy_fix_related_tests": 46,
+    "final_info_tests": 9,
+    "full_regression": "deferred at explicit user request",
+    "auto_weighting": "deferred and not tested"
+  },
+  "final_reference_headers": "Preserve actual Reference names and column order",
+  "final_report_scope": "Currently checked spectra, independent of editor filter/search/show state"
+}

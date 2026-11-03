@@ -1,6 +1,6 @@
 # Metrology Workspace
 
-Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、光谱、径向图、相关性图和趋势图。主窗口提供 **Match Workbook**、**Wafer Map**、**Spectra Viewer**、**Correlation and Trend**、**Dynamic** 和 **AutoWeighting Writer** 六个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例；窗口可命名、勾选随 WKB 保存。稳定源码标签为 **v5.0.0**；开发源码 **v5-dev** 见 [开发版说明](docs/releases/v5-dev.md)。历史版本标签保持不变。
+Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、光谱、径向图、相关性图和趋势图。主窗口提供 **Match Workbook**、**Wafer Map**、**Spectra Viewer**、**Correlation and Trend**、**Dynamic** 和 **AutoWeighting Writer** 六个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例；窗口可命名、勾选随 WKB 保存。当前版本为 **v5.1.0**，提供 Windows x64 Setup 和便携 ZIP，见 [发布说明](docs/releases/v5.1.0.md)。历史版本标签保持不变。
 
 v4.3.1 修复 Match Group / Wafer 导出中曲线、Wafer 标签和分界线不一致的问题：原生 Trend、Bias 与 Bias % 改为绑定单元格的 XY series，Show Wafer Group 的真实宽度会同步作用于数据；Wafer 标签保持各自 span 中心。单独 Group 页始终展示全部 Wafer，Match Wafer 改为不分页的一张完整图，数值轴只保留一个 Die Seq 标题，并在每个 Wafer 内按可用宽度生成密集刻度。完整 Undo、宽表粘贴/删除和多窗口阶段切换仍可能等待，不能把局部提速理解为整体流畅度全部达标。
 
@@ -115,21 +115,27 @@ python -m PyInstaller --noconfirm --clean MetrologyWorkspace.spec
 
 ## Spectra Viewer
 
-Windows 开发版 **v5-dev1** 提供 Setup 安装包和便携 ZIP，见 [发布说明](docs/releases/v5-dev1.md)。
+Windows **v5.1.0** 提供 Setup 安装包和便携 ZIP，见 [发布说明](docs/releases/v5.1.0.md)。
 
-**Data → Data selection** 用一行表示一个 SME 文件，Apply 同步树中勾选和绘图。右上角 **Selection Script** 可复制/粘贴带版本号的 JSON，保留全部筛选行、AND/OR、搜索、查看模式、Hide excluded rows 和参与状态。记录仅按 **Wafer ID＋Lot ID＋PAD Name＋Die** 匹配，不使用 SME 名称或路径；同一身份的多条光谱统一应用勾选，来源状态冲突时提示先统一。旧版路径脚本需从更新后的来源窗口重新复制。跟随 Match Workbook selection 的子窗口显示父窗口选择，Apply 本地改动后自动切到 Full data，父窗口不变。
+**Data → Data selection** 用一行表示一个 SME 文件，Apply 同步树中勾选和绘图。右上角 **Selection Script** 可复制/粘贴带版本号的 JSON，保留全部筛选行、AND/OR、搜索、查看模式、Hide excluded rows 和参与状态。记录仅按 **Wafer ID＋Lot ID＋PAD Name＋Die** 匹配，不使用 SME 名称或路径；同一身份的多条光谱统一应用勾选，来源状态冲突时提示先统一。旧版路径脚本需从更新后的来源窗口重新复制。**Copy WKB Selection** 一次性复制父工作簿的完整脚本，包括 filter conditions 与查看设置，之后可独立修改。其他分析子窗口也使用相同脚本规则；跟随 Match Workbook selection 时显示父窗口选择，Apply 本地改动后自动切到 Full data，父窗口不变。Checked rows / Unchecked rows 按全部记录的当前勾选状态查看；Filtered rows 才按已保存筛选条件查看。
 
-**Open Die Map** 显示所有量测位点，已勾选为蓝色，未勾选为浅灰色。左键在单张 Die Map 内拖动矩形选中框内点，Ctrl/Shift 框选追加，单击空白取消选择；双击位点切换其光谱勾选。勾选仅更新现有位点的颜色，不重建整页或改变图尺寸。右键 **Apply to Similar Wafer** 要求 Die 编号集合相同，且每个对应 Die 的 X、Y 绝对差分别小于 **0.4 mm**；缺失/冲突坐标或来源混合勾选会明确提示。树右键 **Export Checked Spectra…** 按原 Folder 层级复制已有 SME 原文件，不生成或改写 SME；原件缺失或目标重名时不覆盖。
+**Open Die Map** 显示所有量测位点，已勾选为蓝色，未勾选为浅灰色。轮廓、位点、选中圈与 Test Flag 小旗开启抗锯齿。左键在单张 Die Map 内拖动矩形选中框内点，Ctrl/Shift 框选追加，单击空白取消选择；双击位点切换其光谱勾选。勾选仅更新现有位点的颜色，不重建整页或改变图尺寸。右键 **Check Unselected / Uncheck Unselected** 仅作用于右键所在晶圆。**Apply Check To Similar Wafer** 和 **Apply Flag to Similar Wafer** 分别复制勾选及旗标，要求 Die 编号集合相同，且每个对应 Die 的 X、Y 绝对差分别小于 **0.4 mm**；缺失/冲突坐标或来源混合状态会明确提示。图块尺寸固定，窗口缩小时用滚动条浏览；窗口与双击打开的光谱图可置顶悬浮。
 
-Match Workbook 顶部新增 **Open Spectra Viewer** 子窗口入口，可在菜单中新建、命名、勾选和删除多个光谱窗口。该入口为工作簿级，Preview/Final 共用入口，Card 不修改光谱数据。源采样、身份和通道元数据嵌入 `.mwkb`，原 SME 移动后仍可查看；勾选、多选、Filter By、Color By、BSL、分析模式、隐藏图例、视图开关、手动坐标范围和分隔条随 WKB 保存恢复。子窗口中的 **Save Match Workbook / Ctrl+S** 保存所属工作簿；关闭子窗口只保留会话草稿，父窗口统一处理未保存提示。此集成为 `v5.0.0` 快照之后的改动。
+树右键 **Export Checked Spectra…** 按原 Folder 层级复制已有 SME 原文件，不生成或改写 SME。导出子窗口遇到不可用原件时支持重试或跳过，最后列出未导出文件；目标重名不覆盖。成功显示绿色加粗 **Export Succeeded√**，失败显示红色加粗 **Export Failed×**。
 
-Spectra Viewer 也支持独立的 **`.spec`** 文件：File → **Save Spectra / Save Spectra As…** 保存完整光谱和当前设置，**Open Spectra File…** 重新打开；主界面的 Open Workspace 和拖入文件也能识别 `.spec`。Match WKB 子窗口中，**Ctrl+S / Ctrl+Shift+S 始终保存或另存所属 Match WKB**，`.spec` 通过菜单单独保存；独立 Spectra Viewer 中，这两个快捷键保存或另存 `.spec`。保存 `.spec` 不会同时保存父 WKB。
+Match Workbook 顶部提供 **Open Spectra Viewer** 子窗口入口，可在菜单中新建、命名、勾选和删除多个光谱窗口。该入口为工作簿级，Preview/Final 共用入口，Card 不修改光谱数据。**Options → Spec Save Type** 提供互斥的 **Embed Spectra Data**（默认完整嵌入）和 **Spectra Paths Only**（仅原 SME 路径）两种保存模式，子窗口随 `.mwkb` 保存。切换为路径模式再保存，会从新 WKB 中移除嵌入采样并缩小文件；正常 `.bak` 仍保留上一保存版本。路径模式依赖原 SME 位置，文件缺失时明确提示并保留引用及勾选/旗标；完整嵌入模式可在原 SME 移动后继续查看。勾选、多选、Filter By、Color By、BSL、分析模式、隐藏图例、视图开关、手动坐标范围和分隔条都随文件恢复。子窗口中的 **Save Match Workbook / Ctrl+S** 保存所属工作簿；关闭子窗口只保留会话草稿，父窗口统一处理未保存提示。保存后标题显示对应 WKB 或独立 `.spec` 名称。
+
+Spectra Viewer 也支持独立的 **`.spec`** 文件：File → **Save Spectra / Save Spectra As…** 按当前 Spec Save Type 保存光谱或路径及设置，**Open Spectra File…** 重新打开；主界面的 Open Workspace 和拖入文件也能识别 `.spec`。Match WKB 子窗口中，**Ctrl+S / Ctrl+Shift+S 始终保存或另存所属 Match WKB**，`.spec` 通过菜单单独保存；独立 Spectra Viewer 中，这两个快捷键保存或另存 `.spec`。保存 `.spec` 不会同时保存父 WKB。
+
+WKB 子窗口的 **Spectra Info** 按 Raw Data 的 Original row order 输出当前勾选光谱，有带/不带 Test Flag 两个 tab。按 Wafer ID、Lot、PAD、Die 和 FIELD X/Y 匹配，Time 来自 SME，Type 为 Accuracy，Reference 列沿用原列名和顺序；隐藏记录不参与复制或 CSV 导出。**Options** 中的文件名时间戳校验默认开启，与 SME 内时间不符或来源不匹配会提示并阻止导出。**Data → Set Test Flag** 支持按身份字段分组、搜索、添加整数旗标和批量分配，0 为 Fallback。Die Map 也可给选中点设置旗标：1 绿色、−1 红色，0 不显示；点的蓝/灰色仍只表示勾选状态。Test Flag 与 Marks 下拉框都避免滚轮误改。
 
 顶部 **Color By** 可选 **Wafer** 或 **SME Name**。Wafer 按 Wafer ID、Lot、PAD 的完整组合区分颜色；SME Name 按具体光谱文件区分颜色，重复文件名仍按源路径区分。两种方式都为不同 Channel 分配不同颜色，各图、图例与悬浮图保持一致。勾选、分类、缩放及切回已有模式时保留已分配颜色；双击图例只切换对应着色组的显示。优先使用 Tableau Category10，较多组合扩展色相、饱和度和亮度，避免循环复用相同 RGB。3σ 每条曲线汇总多个文件，因此仍按 Wafer/通道着色；此时 Color By 显示 Wafer 并禁用，离开 3σ 后恢复原选择。物理 Channel 数量统计不受着色分组影响。
 
-勾选只更新受影响的 Wafer/Channel 曲线组；超过 32 个颜色组时，按稳定顺序拆成最多 16 个批次，只更新受影响批次，其他曲线及屏幕缓存保留。legend 隐藏或恢复也按批次更新。主图和悬浮图保留手动坐标范围，自动轴随可见数据更新。重复勾选保持原有曲线覆盖顺序。当前真实数据对比见 [读取与画质验证](docs/validation/spectra-load-quality-2026-11-02.md)。
+勾选只更新受影响的 Wafer/Channel 曲线组；超过 32 个颜色组时，按稳定顺序拆成最多 16 个批次，只更新受影响批次，其他曲线及屏幕缓存保留。legend 整个通道隐藏或恢复保留批次源数组和缓存，避免全量重建。窗口和分隔条调整时保持 viewport 绘制及旧图缓存，后台合并新尺寸工作；大文件读写和解码期间界面持续响应。主图和悬浮图保留手动坐标范围，自动轴随可见数据更新。重复勾选保持原有曲线覆盖顺序。实档数值与性能范围见 [性能和路径存储验证](docs/validation/spectra-performance-storage-2026-11-03.md)。
 
 在 legend 分区右键选择 **Show All** 可恢复本区隐藏的通道，不改变光谱勾选，分区标题栏不放按钮。树中单选一条光谱后右键 **Set as BSL**，顶部显示基准身份，树中基准行加粗，并切换到 Residual；BSL 本身可以不勾选。树右键 **Clear BSL** 可取消基准并清除标记，当前为 Residual 时恢复 Original，保留勾选与选择。**Options → Plot Mode** 可选 Original、Residual、3-Sigma，主图与悬浮图同步标注模式。Residual 为“光谱 − BSL”，仅在波长完全相同且值有效时计算，其他点保留空缺，不插值、不外推、不折返 Delta 相位；优先匹配相同通道，否则只接受 AOI/AZI 完全相同且唯一、具有该指标的 BSL 通道，无法匹配时提示。3-Sigma 按 **Wafer ID / Lot / PAD 与通道** 分别对已勾选的原始光谱计算每个波长的 **3×样本标准差（n−1）**，每个波长至少需要两条有效观测；不同 Wafer、不同通道不混合，也不绘制均值±3σ带。点击 3σ 曲线选中其全部参与光谱。切换模式保留 X 缩放、重新自动调整 Y 范围；删除 BSL 后退出 Residual，替换源文件夹时清除 BSL，磁盘源文件及其数据始终不变。计算规则与真实文件核对见 [BSL 与 3σ 验证](docs/validation/spectra-analysis-2026-11-02.md)。
+
+Legend 区域的右键提供 **Show All / Hide All / Select Channel**，可跨当前着色组快速切换一个物理通道。选中曲线、光谱或 Die Map 点时，相应图例同步突出显示。
 
 顶部 **Filter By** 可选 Wafer ID、Lot、PAD Name、Die，改变树的首层分类，其他身份继续保留在下层。切换分类保留光谱源身份、勾选、多选与当前绘图缩放。树底部的 Channel 数按同一仪器内不同 AOI/AZI 组合去重；缺少角度时使用文件内 Channel ID，相同通道不会按 Die 或文件重复累加。成功加载后不再在窗口底部重复显示 Loaded 统计。
 
@@ -137,7 +143,7 @@ Spectra Viewer 也支持独立的 **`.spec`** 文件：File → **Save Spectra /
 
 绘图块包括完整的 4×4 Mueller 矩阵、N、C、S、Psi/Delta 双轴图和 DTS Reflectance，由 **Options → Views** 的勾选动作控制，菜单保持打开以便连续调整。各块与 Mueller 子图之间使用可拖动分隔条，拖动时预览边界、松手后更新布局；树与绘图区默认按约 1:3 分配宽度；所有分隔条都可收窄或折叠相邻区域，右侧或下方图占用腾出的空间，双击恢复初始比例；图例分区也可拖动调整；左键框选放大，右键拖动平移，滚轮缩放，图内左下角的 A 恢复自动范围。双击单个图会打开独立的悬浮放大窗口。绘图区使用白色背景、加粗曲线和标准 Tableau Category10 配色，X 轴范围紧贴可见数据；只显示图块标题和 X 轴标题，不显示 Y 轴标题。Psi 和 Delta 均用实线；选中光谱的曲线以 5 px 线宽高亮。图例分为 NCS、Psi Delta、Mueller、Reflectance 四区，只列出各类图有数据的通道，过多时在区内滚轮浏览；Options 关闭某类全部图后，对应 legend 区一并隐藏；双击任一区的通道仍会在所有图中同步隐藏或恢复该通道。
 
-点击曲线或晶圆位点联动选择树中的光谱；Ctrl 点击可增减选择，Shift 点击可追加选择，树中的 Shift 点击可连续选择一段。树中选中分类分支代表选中其下全部光谱，包括未勾选项。树菜单按 Check All、Uncheck All、Check Selected、Uncheck Selected、Fold、Unfold、Delete Tree 排列；**Delete Tree** 仅从本次会话移除选中的光谱或分支，保留磁盘上的 SME 文件，没有选中时禁用。树和晶圆窗口的右键菜单均提供 **Check Selected / Uncheck Selected**，只切换当前选中光谱的绘图参与状态，保留其他光谱的勾选状态和当前多选结果。点击主窗口、悬浮光谱图或晶圆图的空白处（包括图块外侧留白），同步清除树中选中、曲线加粗和位点高亮，保留勾选状态与缩放。Open Wafer Map 使用与 WKB 子窗口入口相同的主按钮样式。
+点击曲线或晶圆位点联动选择树中的光谱；Ctrl 点击可增减选择，Shift 点击可追加选择，树中的 Shift 点击可连续选择一段。树中选中分类分支代表选中其下全部光谱，包括未勾选项。树菜单按 Check All、Uncheck All、Check Selected、Uncheck Selected、Fold、Unfold、Delete Tree 排列；**Delete Tree** 仅从本次会话移除选中的光谱或分支，保留磁盘上的 SME 文件，没有选中时禁用。树和晶圆窗口的右键菜单均提供 **Check Selected / Uncheck Selected**，只切换当前选中光谱的绘图参与状态，保留其他光谱的勾选状态和当前多选结果。点击主窗口、悬浮光谱图或晶圆图的空白处（包括图块外侧留白），同步清除树中选中、曲线加粗和位点高亮，保留勾选状态与缩放。Open Die Map 使用与 WKB 子窗口入口相同的主按钮样式。
 
 主窗口与悬浮光谱图的右键使用 PyQtGraph 原生 ViewBox 菜单：View All、X axis、Y axis、Mouse Mode，可编辑坐标范围及选择自动范围、轴反转和鼠标模式。View All 恢复完整数据并保持紧凑的波长范围。图块显示开关仍位于 Options → Views。
 
@@ -145,11 +151,11 @@ Spectra Viewer 也支持独立的 **`.spec`** 文件：File → **Save Spectra /
 
 读取在后台进行，进度提示限制刷新频率，长文件名和加载控件不会挤压已有绘图区。TSD 加密封装单独标记为 encrypted，并提示从授权环境导出解密后的 SME 副本；其余可读取文件照常载入。重复 Add 不累积相同错误或重建未变化的曲线，保留现有缩放。密集绘图的数据准备与布局重绘逐图处理，曲线图像由两个后台进程绘制；窗口缩放时保留已有曲线预览，后台完成后换成新尺寸的清晰图像。连续更改只发布最新数据和坐标版本，取消勾选或关闭窗口会取消过期工作；高亮保持原线宽且不改变轴范围。全量图像仍需后台更新时间，具体耗时与输入停顿分别记录在 [读取与画质验证](docs/validation/spectra-load-quality-2026-11-02.md)。
 
-**Open Wafer Map** 打开独立非模态窗口，每张图对应一个 Wafer ID、Lot、PAD 组合，标题包含这三个字段，最多 12 张图一页；图块保持正方形，并沿用按 X/Y 范围识别常见 100/200/300 mm 晶圆的规则。图内只绘制晶圆轮廓、位点和 Die 编号，不插值或绘制色阶面。只有已勾选且具有有效坐标的 Spectrum 会产生测量点。点击点会同步选择树中的 Spectrum 和高亮曲线。
+**Open Die Map** 打开独立非模态窗口，每张图对应一个 Wafer ID、Lot、PAD 组合，标题包含这三个字段，默认 12 张图一页；图块保持正方形，并沿用按 X/Y 范围识别常见 100/200/300 mm 晶圆的规则。图内只绘制晶圆轮廓、全部有效坐标位点和 Die 编号，不插值或绘制色阶面。点击点会同步选择树中的 Spectrum、突出对应图例和高亮曲线。
 
-首版不含光谱编辑、WKB 保存、图片/CSV 导出、插值或 OpenGL。BBSE 仿真样本保留在 `Simulation` 树分组中，但不会虚构 Wafer Map 点；未知格式进入 `Load errors`。
+不修改原光谱数据，不做插值或启用 OpenGL。BBSE 仿真样本保留在 `Simulation` 树分组中，不虚构 Die Map 位点；未知结构进入 `Load errors`。Instrument、Mode、SE3/SE3.5 等版本字段仅作信息展示，按实际通道数组结构读取，波长点数由各通道自身数据决定；支持已验证的 UVSE、IRSE 和 LDSR-P 数据，TSD 加密文件仍需授权环境提供可读副本。
 
-Wafer Map 支持鼠标左键拖动框选，框内重合位点的全部光谱一起选中，树与曲线高亮同步。Ctrl/Shift 拖动追加选择；普通空框或空白单击清空选择。框选不会缩放或移动晶圆视图。
+Die Map 支持鼠标左键拖动框选，框内重合位点的全部光谱一起选中，树与曲线高亮同步。Ctrl/Shift 拖动追加选择；普通空框或空白单击清空选择。框选不会缩放或移动晶圆视图。
 
 Mueller 横轴只显示自动生成的等间隔主刻度文字，保留次网格线与 tight 数据范围，缩放时重新选择间距。Die 标注使用固定的紧凑像素间距紧靠位点下方，不随晶圆直径向下一行偏移。树菜单在 All、Selected、BSL 三组之后显示分隔线，Unfold Tree 与 Delete Tree 之间不分隔。
 

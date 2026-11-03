@@ -28,6 +28,7 @@ from .plotting import InteractivePlotWidget, place_legend_above_frame
 from .plotting.identity_labels import measurement_caption
 from .sheet import SheetModel, clipboard_rows, nonempty_cell_bounds, rectangular_cell_bounds
 from .table_clipboard import attach_copy_feedback
+from .widgets import ScrollSafeComboBox
 
 
 class _ViewCells(Mapping):
@@ -778,7 +779,7 @@ class GroupControls(QWidget):
         assignments.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         layout.addWidget(assignments, 1)
         batch = QHBoxLayout()
-        batch_mark = QComboBox(objectName="markVisible")
+        batch_mark = ScrollSafeComboBox(objectName="markVisible")
         batch_mark.setEditable(True)
         apply_visible = QPushButton("Assign Visible", objectName="assignVisibleMark")
         batch.addWidget(batch_mark, 1)
@@ -871,7 +872,7 @@ class GroupControls(QWidget):
                 item.setData(0, Qt.ItemDataRole.UserRole, ids)
                 item.setToolTip(0, f"{label}\n{len(ids):,} records · {flags}")
                 assignments.addTopLevelItem(item)
-                combo = QComboBox()
+                combo = ScrollSafeComboBox()
                 combo.setEditable(True)
                 combo.addItems([spec["name"] for spec in mark_specs() if spec["name"]])
                 combo.setCurrentText(current if current else fallback)

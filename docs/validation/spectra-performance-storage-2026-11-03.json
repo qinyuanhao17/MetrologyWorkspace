@@ -1,0 +1,186 @@
+{
+  "date": "2026-11-03",
+  "fixture": "JC1913/matching-analysis.mwkb",
+  "before": {
+    "load_wkb": {
+      "callback_ms": 4420.613800000865,
+      "settled_ms": 4420.614799950272
+    },
+    "open_spectra": {
+      "callback_ms": 4637.671200034674,
+      "settled_ms": 9192.583099997137
+    },
+    "hide_0": {
+      "callback_ms": 61.527099984232336,
+      "settled_ms": 423.2534999609925,
+      "batch_rebuilds": 252
+    },
+    "show_0": {
+      "callback_ms": 64.12400002591312,
+      "settled_ms": 51906.11040004296,
+      "batch_rebuilds": 252
+    },
+    "hide_1": {
+      "callback_ms": 62.20179999945685,
+      "settled_ms": 558.6145999841392,
+      "batch_rebuilds": 252
+    },
+    "show_1": {
+      "callback_ms": 68.34870000602677,
+      "settled_ms": 49680.43740000576,
+      "batch_rebuilds": 252
+    },
+    "resize": {
+      "callback_ms": 30.53570003248751,
+      "settled_ms": 3616.5540000074543
+    },
+    "maximize": {
+      "callback_ms": 0.09389995830133557,
+      "settled_ms": 422.0799999893643
+    },
+    "restore": {
+      "callback_ms": 0.06059999577701092,
+      "settled_ms": 3822.6119999890216
+    },
+    "splitter": {
+      "callback_ms": 9.543299966026098,
+      "settled_ms": 3233.9977999799885
+    },
+    "curve_items_retained": true,
+    "save_spec": {
+      "callback_ms": 1122.4694999982603,
+      "settled_ms": 1122.4703000043519
+    },
+    "save_wkb": {
+      "callback_ms": 1322.7449999540113,
+      "settled_ms": 1322.7457999601029
+    },
+    "sources": 1890,
+    "original_wkb_unchanged": true
+  },
+  "after": {
+    "load_wkb": {
+      "callback_ms": 2483.2376000122167,
+      "settled_ms": 2483.2381999585778
+    },
+    "open_spectra": {
+      "callback_ms": 4312.976700020954,
+      "settled_ms": 8155.944400001317
+    },
+    "hide_0": {
+      "callback_ms": 61.08399998629466,
+      "settled_ms": 211.272899992764,
+      "batch_rebuilds": 0
+    },
+    "show_0": {
+      "callback_ms": 62.28559999726713,
+      "settled_ms": 555.8889000094496,
+      "batch_rebuilds": 0
+    },
+    "hide_1": {
+      "callback_ms": 59.848900011274964,
+      "settled_ms": 207.80539995757863,
+      "batch_rebuilds": 0
+    },
+    "show_1": {
+      "callback_ms": 62.25069996435195,
+      "settled_ms": 611.8030999787152,
+      "batch_rebuilds": 0
+    },
+    "resize": {
+      "callback_ms": 31.81139996740967,
+      "settled_ms": 2659.2535999952815
+    },
+    "maximize": {
+      "callback_ms": 0.08720002369955182,
+      "settled_ms": 257.6577999861911
+    },
+    "restore": {
+      "callback_ms": 0.059399986639618874,
+      "settled_ms": 3571.54640002409
+    },
+    "splitter": {
+      "callback_ms": 8.923199959099293,
+      "settled_ms": 2355.061799986288
+    },
+    "curve_items_retained": true,
+    "save_spec": {
+      "callback_ms": 1257.330299995374,
+      "settled_ms": 1257.3311000014655
+    },
+    "save_wkb": {
+      "callback_ms": 1226.6946999588981,
+      "settled_ms": 1226.6953999642283
+    },
+    "sources": 1890,
+    "original_wkb_unchanged": true
+  },
+  "paths_only": {
+    "files": 1890,
+    "embedded_bytes": 409559040,
+    "paths_bytes": 2867200,
+    "conversion_ms": 2582.693299977109,
+    "repeat_save_ms": 114.47959998622537,
+    "load_container_ms": 36.61180002382025,
+    "files_with_exact_numeric_and_wavelength_match": 1890,
+    "issues": [],
+    "verification_seconds": 5.620909399993252,
+    "original_unchanged": true
+  },
+  "native_windows": {
+    "platform": "windows",
+    "maximized": {
+      "elapsed_ms": 7359.99999998603,
+      "timer_ticks": 337,
+      "all_updates_enabled": true,
+      "curve_items_retained": true,
+      "render_pending": false,
+      "caches": [],
+      "capture": "native-spectra-maximized.png"
+    },
+    "restored": {
+      "elapsed_ms": 3420.9999999729916,
+      "timer_ticks": 145,
+      "all_updates_enabled": true,
+      "curve_items_retained": true,
+      "render_pending": false,
+      "caches": [],
+      "capture": "native-spectra-restored.png"
+    },
+    "sources": 1890
+  },
+  "measurement_limits": [
+    "Offscreen maximize timing does not wait for delayed geometry and is not used for speed claims.",
+    "Native captures inspect settled frames and cannot prove absence of every transient compositor artifact.",
+    "Container read timing excludes reading referenced SME files."
+  ],
+  "verification": {
+    "focused": {
+      "seconds": 32.888,
+      "passed": 105,
+      "tests": 105
+    },
+    "final_render_followup": {
+      "tests": 4,
+      "passed": 4
+    },
+    "full_run": {
+      "excluded_modules": "test_auto_weighting* (three modules, user-deferred)",
+      "remaining_errors": [
+        "test_proved_source_retains_all_literals_without_rescanning_values: assignment destination is read-only",
+        "test_correlation_button_opens_active_reference_and_raw_sources: FakeCorrelationWorkspace lacks raw_model"
+      ],
+      "later_passes": [
+        "test_selection_show_modes_keep_all_rows_and_can_filter_rows",
+        "test_copy_cannot_overwrite_owner_or_samefile_alias (approved isolated outside-sandbox retry)"
+      ],
+      "initial_errors": 3,
+      "initial_failures": 1,
+      "seconds": 533.348,
+      "final_followups": "Full run preceded final missing-reference and test-fixture follow-ups; covered by focused retries.",
+      "tests": 1421
+    },
+    "production_settings_unchanged": true,
+    "source_workbook_unchanged": true
+  }
+}

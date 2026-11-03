@@ -21,6 +21,41 @@ from .workspace_store import (EXTENSIONS, REQUIRED_FRAMES, WORKSPACE_LABELS, Wor
 DOCUMENTS = weakref.WeakSet()
 
 
+def large_spectra_payload(snapshot=None, path=None):
+    if path is not None and Path(path).is_file() and Path(path).stat().st_size > 8_000_000:
+        return True
+    return snapshot is not None and any(
+        "samples" in frame and frame["samples"].map(lambda value: len(value) if isinstance(value, str) else 0).sum() > 8_000_000
+        for frame in snapshot.frames.values())
+
+
+def document_io(parent, action, label):
+    """Keep Qt painting during detached file I/O; publish results on its owner."""
+    from concurrent.futures import ThreadPoolExecutor
+    from PyQt6.QtCore import QEventLoop, Qt
+    from PyQt6.QtWidgets import QProgressDialog
+    progress = QProgressDialog(label, "", 0, 0, parent)
+    progress.setCancelButton(None)
+    progress.setMinimumDuration(0)
+    progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+    progress.setWindowFlag(Qt.WindowType.WindowCloseButtonHint, False)
+    loop = QEventLoop()
+    timer = QTimer(progress, interval=15)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(action)
+        timer.timeout.connect(lambda: loop.quit() if future.done() else None)
+        progress.show()
+        timer.start()
+        try:
+            if not future.done():
+                loop.exec()
+            return future.result()
+        finally:
+            timer.stop()
+            progress.close()
+            progress.deleteLater()
+
+
 def recovery_decision(method):
     """Keep nested Save/Open/close dialogs outside automatic recovery."""
     @wraps(method)
@@ -503,8 +538,11 @@ class WkbDocument:
 
     def refresh_identity(self):
         owner = getattr(self.window, "_managed_owner", None)
+        spectra_owner = getattr(self.window, "_spectra_workbook_owner", None)
         path = owner.document.path if owner is not None else self.path
-        name = path.name if path else ("Unsaved Match Workbook" if owner is not None else "Untitled")
+        if path is None and spectra_owner is not None:
+            path = spectra_owner.document.path
+        name = path.name if path else ("Unsaved Match Workbook" if owner is not None or spectra_owner is not None else "Untitled")
         stage = getattr(self.window, "_managed_scope", "").split(".")[-1].title() if owner else ""
         label = WORKSPACE_LABELS[self.window.workspace_type]
         title = f"{stage + ' ' if stage else ''}{label} — {name}"
@@ -587,7 +625,8 @@ class WkbDocument:
         snapshot = self.window.workspace_snapshot()
         self.last_warning = ""
         expected = self.revision if target == self.path else self.selected_target_revision
-        saved = save_workspace(target, snapshot, expected_revision=expected)
+        saved = (document_io(self.window, lambda: save_workspace(target, snapshot, expected_revision=expected), "Saving spectra data…")
+                 if large_spectra_payload(snapshot, target) else save_workspace(target, snapshot, expected_revision=expected))
         self.last_warning = "; ".join(snapshot.warnings)
         self.path = saved.resolve()
         self.revision = snapshot.revision

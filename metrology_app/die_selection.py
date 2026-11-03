@@ -1,5 +1,6 @@
 """Copy point participation only between unambiguously matching Die layouts."""
 from collections import defaultdict
+from decimal import Decimal
 import math
 
 
@@ -24,6 +25,15 @@ def _profile(sources):
 
 def similar_wafer_selection(spectra, wafer, checked_keys, tolerance_mm=.4):
     """Return file checkbox updates, matched wafers and skipped-wafer reasons."""
+    return _similar_wafer_updates(spectra, wafer, lambda key: key in checked_keys, "checkbox", tolerance_mm)
+
+
+def similar_wafer_flags(spectra, wafer, flags, tolerance_mm=.4):
+    """Copy Test Flags (including fallback zero) without changing participation."""
+    return _similar_wafer_updates(spectra, wafer, lambda key: flags.get(key, 0), "Test Flag", tolerance_mm)
+
+
+def _similar_wafer_updates(spectra, wafer, value_for_key, label, tolerance_mm):
     if not math.isfinite(tolerance_mm) or tolerance_mm <= 0:
         raise ValueError("Coordinate tolerance must be a positive finite number in mm.")
     groups = defaultdict(list)
@@ -32,9 +42,9 @@ def similar_wafer_selection(spectra, wafer, checked_keys, tolerance_mm=.4):
     reference = _profile(groups[tuple(wafer)])
     uses = {}
     for die, (_point, keys) in reference.items():
-        states = {key in checked_keys for key in keys}
+        states = {value_for_key(key) for key in keys}
         if len(states) != 1:
-            raise ValueError(f"Die {die} has conflicting checkbox states. Make its spectra consistent first.")
+            raise ValueError(f"Die {die} has conflicting {label} states. Make its spectra consistent first.")
         uses[die] = states.pop()
     updates, matched, skipped = {}, [], []
     for identity, sources in groups.items():
@@ -44,7 +54,9 @@ def similar_wafer_selection(spectra, wafer, checked_keys, tolerance_mm=.4):
             profile = _profile(sources)
             if profile.keys() != reference.keys():
                 raise ValueError("Different Die ID set.")
-            if any(abs(profile[die][0][axis] - reference[die][0][axis]) >= tolerance_mm
+            # Compare the recorded decimal mm values so 1.4 - 1.0 cannot slip
+            # below the strict 0.4 mm boundary through binary rounding.
+            if any(abs(Decimal(str(profile[die][0][axis])) - Decimal(str(reference[die][0][axis]))) >= Decimal(str(tolerance_mm))
                    for die in reference for axis in (0, 1)):
                 raise ValueError("Corresponding X/Y differences reach or exceed the tolerance.")
         except ValueError as error:

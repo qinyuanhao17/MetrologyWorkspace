@@ -1,0 +1,39 @@
+{
+  "date": "2026-11-03",
+  "status": "focused-validation-passed",
+  "focused_command": "python run_tests.py tests.test_spectra_viewer tests.test_spectra_map tests.test_float_pin -v",
+  "focused_tests": 88,
+  "focused_passed": 88,
+  "duration_seconds": 42.054,
+  "full_regression": "deferred at explicit user request",
+  "auto_weighting": "deferred and not tested",
+  "pin": {
+    "title_icon_retained": true,
+    "shortcut": "Alt+P",
+    "duplicate_toolbar_removed": true,
+    "system_topmost_flag": false
+  },
+  "resize_probe": {
+    "source_files": 20,
+    "curve_objects": 21,
+    "curve_objects_retained": true,
+    "data_refreshes_during_resize": 0,
+    "widths": [1700, 1400, 1600],
+    "height": 900,
+    "before": {
+      "initial_event_ms": [31.7217, 46.0497, 37.4412],
+      "settled_ms": [438.9965, 407.7471, 438.4645],
+      "queue_starts": [20, 20, 20]
+    },
+    "after": {
+      "initial_event_ms": [26.5894, 21.3525, 19.3923],
+      "settled_ms": [453.5800, 407.1918, 423.8465],
+      "queue_starts": [1, 1, 1]
+    },
+    "limitation": "Small real UVSE fixture. Settled time includes 50 ms allowance; no 1890-file performance claim."
+  },
+  "earlier_focused_failures": [
+    "Incorrect test module name corrected from test_floating_editor to test_float_pin.",
+    "Die Map double-click UI test resolves current marker pixels after the layout event; final scoped run passed."
+  ]
+}

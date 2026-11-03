@@ -6,6 +6,7 @@ scene items, source arrays, axis labels and export painting stay with Qt's owner
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import contextmanager
 import multiprocessing
+from time import monotonic
 from weakref import finalize, ref
 
 import numpy as np
@@ -107,6 +108,7 @@ class _CurveRasterizer(QObject):
         self._running = None
         self._failed = False
         self._needs_render = False
+        self._resize_until = 0.0
         self._future_holder = [None]
         # This cache's Python QObject.destroyed cleanup crashes this Qt runtime
         # while native scene children are disposed. No Qt pointer is needed to
@@ -182,6 +184,10 @@ class _CurveRasterizer(QObject):
         if self._visible == visible:
             return
         self._visible = visible
+        if visible and self._solid and self.xData is not None and len(self.xData) >= 2000:
+            # Suppress native million-point painting before exposing the item.
+            # Otherwise one paint event can block the cache-preparation timer.
+            self._show_curve(False)
         self.curve.setVisible(visible)
         if visible:
             self._request_later()
@@ -206,6 +212,8 @@ class _CurveRasterizer(QObject):
         if self._disposed or not self._visible:
             return False
         if self._solid and event.type() in (QEvent.Type.Paint, QEvent.Type.Resize, QEvent.Type.Show):
+            if event.type() == QEvent.Type.Resize:
+                self._resize_until = monotonic() + .08
             self._request_later()
             return False
         if event.type() in (QEvent.Type.Paint, QEvent.Type.Resize, QEvent.Type.Show):
@@ -282,7 +290,7 @@ class _CurveRasterizer(QObject):
 
     def _request_later(self, *_args):
         if not self._disposed and self._visible:
-            self._prepare.start(16 if self._solid else 0)
+            self._prepare.start(max(16, int((self._resize_until - monotonic()) * 1000)) if self._solid else 0)
 
     def _set_export_mode(self, export, opts=None):
         # Scene exporters do not deliver a QWidget paint event. Expose the

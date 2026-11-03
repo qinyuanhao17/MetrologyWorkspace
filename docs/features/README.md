@@ -134,3 +134,10 @@ Cucumber dependency). Scenarios map to public workflow regression tests:
 - 连续取消勾选只保留最新结果，悬浮图同步且关闭后取消后台任务 → `SpectraViewerTreeTests.test_rapid_dense_check_changes_keep_only_the_latest_spectra`、`SpectraViewerTreeTests.test_closing_a_dense_plot_cancels_its_background_work`。
 - Windows 原生窗口中勾选、全屏和分隔条的输入延迟与完整重绘时间分别测量 → `scripts/benchmark_spectra_interaction.py`；真实 JC1913 数据和 125% 系统缩放的对照记录见 `docs/validation/spectra-interaction-2026-11-01.md`。
 - JC1913 缓存前后全览及放大逐像素一致、实际后台 Add 延迟 → `python scripts/benchmark_spectra_catalog.py "C:\Users\Yuanhao Qin\OneDrive\Desktop\JC1913" docs/validation/jc1913-spectra-after.json --verify-pixels`。
+
+v5.1.0 的后续验收沿用这些可执行入口：
+
+- 路径保存实际移除嵌入数据并可恢复原始数值，缺失引用及勾选/旗标不丢失 → `SpectraWorkbookTests.test_path_save_type_removes_embedded_samples_and_reloads_original_files`、`SpectraWorkbookTests.test_workbook_path_mode_and_missing_references_survive_save_without_embedding`。
+- 大文件 I/O 期间 GUI 定时器继续工作，隐藏/恢复通道保留批次缓冲，调整尺寸不禁用绘图 viewport → `SpectraWorkbookTests.test_document_storage_work_keeps_gui_timers_running`、`SpectraViewerTreeTests.test_hiding_and_restoring_a_batched_channel_retains_its_source_buffers`、`SpectraViewerTreeTests.test_resizing_dense_plots_keeps_curves_and_coalesces_paint_batches`。
+- WKB 脚本复制更新条件、参与状态和查看设置，手动取消光谱后 Checked/Unchecked rows 正确分类 → `SpectraWorkbookTests.test_copy_wkb_selection_updates_script_view_once_without_changing_parent`、`SpectraWorkbookTests.test_data_selection_row_modes_follow_manual_spectrum_checks_outside_saved_filters`。
+- Die Map 抗锯齿通过真实 20 文件的轮廓、位点、选中圈与旗标配置及截图核对；原始位点、选中和双击行为继续由 `tests.test_spectra_map` 与 `tests.test_spectra_release_smoke` 验证。发布源码、冻结程序、ZIP 和安装流程的实际范围见 `docs/validation/v5.1.0-2026-11-04.md` 及 Release 的 BUILD-VALIDATION.json。

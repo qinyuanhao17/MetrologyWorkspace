@@ -22,6 +22,19 @@ APP = QApplication.instance() or QApplication([])
 
 
 class SpectraMapWindowTests(unittest.TestCase):
+    def test_cards_show_live_point_counts_without_changing_plot_size_or_range(self):
+        first, second = make_spectrum(1), make_spectrum(2)
+        self.window.set_data((first, second), checked_keys={first.key}, selected_keys={second.key})
+        self.settle_page(1)
+        plot = next(iter(self.window.wafer_plots.values()))
+        self.assertEqual(plot.summary_label.text(), "2 points · 1 checked · 1 selected")
+        size, ranges = plot.size(), plot.plot.getViewBox().viewRange()
+        self.window.update_checks({first.key, second.key}, selected_keys=set())
+        self.assertEqual(plot.summary_label.text(), "2 points · 2 checked · 0 selected")
+        self.assertEqual(plot.size(), size)
+        self.assertEqual(plot.plot.getViewBox().viewRange(), ranges)
+        self.assertEqual(self.window.summary_label.text(), "1 wafer · 2 points")
+
     def test_blank_scroll_area_clears_selection_without_affecting_checks(self):
         source = make_spectrum(1)
         self.window.show()
@@ -246,7 +259,7 @@ class SpectraMapWindowTests(unittest.TestCase):
         self.assertEqual(first.wafer_diameter, 100)
         self.assertEqual(second.wafer_diameter, 300)
         self.assertEqual(first.plot.width(), first.plot.height())
-        self.assertEqual(first.plot.getAxis("left").labelText, "")
+        self.assertEqual(first.plot.getAxis("left").labelText, "Y (mm)")
         self.assertEqual(first.plot.getAxis("bottom").labelText, "X (mm)")
         self.assertTrue(first.plot.getAxis("top").isVisible())
         self.assertTrue(first.plot.getAxis("right").isVisible())
@@ -254,7 +267,7 @@ class SpectraMapWindowTests(unittest.TestCase):
             point_plot.plot.grab()
             x, y = point_plot.scatter.getData()
             marker = point_plot.plot.getViewBox().mapViewToScene(QPointF(float(x[0]), float(y[0])))
-            self.assertAlmostEqual(point_plot.labels[0].sceneBoundingRect().top() - marker.y(), 8, places=3)
+            self.assertAlmostEqual(point_plot.labels[0].sceneBoundingRect().top() - marker.y(), 5, places=3)
 
     def test_same_wafer_with_different_lot_or_pad_has_separate_outlined_maps(self):
         spectra = (make_spectrum(1), make_spectrum(1, lot="L2"),
