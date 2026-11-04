@@ -17,7 +17,7 @@ $testModules = Get-ChildItem tests/test_*.py | Where-Object { $_.BaseName -notli
 
 ## v5.1.0 当前交付
 
-本轮发布 `v5.1.0`，Windows x64 Setup 与便携 ZIP 从同一固定提交的隔离副本构建，CXMT 分支快进同步到发布提交，main 与历史标签保持原位。版本、下载和验证状态以 [发布说明](docs/releases/v5.1.0.md) 为准。下面保留既有模块的设计背景；与本节冲突的旧版描述以本节和现有代码为准。
+本轮按用户明确要求，以两项回归修复后的提交覆盖 `v5.1.0` 标签及其 Setup、便携 ZIP，CXMT 分支快进同步到同一提交。构建使用固定提交的隔离副本；main 与其他历史标签保持原位。版本、下载和验证状态以 [发布说明](docs/releases/v5.1.0.md) 为准。下面保留既有模块的设计背景；与本节冲突的旧版描述以本节和现有代码为准。
 
 - Spectra Viewer 独立入口和 Match Workbook 子窗口使用同一 UI。托管子窗口 Ctrl+S / Ctrl+Shift+S 优先保存所属 WKB；`.spec` 通过 File 菜单独立保存，标题跟随实际文件身份。
 - Options → Spec Save Type 在 Embed Spectra Data 与 Spectra Paths Only 间互斥选择。路径模式保存后实际移除新 WKB/`.spec` 的采样 payload；原 SME 路径必须可用，缺失引用及勾选/旗标需保留。标准 `.bak` 保留上一版本，不能为了缩小文件而静默删除。
@@ -27,7 +27,7 @@ $testModules = Get-ChildItem tests/test_*.py | Where-Object { $_.BaseName -notli
 - 导出只复制已有 SME，按原目录整理；失败支持重试/跳过及最终清单，不重写或覆盖原件。Legend 提供 Show All、Hide All 和 Select Channel；隐藏/恢复整通道保留已有曲线数组与缓存。
 - 大文件 I/O/解码在后台执行；窗口调整保留 viewport 绘制和旧图，合并后台几何任务。源数据、导出精度、身份及曲线覆盖顺序不因提速改变。实测边界见 [性能及路径存储验证](docs/validation/spectra-performance-storage-2026-11-03.md)。
 
-AutoWeighting 仍由用户明确搁置：不运行其三个测试模块、OCR 自检或 `main.py --self-test`。使用 `run_tests.py` 隔离 settings/recovery/reminders，发布冒烟采用 `main.py --spectra-smoke-test <SME-folder> <report.json>`。最近回归保留两个既有错误（prepared literal frame 只读、Correlation 测试替身缺 raw_model），不能把专项通过写成全量全绿；发布实际结果见对应验证记录和 Release 的 BUILD-VALIDATION.json。
+AutoWeighting 仍由用户明确搁置：不运行其三个测试模块、OCR 自检或 `main.py --self-test`。使用 `run_tests.py` 隔离 settings/recovery/reminders，发布冒烟采用 `main.py --spectra-smoke-test <SME-folder> <report.json>`。v5.1.0 初次发布时记录的两个错误已修复：旧测试改为验证内部准备数据只读、公开副本可独立编辑；Correlation 工厂不再被要求必须暴露内部 raw_model。排除 AutoWeighting 后完整回归 1,421 项全部通过，详见 [两项回归错误修复](docs/validation/regression-two-errors-2026-11-04.md)。覆盖发布的 BUILD-VALIDATION.json 使用修复后的回归结果；初次发布的历史记录保留为当时事实。
 
 ## 既有产品边界与设计背景
 
@@ -66,7 +66,7 @@ Dynamic 复用 `window.MainWindow` 的 Data 编辑和 Wafer/Lot/PAD measurement 
 ## 修改纪律
 
 - 先读 `AGENTS.md`；计算、状态与 bug 修复采用 TDD，用户可见流程同步维护 `docs/features/`。
-- 不覆盖或移动旧 tag。当前版本和交付标签是 `5.1.0` / `v5.1.0`。
+- 仅按用户本次明确授权覆盖 `v5.1.0`；其他旧标签不移动。当前版本和交付标签是 `5.1.0` / `v5.1.0`。
 - 不使用 `git reset --hard` 或 checkout 丢弃用户修改。
 - 交付前通过 `run_tests.py` 执行用户授权范围的回归，并执行不触发 AutoWeighting 的 Spectra 发布冒烟；记录既有失败和排除范围。
 

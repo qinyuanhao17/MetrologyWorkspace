@@ -3342,7 +3342,7 @@ class MatchingWindow(QMainWindow):
             workspace.set_reference_table(reference, f"{mode} Reference")
         else:
             reference, scoped_raw = self._child_correlation_frames(workspace, book=book)
-            prepared = getattr(workspace.raw_model, '_linked_prepared_load', None)
+            prepared = getattr(getattr(workspace, 'raw_model', None), '_linked_prepared_load', None)
             if prepared is not None and 'load_frame' in prepared:
                 scoped_raw = prepared['load_frame']
             if ("ui" not in self._workspace_states.get(scope, {})

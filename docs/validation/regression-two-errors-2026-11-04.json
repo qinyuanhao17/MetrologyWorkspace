@@ -1,0 +1,45 @@
+{
+  "date": "2026-11-04",
+  "base_release": "v5.1.0",
+  "base_commit": "a2c070c114d90ad5f6ebd6fdf58247b0bd4b3695",
+  "scope": "Validated regression fixes; user subsequently authorized replacing v5.1.0 tag and Setup/ZIP, with CXMT fast-forwarded to the corrected commit",
+  "reproduction": {
+    "tests": 2,
+    "errors": 2,
+    "seconds": 0.146
+  },
+  "literal_contract_suite": {
+    "tests": 24,
+    "passed": 24,
+    "seconds": 0.423
+  },
+  "original_tests_and_real_correlation_factory": {
+    "tests": 3,
+    "passed": 3,
+    "seconds": 0.274
+  },
+  "full_regression": {
+    "tests": 1421,
+    "passed": 1421,
+    "errors": 0,
+    "failures": 0,
+    "skipped": 0,
+    "seconds": 528.043,
+    "runner": "python run_tests.py",
+    "excluded_modules": [
+      "test_auto_weighting",
+      "test_auto_weighting_ocr",
+      "test_auto_weighting_window"
+    ],
+    "context": "Approved normal execution context with isolated settings/recovery/reminders/Matplotlib/TEMP; no sandbox hard-link failure",
+    "log": ".cache/regression-two-errors-full.log"
+  },
+  "fixes": [
+    "Correlation factory raw_model prepared-cache lookup is optional",
+    "Literal source test verifies immutable preparation and independently editable public reads"
+  ],
+  "production_settings_unchanged": true,
+  "git_diff_check": true,
+  "historical_release_unchanged_at_validation": true,
+  "delivery_authorization": "Explicit user request to overwrite v5.1.0 and replace release installers/ZIP after the successful full regression"
+}

@@ -24,6 +24,8 @@ python run_tests.py @testModules -v
 
 当前测试必须使用 `run_tests.py` 的 scratch 设置隔离。用户继续搁置 AutoWeighting，不运行对应模块或会打开 OCR 的 `main.py --self-test`；发布冒烟使用 `--spectra-smoke-test`。源码回归与打包/安装验证分开记录，失败不能因历史已有而省略。源测量文件、设置、未关联的本地工作簿及既有标签均须保留。当前变更和实际验证见 [性能及路径存储记录](validation/spectra-performance-storage-2026-11-03.md)。
 
+已修复 v5.1.0 的两项回归错误：Correlation 对可选 raw_model 缓存做兼容检查；LiteralFrameSource 测试遵守内部只读、公开副本可编辑的既有约定。排除 AutoWeighting 后完整回归 1,421 项全部通过，复现和复测记录见 [修复验证](validation/regression-two-errors-2026-11-04.md)。用户随后明确要求覆盖 v5.1.0 标签和安装包/ZIP，并将 CXMT 快进到修复后的同一提交；main 和其他标签不移动。
+
 ## v2 Card Matching 历史设计背景
 
 v2 阶段曾以 `v2.0.0-dev.4` 交付，当时 `VERSION` 为 `2.0.0-dev`。这些历史提交、标签和 Release 不随 v5.1.0 发布移动；当前分支与版本以本页上方交接为准。

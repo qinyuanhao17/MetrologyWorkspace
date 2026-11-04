@@ -36,7 +36,12 @@ class LiteralFrameSourceTests(unittest.TestCase):
             prepared = prepare_sheet_version(source.frame, source.version, source=source)
         self.assertIs(prepared['version'], model.literal_version)
         pd.testing.assert_frame_equal(prepared['document'], frame)
-        prepared['document'].iloc[0, 1] = 'detached edit'
+        with self.assertRaises(ValueError):
+            prepared['document'].iloc[0, 1] = 'cannot edit immutable preparation'
+        detached = model.document_frame()
+        detached.iloc[0, 1] = 'detached edit'
+        self.assertEqual(detached.iloc[0, 1], 'detached edit')
+        pd.testing.assert_frame_equal(prepared['document'], frame)
         pd.testing.assert_frame_equal(model.document_frame(), frame)
         pd.testing.assert_frame_equal(source.frame, frame)
         values = source.frame.to_numpy(copy=False)
