@@ -108,6 +108,7 @@ class MainWindow(QMainWindow):
         self.loaded_components = {}
         self._instance_serial = {}
         self.module_buttons = {}
+        self._help_window = None
         self._diagnostic_handler = None
         self._log_entries = []
         self._log_theme = get_settings()["theme"]
@@ -172,10 +173,44 @@ class MainWindow(QMainWindow):
         menu.addAction(settings)
         menu_button.setMenu(menu)
         toolbar.addWidget(menu_button)
+        self.help_action = QAction("Help", self)
+        self.help_action.setShortcut("F1")
+        self.help_action.triggered.connect(self.open_help)
+        self.addAction(self.help_action)
+        self.help_button = QToolButton(objectName="toolbarHelp")
+        self.help_button.setDefaultAction(self.help_action)
+        self.help_button.setToolTip("Open Help and SOP tutorials (F1)")
+        toolbar.addWidget(self.help_button)
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         toolbar.addWidget(spacer)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
+        self._sync_toolbar_button_size()
+
+    def _sync_toolbar_button_size(self):
+        """Keep the adjacent menu and Help controls exactly the same size."""
+        for button in (self.menu_button, self.help_button):
+            button.ensurePolished()
+        size = self.menu_button.sizeHint().expandedTo(self.help_button.sizeHint())
+        self.menu_button.setFixedSize(size)
+        self.help_button.setFixedSize(size)
+
+    def open_help(self):
+        if self._help_window is None:
+            from .help_window import HelpWindow
+            self._help_window = HelpWindow(self)
+            self._help_window.destroyed.connect(self._help_closed)
+            self.record("Help", "Opened Help and SOP tutorials")
+        window = self._help_window
+        if window.isMinimized():
+            window.showNormal()
+        else:
+            window.show()
+        window.raise_()
+        window.activateWindow()
+
+    def _help_closed(self, *_):
+        self._help_window = None
 
     def _update_menu_icon(self, theme):
         colour = QColor("#18181b" if theme == "light" else "#e7e0eb")
@@ -420,7 +455,10 @@ class MainWindow(QMainWindow):
         set_theme_palette(theme)
         style_titlebar(self, theme)
         self._update_menu_icon(theme)
+        self._sync_toolbar_button_size()
         self._refresh_log_output(theme)
+        if self._help_window is not None:
+            self._help_window.apply_help_theme(theme)
         for instances in self.loaded_components.values():
             for widget in instances:
                 apply_theme(widget, theme)
@@ -606,6 +644,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         if self.unload_all_components():
+            if self._help_window is not None:
+                self._help_window.close()
             if self._shell_splitter_moved:
                 try:
                     save_settings({

@@ -131,7 +131,9 @@ class CorrelationWindow(DataWorkspaceWindow):
 
     def workbook_copy_sources(self):
         """Reference measurements belong to this analysis, even with linked Raw."""
-        return {"raw_data": self._copy_from_wkb, "reference_data": False}
+        owner = getattr(self, "_managed_owner", None)
+        aligned_reference = owner is not None and getattr(owner, "workbook_type", "type1") == "type2"
+        return {"raw_data": self._copy_from_wkb, "reference_data": self._copy_from_wkb and aligned_reference}
 
     def set_workbook_sources(self, raw, mappings, mode="Preview"):
         prepared = getattr(self.raw_model, '_linked_prepared_load', None)
@@ -158,6 +160,9 @@ class CorrelationWindow(DataWorkspaceWindow):
 
     def linked_value_baseline(self):
         """Detached qualification inputs, never live widgets in the worker."""
+        owner = getattr(self, "_managed_owner", None)
+        if owner is not None and getattr(owner, "workbook_type", "type1") == "type2":
+            return None  # ID joins can move Reference rows; use a complete prepared source update.
         if (type(self.raw_model) is not SheetModel or self.raw_model.clipboard_locks
                 or self.card_check.isChecked() or not self._workbook_sources
                 or self._reset_selection):
@@ -243,6 +248,13 @@ class CorrelationWindow(DataWorkspaceWindow):
             return
         self._group_plan = None
         raw = self.raw_model.frame()
+        from .wafer_id_mapping import apply
+        try:
+            raw = apply(raw, context.get("wafer_id_mapping"))
+        except ValueError as error:
+            self._match_groups = None
+            self.statusBar().showMessage(f"Group classification detached: {error}")
+            return
         if (list(row_ids(raw)) != context["identities"] or
                 ("provenance" in context and list(participation_source_keys(raw)) != context["provenance"])):
             self._match_groups = None
@@ -429,6 +441,12 @@ class CorrelationWindow(DataWorkspaceWindow):
         if not self._match_groups or self._group_plan is None:
             return selection
         plan = self._group_plan
+        if plan.mark2_enabled:
+            from .mark2 import ordered_rows
+            return {**selection, "mark2": {
+                "columns": plan.state["mark2"]["selected"], "labels": plan.mark2_labels,
+                "order": ordered_rows(plan.included_rows, plan.mark2_labels, plan.state["mark2"]),
+                "split": len(self.reference_model.frame())}, "preserve_group_order": True}
         if not plan.enabled and plan.state["trend_order"] == "groups":
             return selection
         grouped = {**selection, "wafers": [], "groups": {}, "labels": {},
@@ -1180,7 +1198,16 @@ class CorrelationWindow(DataWorkspaceWindow):
         self.selection["groups"] = {key: tuple(row for row in rows
             if (row in reference_allowed if key[0] == "Reference" else row - split in allowed))
             for key, rows in self.selection["groups"].items()}
-        self.correlation_page.set_input(self._analysis_frame, self.selection)
+        correlation_selection = self.selection
+        owner = getattr(self, "_managed_owner", None)
+        if owner is not None and getattr(owner, "workbook_type", "type1") == "type2" and self._copy_from_wkb:
+            from .id_matching import align_by_id
+            aligned = align_by_id(owner.reference_frame, raw, owner.matching_keys)
+            matched = {i for i, position in enumerate(aligned.reference_rows) if position is not None}
+            correlation_selection = {**self.selection, "groups": {
+                key: tuple(row for row in rows if (row if key[0] == "Reference" else row-split) in matched)
+                for key, rows in self.selection["groups"].items()}}
+        self.correlation_page.set_input(self._analysis_frame, correlation_selection)
         self.sequence_page.set_input(self._analysis_frame, self._grouped_trend_selection(self.selection))
         self.statusBar().showMessage(
             f"{len(wafers)} measurement sets selected    ·    "

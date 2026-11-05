@@ -2,6 +2,106 @@ Feature: Build a card matching workbook
   Metrology engineers need one reusable workflow for Reference and Raw Data
   so that daily matching no longer depends on rebuilding an Excel workbook.
 
+  Rule: Workbook Type chooses the matching workflow
+    # Executed by tests/test_workbook_type.py.
+
+    Scenario: Choose a Type2 workbook
+      Given the engineer is creating a new Match Workbook
+      When the engineer selects Workbook Type Type2
+      Then no KLA, NOVA or TEM selection is shown
+      And Type2 appears in the workbook window title
+      And Reference identifies the reference curves and fit axis
+
+    # Executed by tests/test_id_matching.py and tests/test_type2_matching.py.
+    Scenario: Match shuffled sources with unequal record counts
+      Given a Type2 workbook with Reference and Raw Data in different orders and sizes
+      When corresponding ID fields are checked and ordered in both matching lists
+      Then the selected field tuples identify the paired records
+      And analysis and Trend retain the Raw Data row order
+      And unmatched Raw records have blank Reference values
+      And fitting and correlation use only valid paired observations
+      And both literal source tables remain unchanged
+
+    Scenario: Report ambiguous identities
+      Given a Type2 source contains duplicate IDs or blank key fields
+      When the engineer runs ID matching
+      Then those records are reported and remain unpaired
+      And no first row, averaging or positional fallback chooses a match
+
+    Scenario: Restore ID choices and protect independent analysis edits
+      Given a saved or recovered Type2 workbook with ordered ID fields
+      When the workbook is reopened or the parent source changes
+      Then the ordered ID choices are restored
+      And linked Reference data is recalculated by ID
+      And independently edited child data remains protected
+
+    # Executed by the matching-settings collapse cases in tests/test_type2_matching.py.
+    Scenario: Fold configured Type2 matching controls
+      Given the engineer has configured Type2 matching fields and parameter mappings
+      When Expand matching settings is unchecked
+      Then both ID lists and the parameter mapping controls are hidden
+      And the settings panel releases its vertical space
+      And Run analysis remains available with the existing settings
+      And no refit is triggered by folding or unfolding
+      And saving or recovering the Workbook retains the folded state
+      And old files without this setting open expanded
+
+    Scenario: Retain the workbook type across persistence and stages
+      Given a Type2 workbook
+      When the engineer saves, saves a copy, reopens, or recovers its draft
+      Then its Workbook Type remains Type2
+      And Preview and Final share that type
+
+    Scenario: Open an old workbook without a type field
+      Given a saved WKB or MWKB without workbook_type
+      When the engineer opens the workbook
+      Then it opens as Type1 without an unsaved change caused by the default
+      And the source file remains unchanged until an explicit save
+
+  Rule: Type2 Mark2 labels define shared hierarchical plot axes
+
+    # Executed by tests/test_type2_v51_integration.py.
+    Scenario: Use Type2 matching with v5.1 Spectra Info and Selection Script
+      Given Type2 Reference and Raw Data are shuffled and have different row counts
+      When Spectra Info reads the Workbook or its selection is copied to Spectra Viewer
+      Then Reference values and filter context follow the configured composite IDs
+      And unmatched Raw rows retain blank Reference values
+      And extra Reference rows do not extend TestFlag beyond Raw Data
+      And Source tables remain unchanged
+
+    Scenario: Classify metrics by one Mark2 label without losing Wafer classification
+      Given Mark2 includes Product and a custom label column called Wafer
+      When the engineer chooses a single imported label in Classify by
+      Then equal label values are pooled across Wafer identities for independent fitting
+      And detailed Trend and Bias plots keep the Mark2 hierarchy
+      And the custom Wafer label remains distinct from original Wafer grouping
+      And grouping choices and plot checks survive saving, reopening and recovery
+
+    # Executed by tests/test_mark2.py.
+    Scenario: Import source-linked Mark2 labels and choose a hierarchy
+      Given a Type2 workbook and a Mark2 Excel with eight identity columns, a blank separator and label columns
+      When the engineer enables Mark2 and imports the label table
+      Then Head and Mark cannot be enabled together with Mark2
+      And labels follow Raw identities even when imported records are reordered
+      And Groups offers Manage groups Mark2 to check fields and drag outer-to-inner order
+
+    Scenario: Keep source order or sort by the selected hierarchy
+      Given Mark2 labels are imported and one or more fields are checked
+      When the engineer chooses source Raw order or hierarchy order and clicks OK in Manage groups Mark2
+      Then Trend, Bias and Bias percent use the selected order and shared nested axis
+      And all related plots refresh without an additional Apply action
+      And the legacy Trend order control stays disabled while Mark2 is enabled
+      And Single-wafer and linked Trends use the same labels for their drawn rows
+      And unmatched Reference values leave gaps at their Raw positions
+      And literal source tables and fitted Card values are unchanged
+
+    Scenario: Persist and export Mark2
+      Given an applied Mark2 hierarchy
+      When the workbook is saved, reopened, recovered or exported
+      Then imported labels, enabled state, selected fields and ordering mode are retained
+      And native Excel and image charts use the same hierarchy and ordinal positions
+      And native label captions remain linked to visible worksheet cells
+
   Rule: Reference defines the parameters that can be matched
 
     Scenario: Preview two mapped parameters in one workbook

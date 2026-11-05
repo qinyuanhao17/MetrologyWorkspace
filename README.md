@@ -1,6 +1,6 @@
 # Metrology Workspace
 
-Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、光谱、径向图、相关性图和趋势图。主窗口提供 **Match Workbook**、**Wafer Map**、**Spectra Viewer**、**Correlation and Trend**、**Dynamic** 和 **AutoWeighting Writer** 六个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例；窗口可命名、勾选随 WKB 保存。当前版本为 **v5.1.0**，提供 Windows x64 Setup 和便携 ZIP，见 [发布说明](docs/releases/v5.1.0.md)。历史版本标签保持不变。
+Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、光谱、径向图、相关性图和趋势图。主窗口提供 **Match Workbook**、**Wafer Map**、**Spectra Viewer**、**Correlation and Trend**、**Dynamic**、**AutoWeighting Writer** 和 **Summarize REF** 七个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例；分析工作区支持窗口命名、勾选随 WKB 保存，Summarize REF 则直接导出汇总 Excel。当前版本为 **v5.1.0**，提供 Windows x64 Setup 和便携 ZIP，见 [发布说明](docs/releases/v5.1.0.md)。历史版本标签保持不变。
 
 v4.3.1 修复 Match Group / Wafer 导出中曲线、Wafer 标签和分界线不一致的问题：原生 Trend、Bias 与 Bias % 改为绑定单元格的 XY series，Show Wafer Group 的真实宽度会同步作用于数据；Wafer 标签保持各自 span 中心。单独 Group 页始终展示全部 Wafer，Match Wafer 改为不分页的一张完整图，数值轴只保留一个 Die Seq 标题，并在每个 Wafer 内按可用宽度生成密集刻度。完整 Undo、宽表粘贴/删除和多窗口阶段切换仍可能等待，不能把局部提速理解为整体流畅度全部达标。
 
@@ -83,6 +83,22 @@ python -m PyInstaller --noconfirm --clean MetrologyWorkspace.spec
 
 点击 **Save** 后，源码版会把配置写入 `config/settings.yaml` 并立即生效。便携版仍保存到 EXE 旁边。**Load from YAML** 用于重新读取磁盘上的设置。浅色和深色主题都会同步应用到原生窗口标题栏。
 
+## Help / SOP
+
+主页左上角菜单按钮旁的 **Help**（或主页按 **F1**）打开独立帮助窗口，左侧是树形章节，右侧是 Markdown 教程。支持按章节标题过滤、Back/Forward/Home、**Refresh / F5** 和 **Open help folder**，随 Light/Dark 主题切换。目前包含各模块占位章节，正式 SOP 可后续补充。
+
+内容与程序代码分开，保存在项目根目录的 `help/`：编辑 `toc.yaml` 调整标题、顺序与父子层级，编辑 `pages/*.md` 写正文，截图放入 `images/`。保存后在 Help 中点击 Refresh，无须重新启动软件。维护规范及正文模板见 [Help 维护说明](help/README.md)。帮助文档不写入 WKB。
+
+## Summarize REF
+
+主窗口 **AutoWeighting Writer** 下方的 **Summarize REF** 打开独立汇总窗口，沿用软件的 Light/Dark 主题。选择 **KLA / NOVA / PMISH**，点击 **Browse…** 选择数据文件夹，再点击 **Parse REF files**；会递归扫描文件夹及子目录中的 CSV/TXT，按路径顺序解析。窗口显示实际成功/跳过文件数、总记录数、Wafer 数及逐文件日志；预览只展示前 100 行，**Export summary Excel…** 导出全部汇总记录。解析或导出过程中可点击 **Cancel**，更换厂商或文件夹后需要重新解析。
+
+厂商读取逻辑由提供的 REF 汇总代码迁入：KLA 按 `Site #,` 数据段读取，补入 WaferID/LotID/Recipe/PadName，并支持 `NoWaferID` 的 Lot/Slot 回退；NOVA 清除数据中重复的表头；PMISH 读取文件前六行的 WaferID/LotID/ToolSN，并提取 `Seq,` 数据段、排除后续统计行。KLA/PMISH 沿用原代码去除列名括号内容的规则。读取时保留测量文本和身份前导零；单个文件失败会记录并继续处理其余文件。
+
+KLA 结果按 PAD 分工作表；PMISH 有 `Pad name` 或 `PadName` 列时也按 PAD 分表，其余结果导出到 `Summary`。Excel 保留表头样式和列宽，过长、重名或含非法字符的 PAD 工作表名会做兼容处理。导出先生成完整候选文件，成功后替换目标，取消或失败不会用不完整结果覆盖已有文件。此工具不修改输入文件，不另存 WKB；解析、合并和 Excel 写入在后台执行，预览界面只在主线程更新。
+
+实现分为 `ref_summary_window.py`（PyQt6 界面与后台任务）、`ref_summary.py`（扫描、汇总、Excel 导出）及 `ref_parsers/`（三种厂商解析器）；通过 `module_registry.py` 注册入口。
+
 ## Data 工作区
 
 - **Groups → Data selection → Hide excluded rows in tables** 勾选并 Apply 后，Order / Reference / Raw Data 隐藏不参与分析的记录；取消勾选并 Apply 可恢复显示。此操作不删除源数据、不重新编号，也不改变原来的参与选择。子窗口选择 **Match Workbook selection** 时遵从相同显示规则；**Full data** 不沿用父级隐藏规则。
@@ -160,6 +176,48 @@ Die Map 支持鼠标左键拖动框选，框内重合位点的全部光谱一起
 Mueller 横轴只显示自动生成的等间隔主刻度文字，保留次网格线与 tight 数据范围，缩放时重新选择间距。Die 标注使用固定的紧凑像素间距紧靠位点下方，不随晶圆直径向下一行偏移。树菜单在 All、Selected、BSL 三组之后显示分隔线，Unfold Tree 与 Delete Tree 之间不分隔。
 
 ## Match Workbook（v2 开发中）
+
+新建 Workbook 的设置页提供 **Workbook Type：Type1 / Type2**，默认 Type1。Type1 保留原有 KLA / NOVA / TEM 设置和按行位置配对；Type2 使用下面的组合 ID 匹配，不再选择仪器 Match Type，图表统一标为 Reference。类型在创建后固定，显示在 Workbook 窗口标题中，并随正式保存、另存为及恢复草稿保留；Preview/Final 共用该类型。缺少 `workbook_type` 字段的旧 `.wkb` / `.mwkb` 默认按 Type1 读取，打开时不改写原文件，下次保存时补入字段。
+
+### Type2：组合 ID 匹配
+
+在 Reference、Raw Data 中粘贴完整原表，再使用 Parameter mapping 上方并排的两个 **matching fields** 列表勾选身份字段。列表可上下拖动；选中的字段按各自显示顺序一一对应。例如左侧 `WaferID / Col/X / Row/Y` 对应右侧 `Wafer ID / FIELD X / FIELD Y`。两侧必须选择相同的非零字段数；字段不存在时会提示，不能按位置回退配对。Parameter mapping 仍用于指定量测值之间的对应，不是 ID 条件；Type2 可按相同字段名建议量测参数映射。
+
+设置区域顶部的 **Expand matching settings** 默认勾选。取消勾选可一起收起左右 ID 字段和 Parameter mapping，释放空间并避免误编辑；**Run analysis** 保持可用，继续使用当前配置。再次勾选可展开编辑。折叠状态随 Workbook 保存和草稿恢复，旧文件默认展开；折叠和展开不触发重新拟合。
+
+两张表可以行数不同、顺序不同。分析以 Raw 原始行空间为基准查找 Reference：未匹配的 Raw 记录保留，Reference 值为空；多余的 Reference 记录只保留在源表中。散点拟合及关联窗口的 Correlation 使用成功配对且数值有效的记录，Trend 保留完整 Raw 行空间和对应 Ref 空缺。Reference 筛选使用按 ID 对齐后的参考值。原始源表、字符串及行顺序不被改写。
+
+ID 内部按字段元组比较，避免字符串拼接冲突。身份文本保留前导零、区分大小写，忽略两端空白；明确的坐标/Die 字段仅规范数值写法（例如 `0` 与 `0.0`），不进行坐标偏移、单位换算或近似匹配。同一侧出现重复 ID、或选定字段有空值时，对应记录不配对，不自动选择第一条或求平均。列表下方显示成功/未匹配数量、重复及空键统计，提示文本可查看有问题的数据行号。
+
+匹配条件及顺序随文档和恢复草稿保存。没有足够有效配对生成 Card 时，该参数的 Card 数值为空，Trend 明确显示原始 Raw 值并禁用无效 Card 开关。旧 Type2 文件若没有保存 ID 字段，会保留原表并等待选择条件，不沿用位置配对。独立修改关联窗口表格后继续遵守草稿保护规则，父窗口刷新不会覆盖这些编辑。
+
+### Type2：Wafer ID 映射
+
+**Wafer ID mapping → Export wafer ID mapping…** 可将当前已导入的完整映射导出为同样可再次导入的 Excel。尚未导入（或已经 Reset）时，按当前 Preview/Final Raw Data 的前八列生成模板，第九列留空，第十列 **Wafer ID** 默认填写该行的原始 Wafer ID；需要先粘贴 Raw Data。
+
+仅 Type2 的菜单栏提供 **Wafer ID mapping → Import wafer ID mapping… / Reset wafer ID mapping**。先粘贴 Raw Data，再导入 Excel：第 1 行为表头，前八列复制原始 Raw Data 的身份列（包括原 Wafer ID、Lot ID），第九列留空，第十列表头为 **Wafer ID**，填写新的 Wafer ID。后面的空白格式列可保留。按完整八列身份关联，映射表顺序可不同；不修改 Lot ID 或其他元数据。
+
+导入后自动重新匹配并刷新统计和绘图。Reference 的匹配条件读取新 Wafer ID；Single-Wafer metrics、关联 Correlation / Wafer Map、Spectra Info、Selection Script 与 Excel 的分析内容也使用新 ID。原始 Raw Data 网格及 Excel 中附带的原始 Raw 数据保留旧 ID，Reference 原表不变；Mark2 标签及原有数据参与选择仍按原始记录关联。
+
+映射必须覆盖当前已粘贴的 Preview/Final Raw 记录；找不到记录时会提示检查包括 Lot ID 在内的八列，不混用未映射的旧 ID。重复原始身份、空新 ID、冲突映射会报错，失败的导入保留已有映射。映射随 wkb/mwkb 和恢复草稿保存；旧文件默认没有映射。**Reset wafer ID mapping** 清除映射并重新按原始 Wafer ID 计算，无须重新粘贴 Raw Data。
+
+### Type2：Mark2 多级横轴
+
+Group settings 的 **Export Mark2 Excel…** 可导出已导入的完整分类表，保留前八列身份、第九列空白及第十列起全部标签（包括未勾选用于绘图的列），可再次导入。仅在勾选 Mark2 且已有导入分类记录时启用；从 WKB 恢复的已导入分类同样可导出。
+
+在 **Groups → Group settings** 勾选 **Mark2**，点击 **Import Mark2 Excel…** 导入标签表。表格第 1 行是表头，前八列复制 Raw Data 的身份列，第九列留空，第十列起每列为一种标签（如 Tool、Product、Lot、Slot、Die Seq）。有多个工作表时可选择导入哪个表。标签通过前八列的组合身份关联 Raw Data，导入顺序可不同；重复身份会提示，Raw 中找不到或身份重复的行保留数据点、标签留空。身份和标签中的文本前导零会保留。Mark2 与 Head、Mark 互斥；切换时保留各自配置，旧文件默认不启用 Mark2。
+
+在 **Groups → Manage groups Mark2…** 勾选一个或多个标签，拖动设置从上到下“外层 → 内层”的层级顺序，再选择 **Source Raw table order**（保持 Raw 输入行顺序）或 **Selected hierarchy order**（按勾选层级逐级排序，同标签保留源行顺序）。点击 **OK** 后自动应用并刷新全部相关图表，无须额外点击 Apply；Cancel 保留原设置。启用 Mark2 时 Group settings 原有的 Trend order 不可选，排序统一在此窗口设置。层级排序中 Slot、Die 等纯数值按数值排序，产品编码保持文本语义。两种模式都只改变绘图顺序，原始 Ref/Raw 表和拟合所用记录不变。
+
+启用后，All parameter plots、Single-wafer 的 Trend、Bias、Bias % 以及关联 Correlation and Trend 的 Trend 使用相同的多级横轴：最内层靠近曲线，外层居中显示连续标签跨度，灰色边界表示层级范围；密集文字会稀疏显示，缩放后显示更多标签。Excel 原生图、Matplotlib 图片图和关联 Trend 的导出使用同一套层级及顺序。配置和导入的完整标签随 wkb/mwkb 正式保存及恢复草稿保留，无须再次导入。
+
+**Single-wafer metrics 的分类选择：** 页顶 **Classify by** 默认是 **Wafer**，沿用原有 Wafer/Lot/PAD 身份规则。启用 Mark2 并应用后，可单选任一已导入的标签列（包括未勾选为 Trend 横轴层级的列），下拉项显示为 **Mark2 · 列名**。选择后，相同标签值的数据会归入一组，可跨 Wafer 合并；按该组有效 Ref/Raw 配对独立计算 Slope、Intercept、R² 和 Valid pairs，统计表及指标图立即更新。勾选 Draw 后显示该组的 Match、Trend、Bias、Bias %，沿用 Mark2 多级横轴。没有对应标签的记录显示在 `(No Mark2 label)` 组中。默认 Wafer 及每一种标签分类的 Draw 勾选分别保留，分类选择和各组勾选随 wkb 与恢复草稿保存；旧文件仍默认 Wafer。此选择仅控制该 Tab 的统计与绘图。
+
+Mark2 空白分隔列右侧的自定义表头单独存放，不追加到 Raw Data 或 Reference，也不参与 Wafer 身份字段的自动识别，因此允许名为 **Wafer**、**Wafer ID** 或其他含 Wafer 的自定义标签。默认 **Wafer** 选项与 **Mark2 · Wafer** 以不同的内部值区分，导入无须因该名字报错。
+
+本地整合 v5.1.0 后，Workbook 内 **Spectra Info** 与 **Selection Script / Copy WKB Selection** 为 Type2 提供按配置组合 ID 对齐的 Reference；Ref/Raw 行数不同也可使用，未匹配的 Reference 保持空白。共享勾选状态的脚本仍按 Wafer ID / Lot ID / PAD Name / Die 识别光谱，重复身份的勾选冲突会明确报错。整合与验证记录见 [本地 v5.1.0 Type2 兼容验证](docs/validation/v5.1.0-type2-local-2026-11-04.md)。
+
+下述按行配对及 KLA/NOVA/TEM 分类描述适用于 Type1；其余共用编辑、绘图、保存与导出操作仍可使用。
 
 该工具把日常的 Reference/Raw Data 匹配流程从手工 Excel 中独立出来。当前实现按以下顺序工作：
 

@@ -1,0 +1,30 @@
+# UTF-8. Topic order here is the display order in the Help window.
+version: 1
+home: pages/welcome.md
+topics:
+  - title: 欢迎 / Welcome
+    file: pages/welcome.md
+  - title: Match Workbook
+    file: pages/match_workbook.md
+    children:
+      - title: Type1
+        file: pages/match_type1.md
+      - title: Type2
+        file: pages/match_type2.md
+        children:
+          - title: Mark2 分类
+            file: pages/mark2.md
+  - title: Wafer Map / Radius
+    file: pages/wafer_map.md
+  - title: Spectra Viewer
+    file: pages/spectra_viewer.md
+  - title: Correlation and Trend
+    file: pages/correlation_trend.md
+  - title: Dynamic
+    file: pages/dynamic.md
+  - title: AutoWeighting Writer
+    file: pages/auto_weighting.md
+  - title: Summarize REF
+    file: pages/summarize_ref.md
+  - title: 如何维护帮助文档
+    file: README.md

@@ -9,6 +9,7 @@ datas = [
     (str(root / "metrology_app" / "theme.qss"), "metrology_app"),
     (str(root / "metrology_app" / "theme_light.qss"), "metrology_app"),
     (str(root / "metrology_app" / "assets"), "metrology_app/assets"),
+    (str(root / "help"), "help"),
 ]
 # Recognition only: bundle its pinned local model/config/attribution, not the
 # unused detection/direction models or any online font download.

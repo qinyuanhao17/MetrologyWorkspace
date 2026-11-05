@@ -19,6 +19,33 @@ def prepare_sequence_groups(frame, selection, cells, wafer_column, die_column):
         parts = [(key, np.flatnonzero(ids == key))
                  for key in selection.get('wafers', ()) if key in drawn_keys]
     parts = [(key, positions) for key, positions in parts if len(positions)]
+    mark2 = selection.get("mark2")
+    if mark2:
+        # Both sources share the Raw ordinal domain. A missing Reference value
+        # leaves a gap at its Raw position, never compresses the X coordinates.
+        offsets = {key: min(source_by_key.get(key, {}).get("rows") or (0,)) for key, _ in parts}
+        allowed = set(mark2["order"])
+        selected_rows = {int(p) - offsets[key] for key, positions in parts for p in positions} & allowed
+        domain = [row for row in mark2["order"] if row in selected_rows]
+        ranks = {row: i for i, row in enumerate(domain)}
+        groups = []
+        for key, positions in parts:
+            source = source_by_key.get(key)
+            positions = sorted((int(p) for p in positions if int(p) - offsets[key] in ranks),
+                               key=lambda p: ranks[p - offsets[key]])
+            if not positions:
+                continue
+            ordered = frame.iloc[positions].copy(deep=False)
+            die_name = (source or {}).get("die_column", die_column)
+            ordered["__die"] = (number(ordered[die_name]).to_numpy() if die_name in frame
+                                else np.asarray(positions, dtype=float) - offsets[key] + 2)
+            xs = np.asarray([ranks[p - offsets[key]] for p in positions], dtype=float)
+            groups.append({"key": key, "wafer": str(labels.get(key, key)), "frame": ordered,
+                           "coordinate_label": "Mark2", "source_positions": np.asarray(positions),
+                           "group_label": "Mark2", "positions": xs, "center": float(xs.mean()),
+                           "start": float(xs.min()), "stop": float(xs.max()), "source": source,
+                           "mark2_values": [mark2["labels"][p - offsets[key]] for p in positions]})
+        return groups, len(domain)
     # A missing column falls back to the visible sheet row, not the
     # concatenated analysis row or a renumbered selection. Explicit blank
     # Die Seq cells keep their existing missing-value semantics.

@@ -121,6 +121,16 @@ def create_default_registry():
         "Recognize screenshots locally, review parameter and Multiple Step tables, and export Excel.",
         "Offline screenshot tools", create_auto_weighting_writer,
     ))
+
+    def create_ref_summary():
+        from .ref_summary_window import RefSummaryWindow
+        return RefSummaryWindow()
+
+    registry.register(ComponentSpec(
+        "summarize_ref", "Summarize REF",
+        "Combine KLA, NOVA or PMISH REF files, preview records, and export summary Excel by PAD.",
+        "Reference data tools", create_ref_summary,
+    ))
     return registry
 
 

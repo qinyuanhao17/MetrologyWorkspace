@@ -670,6 +670,12 @@ def _native_identity_categories(helper, helper_row, layout, *, start=0):
 
 def parameter_footer(sheet, first, data, columns, mode):
     """One wafer strip and, when grouped, a separate outer Group strip."""
+    if data.attrs.get("mark2"):
+        from .mark2_export import captions
+        fields = data.attrs["mark2"]["columns"]
+        values = data[[f"Mark2 · {name}" for name in fields]].values.tolist()
+        return captions(fields, values, lambda row, field:
+                        f"{quote_sheetname(sheet.title)}!${get_column_letter(columns[f'Mark2 · {field}'])}${first + row}")
     grouped = mode == 'group' and 'Group' in columns
     groups = data['Group'].tolist() if grouped else [''] * len(data)
     keys = list(zip(groups, data['Wafer key']))
@@ -701,6 +707,11 @@ def footer_margin(captions):
 
 def draw_sequence_axis(axis, sequence, dies=(), *, boundary_gap=0.0):
     """The WKB hierarchy: real Die Seq ticks, then one caption per span."""
+    if sequence.get("mode") == "mark2":
+        from .mark2_plotting import draw_hierarchy
+        axis.set_xlim(sequence["limits"])
+        draw_hierarchy(axis, **sequence["mark2"])
+        return
     from matplotlib.font_manager import FontProperties
     from matplotlib.backends.backend_agg import RendererAgg
     from .plotting.sequence_axis import fit_tick_labels
@@ -845,6 +856,8 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
     final = stage.lower() == "final"
     fit = slope is not None and intercept is not None
     identities = (["Group"] if "Group label" in data else []) + ["Wafer", "Die Seq"]
+    if data.attrs.get("mark2"):
+        identities += [f"Mark2 · {name}" for name in data.attrs["mark2"]["columns"]]
     headers = identities + ["PMISH"] + ([] if final else ["PMISH+Card"]) + [reference_label, "Bias", "Bias %"]
     columns = {name: index for index, name in enumerate(headers, start_column)}
     if (chart_row is None and count and worksheet.title.startswith('Match Original (')
@@ -1005,14 +1018,21 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
         layout = sequence_export_layout(data, mode=axis_mode, captions=captions)
         layout['mode'] = axis_mode
         layouts = [layout]
+    if data.attrs.get("mark2"):
+        from .mark2_export import layout as mark2_layout
+        axis_mode = "mark2"
+        fields = data.attrs["mark2"]["columns"]
+        values = data[[f"Mark2 · {name}" for name in fields]].values.tolist()
+        footer = parameter_footer(worksheet, first_row, data, columns, axis_mode)
+        layouts = [mark2_layout(fields, values, footer)]
     panel_rows = max(
         1, len(layouts) * (2 + int(bool(show_percent))))
     category_columns = [(columns["Group"], data["Group label"].tolist())] if "Group" in columns and not wafer_only else None
     detailed_columns = ([(columns["Group"], data["Group label"].tolist())] if "Group" in columns and not wafer_only else []) + [
         (columns["Wafer"], data["Wafer"].tolist()), (columns["Die Seq"], data["Die Seq"].tolist())]
     for layout in layouts:
-        if axis_mode in ('group', 'wafer') and count:
-            layout['native_die_axis'] = native and _native_die_axis_eligible(data, layout, axis_mode)
+        if axis_mode in ('group', 'wafer', 'mark2') and count:
+            layout['native_die_axis'] = native and axis_mode != 'mark2' and _native_die_axis_eligible(data, layout, axis_mode)
             # Keep source/helper cells identical across native and Matplotlib
             # reports, even if the native chart no longer needs numeric X.
             categories = _native_identity_categories(helper, helper_row, layout)
@@ -1035,7 +1055,7 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
                         ptCount=count,
                         pt=[StrVal(idx=i, v=str(value))
                             for i, value in enumerate(data['Die Seq'])])))
-            elif axis_mode not in ('group', 'wafer'):
+            elif axis_mode not in ('group', 'wafer', 'mark2'):
                 layout["categories"] = native_categories(
                     worksheet, first_row, last_row, categories)
     if count and native:
@@ -1152,7 +1172,7 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
             # boundaries are affine. Other layouts retain the numeric X scale.
             numeric_identity = getattr(
                 layout.get("categories"), "numRef", None) is not None
-            identity_overlay = layout.get('mode') in ('group', 'wafer')
+            identity_overlay = layout.get('mode') in ('group', 'wafer', 'mark2')
             chart = ScatterChart() if numeric_identity else LineChart()
             if numeric_identity:
                 chart.scatterStyle = "lineMarker"
@@ -1289,7 +1309,12 @@ def _parameter_data(result, parameter, key="all", labels=None, *, order="group")
         data['Group caption'] = data['Group'].map(lambda group: result.group_plan.label(group, multiline=True))
         visible = result.group_plan.state.get('show_wafer_groups', ())
         data['Show wafer'] = [group in visible or key in visible for group in data['Group']]
-    if order == "wafer":
+    if result.group_plan.mark2_enabled:
+        fields = result.group_plan.state["mark2"]["selected"]
+        for i, field in enumerate(fields):
+            data[f"Mark2 · {field}"] = [result.group_plan.mark2_labels[row][i] for row in data["Source row"]]
+        data.attrs["mark2"] = {"columns": fields}
+    elif order == "wafer":
         # First appearance in the Original source, independent of Group order
         # or the UI's selected trend order. Keep original rows within a Wafer.
         wafer_ranks = {}
@@ -1330,6 +1355,8 @@ def write_parameter_sheets(book, used_titles, result, workbook, *, native=True, 
         layout = sequence_layout(data['Group label'], name='Group')
         shared_widths[parameter] = (layout['width'], layout['width'])
     block_width = (7 if result.result_mode == 'preview' else 6) + int(result.group_plan.enabled)
+    if result.group_plan.mark2_enabled:
+        block_width += len(result.group_plan.state["mark2"]["selected"])
     # Horizontal parameter tables, then source measurements to their right.
     # Keep one literal source table to the right of the prepared parameter tables.
     trend_width = max((widths[0] for widths in shared_widths.values()), default=TREND_WIDTH_CM)
@@ -1659,7 +1686,7 @@ def _write_workbook(book, path, *, reference, stages, native, images, reports, e
             raise InterruptedError("Export cancelled")
         suffix = stage_suffix(workbook.result_mode)
         write_parameter_sheets(book, used, result, workbook, native=native, images=images, plot_labels=plot_labels, raw=raw)
-        if str(workbook.match_type).upper() in {"NOVA", "KLA"}:
+        if workbook.workbook_type == "type2" or str(workbook.match_type).upper() in {"NOVA", "KLA"}:
             write_rsq_sheet(book, used, result, native=native, images=images)
         fullmap_report = next((report for _prefix, report in reports
             if report.get("scope") == f"map.{workbook.result_mode}"), None)
@@ -2091,6 +2118,8 @@ def parameter_figure(parameter, data, card, stage, scope, *, panel="Match", refe
             bottom += .9 + .45 * max((len(label.splitlines()) for _, label in sequence.get('group_ticks', ())), default=0)
             if 'captions' in sequence:
                 bottom = footer_margin(sequence['captions'])
+            if sequence.get('mode') == 'mark2':
+                bottom = .5 + (55 + 25 * (len(sequence['mark2']['columns']) - 1)) * 2.54 / 96
         else:
             axis.set_xticks([position for position, _label in selected], [label for _position, label in selected], fontsize=10)
             axis.set_xlim(.5, max(1, len(data)) + .5)

@@ -974,6 +974,9 @@ class SequencePage(QWidget):
                 key = group["key"][1] if group["source"] is not None else group["key"]
                 axis_groups.setdefault(key, group)
             self.axis_groups = sorted(axis_groups.values(), key=lambda group: group["start"])
+            if self.selection.get("mark2"):
+                labels = {float(x): values for g in groups for x, values in zip(g["positions"], g["mark2_values"])}
+                self._mark2_values = [labels[x] for x in sorted(labels)]
             self.x_range = (
                 min(group["start"] for group in self.axis_groups) - .5,
                 max(group["stop"] for group in self.axis_groups) + .5,
@@ -1163,6 +1166,8 @@ class SequencePage(QWidget):
         label_lines = max((label.count("\n") + 1 for _, _, label in label_spans), default=1)
         footer = max(95, (3 * base + 12 + label_lines * max(6, base - 2) * 1.2 + 8)
                      * self.figure.dpi / 72)
+        if self.selection.get("mark2"):
+            footer = max(footer, (60 + 28 * len(self.selection["mark2"]["columns"])) * self.figure.dpi / 96)
         header = ((base + 1) * 1.4 + 16) * self.figure.dpi / 72
         row_gap = footer + header
         height = max(height, rows * (220 + row_gap))
@@ -1177,13 +1182,13 @@ class SequencePage(QWidget):
             chosen = self._chosen_groups(panel, groups)
             source_mode = bool(self.selection.get("sources"))
             wafer_texts = []
-            for start, end, label in label_spans:
+            for start, end, label in (() if self.selection.get("mark2") else label_spans):
                 wafer_texts.append(ax.text((start + end) / 2, 0, label,
                                             transform=ax.get_xaxis_transform() + ScaledTranslation(
                                                 0, -(3 * base + 12) / 72, self.figure.dpi_scale_trans),
                                             ha="center", va="top",
                                             fontsize=max(6, base - 2), color="#5f6368", clip_on=False))
-            group_edges, wafer_edges = self._boundary_positions()
+            group_edges, wafer_edges = ([], []) if self.selection.get("mark2") else self._boundary_positions()
             for positions, color, width in ((group_edges, "#000000", 2), (wafer_edges, BOUNDARY_COLOR, 1)):
                 for position in positions:
                     ax.axvline(position, color=color, linewidth=width, linestyle="--", zorder=0)
@@ -1193,6 +1198,9 @@ class SequencePage(QWidget):
                     return [], np.asarray([])
                 positions = np.concatenate([group["positions"] for group in curve_groups])
                 values = self._metric_values(name, curve_groups)
+                if self.selection.get("mark2"):
+                    order = np.argsort(positions, kind="stable")
+                    positions, values = positions[order], values[order]
                 lines = target.plot(
                     positions, values, color=color,
                     linestyle="-", linewidth=TREND_LINE_WIDTH, marker="o",
@@ -1293,6 +1301,10 @@ class SequencePage(QWidget):
         # Fit against the export renderer, not screen pixels or a fixed count.
         renderer = self.figure.canvas.get_renderer()
         for ax in axes.flat[:len(panels)]:
+            if self.selection.get("mark2"):
+                from .mark2_plotting import draw_hierarchy
+                draw_hierarchy(ax, self.selection["mark2"]["columns"], self._mark2_values, origin=0)
+                continue
             texts = ax._wafer_group_labels
             if not texts:
                 continue
@@ -1371,6 +1383,8 @@ class SequencePage(QWidget):
                     **{"Source row": np.concatenate([group["source_positions"] for group in selected]) - offset + 1,
                        self._coordinate_label(selected): np.concatenate([group["frame"]["__die"].to_numpy() for group in selected]),
                        "Wafer": np.concatenate([np.repeat(group["wafer"], len(group["frame"])) for group in selected])})
+                if self.selection.get("mark2"):
+                    item["data"] = item["data"].sort_values("X", kind="stable").reset_index(drop=True)
                 if owner is not None:
                     item["source"] = owner["name"]
                 if specification is not None and specification["kind"] == "second-axis":
@@ -1382,6 +1396,9 @@ class SequencePage(QWidget):
                 series.append(item)
             title = self._legend_label(source, metric)
             plots.append({"sheet": "Trend", "title": title, "x": "Plot ordinal", "y": title, "series": series})
+            if self.selection.get("mark2"):
+                plots[-1]["mark2"] = {"columns": self.selection["mark2"]["columns"],
+                                       "values": self._mark2_values, "origin": 0}
         return plots
 
     def set_parameter_filter(self, _parameter):
@@ -1456,7 +1473,7 @@ class SequencePage(QWidget):
         Comparison axes and expanded wafer spacing retain the complete renderer.
         This describes only the current draw, without retaining source tables.
         """
-        if self.expand_wafer_ids.isChecked() or any(panel.get("comparisons") for panel in panels):
+        if self.selection.get("mark2") or self.expand_wafer_ids.isChecked() or any(panel.get("comparisons") for panel in panels):
             return None
         return (
             int(self.font_size.currentText()), columns, rows, self.x_range,
@@ -1508,6 +1525,8 @@ class SequencePage(QWidget):
         self.clear_interactive()
         base = int(self.font_size.currentText())
         panel_height = 320
+        if self.selection.get("mark2"):
+            panel_height = max(panel_height, 270 + 27 * len(self.selection["mark2"]["columns"]))
         grid = PanelGrid(columns)
         grid.set_minimum_row_height(rows, panel_height)
         if batch:
@@ -1604,6 +1623,9 @@ class SequencePage(QWidget):
                 return None
             positions = np.concatenate([group["positions"] for group in curve_groups])
             values = self._metric_values(name, curve_groups)
+            if self.selection.get("mark2"):
+                order = np.argsort(positions, kind="stable")
+                positions, values = positions[order], values[order]
             pen = pg.mkPen(color, width=TREND_LINE_WIDTH)
             item = ResponsivePlotDataItem(
                 positions, values, connect="finite", pen=pen,
@@ -1682,7 +1704,7 @@ class SequencePage(QWidget):
         else:
             curve(plot, metric, LINE_COLOR, None, None, chosen)
 
-        if self.axis_groups:
+        if self.axis_groups and not self.selection.get("mark2"):
             group_edges, wafer_edges = self._boundary_positions()
             widget.group_boundaries = widget.add_vertical_boundaries(
                 group_edges, pg.mkPen("#000000", width=2, style=Qt.PenStyle.DashLine))
@@ -1693,7 +1715,7 @@ class SequencePage(QWidget):
         axis.setStyle(tickFont=widget.font(), tickTextOffset=0)
         axis.setPen(pg.mkPen("#30343b"))
         axis.setTextPen(pg.mkPen("#30343b"))
-        if self.axis_groups:
+        if self.axis_groups and not self.selection.get("mark2"):
             # A second, linked axis carries the wafer name under each span,
             # so the curve itself stays one continuous line.
             wafer_axis = SpanLabelAxis(
@@ -1707,6 +1729,9 @@ class SequencePage(QWidget):
             wafer_axis.linkToView(plot.getViewBox())
             widget._wafer_axis = wafer_axis
             wafer_axis.refresh()
+        if self.selection.get("mark2"):
+            from .mark2_plotting import set_hierarchy_axis
+            set_hierarchy_axis(widget, self.selection["mark2"]["columns"], self._mark2_values, origin=0)
         left = plot.getAxis("left")
         if not comparisons:
             left.setPen(pg.mkPen("#30343b"))

@@ -15,6 +15,7 @@ from .matching import MatchWorkbook
 from .matching.analysis import _normalized_trend_axis_settings
 from .settings import apply_theme, recent_wkb_paths
 from .workspace_store import MATCH_FILTER, load_workspace
+from .workbook_type import WORKBOOK_TYPES, normalize_workbook_type
 
 
 AXIS_MODE_LABELS = {
@@ -77,17 +78,18 @@ def recent_workbook_row(path):
 def analysis_settings(state=None, *, allow_empty_bias=False):
     """Normalize only launch settings, retaining older workbook axis policies."""
     state = state or {}
-    match_type = state.get("match_type", "KLA")
+    workbook_type = normalize_workbook_type(state.get("workbook_type", "type1"))
+    match_type = "Reference" if workbook_type == "type2" else state.get("match_type", "KLA")
     result_mode = state.get("result_mode", "preview")
     views = tuple(state.get("bias_views", [state.get("bias_mode", "absolute")]))
     primary = state.get("bias_mode", "absolute")
     if primary not in views and views:
         primary = views[0]
-    if match_type not in ("KLA", "NOVA", "TEM") or result_mode not in ("preview", "final"):
+    if (workbook_type == "type1" and match_type not in ("KLA", "NOVA", "TEM")) or result_mode not in ("preview", "final"):
         raise ValueError("Choose a valid Match Type and Preview or Final.")
     if (not views and not allow_empty_bias) or len(set(views)) != len(views) or any(view not in ("absolute", "percent") for view in views):
         raise ValueError("Select Bias, Bias %, or both.")
-    return {"match_type": match_type, "result_mode": result_mode,
+    return {"workbook_type": workbook_type, "match_type": match_type, "result_mode": result_mode,
             "bias_views": [view for view in ("absolute", "percent") if view in views], "bias_mode": primary,
             "trend_axis_settings": deepcopy(_normalized_trend_axis_settings(
                 state.get("trend_axis_settings"), state.get("correlation_selections", {}), result_mode))}
@@ -187,9 +189,14 @@ class WorkbookStartupDialog(QDialog):
         form = QFormLayout(card)
         form.setContentsMargins(18, 16, 18, 16)
         form.setVerticalSpacing(12)
+        self.workbook_type = QComboBox()
+        for value, label in WORKBOOK_TYPES.items():
+            self.workbook_type.addItem(label, value)
+        form.addRow("Workbook Type", self.workbook_type)
         self.match_type = QComboBox()
         self.match_type.addItems(["KLA", "NOVA", "TEM"])
         form.addRow("Match Type", self.match_type)
+        self.match_type_label = form.labelForField(self.match_type)
         bias_row = QWidget()
         bias_layout = QHBoxLayout(bias_row)
         bias_layout.setContentsMargins(0, 0, 0, 0)
@@ -217,7 +224,8 @@ class WorkbookStartupDialog(QDialog):
         self.restore_button.clicked.connect(lambda: self.set_settings(self._saved_settings))
         layout.addWidget(self.restore_button, alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addStretch()
-        for control, signal in ((self.match_type, "currentIndexChanged"), (self.axis_mode, "currentIndexChanged"),
+        for control, signal in ((self.workbook_type, "currentIndexChanged"),
+                                (self.match_type, "currentIndexChanged"), (self.axis_mode, "currentIndexChanged"),
                                 (self.stage, "currentIndexChanged"), (self.axis_ratio, "valueChanged"),
                                 (self.absolute_bias, "toggled"), (self.percent_bias, "toggled")):
             getattr(control, signal).connect(self._settings_changed)
@@ -275,6 +283,8 @@ class WorkbookStartupDialog(QDialog):
     def set_settings(self, settings):
         self._setting_controls = True
         try:
+            self.workbook_type.setCurrentIndex(self.workbook_type.findData(
+                normalize_workbook_type(settings.get("workbook_type", "type1"))))
             self.match_type.setCurrentText(settings["match_type"])
             self.absolute_bias.setChecked("absolute" in settings["bias_views"])
             self.percent_bias.setChecked("percent" in settings["bias_views"])
@@ -289,7 +299,8 @@ class WorkbookStartupDialog(QDialog):
     def settings(self):
         views = [name for name, control in (("absolute", self.absolute_bias), ("percent", self.percent_bias))
                  if control.isChecked()]
-        return analysis_settings({"match_type": self.match_type.currentText(), "bias_views": views,
+        return analysis_settings({"workbook_type": self.workbook_type.currentData(),
+                                  "match_type": self.match_type.currentText(), "bias_views": views,
                                   "bias_mode": self._saved_settings["bias_mode"],
                                   "result_mode": self.stage.currentText().lower(),
                                   "trend_axis_settings": {"mode": self.axis_mode.currentData(), "ratio": self.axis_ratio.value()}})
@@ -297,6 +308,9 @@ class WorkbookStartupDialog(QDialog):
     def _settings_changed(self, *_):
         if self._setting_controls:
             return
+        instrument = self.workbook_type.currentData() == "type1"
+        self.match_type.setVisible(instrument)
+        self.match_type_label.setVisible(instrument)
         self.axis_ratio.setEnabled(self.axis_mode.currentData() == "auto")
         valid = self.absolute_bias.isChecked() or self.percent_bias.isChecked()
         self.confirm_button.setEnabled(valid)

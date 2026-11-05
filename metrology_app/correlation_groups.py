@@ -6,9 +6,10 @@ from .match_groups import row_ids, participation_source_keys, GroupPlan
 
 
 def prepare_group_context(book, raw, applies):
+    raw = book.effective_raw(raw)
     from .match_groups import applied_state, participation_rows, wafer_identity_keys
     effective = applied_state(book.grouping_state)
-    if (not (effective["enabled"] or effective["mark_enabled"])
+    if (not (effective["enabled"] or effective["mark_enabled"] or effective["mark2_enabled"])
             and effective["trend_order"] == "groups"
             and (effective["data_selection"] is None or not applies)):
         return None
@@ -19,7 +20,7 @@ def prepare_group_context(book, raw, applies):
     flags = flags.where(flags.notna(), "")
     if applies and len(raw) != len(book.raw):
         rows = list(participation_rows(book.raw, effective["data_selection"]))
-        source = book.raw.iloc[rows].reset_index(drop=True).fillna("").astype(str)
+        source = book.effective_raw().iloc[rows].reset_index(drop=True).fillna("").astype(str)
         if raw.equals(source):
             flags = flags.iloc[rows]
     full_selection = None
@@ -32,7 +33,7 @@ def prepare_group_context(book, raw, applies):
         if config.get("trend_order") == "wafers":
             # Selected child tables omit rows, not the parent's original
             # first-appearance order. Retain only identity metadata here.
-            config["wafer_source_order"] = list(dict.fromkeys(wafer_identity_keys(book.raw) or ()))
+            config["wafer_source_order"] = list(dict.fromkeys(wafer_identity_keys(book.effective_raw()) or ()))
         if "flags" in config:
             config["flags"] = flags.tolist()
         if not applies:
@@ -41,6 +42,7 @@ def prepare_group_context(book, raw, applies):
             # keeps legacy display filters from excluding plotted rows.
             config["data_selection"] = deepcopy(full_selection)
     return {"grouping": state,
+                          "wafer_id_mapping": deepcopy(book.wafer_id_mapping),
                           "flags": flags.tolist(),
                           "identities": identities,
                           "provenance": list(participation_source_keys(raw)),
@@ -49,6 +51,7 @@ def prepare_group_context(book, raw, applies):
 
 
 def prepare_group_result(book, raw, reference, applies):
+    raw = book.effective_raw(raw)
     context = prepare_group_context(book, raw, applies)
     plan, error = None, None
     if context:

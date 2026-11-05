@@ -284,7 +284,11 @@ def open_child(owner, scope):
     child._workbook_child = True
     child._spectra_workbook_owner = owner
     child.set_workbook_selection_source(owner.selection_script)
-    child.set_spectra_info_source(lambda: (owner._active_raw_frame(), owner.reference_frame))
+    child.set_spectra_info_source(lambda: (
+        owner._effective_raw_frame(),
+        owner._matching_reference(strict=True) if getattr(owner, "workbook_type", "type1") == "type2"
+        else owner.reference_frame,
+    ))
     child._analysis_window_name = window_metadata(scope, saved)["name"]
     child.document.refresh_identity()
     def closed(viewer):

@@ -14,6 +14,8 @@ import pandas as pd
 
 from ..measurements import default_identity_columns, detect_measurements, wafer_identity_labels
 from ..trend import parse_unit
+from ..workbook_type import normalize_workbook_type
+from ..id_matching import align_by_id, matching_keys as normalized_matching_keys
 
 
 SCHEMA_VERSION = 10
@@ -382,13 +384,41 @@ class MatchAnalysisResult:
             "Selected Bias": selected,
         }, index=self._reference.index.copy())
 
-    def wafer_summary(self, parameter, wafer_column=None):
-        """Fit each Raw Data measurement identity independently, in source order."""
+    def _metrics_groups(self, wafer_column=None, *, mark2_column=None):
+        """Measurement rows for the metrics tab, separate from Raw identities."""
+        if mark2_column is None:
+            return self._measurement_groups(wafer_column)
+        plan = self.group_plan
+        if not plan.mark2_enabled or mark2_column not in plan.state["mark2"]["columns"]:
+            raise ValueError("Choose an imported Mark2 label column for metrics grouping.")
+        if getattr(self, "_metrics_group_plan", None) is not plan:
+            self._metrics_group_plan = plan
+            self._metrics_group_cache = {}
+        if mark2_column not in self._metrics_group_cache:
+            from ..mark2 import labels_for_raw
+            from ..measurements import Measurement
+            labels = labels_for_raw(plan.raw, {**plan.state["mark2"], "selected": [mark2_column]})
+            buckets = {}
+            for position, source_row in enumerate(self.source_rows):
+                buckets.setdefault(labels[source_row][0], []).append(position)
+            missing = "(No Mark2 label)"
+            while missing in buckets:
+                missing += " "
+            self._metrics_group_cache[mark2_column] = [
+                Measurement(json.dumps(["mark2", mark2_column, value], ensure_ascii=False),
+                            "", "", "", tuple(rows), value or missing,
+                            f"Mark2 · {mark2_column}")
+                for value, rows in buckets.items()
+            ]
+        return self._raw, self._metrics_group_cache[mark2_column]
+
+    def wafer_summary(self, parameter, wafer_column=None, *, mark2_column=None):
+        """Fit each measurement identity or selected Mark2 value independently."""
         try:
             mapping = self._mapping_by_name[parameter]
         except KeyError as error:
             raise ValueError(f"Unknown parameter: {parameter}") from error
-        source, measurements = self._measurement_groups(wafer_column)
+        source, measurements = self._metrics_groups(wafer_column, mark2_column=mark2_column)
         reference = pd.to_numeric(self._reference[mapping.reference_column], errors="coerce").to_numpy(float)
         raw = pd.to_numeric(self._raw[mapping.raw_column], errors="coerce").to_numpy(float)
         rows = []
@@ -404,7 +434,7 @@ class MatchAnalysisResult:
                 slope, intercept, r_squared = card.slope, card.intercept, card.r_squared
             else:
                 slope = intercept = r_squared = np.nan
-            group_label = "Not grouped"
+            group_label = "Not grouped" if mark2_column is None else f"Mark2 · {mark2_column}"
             if self.group_plan.enabled:
                 labels = list(dict.fromkeys(
                     self.group_plan.labels[self.source_rows[row]] for row in measurement.rows
@@ -458,9 +488,9 @@ class MatchAnalysisResult:
             result.set_bias_limit(limit, name)
         return result
 
-    def wafer_frames(self, row):
-        """Paired sources for exactly the measurement identity in wafer_summary."""
-        _, measurements = self._measurement_groups()
+    def wafer_frames(self, row, *, mark2_column=None):
+        """Paired sources for exactly one group in wafer_summary."""
+        _, measurements = self._metrics_groups(mark2_column=mark2_column)
         if not 0 <= row < len(measurements):
             raise ValueError("Unknown single-wafer row.")
         indices = list(measurements[row].rows)
@@ -583,9 +613,15 @@ class MatchWorkbook:
                  preview_dynamic=None, final_dynamic=None,
                  workspace_selections=None, correlation_selections=None,
                  trend_axis_settings=None, workspace_states=None,
-                 workspace_frames=None, test_flags=None, grouping_state=None, bias_limit=.5):
+                 workspace_frames=None, test_flags=None, grouping_state=None, bias_limit=.5,
+                 workbook_type="type1", matching_keys=None, wafer_id_mapping=None):
         self.reference = reference
         self.raw = raw
+        self.workbook_type = normalize_workbook_type(workbook_type)
+        self.matching_keys = normalized_matching_keys(matching_keys)
+        from ..wafer_id_mapping import config
+        self.wafer_id_mapping = config(wafer_id_mapping) if self.workbook_type == "type2" else config()
+        self._effective_raw_cache = []
         from ..match_groups import group_state
         self.test_flags = test_flags
         self.grouping_state = group_state(grouping_state)
@@ -606,7 +642,7 @@ class MatchWorkbook:
             correlation_selections
         )
         self.mappings = tuple(mappings)
-        self.match_type = str(match_type).upper()
+        self.match_type = "Reference" if self.workbook_type == "type2" else str(match_type).upper()
         self.result_mode = str(result_mode).lower()
         self.trend_axis_settings = _normalized_trend_axis_settings(
             trend_axis_settings, self.correlation_selections, self.result_mode
@@ -632,9 +668,13 @@ class MatchWorkbook:
         self._validate()
 
     def _validate(self):
+        from ..match_groups import applied_state
+        grouping = applied_state(self.grouping_state)
+        if grouping["mark2_enabled"] and (not grouping["mark2"]["records"] or not grouping["mark2"]["selected"]):
+            raise ValueError("Import Mark2 labels and select at least one field in Groups → Manage groups Mark2.")
         if not isinstance(self.reference, pd.DataFrame) or not isinstance(self.raw, pd.DataFrame):
             raise TypeError("Reference and Raw Data must be pandas DataFrames.")
-        if len(self.reference) > len(self.raw):
+        if self.workbook_type == "type1" and len(self.reference) > len(self.raw):
             raise ValueError("Reference has more rows than Raw Data. Keep the sources aligned by original row position.")
         if max(len(self.reference), len(self.raw)) > MAX_ROWS:
             raise ValueError(f"A workbook supports at most {MAX_ROWS:,} rows.")
@@ -645,12 +685,15 @@ class MatchWorkbook:
         self._validate_stage_source(self.preview_raw, "Preview FullMap")
         self._validate_stage_source(self.final_raw, "Final Raw Data")
         self._validate_stage_source(self.final_match_raw, "Final Match Raw Data")
+        self.effective_raw(self.raw)
+        if self.final_match_raw is not None:
+            self.effective_raw(self.final_match_raw)
         self._validate_workspace_snapshot(self.preview_map, "Preview Map")
         self._validate_workspace_snapshot(self.final_map, "Final Map")
         self._validate_workspace_snapshot(self.preview_dynamic, "Preview Dynamic")
         self._validate_workspace_snapshot(self.final_dynamic, "Final Dynamic")
         if (
-            self.final_match_raw is not None
+            self.workbook_type == "type1" and self.final_match_raw is not None
             and len(self.reference) > len(self.final_match_raw)
         ):
             raise ValueError(
@@ -677,7 +720,7 @@ class MatchWorkbook:
                     raise ValueError(
                         f"{label} column not found for {mapping.name}: {mapping.raw_column}"
                     )
-        if self.match_type not in _ALLOWED_MATCH_TYPES:
+        if self.workbook_type == "type1" and self.match_type not in _ALLOWED_MATCH_TYPES:
             raise ValueError("Match type must be TEM, NOVA, or KLA.")
         if self.result_mode not in _ALLOWED_RESULT_MODES:
             raise ValueError("Result mode must be preview or final.")
@@ -766,6 +809,9 @@ class MatchWorkbook:
             if self.result_mode == "final" and self.final_match_raw is not None
             else self.raw
         )
+        analysis_raw = self.effective_raw(analysis_raw)
+        alignment = self.id_alignment(analysis_raw) if self.workbook_type == "type2" else None
+        analysis_reference = alignment.reference if alignment is not None else self.reference
         from ..match_groups import GroupPlan, applied_state
         # TEM now shares the same optional Head/Mark grouping as KLA and NOVA.
         state = self.grouping_state
@@ -781,10 +827,13 @@ class MatchWorkbook:
                 column = next((c for c in analysis_raw if normalized(c) == 'testflag'), None)
                 expected_flags = analysis_raw[column].tolist() if column else []
         expected_flags = expected_flags + [''] * (len(analysis_raw) - len(expected_flags))
-        if not (plan is not None and plan.raw is analysis_raw and plan.reference is self.reference
+        if not (plan is not None and plan.raw is analysis_raw
+                and (plan.reference is analysis_reference or (alignment is not None and plan.reference.equals(analysis_reference)))
                 and {k: v for k, v in plan.state.items() if k != 'flags'} == expected
                 and plan.order_frame['TestFlag'].tolist() == expected_flags):
-            plan = GroupPlan(analysis_raw, flags, state, self.reference)
+            plan = GroupPlan(analysis_raw, flags, state, analysis_reference)
+        if alignment is not None:
+            plan.id_alignment = alignment
         if (plan.enabled or state.get("data_selection") is not None) and self.result_mode == "final" and self.final_match_raw is not None:
             from ..match_groups import row_ids
             if row_ids(self.raw) != row_ids(analysis_raw):
@@ -806,6 +855,7 @@ class MatchWorkbook:
             and result.result_mode == self.result_mode
             and result.bias_mode == self.bias_mode
             and result.mapping_columns == self.mapping_columns
+            and result.group_plan.raw.attrs.get("metrology_wafer_id_mapping") == plan.raw.attrs.get("metrology_wafer_id_mapping")
             and result.group_plan.ids == plan.ids
             and result.source_rows == plan.included_rows
         )
@@ -829,7 +879,7 @@ class MatchWorkbook:
             # Bias limits are workbook inputs, not fit results.
             reuse.set_bias_limit(self.bias_limit)
             return reuse
-        reference_frame = self.reference
+        reference_frame = plan.reference if self.workbook_type == "type2" else self.reference
         if len(reference_frame) < len(analysis_raw):
             # Missing trailing Reference is a missing pair, not a reason to
             # discard Raw rows or compact later measurements into empty slots.
@@ -844,7 +894,7 @@ class MatchWorkbook:
             try:
                 cards[mapping.name] = _fit_card(raw, reference, mapping.name)
             except ValueError:
-                if plan.state["data_selection"] is None:
+                if self.workbook_type == "type1" and plan.state["data_selection"] is None:
                     raise
                 cards[mapping.name] = Card(np.nan, np.nan, np.nan, int((np.isfinite(raw) & np.isfinite(reference)).sum()))
         result = MatchAnalysisResult(
@@ -852,6 +902,7 @@ class MatchWorkbook:
             self.result_mode, self.bias_mode, self.match_type, self.bias_limit,
         )
         result.group_plan = plan
+        result.id_alignment = getattr(plan, "id_alignment", None)
         result.source_rows = plan.included_rows
         result._group_cards = {}
         if (metadata_from is not None and result.source_rows == metadata_from.source_rows
@@ -868,6 +919,23 @@ class MatchWorkbook:
                     result._measurements[requested] = source, measurements
                     result._measurement_spans.update({key: value for key, value in metadata_from._measurement_spans.items()
                                                       if key[0] == requested})
+        return result
+
+    def id_alignment(self, raw=None):
+        """Align a derived Reference to Raw; source tables stay literal and independent."""
+        if raw is None:
+            raw = self.final_match_raw if self.result_mode == "final" and self.final_match_raw is not None else self.raw
+        return align_by_id(self.reference, self.effective_raw(raw), self.matching_keys)
+
+    def effective_raw(self, raw=None):
+        """Canonical processing IDs, separate from the persisted Raw source."""
+        from ..wafer_id_mapping import apply
+        raw = self.raw if raw is None else raw
+        for source, result in self._effective_raw_cache:
+            if source is raw:
+                return result
+        result = apply(raw, self.wafer_id_mapping)
+        self._effective_raw_cache = [(raw, result), *self._effective_raw_cache[:3]]
         return result
 
     def participating_frame(self, frame, *, paired_source=False, apply_selection=True):
@@ -907,7 +975,7 @@ class MatchWorkbook:
             apply_card = stage == "preview"
         snapshot = self.preview_map if stage == "preview" else self.final_map
         if use_snapshot and snapshot is not None:
-            return self.participating_frame(snapshot, apply_selection=apply_selection)
+            return self.participating_frame(self.effective_raw(snapshot), apply_selection=apply_selection)
         source = self.preview_raw if stage == "preview" else self.final_raw
         if source is None:
             if self.match_type == "TEM":
@@ -917,6 +985,7 @@ class MatchWorkbook:
                 if stage == "final" and self.final_match_raw is not None
                 else self.raw
             )
+        source = self.effective_raw(source)
         frame = source.reset_index(drop=True).copy()
         result = self.analyze() if apply_card else None
         targets = {mapping.name for mapping in self.mappings}
@@ -967,7 +1036,7 @@ class MatchWorkbook:
             self.preview_dynamic if stage == "preview" else self.final_dynamic
         )
         if snapshot is not None:
-            return self.participating_frame(snapshot, apply_selection=apply_selection)
+            return self.participating_frame(self.effective_raw(snapshot), apply_selection=apply_selection)
         return self.stage_frame(stage, apply_card=apply_card, apply_selection=apply_selection)
 
     def to_snapshot(self):
@@ -982,7 +1051,7 @@ class MatchWorkbook:
                 frames[name] = frame
         frames.update(self.workspace_frames)
         state = {name: getattr(self, name) for name in (
-            "match_type", "result_mode", "bias_mode", "bias_views",
+            "workbook_type", "matching_keys", "wafer_id_mapping", "match_type", "result_mode", "bias_mode", "bias_views",
             "setup_splitter_sizes", "parameter_order", "workspace_selections",
             "correlation_selections", "trend_axis_settings", "grouping_state", "bias_limit")}
         state["mappings"] = [

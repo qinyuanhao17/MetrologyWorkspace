@@ -16,6 +16,8 @@ import shutil
 import sqlite3
 import tempfile
 
+from .workbook_type import normalize_workbook_type
+
 FORMAT_VERSION = 1
 WORKSPACE_TYPES = {"match_workbook", "wafer_map", "dynamic", "correlation_trend", "auto_weighting", "spectra_viewer"}
 EXTENSIONS = {"match_workbook": ".mwkb", "wafer_map": ".wmap", "dynamic": ".wdyn", "correlation_trend": ".wct", "auto_weighting": ".waw", "spectra_viewer": ".spec"}
@@ -118,6 +120,12 @@ def _validate(snapshot):
         raise ValueError("Invalid WKB document state.")
     if snapshot.workspace_type == "match_workbook" and "match" not in snapshot.states:
         raise ValueError("This WKB is missing its Match settings.")
+    if snapshot.workspace_type == "match_workbook":
+        normalize_workbook_type(snapshot.states["match"].get("workbook_type", "type1"))
+        from .id_matching import matching_keys
+        matching_keys(snapshot.states["match"].get("matching_keys"))
+        from .wafer_id_mapping import config as wafer_mapping_config
+        wafer_mapping_config(snapshot.states["match"].get("wafer_id_mapping"))
     if any(not isinstance(name, str) or not isinstance(frame, pd.DataFrame)
            for name, frame in snapshot.frames.items()):
         raise ValueError("Invalid WKB measurement table.")

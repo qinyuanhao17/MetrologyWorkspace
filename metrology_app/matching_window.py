@@ -89,6 +89,9 @@ from .widgets import ScrollSafeComboBox
 from .workspace_store import EXTENSIONS, MATCH_FILTER, WorkspaceSnapshot, file_revision, load_workspace, save_workspace, workspace_path
 from .workspace_document import WkbDocument, commit_editors, local_snapshot, local_ui, recovery_decision, recovery_directory, writable_path
 from .workbook_startup import AXIS_MODE_LABELS, analysis_settings as normalized_analysis_settings
+from .workbook_type import normalize_workbook_type
+from .id_matching import align_by_id, matching_keys as normalized_matching_keys
+from .matching_conditions import MatchingConditions
 
 
 PLOT_LIMIT = 20_000
@@ -739,6 +742,13 @@ class MatchingWindow(QMainWindow):
                  correlation_window_factory=None):
         super().__init__()
         self.setWindowTitle("Match Workbook")
+        self.workbook_type = "type1"
+        self.matching_keys = normalized_matching_keys()
+        from .wafer_id_mapping import config as wafer_mapping_config
+        self.wafer_id_mapping = wafer_mapping_config()
+        self._wafer_mapping_revision = 0
+        self._wafer_mapping_cache = []
+        self._matching_settings_expanded_size = 450
         fit_window_to_screen(self, (1520, 930), minimum=(1050, 700))
         apply_theme(self)
         self.reference_frame = pd.DataFrame()
@@ -775,6 +785,8 @@ class MatchingWindow(QMainWindow):
         self._statistics_state = {}
         self._plot_layout_states = {}
         self._single_wafer_checks = {"preview": {}, "final": {}}
+        self._metrics_group_field = None
+        self._mark2_metrics_checks = {"preview": {}, "final": {}}
         self._plot_label_options = plot_label_options()
         self._plot_layout_identity_timer = QTimer(self)
         self._plot_layout_identity_timer.setSingleShot(True)
@@ -837,6 +849,7 @@ class MatchingWindow(QMainWindow):
         self._build_ui()
         self.group_controls.changed.connect(self._group_controls_changed)
         self.group_controls.apply_requested.connect(self._apply_group_clicked)
+        self.group_controls.mark2_apply_requested.connect(self._run_analysis_clicked)
         self.group_controls.combined_imported.connect(self._import_group_frames)
         self.reference_model.changed.connect(
             lambda: self._input_sheet_changed("reference")
@@ -882,7 +895,9 @@ class MatchingWindow(QMainWindow):
                         for m in self.selected_mappings()]
         except ValueError:
             mappings = []  # Incomplete mapping choices are retained in match_ui.
-        state = {"match_type": self.match_type.currentText(), "result_mode": self.result_mode.currentText().lower(),
+        state = {"workbook_type": self.workbook_type, "matching_keys": deepcopy(self.matching_keys),
+                 "wafer_id_mapping": deepcopy(self.wafer_id_mapping),
+                 "match_type": self.match_type.currentText(), "result_mode": self.result_mode.currentText().lower(),
                  "bias_mode": self._primary_bias_mode, "bias_views": self._selected_bias_views(),
                  "bias_limit": self._default_bias_limit,
                  "setup_splitter_sizes": self.setup_splitter.sizes(), "parameter_order": list(self.parameter_order()),
@@ -893,9 +908,13 @@ class MatchingWindow(QMainWindow):
                  "grouping_state": capture(self.group_controls.state),
                  "draft": not (self._analysis_current or self._group_only_pending) or self.result is None or not mappings or bool(any(self._input_sheet_errors.values()))}
         ui = {"mapping_choices": self._mapping_state(),
+              "matching_settings_expanded": self.matching_settings_toggle.isChecked(),
+              "matching_settings_expanded_size": self._matching_settings_expanded_size,
               "removed_mapping_columns": sorted(self._removed_mapping_columns),
               "metric_highlighting": dict(self.metric_highlighting),
               "single_wafer_checks": capture(self._single_wafer_checks),
+              "metrics_group_field": self._metrics_group_field,
+              "mark2_metrics_checks": capture(self._mark2_metrics_checks),
               "group_plots": self.group_plot_page.selection_state(),
               "plot_layouts": capture(self._plot_layout_states),
               "plot_labels": capture(self._plot_label_options),
@@ -943,6 +962,10 @@ class MatchingWindow(QMainWindow):
     def restore_workspace(self, snapshot, *, analysis_settings=None):
         if snapshot.workspace_type != self.workspace_type:
             raise ValueError("This WKB is not a Match Workbook.")
+        workbook_type = normalize_workbook_type(snapshot.states["match"].get("workbook_type", "type1"))
+        matching_keys = normalized_matching_keys(snapshot.states["match"].get("matching_keys"))
+        from .wafer_id_mapping import config as wafer_mapping_config
+        wafer_mapping = wafer_mapping_config(snapshot.states["match"].get("wafer_id_mapping"))
         validate_windows(snapshot.states)
         group_state(snapshot.states["match"].get("grouping_state"))
         metric_limits = _metric_highlighting_limits(snapshot.states.get("match_ui", {}).get("metric_highlighting"))
@@ -951,6 +974,10 @@ class MatchingWindow(QMainWindow):
         expanded = snapshot.states.get("match_ui", {}).get("expand_wafer_ids", False)
         if type(expanded) is not bool:
             raise ValueError("Invalid Expand Wafers setting.")
+        matching_expanded = snapshot.states.get("match_ui", {}).get("matching_settings_expanded", True)
+        matching_size = snapshot.states.get("match_ui", {}).get("matching_settings_expanded_size", 450)
+        if type(matching_expanded) is not bool or type(matching_size) is not int or matching_size < 450:
+            raise ValueError("Invalid matching settings panel layout.")
         removed = snapshot.states.get("match_ui", {}).get("removed_mapping_columns", [])
         if not isinstance(removed, list) or any(not isinstance(name, str) for name in removed):
             raise ValueError("Invalid removed parameter mappings.")
@@ -958,6 +985,21 @@ class MatchingWindow(QMainWindow):
         if mapping_choices is not None:
             _mapping_choice_rows(mapping_choices)
         checks = snapshot.states.get("match_ui", {}).get("single_wafer_checks", {})
+        metrics_field = snapshot.states.get("match_ui", {}).get("metrics_group_field")
+        metrics_checks = snapshot.states.get("match_ui", {}).get("mark2_metrics_checks", {})
+        if metrics_field is not None and (not isinstance(metrics_field, str) or not metrics_field.strip()):
+            raise ValueError("Invalid metrics grouping field.")
+        if not isinstance(metrics_checks, dict) or set(metrics_checks) - {"preview", "final"}:
+            raise ValueError("Invalid Mark2 metrics plot selection.")
+        for fields in metrics_checks.values():
+            if not isinstance(fields, dict):
+                raise ValueError("Invalid Mark2 metrics plot selection.")
+            for field, selections in fields.items():
+                if (not isinstance(field, str) or not field.strip() or not isinstance(selections, dict)
+                        or any(not isinstance(name, str) or not isinstance(labels, list)
+                               or any(not isinstance(label, str) for label in labels)
+                               for name, labels in selections.items())):
+                    raise ValueError("Invalid Mark2 metrics plot selection.")
         if not isinstance(checks, dict) or set(checks) - {"preview", "final"}:
             raise ValueError("Invalid single-wafer plot selection.")
         for selections in checks.values():
@@ -971,6 +1013,15 @@ class MatchingWindow(QMainWindow):
             from .spectra_workbook import close_children
             close_children(self)
         self._close_stage_workspaces(tuple(self._stage_windows))
+        self.workbook_type = workbook_type
+        self.matching_keys = matching_keys
+        self.wafer_id_mapping = wafer_mapping
+        self._wafer_mapping_cache.clear()
+        self._wafer_mapping_revision += 1
+        self._matching_settings_expanded_size = matching_size
+        with QSignalBlocker(self.matching_settings_toggle):
+            self.matching_settings_toggle.setChecked(matching_expanded)
+        self._update_workbook_type_ui()
         self._clear_plot_groups()
         self.set_plot_labels(labels)
         self.expand_wafer_ids.setChecked(expanded)
@@ -987,7 +1038,9 @@ class MatchingWindow(QMainWindow):
         self._statistics_state = {tuple(key): bool(value) for key, value in snapshot.states.get("match_ui", {}).get("statistics", [])}
         self._plot_layout_states = plot_layouts
         self._single_wafer_checks = {stage: deepcopy(checks.get(stage, {})) for stage in ("preview", "final")}
-        if not state.get("draft"):
+        self._metrics_group_field = metrics_field
+        self._mark2_metrics_checks = {stage: deepcopy(metrics_checks.get(stage, {})) for stage in ("preview", "final")}
+        if not state.get("draft") and not (self.workbook_type == "type2" and not self.matching_keys["reference"]):
             workbook = MatchWorkbook.from_snapshot(snapshot)
             return self._restore_analyzed_workbook(
                 workbook, self.workbook_path or "Workspace.mwkb", analysis_settings=analysis_settings,
@@ -1001,7 +1054,9 @@ class MatchingWindow(QMainWindow):
 
     def apply_analysis_settings(self, settings, *, refresh=True):
         """Apply one Workbook-wide policy without intermediate recalculations."""
-        settings = normalized_analysis_settings(settings)
+        settings = normalized_analysis_settings({"workbook_type": self.workbook_type, **settings})
+        self.workbook_type = settings["workbook_type"]
+        self._update_workbook_type_ui()
         mapping_state = self._mapping_state()
         changed_stage = self.result_mode.currentText().lower() != settings["result_mode"]
         with QSignalBlocker(self.match_type), QSignalBlocker(self.result_mode), \
@@ -1011,7 +1066,8 @@ class MatchingWindow(QMainWindow):
             self.absolute_bias.setChecked("absolute" in settings["bias_views"])
             self.percent_bias.setChecked("percent" in settings["bias_views"])
         self._primary_bias_mode = settings["bias_mode"]
-        self.match_type_actions[settings["match_type"]].setChecked(True)
+        if settings["match_type"] in self.match_type_actions:
+            self.match_type_actions[settings["match_type"]].setChecked(True)
         self.absolute_bias_action.setChecked(self.absolute_bias.isChecked())
         self.percent_bias_action.setChecked(self.percent_bias.isChecked())
         with QSignalBlocker(self.mode_tabs):
@@ -1060,7 +1116,7 @@ class MatchingWindow(QMainWindow):
                                      ("preview_map", "preview_map_frame"), ("final_map", "final_map_frame"),
                                      ("preview_dynamic", "preview_dynamic_frame"), ("final_dynamic", "final_dynamic_frame")):
                 setattr(self, attribute, snapshot.frames.get(name, pd.DataFrame() if name.endswith("raw") else None))
-            self.match_type.setCurrentText(state.get("match_type", "KLA"))
+            self.match_type.setCurrentText("Reference" if self.workbook_type == "type2" else state.get("match_type", "KLA"))
             self.result_mode.setCurrentText(state.get("result_mode", "preview").title())
             self._show_raw_mode(self.result_mode.currentText().lower())
             self._primary_bias_mode = state.get("bias_mode", "absolute")
@@ -1110,7 +1166,7 @@ class MatchingWindow(QMainWindow):
         self.result_mode.addItems(["Preview", "Final"])
         self.result_mode.hide()
         self.match_type = QComboBox(self)
-        self.match_type.addItems(["KLA", "NOVA", "TEM"])
+        self.match_type.addItems(["KLA", "NOVA", "TEM", "Reference"])
         self.match_type.hide()
         self.absolute_bias = QCheckBox("Bias", self)
         self.absolute_bias.setChecked(True)
@@ -1264,7 +1320,7 @@ class MatchingWindow(QMainWindow):
             self.match_type_menu.addAction(action)
             self.match_type_actions[match_type] = action
         self.match_type.currentTextChanged.connect(
-            lambda value: self.match_type_actions[value].setChecked(True)
+            lambda value: self.match_type_actions[value].setChecked(True) if value in self.match_type_actions else None
         )
 
         self.bias_menu = self.analysis_menu.addMenu("Bias")
@@ -1314,11 +1370,21 @@ class MatchingWindow(QMainWindow):
         self.second_axis_menu.addAction(self.second_axis_actions["single"])
         self._refresh_axis_mode_menu()
 
+        self.wafer_id_mapping_menu = self.menuBar().addMenu("Wafer ID mapping")
+        self.import_wafer_mapping_action = self.wafer_id_mapping_menu.addAction("Import wafer ID mapping…")
+        self.import_wafer_mapping_action.triggered.connect(self.import_wafer_id_mapping)
+        self.export_wafer_mapping_action = self.wafer_id_mapping_menu.addAction("Export wafer ID mapping…")
+        self.export_wafer_mapping_action.triggered.connect(self.export_wafer_id_mapping)
+        self.reset_wafer_mapping_action = self.wafer_id_mapping_menu.addAction("Reset wafer ID mapping")
+        self.reset_wafer_mapping_action.triggered.connect(self.reset_wafer_id_mapping)
+
         self.groups_menu = self.menuBar().addMenu("Groups")
         self.group_settings_action = self.groups_menu.addAction("Group settings…")
         self.group_settings_action.triggered.connect(self.open_group_settings)
         self.manage_groups_action = self.groups_menu.addAction("Manage groups…")
         self.manage_groups_action.triggered.connect(self.manage_groups)
+        self.manage_mark2_action = self.groups_menu.addAction("Manage groups Mark2…")
+        self.manage_mark2_action.triggered.connect(self.group_controls.manage_mark2)
         self.data_selection_action = self.groups_menu.addAction("Data selection…")
         self.data_selection_action.triggered.connect(self.select_analysis_data)
         self.plot_labels_menu = self.groups_menu.addMenu("Plot labels")
@@ -1451,21 +1517,24 @@ class MatchingWindow(QMainWindow):
         from .data_selection import selection_frame
         from .match_groups import GroupPlan
         from .selection_script import export_script, selection_view
-        raw = self._active_raw_frame()
+        raw = self._effective_raw_frame()
         if raw.empty:
             raise ValueError("The Match Workbook has no Raw Data to copy a selection from.")
-        reference = self.reference_frame if len(self.reference_frame) == len(raw) else None
-        plan = GroupPlan(raw, self.group_controls.flags_frame(), self.group_controls.state, reference)
+        reference = (self._matching_reference(strict=True) if self.workbook_type == "type2"
+                     else self.reference_frame if len(self.reference_frame) == len(raw) else None)
+        flags = self.group_controls.order_model.flags_frame(len(raw))
+        plan = GroupPlan(raw, flags, self.group_controls.state, reference)
         return export_script(selection_frame(plan), {"checked": list(plan.included_rows),
                              **selection_view(plan.state["data_selection"])})
 
     def select_analysis_data(self):
         from .match_groups import GroupPlan
         try:
-            raw = self._active_raw_frame()
-            if raw.empty or len(raw) != len(self.reference_frame):
+            raw = self._effective_raw_frame()
+            if raw.empty or (self.workbook_type == "type1" and len(raw) != len(self.reference_frame)):
                 raise ValueError("Enter row-aligned Reference and Raw Data first.")
-            plan = GroupPlan(raw, self.group_controls.flags_frame(), self.group_controls.state, self.reference_frame)
+            plan = GroupPlan(raw, self.group_controls.order_model.flags_frame(len(raw)),
+                             self.group_controls.state, self._matching_reference(strict=True))
             dialog = DataSelectionDialog(plan, self)
             accepted = dialog.exec() == QDialog.DialogCode.Accepted
             selection = deepcopy(dialog.selection)
@@ -1622,9 +1691,30 @@ class MatchingWindow(QMainWindow):
         )
         self.mapping_card = QFrame(objectName="panel")
         self.mapping_card.setMinimumHeight(170)
-        mapping_layout = QVBoxLayout(self.mapping_card)
-        mapping_layout.setContentsMargins(16, 14, 16, 12)
+        mapping_outer = QVBoxLayout(self.mapping_card)
+        mapping_outer.setContentsMargins(16, 14, 16, 12)
+        self.matching_settings_bar = QWidget()
+        self.matching_settings_bar.hide()
+        self.matching_settings_bar_layout = QHBoxLayout(self.matching_settings_bar)
+        self.matching_settings_bar_layout.setContentsMargins(0, 0, 0, 0)
+        self.matching_settings_toggle = QCheckBox("Expand matching settings")
+        self.matching_settings_toggle.setChecked(True)
+        self.matching_settings_toggle.setToolTip(
+            "Hide matching fields and parameter mappings to prevent accidental edits. Analysis keeps the current settings.")
+        self.matching_settings_toggle.toggled.connect(self._matching_settings_expansion_changed)
+        self.matching_settings_bar_layout.addWidget(self.matching_settings_toggle)
+        self.matching_settings_bar_layout.addStretch()
+        mapping_outer.addWidget(self.matching_settings_bar)
+        self.matching_settings_body = QWidget()
+        mapping_layout = QVBoxLayout(self.matching_settings_body)
+        mapping_layout.setContentsMargins(0, 0, 0, 0)
+        mapping_outer.addWidget(self.matching_settings_body, 1)
+        self.matching_conditions = MatchingConditions(self)
+        self.matching_conditions.changed.connect(self._matching_conditions_changed)
+        self.matching_conditions.hide()
+        mapping_layout.addWidget(self.matching_conditions)
         heading = QHBoxLayout()
+        self.mapping_heading_layout = heading
         heading.addWidget(help_title_label(
             "Parameter mapping",
             "Numeric Reference columns are listed; “Reference” suffix columns pair by name.",
@@ -1767,7 +1857,23 @@ class MatchingWindow(QMainWindow):
         self.results_tabs.addTab(self.plot_groups_widget, "All parameter plots")
 
         self.wafer_groups_widget = QWidget()
-        self.wafer_groups_layout = QVBoxLayout(self.wafer_groups_widget)
+        wafer_page_layout = QVBoxLayout(self.wafer_groups_widget)
+        wafer_page_layout.setContentsMargins(0, 0, 0, 0)
+        self.metrics_group_bar = QWidget()
+        self.metrics_group_bar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        metrics_group_layout = QHBoxLayout(self.metrics_group_bar)
+        metrics_group_layout.setContentsMargins(0, 0, 0, 0)
+        metrics_group_layout.addWidget(QLabel("Classify by"))
+        self.metrics_group_combo = QComboBox()
+        self.metrics_group_combo.setMinimumWidth(220)
+        self.metrics_group_combo.addItem("Wafer", None)
+        self.metrics_group_combo.setEnabled(False)
+        self.metrics_group_combo.setToolTip("Enable Mark2 to classify metrics by one imported label column.")
+        metrics_group_layout.addWidget(self.metrics_group_combo)
+        metrics_group_layout.addStretch()
+        wafer_page_layout.addWidget(self.metrics_group_bar)
+        self.wafer_groups_layout = QVBoxLayout()
+        wafer_page_layout.addLayout(self.wafer_groups_layout)
         self.wafer_groups_layout.setContentsMargins(0, 0, 0, 0)
         self.wafer_groups_layout.setSpacing(16)
         self.wafer_groups_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -1779,6 +1885,7 @@ class MatchingWindow(QMainWindow):
         # child would otherwise float at the window's top-left over the menu bar.
         self.group_plot_page.hide()
         self.results_tabs.currentChanged.connect(self._refresh_visible_wafer_metrics)
+        self.metrics_group_combo.currentIndexChanged.connect(self._metrics_group_changed)
         layout.addWidget(self.results_tabs, 1)
         panel.setMinimumHeight(520)
         return panel
@@ -1817,7 +1924,7 @@ class MatchingWindow(QMainWindow):
         """The rows one parameter card draws, in the order it draws them."""
         result = self.result
         collect = self._trend_collects_wafers()
-        if (result.group_plan.enabled or collect
+        if (result.group_plan.enabled or result.group_plan.mark2_enabled or collect
                 or result.group_plan.state["trend_order"] == "wafers"):
             return result.group_series(parameter, trend=True, collect_wafers=collect)
         return result.series(parameter)
@@ -1869,6 +1976,45 @@ class MatchingWindow(QMainWindow):
                 self._draw_wafer_metrics(parameter, group)
         self._resize_results_for_plot_groups()
 
+    def _active_metrics_group_field(self):
+        plan = self.result.group_plan if self.result is not None else None
+        if (self.workbook_type == "type2" and plan is not None and plan.mark2_enabled
+                and self._metrics_group_field in plan.state["mark2"]["columns"]):
+            return self._metrics_group_field
+        return None
+
+    def _sync_metrics_group_choices(self):
+        plan = self.result.group_plan if self.result is not None else None
+        fields = (plan.state["mark2"]["columns"]
+                  if self.workbook_type == "type2" and plan is not None and plan.mark2_enabled else [])
+        with QSignalBlocker(self.metrics_group_combo):
+            self.metrics_group_combo.clear()
+            self.metrics_group_combo.addItem("Wafer", None)
+            for field in fields:
+                self.metrics_group_combo.addItem(f"Mark2 · {field}", field)
+            self.metrics_group_combo.setCurrentIndex(max(0, self.metrics_group_combo.findData(self._active_metrics_group_field())))
+        self.metrics_group_combo.setEnabled(bool(fields))
+        for group in self.plot_groups.values():
+            if (group.get("metrics_source_plan") is not plan
+                    or group.get("metrics_group_field") != self._active_metrics_group_field()):
+                group["wafer_metrics_pending"] = True
+
+    def _metrics_plot_checks(self):
+        stage = self.workbook.result_mode
+        field = self._active_metrics_group_field()
+        if field is None:
+            return self._single_wafer_checks.setdefault(stage, {})
+        return self._mark2_metrics_checks.setdefault(stage, {}).setdefault(field, {})
+
+    def _metrics_group_changed(self, _index):
+        self._metrics_group_field = self.metrics_group_combo.currentData()
+        if self.result is not None:
+            for parameter, group in self.plot_groups.items():
+                self._draw_wafer_metrics(parameter, group)
+            self._resize_results_for_plot_groups()
+        if hasattr(self, "document"):
+            self.document.refresh_identity()
+
     def parameter_order(self):
         """Return the user-visible parameter card order."""
         return tuple(self._parameter_order)
@@ -1886,7 +2032,7 @@ class MatchingWindow(QMainWindow):
             source = next((label for label, detail in details.items() if detail["storage_key"] == parameter), None)
             destination = next((label for label, detail in details.items() if detail["storage_key"] == target), None)
             if source is not None and destination is not None and source != destination:
-                order = self._single_wafer_checks[self.workbook.result_mode][name]
+                order = self._metrics_plot_checks()[name]
                 order.remove(source)
                 index = order.index(destination)
                 order.insert(index if before else index + 1, source)
@@ -2152,6 +2298,98 @@ class MatchingWindow(QMainWindow):
             else self.raw_frame
         )
 
+    def _effective_raw_frame(self, raw=None, *, strict=True):
+        from .wafer_id_mapping import apply
+        source = self._active_raw_frame() if raw is None else raw
+        if self.workbook_type != "type2":
+            return source
+        for frame, result in self._wafer_mapping_cache:
+            if frame is source:
+                return result
+        try:
+            result = apply(source, self.wafer_id_mapping)
+        except ValueError:
+            if strict:
+                raise
+            return source
+        self._wafer_mapping_cache = [(source, result), *self._wafer_mapping_cache[:3]]
+        return result
+
+    def set_wafer_id_mapping(self, state):
+        """Validate before installing; failed imports leave the previous mapping intact."""
+        from .wafer_id_mapping import apply, config, original_raw
+        if self.workbook_type != "type2":
+            raise ValueError("Wafer ID mapping is available only for Type2 workbooks.")
+        state = config(state)
+        for source in (self.raw_frame, self.final_match_frame):
+            apply(source, state, source_only=True)
+        # Saved Map/Dynamic snapshots may already carry the previous alias.
+        # Recover their source IDs before replacing or clearing that alias.
+        if self.wafer_id_mapping["records"]:
+            for name in ("preview_frame", "final_frame", "preview_map_frame", "final_map_frame",
+                         "preview_dynamic_frame", "final_dynamic_frame"):
+                frame = getattr(self, name)
+                if frame is not None:
+                    try:
+                        setattr(self, name, original_raw(apply(frame, self.wafer_id_mapping)))
+                    except ValueError:
+                        pass  # Independent data with different source identities.
+        self.wafer_id_mapping = deepcopy(state)
+        self._wafer_mapping_revision += 1
+        self._wafer_mapping_cache.clear()
+        self._result_cache.clear()
+        self._stage_sync_inputs = None
+        self.reset_wafer_mapping_action.setEnabled(bool(state["records"]))
+        self._analysis_input_changed()
+        try:
+            mappings = self.selected_mappings()
+        except ValueError:
+            mappings = ()
+        if not self._active_raw_frame().empty and not self.reference_frame.empty and mappings:
+            self.run_analysis()
+        if hasattr(self, "document"):
+            self.document.refresh_identity()
+
+    def import_wafer_id_mapping(self):
+        if self._active_raw_frame().empty:
+            QMessageBox.warning(self, "Cannot import Wafer ID mapping", "Paste Raw Data before importing its Wafer ID mapping.")
+            return
+        path, _ = QFileDialog.getOpenFileName(self, "Import wafer ID mapping", "", "Excel workbook (*.xlsx *.xlsm)")
+        if not path:
+            return
+        try:
+            from .wafer_id_mapping import import_excel
+            self.set_wafer_id_mapping(import_excel(path))
+        except (ValueError, OSError, KeyError) as error:
+            QMessageBox.warning(self, "Cannot import Wafer ID mapping", str(error))
+        else:
+            self.statusBar().showMessage(f"Wafer ID mapping imported: {path}", 10000)
+
+    def export_wafer_id_mapping(self):
+        if self.workbook_type != "type2":
+            return
+        if not self.wafer_id_mapping["records"] and self._active_raw_frame().empty:
+            QMessageBox.warning(self, "Cannot export Wafer ID mapping", "Paste Raw Data before exporting a Wafer ID mapping template.")
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Export wafer ID mapping", "Wafer_ID_mapping.xlsx", "Excel workbook (*.xlsx)")
+        if not path:
+            return
+        try:
+            from .wafer_id_mapping import export_excel
+            saved = export_excel(path, self.wafer_id_mapping, self._active_raw_frame())
+        except Exception as error:
+            QMessageBox.warning(self, "Cannot export Wafer ID mapping", str(error))
+        else:
+            self.statusBar().showMessage(f"Wafer ID mapping exported: {saved}", 10000)
+
+    def reset_wafer_id_mapping(self):
+        try:
+            self.set_wafer_id_mapping(None)
+        except ValueError as error:
+            QMessageBox.warning(self, "Cannot reset Wafer ID mapping", str(error))
+        else:
+            self.statusBar().showMessage("Wafer ID mapping reset; processing uses the original Raw Wafer IDs.", 10000)
+
     def _sync_selection_to_raw(self, previous_raw, *, preserve_positions=False):
         """Keep the applied Data selection when the Raw Data table is replaced.
 
@@ -2242,7 +2480,7 @@ class MatchingWindow(QMainWindow):
 
     def _refresh_group_projection(self):
         controls = self.group_controls
-        controls.set_sources(self.reference_frame, self._active_raw_frame())
+        controls.set_sources(self._matching_reference(), self._effective_raw_frame(strict=False))
         plan = controls.plan
         selection = controls.state.get("applied", controls.state).get("data_selection") or {}
         hide = bool(selection.get("hide_excluded"))
@@ -2256,8 +2494,9 @@ class MatchingWindow(QMainWindow):
                                    (mode, self.raw_view, self.final_raw_model if mode == "final" else self.raw_model),
                                    ("order", self.order_view, controls.order_model)):
             proxy = self._group_proxies[name]
-            proxy.set_rows(rows)
-            model = proxy if projected else source
+            local_projection = projected and not (self.workbook_type == "type2" and name == "reference")
+            proxy.set_rows(rows if local_projection else None)
+            model = proxy if local_projection else source
             if view.model() is not model:
                 view.setModel(model)
         self._refresh_table_sizes()
@@ -2553,11 +2792,20 @@ class MatchingWindow(QMainWindow):
         return table_size_text(len(frame), len(frame.columns))
 
     def _populate_mappings(self, selected=None):
+        self._sync_matching_fields()
         selected_rows = _mapping_choice_rows(selected)
         raw_frame = self._active_raw_frame()
         self._mapping_schema = (tuple(self.reference_frame.columns), tuple(raw_frame.columns))
         suggestions = MatchWorkbook.suggest_mappings(self.reference_frame, raw_frame)
         suggestion_by_reference = {mapping.reference_column: mapping for mapping in suggestions}
+        if self.workbook_type == "type2":
+            raw_names = {}
+            for name in raw_frame:
+                raw_names.setdefault(str(name).strip().casefold(), []).append(name)
+            for name in inspect_table(self.reference_frame)[2]:
+                candidates = raw_names.get(str(name).strip().casefold(), [])
+                if len(candidates) == 1 and name not in self.matching_keys["reference"]:
+                    suggestion_by_reference.setdefault(name, ParameterMapping(str(name), str(name), str(candidates[0])))
         numeric_columns = set(inspect_table(self.reference_frame)[2])
         reference_columns = [
             str(column)
@@ -2565,6 +2813,8 @@ class MatchingWindow(QMainWindow):
             if column in numeric_columns
             or str(column).strip().lower().endswith(" reference")
         ]
+        if self.workbook_type == "type2":
+            reference_columns = [name for name in reference_columns if name not in self.matching_keys["reference"]]
         self._mapping_candidates = tuple(reference_columns)
         reference_columns = [column for column in reference_columns if column not in self._removed_mapping_columns]
         rows = [state for state in selected_rows if state["reference_column"] in reference_columns]
@@ -2953,6 +3203,7 @@ class MatchingWindow(QMainWindow):
         dialog.deleteLater()
 
     def _clear_plot_groups(self, *, current_only=False):
+        self._sync_metrics_group_choices()
         if not current_only:
             for _, groups in self._stage_plot_cache.values():
                 for group in groups.values():
@@ -2998,7 +3249,11 @@ class MatchingWindow(QMainWindow):
         raw_frame = self._active_raw_frame()
         has_raw = not raw_frame.empty
         self.raw_view.setEnabled(True)
-        valid_rows = has_reference and has_raw and len(self.reference_frame) <= len(raw_frame)
+        if self.workbook_type == "type2":
+            self._matching_reference()
+            valid_rows = has_reference and has_raw and not self._id_match_error
+        else:
+            valid_rows = has_reference and has_raw and len(self.reference_frame) <= len(raw_frame)
         has_mapping = False
         missing_mapping_columns = []
         if valid_rows:
@@ -3054,7 +3309,10 @@ class MatchingWindow(QMainWindow):
                 "for each selected parameter."
             )
             warning = True
-        elif len(self.reference_frame) > len(raw_frame):
+        elif self.workbook_type == "type2" and self._id_match_error:
+            message = self._id_match_error
+            warning = True
+        elif self.workbook_type == "type1" and len(self.reference_frame) > len(raw_frame):
             message = (f"Row count differs: Reference {len(self.reference_frame):,}; "
                        f"Raw Data {len(raw_frame):,}.")
             warning = True
@@ -3082,6 +3340,96 @@ class MatchingWindow(QMainWindow):
         self.status.setText(message if warning else "")
         self.status.setVisible(bool(warning and message))
 
+    def _update_workbook_type_ui(self):
+        type2 = self.workbook_type == "type2"
+        self.wafer_id_mapping_menu.menuAction().setVisible(type2)
+        self.reset_wafer_mapping_action.setEnabled(bool(type2 and self.wafer_id_mapping["records"]))
+        self._sync_metrics_group_choices()
+        self.group_controls.mark2_enabled.setVisible(type2)
+        self.group_controls.mark2_import_button.setVisible(type2)
+        self.group_controls.mark2_export_button.setVisible(type2)
+        self.group_controls.mark2_file_buttons.setVisible(type2)
+        self.manage_mark2_action.setVisible(type2)
+        self.matching_conditions.setVisible(type2)
+        self.match_type_menu.menuAction().setVisible(not type2)
+        self.mapping_table.setColumnHidden(8, type2)
+        self.mapping_table.setMinimumHeight(130 if type2 else 0)
+        self.matching_settings_bar.setVisible(type2)
+        header = self.matching_settings_bar_layout if type2 else self.mapping_heading_layout
+        header.addWidget(self.analyze_button)
+        self.analyze_button.show()
+        self._apply_matching_settings_expansion()
+        self._sync_matching_fields()
+
+    def _apply_matching_settings_expansion(self):
+        expanded = self.workbook_type == "type1" or self.matching_settings_toggle.isChecked()
+        self.matching_settings_body.setVisible(expanded)
+        if expanded:
+            self.mapping_card.setMaximumHeight(16_777_215)
+            self.mapping_card.setMinimumHeight(450 if self.workbook_type == "type2" else 170)
+        else:
+            margins = self.mapping_card.layout().contentsMargins()
+            height = self.matching_settings_bar.sizeHint().height() + margins.top() + margins.bottom()
+            self.mapping_card.setFixedHeight(height)
+
+    def _matching_settings_expansion_changed(self, expanded):
+        if self.workbook_type != "type2":
+            return
+        sizes = self.setup_splitter.sizes()
+        if not expanded:
+            self._matching_settings_expanded_size = max(450, sizes[1])
+        self._apply_matching_settings_expansion()
+        target = self._matching_settings_expanded_size if expanded else self.mapping_card.maximumHeight()
+        self.setup_splitter.setSizes([sizes[0], target,
+                                     max(self.results_panel.minimumHeight(), sizes[2] + sizes[1] - target)])
+        self._resize_results_for_plot_groups()
+        if hasattr(self, "document"):
+            self.document.refresh_identity()
+
+    def _sync_matching_fields(self):
+        if hasattr(self, "matching_conditions"):
+            schema = (tuple(self.reference_frame.columns), tuple(self._active_raw_frame().columns))
+            if (getattr(self, "_matching_field_schema", None) == schema
+                    and self.matching_conditions.selection() == self.matching_keys):
+                return
+            self.matching_conditions.set_fields(self.reference_frame.columns, self._active_raw_frame().columns,
+                                                self.matching_keys)
+            self._matching_field_schema = schema
+
+    def set_matching_keys(self, keys):
+        """One workbook-wide ordered key mapping, shared by Preview and Final."""
+        self.matching_keys = normalized_matching_keys(keys)
+        self._sync_matching_fields()
+        self._result_cache.clear()
+        self._stage_sync_inputs = None
+        self._populate_mappings(self._mapping_state())
+        self._analysis_input_changed()
+        if hasattr(self, "document"):
+            self.document.refresh_identity()
+
+    def _matching_conditions_changed(self):
+        self.set_matching_keys(self.matching_conditions.selection())
+
+    def _matching_reference(self, *, strict=False):
+        if self.workbook_type == "type1":
+            return self.reference_frame
+        try:
+            alignment = align_by_id(self.reference_frame, self._effective_raw_frame(), self.matching_keys)
+            self._id_match_error = ""
+            self._id_alignment = alignment
+            self.matching_conditions.status.setText(alignment.message)
+            self.matching_conditions.status.setToolTip(alignment.details)
+            return alignment.reference
+        except ValueError as error:
+            self._id_match_error = str(error)
+            self._id_alignment = None
+            self.matching_conditions.status.setText(str(error))
+            self.matching_conditions.status.setToolTip(str(error))
+            if strict:
+                raise
+            # Draft grouping remains defined on Raw positions; never fall back to positional matching.
+            return pd.DataFrame("", index=range(len(self._active_raw_frame())), columns=self.reference_frame.columns)
+
     def current_workbook(self):
         mappings = self.selected_mappings()
         active_raw = self._active_raw_frame()
@@ -3098,6 +3446,9 @@ class MatchingWindow(QMainWindow):
             reference=self.reference_frame,
             raw=preview_raw,
             mappings=mappings,
+            workbook_type=self.workbook_type,
+            matching_keys=self.matching_keys,
+            wafer_id_mapping=self.wafer_id_mapping,
             match_type=self.match_type.currentText(),
             result_mode=self.result_mode.currentText().lower(),
             bias_mode=self._primary_bias_mode,
@@ -3345,7 +3696,7 @@ class MatchingWindow(QMainWindow):
             prepared = getattr(getattr(workspace, 'raw_model', None), '_linked_prepared_load', None)
             if prepared is not None and 'load_frame' in prepared:
                 scoped_raw = prepared['load_frame']
-            if ("ui" not in self._workspace_states.get(scope, {})
+            if ((self.workbook_type == "type1" and "ui" not in self._workspace_states.get(scope, {}))
                     or len(reference) != len(scoped_raw)):
                 reference = pd.DataFrame()
             workspace.set_sources(reference, scoped_raw, self.selected_mappings(), mode)
@@ -3585,6 +3936,9 @@ class MatchingWindow(QMainWindow):
             configure(self, getattr(workspace, "_managed_scope", f"{kind}.{stage}"))
         scope = getattr(workspace, "_managed_scope", f"{kind}.{stage}")
         saved = self._workspace_states.get(scope, {})
+        if self.workbook_type == "type2" and kind == "correlation" and hasattr(workspace, "copy_from_wkb_action"):
+            workspace.copy_from_wkb_action.setText("Copy ID-matched data from WKB")
+            workspace.copy_from_wkb_action.setToolTip("Follow Raw Data and the Reference aligned by this Workbook's selected ID fields.")
         if saved.get("data_override") and "ui" not in saved:
             workspace._independent_data = True
             workspace._use_workbook_data = False
@@ -3643,7 +3997,7 @@ class MatchingWindow(QMainWindow):
             mappings = tuple(self.selected_mappings())
         except ValueError:
             mappings = ()
-        raw = self._active_raw_frame()
+        raw = self._effective_raw_frame(strict=False)
         model = self.final_raw_model if self.result_mode.currentText().lower() == 'final' else self.raw_model
         source = model._literal_source(raw)
         return (
@@ -3651,6 +4005,7 @@ class MatchingWindow(QMainWindow):
             source.frame if source is not None else raw.copy(),
             mappings,
             str(self.match_type.currentText()),
+            (tuple(self.matching_keys["reference"]), tuple(self.matching_keys["raw"])),
         )
 
     @staticmethod
@@ -3662,6 +4017,7 @@ class MatchingWindow(QMainWindow):
             and left[1].equals(right[1])
             and left[2] == right[2]
             and left[3] == right[3]
+            and left[4:] == right[4:]
         )
 
     def remember_stage_inputs(self):
@@ -3769,7 +4125,8 @@ class MatchingWindow(QMainWindow):
         from .linked_refresh import copy_linked_workbook
         self._linked_task.submit({"generation": self._linked_generation,
             "inputs": inputs, "book": copy_linked_workbook(book) if book is not None else None, "raw": inputs[1],
-            "raw_version": source_model.literal_version, "raw_source": source,
+            "raw_version": source_model.literal_version if not self.wafer_id_mapping["records"] else None,
+            "raw_source": source,
             "children": tuple(descriptors)})
 
     def _publish_linked_refresh(self, result):
@@ -4038,7 +4395,10 @@ class MatchingWindow(QMainWindow):
                     mappings = self.selected_mappings()
                 except ValueError:
                     mappings = ()  # Raw copying does not depend on a fitted Card.
-                workspace.set_workbook_sources(scoped_raw, mappings, str(stage).title())
+                if self.workbook_type == "type2":
+                    workspace.set_sources(reference, scoped_raw, mappings, str(stage).title())
+                else:
+                    workspace.set_workbook_sources(scoped_raw, mappings, str(stage).title())
             else:
                 workspace.set_sources(reference, scoped_raw, self.selected_mappings(), str(stage).title())
             if book is not None and hasattr(workspace, "set_workbook_groups"):
@@ -4109,8 +4469,8 @@ class MatchingWindow(QMainWindow):
 
     def _child_correlation_frames(self, workspace, *, book=None):
         """Complete editor sources; participation and visibility are separate."""
-        raw = self._active_raw_frame()
-        return self.reference_frame, raw
+        raw = self._effective_raw_frame()
+        return self._matching_reference(strict=True), raw
 
     def child_selection_context(self, workspace):
         """Order / Reference frames shown in a child's own Data selection."""
@@ -4699,7 +5059,8 @@ class MatchingWindow(QMainWindow):
                    tuple(self.final_match_frame.columns))
         else:
             raw = (self.raw_model.revision, tuple(self.raw_frame.columns))
-        return (reference, raw)
+        return (reference, raw, self.workbook_type,
+                tuple(self.matching_keys["reference"]), tuple(self.matching_keys["raw"]), self._wafer_mapping_revision)
 
     def _analyze_workbook(self, workbook):
         """Fit the workbook, reusing each stage's result while its inputs are intact.
@@ -4717,6 +5078,9 @@ class MatchingWindow(QMainWindow):
         return result
 
     def _plot_group_identity(self):
+        return self._wafer_mapping_revision, self._plot_group_source_identity()
+
+    def _plot_group_source_identity(self):
         """Copy-free signature of every Group fact the drawn axes read.
 
         Curve values are compared separately through the drawn frame, so a
@@ -4724,6 +5088,10 @@ class MatchingWindow(QMainWindow):
         still preserves the surviving plot's zoom.
         """
         plan = self.result.group_plan
+        if plan.mark2_enabled:
+            config = plan.state["mark2"]
+            return ("mark2", plan.ids, plan.included_rows, tuple(config["selected"]),
+                    config["order_mode"], plan.mark2_labels)
         if not plan.enabled:
             # Classification names are irrelevant without Groups, but collecting
             # Wafer identities changes both the curve order and its captions.
@@ -4796,6 +5164,7 @@ class MatchingWindow(QMainWindow):
 
     def _draw_all_parameters(self):
         self._cancel_main_plot_refresh()
+        self._sync_metrics_group_choices()
         splitter_sizes = tuple(self.setup_splitter.sizes())
         if self.result is None:
             self._clear_plot_groups()
@@ -4820,7 +5189,7 @@ class MatchingWindow(QMainWindow):
                 self.plot_groups_layout.addWidget(group['card'])
                 self.wafer_groups_layout.addWidget(group['wafer_card'])
                 group['card'].show()
-                group['wafer_card'].setVisible(self.workbook.match_type in {'NOVA', 'KLA'})
+                group['wafer_card'].setVisible(self.workbook.workbook_type == "type2" or self.workbook.match_type in {'NOVA', 'KLA'})
         reuse = previous_key is not None and previous_key[1:] == layout_key[1:] and bool(self.plot_groups)
         if not reuse:
             self._clear_plot_groups(current_only=True)
@@ -4933,6 +5302,7 @@ class MatchingWindow(QMainWindow):
             )
             self.wafer_groups_layout.addWidget(self.empty_wafer_hint)
         self._resize_results_for_plot_groups()
+        self._refresh_visible_wafer_metrics(None)
         self._restore_setup_splitter_layout(splitter_sizes)
         self.result_status.setText(self._result_descriptor)
 
@@ -5139,7 +5509,7 @@ class MatchingWindow(QMainWindow):
         collect = result is self.result and self._trend_collects_wafers()
         if data is None:
             data = (result.group_series(parameter, trend=True, collect_wafers=collect)
-                    if grouped or collect or result.group_plan.state["trend_order"] == "wafers"
+                    if grouped or result.group_plan.mark2_enabled or collect or result.group_plan.state["trend_order"] == "wafers"
                     else result.series(parameter))
         card = result.card(parameter)
         fit_card = group.get("fit_card", card)
@@ -5181,10 +5551,20 @@ class MatchingWindow(QMainWindow):
             f"{len(data):,} rows" if not display_note else display_note.removeprefix(" · ")
         )
         plots = group["plots"]
+        if workbook.workbook_type == "type2":
+            usable_card = bool(np.isfinite([card.slope, card.intercept]).all())
+            checkbox = plots["trend"].card_checkbox
+            with QSignalBlocker(checkbox):
+                checkbox.setChecked(self._trend_card_state.get(group["trend_card_key"], False) if usable_card else False)
+            checkbox.setEnabled(usable_card)
+            checkbox.setToolTip("Use this parameter's fitted Card." if usable_card else
+                                "No valid Card is available; Trend shows the original Raw values.")
+            if not usable_card:
+                group["note"].setText(group["note"].text() + " · No valid Card; showing Raw values")
         for plot in plots.values():
             plot._identity_labels = self._plot_label_options["trend"]
         try:
-            measurement_spans = [] if grouped else result.measurement_spans(
+            measurement_spans = [] if grouped or result.group_plan.mark2_enabled else result.measurement_spans(
                 show_pad=self._plot_label_options["trend"]["pad"],
                 show_lot=self._plot_label_options["trend"]["lot"],
                 collect_wafers=collect)
@@ -5264,7 +5644,7 @@ class MatchingWindow(QMainWindow):
                 bias,
                 connect="finite",
                 pen=pg.mkPen("#4f8bd6", width=TREND_LINE_WIDTH),
-                symbol="o",
+                symbol=None if workbook.workbook_type == "type2" and not np.isfinite(bias).any() else "o",
                 symbolSize=TREND_MARKER_SIZE,
                 symbolBrush="#4f8bd6",
                 symbolPen=None,
@@ -5289,7 +5669,7 @@ class MatchingWindow(QMainWindow):
                 bias_percent,
                 connect="finite",
                 pen=pg.mkPen("#4f8bd6", width=TREND_LINE_WIDTH),
-                symbol="o",
+                symbol=None if workbook.workbook_type == "type2" and not np.isfinite(bias_percent).any() else "o",
                 symbolSize=TREND_MARKER_SIZE,
                 symbolBrush="#4f8bd6",
                 symbolPen=None,
@@ -5332,6 +5712,20 @@ class MatchingWindow(QMainWindow):
                     pg.mkPen("#929292", width=1, style=Qt.PenStyle.DashLine))
                 plot.wafer_boundaries = plot._measurement_boundaries
         self._decorate_sequence_plots(group, data)
+        plot_height = 330
+        if result.group_plan.mark2_enabled:
+            from .mark2_plotting import set_hierarchy_axis
+            columns = result.group_plan.state["mark2"]["selected"]
+            values = [result.group_plan.mark2_labels[int(row)] for row in source_rows]
+            group["mark2_axis"] = (columns, values)
+            for name in ("trend", "bias", "bias-percent"):
+                if name in plots:
+                    axis = set_hierarchy_axis(plots[name], columns, values)
+                    plot_height = max(plot_height, int(300 + axis.height()))
+                    plots[name]._wafer_spacing = None
+            plots["match"].getAxis("bottom").setHeight(axis.height())
+        group["plot_area"].set_plot_height(plot_height)
+        group["primary_height"] = plot_height
         if "wafer_card" in group:
             if (self._defer_main_wafer_metrics
                     or (self.isVisible() and not self.wafer_groups_widget.isVisible() and "wafer_summary" in group)):
@@ -5450,7 +5844,8 @@ class MatchingWindow(QMainWindow):
             for name, values, color in (("PMISH", pmish, "#5b9bd5"),
                                         (workbook.match_type, reference, "#ed7d31")):
                 trend_plot.plot(row, values, pen=pg.mkPen(color, width=TREND_LINE_WIDTH),
-                    symbol="o", symbolSize=TREND_MARKER_SIZE, symbolBrush=color, symbolPen=None, name=name)
+                    symbol=None if workbook.workbook_type == "type2" and not np.isfinite(values).any() else "o",
+                    symbolSize=TREND_MARKER_SIZE, symbolBrush=color, symbolPen=None, name=name)
         place_legend_above_frame(trend_plot)
         title = parameter
         trend_plot.setLabel("left", title)
@@ -5464,18 +5859,20 @@ class MatchingWindow(QMainWindow):
 
     def _draw_wafer_metrics(self, parameter, group):
         group["wafer_metrics_pending"] = False
-        enabled = self.workbook.match_type in {"NOVA", "KLA"}
+        enabled = self.workbook.workbook_type == "type2" or self.workbook.match_type in {"NOVA", "KLA"}
         if not enabled:
             group["wafer_card"].hide()
             return
+        field = self._active_metrics_group_field()
         try:
-            summary = self.result.wafer_summary(parameter)
+            summary = self.result.wafer_summary(parameter, mark2_column=field)
         except ValueError:
             summary = pd.DataFrame()
             enabled = False
         group["wafer_card"].setVisible(enabled)
         previous = group.get("wafer_summary")
-        reuse_points = (previous is not None and previous.get("Wafer", pd.Series(dtype=object)).equals(summary.get("Wafer", pd.Series(dtype=object)))
+        reuse_points = (previous is not None and group.get("metrics_group_field") == field
+                        and previous.get("Wafer", pd.Series(dtype=object)).equals(summary.get("Wafer", pd.Series(dtype=object)))
                         and all(len(group[key].listDataItems()) == 2 and key in group.get("wafer_highlights", {})
                                 for key in ("wafer_r2", "wafer_slope")))
         metric_points = {key: group[key].listDataItems()[0] for key in ("wafer_r2", "wafer_slope")} if reuse_points else {}
@@ -5485,12 +5882,16 @@ class MatchingWindow(QMainWindow):
         display = summary.copy()
         display.insert(min(2, len(display.columns)), 'Row', np.arange(1, len(display) + 1))
         group["wafer_summary"] = summary
-        selected = self._single_wafer_checks.setdefault(self.workbook.result_mode, {}).setdefault(parameter, [])
+        group["metrics_group_field"] = field
+        group["metrics_source_plan"] = self.result.group_plan
+        selected = self._metrics_plot_checks().setdefault(parameter, [])
         display["Draw"] = [label in selected for label in summary.get("Wafer", [])]
         if "Wafer" in display.columns:
             display["Wafer"] = [
                 str(value).replace("\n", "/") for value in display["Wafer"]
             ]
+        if field is not None:
+            display.rename(columns={"Wafer": f"Mark2 · {field}"}, inplace=True)
         group["wafer_model"].set_frame(display)
         group["wafer_uncheck_all"].setEnabled(bool(display["Draw"].any()))
         wafer_view = group.get("wafer_view")
@@ -5541,8 +5942,11 @@ class MatchingWindow(QMainWindow):
             curve = wafer_slope.plot(x[valid_slope], slope[valid_slope], pen=None,
                                     symbol="o", symbolSize=8, symbolBrush="#e09f3e", data=np.flatnonzero(valid_slope))
             curve.sigPointsClicked.connect(lambda _curve, points, _event: self._select_wafer(parameter, int(points[0].data()), toggle=True))
-        wafer_r2.setTitle("Single-Wafer R²")
-        wafer_slope.setTitle("Single-Wafer slope")
+        scope = "Single-Wafer" if field is None else f"Mark2 · {field}"
+        wafer_r2.setTitle(f"{scope} R²")
+        wafer_slope.setTitle(f"{scope} slope")
+        for plot in (wafer_r2, wafer_slope):
+            plot.setLabel("bottom", "Wafer" if field is None else f"Mark2 · {field}")
         for key in ("wafer_r2", "wafer_slope"):
             if reuse_points:
                 group["wafer_highlights"][key].setData([], [])
@@ -5604,7 +6008,7 @@ class MatchingWindow(QMainWindow):
     def _wafer_checked(self, parameter, row, checked):
         group = self.plot_groups[parameter]
         label = group["wafer_summary"].iloc[row]["Wafer"]
-        selected = self._single_wafer_checks.setdefault(self.workbook.result_mode, {}).setdefault(parameter, [])
+        selected = self._metrics_plot_checks().setdefault(parameter, [])
         if checked and label not in selected:
             selected.append(label)
         elif not checked and label in selected:
@@ -5616,7 +6020,7 @@ class MatchingWindow(QMainWindow):
 
     def _uncheck_all_wafers(self, parameter):
         group = self.plot_groups[parameter]
-        self._single_wafer_checks[self.workbook.result_mode][parameter] = []
+        self._metrics_plot_checks()[parameter] = []
         model = group["wafer_model"]
         column = model.frame.columns.get_loc("Draw")
         model.frame["Draw"] = False
@@ -5632,7 +6036,7 @@ class MatchingWindow(QMainWindow):
         group = self.plot_groups[parameter]
         details = group["wafer_details"]
         summary = group["wafer_summary"]
-        selected = self._single_wafer_checks[self.workbook.result_mode][parameter]
+        selected = self._metrics_plot_checks()[parameter]
         labels = list(summary.get("Wafer", []))
         for label in tuple(details):
             if label not in selected or label not in labels or pd.isna(summary.iloc[labels.index(label)]["Slope"]):
@@ -5641,14 +6045,18 @@ class MatchingWindow(QMainWindow):
                 removed.hide()
                 removed.deleteLater()
         mapping = next(m for m in self.workbook.mappings if m.name == parameter)
-        signature = (mapping, self.workbook.result_mode, self._selected_bias_views())
+        plan = self.result.group_plan
+        mark2_grouping = ({"mark2_enabled": True, "mark2": plan.state["mark2"]}
+                          if plan.mark2_enabled else None)
+        field = self._active_metrics_group_field()
+        signature = (mapping, self.workbook.result_mode, self._selected_bias_views(), mark2_grouping, field)
         for label in selected:
             if label not in labels:
                 continue
             row = labels.index(label)
             if pd.isna(summary.iloc[row]["Slope"]):
                 continue
-            reference, raw = self.result.wafer_frames(row)
+            reference, raw = self.result.wafer_frames(row, mark2_column=field)
             detail = details.get(label)
             if (detail is not None and detail["source_reference"].equals(reference)
                     and detail["source_raw"].equals(raw) and detail["signature"] == signature):
@@ -5665,6 +6073,10 @@ class MatchingWindow(QMainWindow):
                             and np.isfinite([summary.iloc[row]["Slope"], summary.iloc[row]["Intercept"]]).all())
             if reuse_detail:
                 book = MatchWorkbook(reference, raw, [mapping], match_type=self.workbook.match_type,
+                                     grouping_state=mark2_grouping,
+                                     workbook_type=self.workbook.workbook_type,
+                                     matching_keys=self.workbook.matching_keys,
+                                     wafer_id_mapping=self.workbook.wafer_id_mapping,
                                      result_mode=self.workbook.result_mode, bias_views=self.workbook.bias_views,
                                      bias_mode=self.workbook.bias_mode, bias_limit=self.workbook.bias_limit)
                 detail.update(workbook=book, result=book.analyze(metadata_from=detail["result"]),
@@ -5675,10 +6087,16 @@ class MatchingWindow(QMainWindow):
                 group["wafer_detail_layout"].removeWidget(detail["card"])
                 detail["card"].hide()
                 detail["card"].deleteLater()
-            storage_key = "single-wafer:" + json.dumps([parameter, label], ensure_ascii=False)
+            storage_key = ("single-wafer:" + json.dumps([parameter, label], ensure_ascii=False)
+                           if field is None else "single-mark2:" + json.dumps([field, parameter, label], ensure_ascii=False))
             detail = self._create_plot_group(parameter, storage_key)
-            detail["card"].findChild(_ParameterDragHandle).setText("⋮⋮  " + parameter + " · " + label.replace("\n", " / "))
+            caption = label if field is None else f"{field}: {label}"
+            detail["card"].findChild(_ParameterDragHandle).setText("⋮⋮  " + parameter + " · " + caption.replace("\n", " / "))
             detail["workbook"] = MatchWorkbook(reference, raw, [mapping], match_type=self.workbook.match_type,
+                                              grouping_state=mark2_grouping,
+                                              workbook_type=self.workbook.workbook_type,
+                                              matching_keys=self.workbook.matching_keys,
+                                              wafer_id_mapping=self.workbook.wafer_id_mapping,
                                               result_mode=self.workbook.result_mode, bias_views=self.workbook.bias_views,
                                               bias_mode=self.workbook.bias_mode, bias_limit=self.workbook.bias_limit)
             detail["result"] = detail["workbook"].analyze()
@@ -5694,6 +6112,8 @@ class MatchingWindow(QMainWindow):
                 details[label]["card"].show()
 
     def _single_wafer_tick_labels(self, detail):
+        if detail["result"].group_plan.mark2_enabled:
+            return
         raw = detail["source_raw"]
         column = next((c for c in raw if str(c).casefold().replace(" ", "") == "dieseq"), None)
         labels = [str(v) for v in raw[column]] if column is not None else [str(i + 1) for i in range(len(raw))]
@@ -5756,7 +6176,7 @@ class MatchingWindow(QMainWindow):
 
     def _resize_results_for_plot_groups(self):
         total = 64
-        wafer_total = 64
+        wafer_total = 64 + self.metrics_group_bar.sizeHint().height()
         # Older fixed-width layouts could leave this splitter wider than its
         # viewport after a re-run. Clear that constraint every time results
         # are rebuilt so four plots fit the visible workbook.
@@ -6157,7 +6577,10 @@ class MatchingWindow(QMainWindow):
         normalize_plot_layouts(snapshot.states.get("match_ui", {}).get("plot_layouts"))
         _metric_highlighting_limits(snapshot.states.get("match_ui", {}).get("metric_highlighting"))
         if analysis_settings is not None:
-            analysis_settings = normalized_analysis_settings(analysis_settings)
+            analysis_settings = normalized_analysis_settings({
+                "workbook_type": snapshot.states["match"].get("workbook_type", "type1"),
+                **analysis_settings,
+            })
         if not snapshot.states.get("match", {}).get("draft"):
             MatchWorkbook.from_snapshot(snapshot)
         if not self.document.confirm_close():
@@ -6195,6 +6618,10 @@ class MatchingWindow(QMainWindow):
         return self.workbook or snapshot
 
     def _restore_analyzed_workbook(self, workbook, path, *, analysis_settings=None, mapping_choices=None):
+        self.workbook_type = workbook.workbook_type
+        self.wafer_id_mapping = deepcopy(workbook.wafer_id_mapping)
+        self._wafer_mapping_cache.clear()
+        self._wafer_mapping_revision += 1
         self.workbook_path = Path(path).resolve()
         self.reveal_wkb_action.setEnabled(True)
         self._map_selection_states = {

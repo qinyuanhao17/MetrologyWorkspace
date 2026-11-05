@@ -123,6 +123,14 @@ def group_state(state=None):
         {key: value for key, value in source.items() if key != "applied"}
     )
     state.setdefault("enabled", False)
+    state.setdefault("mark2_enabled", False)
+    if type(state["mark2_enabled"]) is not bool:
+        raise ValueError("Mark2 needs a checkbox value.")
+    from .mark2 import config as mark2_config
+    state["mark2"] = mark2_config(state.get("mark2"))
+    if state["mark2_enabled"]:
+        state["enabled"] = False
+        state["mark_enabled"] = False
     # Old workbooks used Old/New unconditionally; files that never stored Mark
     # data must not switch Mark on by themselves.
     legacy_marks = any(key in state for key in ("mark_values", "mark_names", "mark_rows", "new_rows"))
@@ -304,6 +312,8 @@ def row_ids(raw):
     Frames are immutable snapshots here: replacing a table builds a new frame,
     so identities may be reused until that frame is gone.
     """
+    from .wafer_id_mapping import original_raw
+    raw = original_raw(raw)
     cached = _cached_row_ids(raw)
     if cached is not None:
         return cached
@@ -367,6 +377,10 @@ class GroupPlan:
         self.raw = raw
         self.reference = reference if reference is not None else pd.DataFrame(index=range(len(raw)))
         self.state = applied_state(state)
+        from .mark2 import labels_for_raw
+        self.mark2_enabled = self.state["mark2_enabled"]
+        self.mark2_labels = (labels_for_raw(raw, self.state["mark2"])
+                             if self.mark2_enabled and len(raw) else ())
         self.ids = row_ids(raw)
         self.mark_enabled = self.state["mark_enabled"]
         if "flags" in self.state:
@@ -494,8 +508,11 @@ class GroupPlan:
             return None
         aliases = {"waferid", "wafer", "waferno", "lotid", "lot", "lotno", "padname", "pad",
                    "dieseq", "cursmefilepath", "testflag"}
+        mark2_columns = ({normalized(c) for c in self.state["mark2"]["identity_columns"]}
+                         if self.mark2_enabled else set())
         columns = [column for column in raw
-                   if column in self.identity_columns or normalized(column) in aliases]
+                   if column in self.identity_columns or normalized(column) in aliases
+                   or normalized(column) in mark2_columns]
         if columns and not raw[columns].equals(self.raw[columns]):
             return None
         result = copy(self)
@@ -552,6 +569,9 @@ class GroupPlan:
         allowed = set(self.rows(key))
         if not allowed:
             return []
+        if self.mark2_enabled:
+            from .mark2 import ordered_rows
+            return [{"group": "all", "label": "Mark2", "rows": ordered_rows(allowed, self.mark2_labels, self.state["mark2"])}]
         order = "wafers" if collect_wafers else self.state["trend_order"]
         if order == "wafers":
             buckets = {}

@@ -41,7 +41,7 @@ QFrame#sectionSeparator { background: #2b2133; border: none; max-height: 1px; }
 QToolBar#mainToolbar { background: #08050d; border: none; border-bottom: 1px solid #281e30; spacing: 7px; padding: 8px 12px; min-height: 42px; }
 QToolBar#mainToolbar QToolButton { color: #b9adbf; background: #140d1c; border: 1px solid #302538; border-radius: 6px; padding: 7px 12px; }
 QToolBar#mainToolbar QToolButton:hover { color: #f4f0f7; border-color: #8050b2; background: #21152f; }
-QToolButton#toolbarMenu { padding: 6px 10px; }
+QToolButton#toolbarMenu, QToolButton#toolbarHelp { padding: 6px 10px; }
 QToolButton#toolbarMenu::menu-indicator { image: none; width: 0; }
 QMenuBar { background: #0d0814; color: #ddd5e5; padding: 2px 4px; }
 QMenuBar::item { background: transparent; padding: 6px 10px; border-radius: 6px; }

@@ -1014,6 +1014,7 @@ class MainWindow(QMainWindow):
         if prepared is None or prepared["book"] is not book:
             prepared = prepare_workbook_participation(book)
         self._hide_workbook_excluded = prepared["hide_excluded"]
+        self._workbook_wafer_mapping = book.wafer_id_mapping
         self._workbook_selection_view = deepcopy(prepared["view"])
         source = book.final_match_raw if book.result_mode == "final" and book.final_match_raw is not None else book.raw
         self._participation_excluded = set(prepared["excluded"])
@@ -1035,7 +1036,12 @@ class MainWindow(QMainWindow):
             excluded = set(inherited) if hasattr(self, "_workbook_selection_view") else excluded | inherited
         if not excluded:
             return set(range(len(frame)))
-        return set(i for i, key in enumerate(participation_source_keys(frame)) if key not in excluded)
+        from .wafer_id_mapping import processing_keys
+        try:
+            keys = processing_keys(frame, getattr(self, "_workbook_wafer_mapping", None))
+        except ValueError:
+            keys = participation_source_keys(frame)  # Independently edited child records.
+        return set(i for i, key in enumerate(keys) if key not in excluded)
 
     def _refresh_selection_badge(self):
         self._refresh_table_projection()

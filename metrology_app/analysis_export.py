@@ -260,12 +260,20 @@ def plot_figure(plot):
     if sequence is not None and 'captions' in sequence:
         from .excel_export import footer_margin
         bottom = footer_margin(sequence['captions'])
+    if plot.get("mark2"):
+        bottom = .5 + (55 + 25 * (len(plot["mark2"]["columns"]) - 1)) * 2.54 / 96
     figure.subplots_adjust(left=2.0 / width, right=1 - (.7 + .9 * len(second_axes)) / width,
                            bottom=bottom / PANEL_HEIGHT_CM,
                            top=min(.79, 1 - (1.1 + .5 * legend_rows) / PANEL_HEIGHT_CM) if not plot.get("notes") else .70)
     if sequence is not None and plot.get('dies'):
         from .excel_export import draw_sequence_axis
         draw_sequence_axis(axis, sequence, plot['dies'])
+    if plot.get("mark2"):
+        from .mark2_plotting import draw_hierarchy
+        domain = plot["mark2"]
+        axis.set_xlim(domain.get("origin", 1) - .5,
+                      domain.get("origin", 1) + max(1, len(domain["values"])) - .5)
+        draw_hierarchy(axis, **domain)
     set_export_font(figure)
     return figure
 
@@ -362,6 +370,22 @@ def append_report(book, used, report, *, native=True, images=None, prefix=""):
         if plot.get("kind") != "bar" and plot["series"]:
             chart_limits(chart, values_by_chart.get(chart, []),
                          _plotted_positions(plot))
+        if plot.get("mark2"):
+            from openpyxl.utils import get_column_letter, quote_sheetname
+            from .mark2_export import captions, attach_native
+            domain = plot["mark2"]
+            fields, values = domain["columns"], domain["values"]
+            for col, field in enumerate(fields, 1):
+                sheet.cell(row, col, f"Mark2 · {field}")
+            first_labels = row + 1
+            for offset, labels in enumerate(values, first_labels):
+                for col, label in enumerate(labels, 1):
+                    sheet.cell(offset, col, str(label)).data_type = "s"
+            footer = captions(fields, values, lambda n, field:
+                              f"{quote_sheetname(sheet.title)}!${get_column_letter(fields.index(field) + 1)}${first_labels + n}")
+            origin = domain.get("origin", 1)
+            attach_native(chart, footer, (origin - .5, origin + max(1, len(values)) - .5))
+            row = first_labels + len(values) + 2
         if native:
             if secondary_axes:
                 from openpyxl.utils import get_column_letter

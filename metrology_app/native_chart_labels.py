@@ -24,7 +24,7 @@ def _child(parent, namespace, tag, text=None, **attributes):
     return element
 
 
-def _shape(root, index, name, start, end, *, text=None, source=None, color='000000', width=19050, dashed=False):
+def _shape(root, index, name, start, end, *, text=None, source=None, color='000000', width=19050, dashed=False, rotation=0):
     anchor = _child(root, D, 'relSizeAnchor')
     corners = ((min(start[0], end[0]), start[1]), (max(start[0], end[0]), end[1]))
     for corner_name, point in zip(('from', 'to'), corners):
@@ -51,7 +51,7 @@ def _shape(root, index, name, start, end, *, text=None, source=None, color='0000
         _child(
             body, A, 'bodyPr', wrap='none', anchor='t',
             lIns='0', rIns='0', tIns='0', bIns='0',
-            horzOverflow='overflow', vertOverflow='overflow')
+            horzOverflow='overflow', vertOverflow='overflow', rot=str(rotation))
         _child(body, A, 'lstStyle')
         for value in ([str(text)] if source else str(text).splitlines()):
             paragraph = _child(body, A, 'p')
@@ -73,6 +73,15 @@ def _shape(root, index, name, start, end, *, text=None, source=None, color='0000
 
 def footer_geometry(labels):
     """Reserve full-height Wafer/Group strips below the Die Seq title."""
+    if labels and labels[0].get('role') == 'mark2':
+        levels = sorted({item['level'] for item in labels})
+        heights = {level: .11 if level == 0 else .055 for level in levels}
+        top = .95 - sum(heights.values())
+        cursor, rows = top, {}
+        for level in levels:
+            rows[level] = (cursor, cursor + heights[level])
+            cursor += heights[level]
+        return top - .02, rows
     levels = sorted({item.get('level', 0) for item in labels})
     heights = {level: .04 * max(len(item['text'].splitlines()) or 1 for item in labels
                                if item.get('level', 0) == level) for level in levels}
@@ -90,6 +99,35 @@ def _drawing(
     root = ET.Element(f'{{{C}}}userShapes')
     left, width = geometry
     plot_bottom, rows = footer_geometry(labels)
+    if labels and labels[0].get('role') == 'mark2':
+        from .mark2_plotting import visible_labels
+        from matplotlib.font_manager import FontProperties
+        from matplotlib.backends.backend_agg import RendererAgg
+        renderer = RendererAgg(1, 1, 96)
+        font = FontProperties(family='Times New Roman', size=11)
+        pixels = float(width_px or 945)
+        measure = lambda text: renderer.get_text_width_height_descent(text, font, False)[0]
+        spans = [{**item, 'text': str(item['text'])} for item in labels]
+        index = 1
+        for level, (_top, bottom) in rows.items():
+            if level == 0:
+                continue
+            previous = -1e9
+            for edge in sorted({v for item in spans if item['level'] == level for v in (item['start'], item['end'])}):
+                if edge * width * pixels - previous < 4:
+                    continue
+                x = left + width * edge
+                _shape(root, index, 'Mark2 boundary', (x, plot_bottom + .005), (x, bottom), color='B8B8B8', width=9525)
+                previous = edge * width * pixels
+                index += 1
+        for item, center in visible_labels(spans, (0, 1), width * pixels, measure):
+            top, bottom = rows[item['level']]
+            center = left + width * center
+            size = (18 if item['level'] == 0 else measure(item['text']) + 10) / pixels
+            _shape(root, index, 'Mark2 caption', (center - size / 2, top), (center + size / 2, bottom),
+                   text=item['text'], source=item['source'], rotation=5400000 if item['level'] == 0 else 0)
+            index += 1
+        return ET.tostring(root, encoding='utf-8', xml_declaration=True)
     index = 1
     group_edges = {item['start'] for item in labels if item.get('role') == 'group'}
     for role in ('wafer', 'group'):

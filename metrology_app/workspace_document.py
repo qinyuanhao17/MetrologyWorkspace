@@ -545,6 +545,9 @@ class WkbDocument:
         name = path.name if path else ("Unsaved Match Workbook" if owner is not None or spectra_owner is not None else "Untitled")
         stage = getattr(self.window, "_managed_scope", "").split(".")[-1].title() if owner else ""
         label = WORKSPACE_LABELS[self.window.workspace_type]
+        if self.window.workspace_type == "match_workbook":
+            from .workbook_type import WORKBOOK_TYPES
+            label += f" · {WORKBOOK_TYPES[self.window.workbook_type]}"
         title = f"{stage + ' ' if stage else ''}{label} — {name}"
         window_name = getattr(self.window, "_analysis_window_name", "") if owner or self.window.workspace_type == "spectra_viewer" else ""
         if window_name:

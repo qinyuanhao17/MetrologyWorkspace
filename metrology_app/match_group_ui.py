@@ -14,7 +14,7 @@ from PyQt6.QtCore import QAbstractProxyModel, QEvent, QModelIndex, QPointF, QRec
 from PyQt6.QtGui import QColor, QFontMetrics, QIcon, QPalette
 from PyQt6.QtWidgets import (
     QApplication, QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
-    QFrame, QHeaderView, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu,
+    QFileDialog, QFrame, QHeaderView, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu,
     QMessageBox, QPushButton, QScrollArea, QTableWidget, QTableWidgetItem,
     QStyle, QStyledItemDelegate, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
@@ -415,6 +415,7 @@ class ColumnFilterDialog(QDialog):
 class GroupControls(QWidget):
     changed = pyqtSignal()
     apply_requested = pyqtSignal()
+    mark2_apply_requested = pyqtSignal()
     combined_imported = pyqtSignal(object, object, object)
 
     def __init__(self, parent=None):
@@ -435,6 +436,19 @@ class GroupControls(QWidget):
         form.setSpacing(10)
         self.enabled = QCheckBox("Head groups")
         self.mark_enabled = QCheckBox("Mark")
+        self.mark2_enabled = QCheckBox("Mark2")
+        self.mark2_import_button = QPushButton("Import Mark2 Excel…")
+        self.mark2_export_button = QPushButton("Export Mark2 Excel…")
+        self.mark2_export_button.setEnabled(False)
+        self.mark2_file_buttons = QWidget()
+        mark2_files = QHBoxLayout(self.mark2_file_buttons)
+        mark2_files.setContentsMargins(0, 0, 0, 0)
+        mark2_files.addWidget(self.mark2_import_button)
+        mark2_files.addWidget(self.mark2_export_button)
+        self.mark2_enabled.hide()
+        self.mark2_import_button.hide()
+        self.mark2_export_button.hide()
+        self.mark2_file_buttons.hide()
         self.mark_enabled.setToolTip("Optional per-Wafer classification; disabling it groups by head only and retains every Mark.")
         self.names_button = QPushButton("Head names…")
         self.names_button.setEnabled(False)
@@ -452,6 +466,7 @@ class GroupControls(QWidget):
         self.apply_button = QPushButton("Apply", objectName="primary")
         form.addRow(self.enabled, self.names_button)
         form.addRow(self.mark_enabled, self.new_button)
+        form.addRow(self.mark2_enabled, self.mark2_file_buttons)
         form.addRow("Trend order", self.order)
         form.addRow("Group sequence", self.group_order_button)
         layout.addLayout(form)
@@ -461,6 +476,9 @@ class GroupControls(QWidget):
         layout.addWidget(self.status)
         self.enabled.toggled.connect(lambda value: self.change("enabled", value))
         self.mark_enabled.toggled.connect(lambda value: self.change("mark_enabled", value))
+        self.mark2_enabled.toggled.connect(lambda value: self.change("mark2_enabled", value))
+        self.mark2_import_button.clicked.connect(self.import_mark2)
+        self.mark2_export_button.clicked.connect(self.export_mark2)
         self.order.currentIndexChanged.connect(lambda: self.change("trend_order", self.order.currentData()))
         self.names_button.clicked.connect(self.edit_names)
         self.new_button.clicked.connect(self.mark_new)
@@ -477,6 +495,8 @@ class GroupControls(QWidget):
         if self._loading:
             return
         self.state[key] = value
+        if key == "mark2_enabled" and value:
+            self.state["enabled"] = self.state["mark_enabled"] = False
         self.refresh()
         self.changed.emit()
 
@@ -539,9 +559,72 @@ class GroupControls(QWidget):
             self.status.setText(str(error))
             self.apply_button.setEnabled(False)
         self.order_model.set_plan(self.plan)
-        self.names_button.setEnabled(bool(self.entered_flags()))
+        mark2 = self.state["mark2_enabled"]
+        for checkbox, key in ((self.enabled, "enabled"), (self.mark_enabled, "mark_enabled"), (self.mark2_enabled, "mark2_enabled")):
+            with QSignalBlocker(checkbox):
+                checkbox.setChecked(self.state[key])
+        self.enabled.setEnabled(not mark2)
+        self.mark_enabled.setEnabled(not mark2)
+        self.names_button.setEnabled(not mark2 and bool(self.entered_flags()))
         self.card.setEnabled(self.plan is not None and self.plan.enabled)
         self.new_button.setEnabled(self.state["mark_enabled"] and self.plan is not None)
+        self.mark2_import_button.setEnabled(mark2)
+        self.mark2_export_button.setEnabled(mark2 and bool(self.state["mark2"]["records"]))
+        self.order.setEnabled(not mark2)
+        self.order.setToolTip(
+            "Mark2 is enabled. Set plot order in Groups → Manage groups Mark2."
+            if mark2 else "Choose original row order or collect Wafer / Lot / PAD identities\n"
+            "in their first source order without changing source tables.")
+        self.group_order_button.setEnabled(not mark2)
+        if mark2:
+            matched = (sum(any(values) for values in self.plan.mark2_labels) if self.plan is not None else 0)
+            self.status.setText(self.status.text() + f"\nMark2: {len(self.state['mark2']['records']):,} imported records · "
+                                f"{matched:,}/{len(self.raw):,} Raw rows with selected labels. "
+                                "Set fields and order in Groups → Manage groups Mark2.")
+            if not self.state["mark2"]["records"] or not self.state["mark2"]["selected"]:
+                self.apply_button.setEnabled(False)
+
+    def import_mark2(self):
+        from .mark2 import import_excel
+        path, _ = QFileDialog.getOpenFileName(self, "Import Mark2 labels", "", "Excel (*.xlsx *.xlsm)")
+        if not path:
+            return
+        try:
+            from openpyxl import load_workbook
+            from PyQt6.QtWidgets import QInputDialog
+            book = load_workbook(path, read_only=True)
+            sheets = book.sheetnames
+            book.close()
+            sheet = sheets[0]
+            if len(sheets) > 1:
+                sheet, ok = QInputDialog.getItem(self, "Mark2 worksheet", "Worksheet", sheets, 0, False)
+                if not ok:
+                    return
+            self.change("mark2", import_excel(path, sheet))
+        except Exception as error:
+            QMessageBox.warning(self, "Cannot import Mark2", str(error))
+
+    def export_mark2(self):
+        if not self.state["mark2_enabled"] or not self.state["mark2"]["records"]:
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Export Mark2 labels", "Mark2.xlsx", "Excel workbook (*.xlsx)")
+        if not path:
+            return
+        try:
+            from .mark2 import export_excel
+            export_excel(path, self.state["mark2"])
+        except Exception as error:
+            QMessageBox.warning(self, "Cannot export Mark2", str(error))
+
+    def manage_mark2(self):
+        from .mark2_ui import Mark2Dialog
+        if not self.state["mark2_enabled"] or not self.state["mark2"]["columns"]:
+            QMessageBox.information(self, "Manage groups Mark2", "Enable Mark2 and import its Excel in Group settings first.")
+            return
+        dialog = Mark2Dialog(self.state["mark2"], self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.change("mark2", dialog.settings())
+            self.mark2_apply_requested.emit()
 
     def _refresh_order_choices(self):
         classified = self.state["enabled"] or self.state["mark_enabled"]
@@ -586,6 +669,7 @@ class GroupControls(QWidget):
             self.order_model.load(flags if flags is not None else pd.DataFrame(columns=["TestFlag"]))
             self.enabled.setChecked(self.state["enabled"])
             self.mark_enabled.setChecked(self.state["mark_enabled"])
+            self.mark2_enabled.setChecked(self.state["mark2_enabled"])
             self.card.setChecked(self.state["use_group_card"])
             self.order.setCurrentIndex(max(0, self.order.findData(self.state["trend_order"])))
         finally:

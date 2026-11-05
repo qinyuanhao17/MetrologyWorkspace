@@ -141,6 +141,18 @@ class ParameterPlotArea(DockArea):
         self._building = False
         self._sync_height()
 
+    def set_plot_height(self, height):
+        """Reserve a readable plot frame when a hierarchy needs a taller footer."""
+        height = int(height)
+        if height == self.plot_height:
+            return
+        self.plot_height = height
+        for dock in self.docks.values():
+            dock.setMinimumHeight(height + self.LABEL_HEIGHT)
+            for plot in dock.widgets:
+                plot.setFixedHeight(height)
+        self._sync_height()
+
     def set_sequence_expanded(self, enabled):
         """Give sequence captions room without replacing plots or docking."""
         enabled = bool(enabled)
