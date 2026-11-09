@@ -6,7 +6,8 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication, QTableView, QTableWidget
+from PyQt6.QtWidgets import QApplication, QLabel, QTableView, QTableWidget
+from metrology_app.reference_merge import parse_file
 
 from metrology_app.cdsem1 import _write_workbook
 from metrology_app.module_registry import create_default_registry
@@ -44,6 +45,62 @@ def synthetic_cdsem(path):
 
 
 class ReferenceSummaryTests(unittest.TestCase):
+    def test_multiple_source_folders_scan_recursively_without_duplicate_files(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            first, second = root/'first',root/'second'
+            first.mkdir(); second.mkdir()
+            (first/'a.csv').write_text('WaferID,X\nA,1\n')
+            (second/'b.CSV').write_text('WaferID,X\nB,2\n')
+            (second/'ignored.txt').write_text('not CSV')
+            window = ReferenceSummaryWindow()
+            self.addCleanup(window.close)
+            window.set_source_folders((first,second,root))
+            self.assertEqual(set(window.files),{(first/'a.csv').resolve(),(second/'b.CSV').resolve()})
+            self.assertEqual(window.output_parent,first)
+
+    def test_long_pmish_channel_output_can_be_loaded_into_alignment(self):
+        from metrology_app.reference_alignment import load_alignment_output
+        from metrology_app.file_paths import filesystem_path
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / ('nested-' * 12)
+            root.mkdir()
+            import shutil
+            source = root / 'pmish.csv'
+            source.write_text('WaferID:,W1,LotID:,L1\n'
+                'Num,Seq,Pad name,RefDieCol,RefDieRow,X(mm),Y(mm),Recipe,Metrology unit,AzimuthAngle\n'
+                '1,1,P,0,0,1.00,2.00,Recipe_very_long_channel_name_1234567890,UVSE,45\n',encoding='utf-8')
+            report = run_reference_summary(ReferenceSummaryRequest('PMISH',(source,),root))
+            output = next(p for p in report.output_files if not p.name.startswith('_'))
+            self.assertGreater(len(str(output.resolve())),260)
+            self.assertTrue(filesystem_path(output).is_file())
+            frame = load_alignment_output(output)
+            self.assertEqual(frame['X(mm)'].tolist(),['1.00'])
+            # Python's plain TemporaryDirectory cleanup cannot traverse >260-char paths.
+            shutil.rmtree(filesystem_path(root.resolve()))
+
+    def test_nova_trailing_empty_fields_keep_values_and_collapse_lbh(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "results.csv"
+            path.write_text('WaferID,Note,CD,A_LBH,B_LBH\n'
+                            'W1,"quoted, comma", 10.000 ,NO_LBH,NO_LBH,\n'
+                            'W2,plain,20,NO_LBH,OTHER,,\n'
+                            'W3,plain,30,,NO_LBH,\n', encoding="utf-8")
+            parsed = parse_file(path, "NOVA")
+            rows = [record["data"] for record in parsed.records]
+            self.assertEqual([row["LBH"] for row in rows], ["0", "1", "1"])
+            self.assertEqual(rows[0]["Note"], "quoted, comma")
+            self.assertEqual(rows[0]["CD"], " 10.000 ")
+            self.assertNotIn("A_LBH", rows[0])
+            self.assertNotIn("B_LBH", rows[0])
+            self.assertEqual([record["line"] for record in parsed.records], [2, 3, 4])
+            path.write_text('WaferID,CD\nW1,10,unexpected\n', encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "width mismatch"):
+                parse_file(path, "NOVA")
+            path.write_text('WaferID,CD\nW1\n', encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "width mismatch"):
+                parse_file(path, "NOVA")
+
     def test_registered_window_uses_compact_summary_without_measurement_preview(self):
         registry = create_default_registry()
         self.assertEqual(registry.get("reference_summary").title, "Reference Summary")
@@ -54,13 +111,20 @@ class ReferenceSummaryTests(unittest.TestCase):
                 [window.vendor.itemText(index) for index in range(window.vendor.count())],
                 ["NOVA", "PMISH", "KLA", "CDSEM1"],
             )
-            self.assertEqual(window.findChildren(QTableView), [])
-            self.assertEqual(window.findChildren(QTableWidget), [])
+            self.assertEqual(window.tabs.widget(0).findChildren(QTableView), [])
+            self.assertEqual(window.tabs.widget(0).findChildren(QTableWidget), [])
+            self.assertEqual(window.tabs.count(), 3)
             self.assertIn(
                 "intentionally not previewed",
-                next(label for label in window.findChildren(type(window.vendor_description))
+                next(label for label in window.findChildren(QLabel)
                      if label.text() == "Run summary").toolTip(),
             )
+            labels = [label.text() for label in window.findChildren(QLabel)]
+            self.assertIn("Vendor", labels)
+            self.assertNotIn("Source", labels)
+            self.assertFalse(window.findChildren(QLabel, "pageTitle"))
+            self.assertNotIn("Consolidate NOVA", " ".join(labels))
+            self.assertNotIn("Combine regular NOVA", " ".join(labels))
         finally:
             window.close()
             window.deleteLater()
@@ -77,7 +141,7 @@ class ReferenceSummaryTests(unittest.TestCase):
                 window.vendor.setCurrentText("CDSEM1")
                 self.assertEqual(window.source_list.count(), 0)
                 self.assertFalse(window.run_button.isEnabled())
-                self.assertIn("first sheet", window.vendor_description.text())
+                self.assertIn("first sheet", window.vendor.toolTip())
         finally:
             window.close()
             window.deleteLater()

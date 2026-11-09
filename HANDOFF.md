@@ -1,6 +1,6 @@
 # Metrology Workspace handoff
 
-更新日期：2026-11-09
+更新日期：2026-11-10
 
 ## 快速开始
 
@@ -14,6 +14,17 @@
 $testModules = Get-ChildItem tests/test_*.py | Where-Object { $_.BaseName -notlike 'test_auto_weighting*' } | ForEach-Object { 'tests.' + $_.BaseName }
 & 'C:\Users\Yuanhao Qin\.conda\envs\metrology-workspace\python.exe' run_tests.py @testModules -v
 ```
+
+## 当前未发布开发
+
+- Reference Summary 三 Tab：汇总、Ref/Raw 对齐、坐标 Bias Trend。Ref 自动读汇总结果，Raw 直接表内 Ctrl+V；固定 Raw 顺序、整片拖动、显式一对一链接及稳定坐标排序。Ref 先换算到 Raw 单位后求 Raw − Ref，未知单位/缺失坐标/不同点数不猜测。Trend 默认两列，普通滚轮滚页、Ctrl 才缩放，无 Add Compare；文件夹可多选。
+- 提供的四 Vendor ZIP 已核验 13 文件、10 张输出表、2,129 行；PMISH 长配方输出路径支持 Windows 长路径。CDSEM 使用全量 CD Pivot，并显式选择 MP 坐标对。见 [对齐验证](docs/validation/reference-alignment-2026-11-09.md)。
+- Die Map 当前超限点为红色、背景点灰色；此图只读取 Raw/缓存坐标，不创建或加载 Spectra Viewer。普通及超限 Die Map 采用常规字重、等边坐标框和更近的 Die 标签，最小窗口 500×640。Mapping 行高 48 px，Single wafer matrix 的 Draw 在第一列。见 [UI 验证](docs/validation/die-map-ui-2026-11-10.md)。
+- 最终全量回归（排除 AutoWeighting）**1,448 项全部通过，525.893 秒**。真实四 Vendor 文件和 JC1913 WKB 均另有验收记录。本轮没有更新版本、标签、安装包或分支。
+
+## v5.2.0 发布
+
+以上 Reference Alignment、Spectra/Die Map 和 Single wafer matrix 改动收录进 v5.2.0。版本号与 Inno Setup 元数据均为 5.2.0；本次发布范围为源码标签与 Windows x64 Setup，保留当前分支及本地测量文件。安装包从固定源码提交的隔离 archive 构建；新一轮全量回归继续排除三个 AutoWeighting 模块，结果和构建校验作为 Release 附件。
 
 ## v5.1.1 当前交付
 

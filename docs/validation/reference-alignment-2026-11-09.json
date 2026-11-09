@@ -1,0 +1,182 @@
+{
+  "excluded_modules": [
+    "test_auto_weighting",
+    "test_auto_weighting_ocr",
+    "test_auto_weighting_window"
+  ],
+  "module_count": 119,
+  "exit_code": 0,
+  "seconds": 566.3284499000292,
+  "summary": [
+    "Ran 1447 tests in 559.564s",
+    "OK"
+  ],
+  "failures": [],
+  "real_nova_fixture": {
+    "real_ref_rows": 414,
+    "linked_wafers": 6,
+    "points_per_wafer": [
+      69,
+      69,
+      69,
+      69,
+      69,
+      69
+    ],
+    "verified_bias_x_mm": 0.0123,
+    "verified_bias_y_mm": -0.0045,
+    "unit_conversion": "µm to mm",
+    "source_unchanged": true
+  },
+  "four_vendor_archive": {
+    "tables": [
+      {
+        "vendor": "NOVA",
+        "file": "NOVA_merged.csv",
+        "rows": 1533,
+        "linked_pairs": 31,
+        "reference_columns": {
+          "x": "MpointX",
+          "y": "MpointY"
+        },
+        "explicit_test_ref_unit": "µm",
+        "raw_unit": "mm",
+        "bias_x": 0.0123,
+        "bias_y": -0.0045
+      },
+      {
+        "vendor": "KLA",
+        "file": "KLA_TestID-1_TestLabel-P118_f940423d01.csv",
+        "rows": 65,
+        "linked_pairs": 5,
+        "reference_columns": {
+          "x": "X",
+          "y": "Y"
+        },
+        "explicit_test_ref_unit": "µm",
+        "raw_unit": "mm",
+        "bias_x": 0.0123,
+        "bias_y": -0.0045
+      },
+      {
+        "vendor": "KLA",
+        "file": "KLA_TestID-1_TestLabel-SA75_a5a33ee9d8.csv",
+        "rows": 39,
+        "linked_pairs": 3,
+        "reference_columns": {
+          "x": "X",
+          "y": "Y"
+        },
+        "explicit_test_ref_unit": "µm",
+        "raw_unit": "mm",
+        "bias_x": 0.0123,
+        "bias_y": -0.0045
+      },
+      {
+        "vendor": "KLA",
+        "file": "KLA_TestID-2_TestLabel-P118_2c36d1d3eb.csv",
+        "rows": 39,
+        "linked_pairs": 3,
+        "reference_columns": {
+          "x": "X",
+          "y": "Y"
+        },
+        "explicit_test_ref_unit": "µm",
+        "raw_unit": "mm",
+        "bias_x": 0.0123,
+        "bias_y": -0.0045
+      },
+      {
+        "vendor": "KLA",
+        "file": "KLA_TestID-2_TestLabel-SA75_6740a4354f.csv",
+        "rows": 65,
+        "linked_pairs": 5,
+        "reference_columns": {
+          "x": "X",
+          "y": "Y"
+        },
+        "explicit_test_ref_unit": "µm",
+        "raw_unit": "mm",
+        "bias_x": 0.0123,
+        "bias_y": -0.0045
+      },
+      {
+        "vendor": "PMISH",
+        "file": "PMISH_Recipe-JHICC_N19_BWL_WEB_AZI45_20260826_Metrologyunit-UVSE_AzimuthAngle-45_3922040a54.csv",
+        "rows": 21,
+        "linked_pairs": 1,
+        "reference_columns": {
+          "x": "X(mm)",
+          "y": "Y(mm)"
+        },
+        "explicit_test_ref_unit": "mm",
+        "raw_unit": "mm",
+        "bias_x": 0.0123,
+        "bias_y": -0.0045
+      },
+      {
+        "vendor": "PMISH",
+        "file": "PMISH_Recipe-JHICC_TD_N19EP_BWL_TiNEB_AZI45_2_Metrologyunit-UVSE_AzimuthAngle-45_ec81e34b21.csv",
+        "rows": 99,
+        "linked_pairs": 1,
+        "reference_columns": {
+          "x": "X(mm)",
+          "y": "Y(mm)"
+        },
+        "explicit_test_ref_unit": "mm",
+        "raw_unit": "mm",
+        "bias_x": 0.0123,
+        "bias_y": -0.0045
+      },
+      {
+        "vendor": "PMISH",
+        "file": "PMISH_Recipe-JHICC_TD_N19EP_BWL_TiNEB_AZI45_2_Metrologyunit-UVSE_AzimuthAngle-90_a9e4350ef0.csv",
+        "rows": 99,
+        "linked_pairs": 1,
+        "reference_columns": {
+          "x": "X(mm)",
+          "y": "Y(mm)"
+        },
+        "explicit_test_ref_unit": "mm",
+        "raw_unit": "mm",
+        "bias_x": 0.0123,
+        "bias_y": -0.0045
+      },
+      {
+        "vendor": "PMISH",
+        "file": "PMISH_Recipe-JHICC_TDN19EP_BLET_AZI45_2026091_Metrologyunit-UVSE_AzimuthAngle-45_4770ccd63c.csv",
+        "rows": 78,
+        "linked_pairs": 1,
+        "reference_columns": {
+          "x": "X(mm)",
+          "y": "Y(mm)"
+        },
+        "explicit_test_ref_unit": "mm",
+        "raw_unit": "mm",
+        "bias_x": 0.0123,
+        "bias_y": -0.0045
+      },
+      {
+        "vendor": "CDSEM",
+        "file": "CDSEM1_SNSNEEQW20-SL-MAP_AIT0221_08_260930_1__61c54151.xlsx",
+        "rows": 91,
+        "linked_pairs": 1,
+        "reference_columns": {
+          "x": "SN-X-MP1 / Wafer_X",
+          "y": "SN-X-MP1 / Wafer_Y"
+        },
+        "explicit_test_ref_unit": "µm",
+        "raw_unit": "mm",
+        "bias_x": 0.0123,
+        "bias_y": -0.0045
+      }
+    ],
+    "all_extracted_source_bytes_match_archive": true,
+    "note": "Synthetic Raw offsets verify conversion, ordering and GUI flow. Unlabelled Ref units explicitly selected for this probe, not asserted vendor unit defaults."
+  },
+  "focused_tests": {
+    "count": 15,
+    "seconds": 0.775,
+    "passed": true
+  }
+}

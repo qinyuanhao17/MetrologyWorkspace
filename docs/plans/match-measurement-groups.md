@@ -1,11 +1,11 @@
 # KLA / NOVA 的 TestFlag、测头和可选 Mark 分组
 
-已实现于本地，未同步 GitHub。TEM 使用与 KLA/NOVA 相同的可选 Head/Mark 分组：`Group settings`、Order 表和 `Data selection` 都可用，但结果区在 TEM 下不显示 `Group plots` 与 `Single-wafer metrics` 两个 tab；TEM 的 Map/Radius、Dynamic 仍保持独立数据工作流。
+已实现于本地，未同步 GitHub。TEM 使用与 KLA/NOVA 相同的可选 Head/Mark 分组：`Group settings`、Order 表和 `Data selection` 都可用，结果区显示 `Single-Wafer metrics`，启用分组后显示 `Group plots`；TEM 的 Map/Radius、Dynamic 仍保持独立数据工作流。
 
 ## 操作
 
 1. 在 Reference 左侧的 `Order / TestFlag` 表粘贴或编辑 TestFlag。允许任意整数，包括正整数、0 和负整数，不限定为 `0`、`1`、`-1`；从 Excel 导入的 `2.0` 按整数 2 处理，但 `2.5` 这类小数不接受。表格按配对数据行数显示，不预填分类；未输入 Flag 的行保持空白。在分组分析中，缺失 Flag 单独归为 `Not provided`，不会冒充 Unknown。小数、非数字及无穷大标红并禁止绘制。
-2. 从顶部 `Groups → Group settings…` 打开独立分组设置窗口。Preview / Final 共用同一个设置窗口，表格上方不再放置分组工具栏。启用 `Head groups`，在 `Head names…` 为实际输入的 TestFlag 命名：只有 1 就只显示 1，有 0、1 才显示这两项。全部为空时按钮不可用；已有名称保留供对应 Flag 再次出现时使用。默认名称不假定仪器一定叫 MM1/MM2。`Head groups` 与 `Mark` 在所有 Match Type（KLA／NOVA／TEM）下默认都不勾选：加载已有分析设置、粘贴带 TestFlag 的 Raw Data、编辑 Order 里的 Flag 都不会自动打开，需用户显式勾选。设置窗口非模态，可同时编辑主窗口表格；关闭只隐藏窗口，不丢弃待应用设置，设置随 Workbook 一起保存。TEM 也启用此入口（结果区不显示 Group plots 与 Single-wafer metrics）。
+2. 从顶部 `Groups → Group settings…` 打开独立分组设置窗口。Preview / Final 共用同一个设置窗口，表格上方不再放置分组工具栏。启用 `Head groups`，在 `Head names…` 为实际输入的 TestFlag 命名：只有 1 就只显示 1，有 0、1 才显示这两项。全部为空时按钮不可用；已有名称保留供对应 Flag 再次出现时使用。默认名称不假定仪器一定叫 MM1/MM2。`Head groups` 与 `Mark` 在所有 Match Type（KLA／NOVA／TEM）下默认都不勾选：加载已有分析设置、粘贴带 TestFlag 的 Raw Data、编辑 Order 里的 Flag 都不会自动打开，需用户显式勾选。设置窗口非模态，可同时编辑主窗口表格；关闭只隐藏窗口，不丢弃待应用设置，设置随 Workbook 一起保存。TEM 也启用此入口，并显示 Single-Wafer metrics 与启用分组后的 Group plots。
 3. 原 `Age` 改为可选的 `Mark` 列：新建 Workbook 默认不开启，关闭时只按测头分组。勾选设置窗口中的 `Mark` 后打开 `Marks…`：每个量测组最多一个 Mark，名称自由命名（不限于 POR 等固定取值），双击改名，`Add Mark` / `Delete Mark` 随时增删。第一个 Mark 是兜底组（列表中以 ✓ 标出），未显式分配的量测组自动归入它；保留两个 Mark 即可当二元分类（默认 Old / New），需要多元时继续添加。删除某个 Mark 后，原属它的量测组回到第一个 Mark。列表搜索框只筛选展示，`Assign Visible` 批量分配给搜索后可见的量测组；先点击首行，再按住 Shift 点击末行，将首行的 Mark 应用到整个可见区间。改名会同步更新 Order 表的 Mark / Group 筛选值。改变身份字段仅改变展示颗粒度，合并组不自动改写原记录。关闭 Mark 保留定义和分配，忽略 Mark 列筛选/排序，Mark × 测头组筛选合并到对应测头；重新开启恢复。旧 WKB 自动开启 Mark、保留原 Old/New 名称及标记，旧 Age 列筛选迁移为 Mark。
 4. 三个表的列标题可右键筛选、升序或降序排序。它们共享同一行投影：Reference、Raw、TestFlag 永远同行移动，编辑、粘贴和撤销仍映射到源记录。向筛选视图追加记录前需清除筛选/排序。
 5. 修改筛选、排序、测头名、Mark 名称/记录标记、分组顺序后，在设置窗口点击 `Apply` 应用。它只提交设置，不替代 `Group plots` 页自己的 `Draw selected`，也不会自动提交该页待绘制的框选；已绘制图仍立即排除不参与的记录。Match 始终使用配对原始数值拟合；显示排序不改变拟合顺序。数据值编辑在没有待应用设置时自动更新，未变化参数的图不会重建。

@@ -818,6 +818,7 @@ class MatchingWindow(QMainWindow):
         self._workspace_states = {}
         self._workspace_frames = {}
         self._spectra_windows = {}
+        self._bias_die_maps = {}
         self._recovered_children = {}
         self.second_axis_ratio = 10.0
         self.metric_highlighting = _metric_highlighting_limits()
@@ -1648,27 +1649,30 @@ class MatchingWindow(QMainWindow):
         self.analyze_button.clicked.connect(self._run_analysis_clicked)
         heading.addWidget(self.analyze_button)
         mapping_layout.addLayout(heading)
-        self.mapping_table = QTableWidget(0, 12)
+        self.mapping_table = QTableWidget(0, 13)
         attach_copy_feedback(self.mapping_table)
         self.mapping_table.setHorizontalHeaderLabels([
             "Use", "Parameter", "Reference column", "Raw Data column",
             "Slope", "Intercept", "R²", "Valid pairs", "Match type", "Result mode",
-            "Bias limit ±", "Bias out of range",
+            "Bias limit ±", "Bias out of range", "Die Map",
         ])
         self.mapping_table.verticalHeader().setVisible(False)
+        self.mapping_table.verticalHeader().setDefaultSectionSize(48)
+        self.mapping_table.verticalHeader().setMinimumSectionSize(44)
         self.mapping_table.setAlternatingRowColors(True)
         self.mapping_table.setItemDelegateForColumn(0, _DrawCellDelegate(self.mapping_table))
         header = self.mapping_table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         for column, width in enumerate((52, 150, 180, 210, 100, 100, 90, 95, 100, 105, 185, 150)):
             self.mapping_table.setColumnWidth(column, width)
+        self.mapping_table.setColumnWidth(12, 145)
         self.mapping_table.itemChanged.connect(self._mapping_item_changed)
         self.mapping_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.mapping_table.customContextMenuRequested.connect(self._mapping_context_menu)
         self.mapping_table.setToolTip("Right-click a row to Delete that mapping. Source measurements stay unchanged.")
         mapping_layout.addWidget(self.mapping_table, 1)
         mapping_footer = QHBoxLayout()
-        self.mapping_size = _label("0 rows × 12 columns", "hint")
+        self.mapping_size = _label("0 rows × 13 columns", "hint")
         mapping_footer.addWidget(self.mapping_size)
         mapping_footer.addStretch()
         mapping_layout.addLayout(mapping_footer)
@@ -2267,19 +2271,17 @@ class MatchingWindow(QMainWindow):
         index = self.results_tabs.indexOf(self.group_plot_page)
         # Mark alone groups a workbook without TestFlags, so the tab follows the
         # resolved plan instead of the Head-groups switch.
-        tem = self.match_type.currentText() == "TEM"
         grouped = bool(plan is not None and plan.enabled)
-        if grouped and not tem and index < 0:
+        if grouped and index < 0:
             self.results_tabs.addTab(self.group_plot_page, "Group plots")
-        elif (not grouped or tem) and index >= 0:
+        elif not grouped and index >= 0:
             self.results_tabs.removeTab(index)
             self.group_plot_page.hide()
-        # TEM keeps the classification for ordering and selection, but neither
-        # the grouped plots nor the single-wafer metrics tab belongs to it.
+        # Every Match Type exposes the same per-measurement results. TEM used
+        # to calculate these values but hide their tab, which made its result
+        # surface inconsistent with KLA and NOVA.
         wafer_index = self.results_tabs.indexOf(self.wafer_groups_widget)
-        if tem and wafer_index >= 0:
-            self.results_tabs.removeTab(wafer_index)
-        elif not tem and wafer_index < 0:
+        if wafer_index < 0:
             self.results_tabs.insertTab(1, self.wafer_groups_widget, "Single-Wafer metrics")
 
     def _group_controls_changed(self):
@@ -2661,7 +2663,7 @@ class MatchingWindow(QMainWindow):
             self._mapping_cell_context_menu(limit_cell)
             limit_spin.valueChanged.connect(lambda _value, cell=limit_cell: self._bias_limit_changed(cell))
             show_limit.toggled.connect(lambda _checked, cell=limit_cell: self._bias_limit_changed(cell))
-            for column in range(4, self.mapping_table.columnCount()):
+            for column in range(4, 12):
                 if column == 10:
                     continue
                 result_item = QTableWidgetItem("")
@@ -2669,6 +2671,10 @@ class MatchingWindow(QMainWindow):
                     Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
                 )
                 self.mapping_table.setItem(row, column, result_item)
+            button = QPushButton("Show Die Map")
+            button.setEnabled(False)
+            button.clicked.connect(lambda _=False, r=row: self.show_bias_die_map(r))
+            self.mapping_table.setCellWidget(row, 12, button)
         self.mapping_table.blockSignals(False)
         self._sync_select_all_mappings()
 
@@ -2837,8 +2843,14 @@ class MatchingWindow(QMainWindow):
             self.document.refresh_identity()
 
     def _clear_mapping_results(self):
+        for window in self._bias_die_maps.values():
+            if not sip.isdeleted(window):
+                window.statusBar().showMessage("Analysis changed. Run analysis to update this Die Map.")
         self.mapping_table.blockSignals(True)
         for row in range(self.mapping_table.rowCount()):
+            button = self.mapping_table.cellWidget(row, 12)
+            if button is not None:
+                button.setEnabled(False)
             for column in range(4, self.mapping_table.columnCount()):
                 item = self.mapping_table.item(row, column)
                 if item is not None:
@@ -2862,6 +2874,7 @@ class MatchingWindow(QMainWindow):
             key = (self.mapping_table.item(row, 1).text().strip(),
                    self.mapping_table.item(row, 2).text(), self.mapping_table.cellWidget(row, 3).currentText())
             summary = summaries.get(key) if self.mapping_table.item(row, 0).checkState() == Qt.CheckState.Checked else None
+            self.mapping_table.cellWidget(row, 12).setEnabled(summary is not None)
             for column, field in enumerate(fields, start=4):
                 if field == "Bias limit":
                     continue
@@ -2880,6 +2893,25 @@ class MatchingWindow(QMainWindow):
                     item.setToolTip(f"|Bias| > {summary['Bias limit']:g} {unit}; includes all finite analysis rows.\n"
                                     "Equal-to-limit and missing/non-finite values are not counted.")
         self.mapping_table.blockSignals(False)
+        from .bias_die_map import refresh_bias_map
+        for parameter, window in self._bias_die_maps.items():
+            if not sip.isdeleted(window) and window.isVisible() and parameter in self.result.parameter_names:
+                try:
+                    refresh_bias_map(self, window, parameter)
+                except ValueError as error:
+                    window.set_data((), checked_keys=())
+                    window.empty.setText(str(error))
+
+    def show_bias_die_map(self, row):
+        if self.result is None:
+            return None
+        from .bias_die_map import open_bias_map
+        parameter = self.mapping_table.item(row, 1).text().strip()
+        try:
+            return open_bias_map(self, parameter)
+        except ValueError as error:
+            QMessageBox.warning(self, "Die Map unavailable", str(error))
+            return None
 
     def _style_mapping_metric(self, item, field, value):
         """Apply accessible threshold styling without changing numeric text."""
@@ -4573,6 +4605,9 @@ class MatchingWindow(QMainWindow):
         if not self.document.confirm_close():
             event.ignore()
             return
+        for window in self._bias_die_maps.values():
+            if not sip.isdeleted(window):
+                window.close()
         from .spectra_workbook import close_children
         close_children(self)
         self._cancel_main_plot_refresh()
@@ -4820,7 +4855,7 @@ class MatchingWindow(QMainWindow):
                 self.plot_groups_layout.addWidget(group['card'])
                 self.wafer_groups_layout.addWidget(group['wafer_card'])
                 group['card'].show()
-                group['wafer_card'].setVisible(self.workbook.match_type in {'NOVA', 'KLA'})
+                group['wafer_card'].show()
         reuse = previous_key is not None and previous_key[1:] == layout_key[1:] and bool(self.plot_groups)
         if not reuse:
             self._clear_plot_groups(current_only=True)
@@ -5464,10 +5499,7 @@ class MatchingWindow(QMainWindow):
 
     def _draw_wafer_metrics(self, parameter, group):
         group["wafer_metrics_pending"] = False
-        enabled = self.workbook.match_type in {"NOVA", "KLA"}
-        if not enabled:
-            group["wafer_card"].hide()
-            return
+        enabled = True
         try:
             summary = self.result.wafer_summary(parameter)
         except ValueError:
@@ -5486,7 +5518,7 @@ class MatchingWindow(QMainWindow):
         display.insert(min(2, len(display.columns)), 'Row', np.arange(1, len(display) + 1))
         group["wafer_summary"] = summary
         selected = self._single_wafer_checks.setdefault(self.workbook.result_mode, {}).setdefault(parameter, [])
-        display["Draw"] = [label in selected for label in summary.get("Wafer", [])]
+        display.insert(0,"Draw",[label in selected for label in summary.get("Wafer", [])])
         if "Wafer" in display.columns:
             display["Wafer"] = [
                 str(value).replace("\n", "/") for value in display["Wafer"]
@@ -5502,11 +5534,10 @@ class MatchingWindow(QMainWindow):
             columns = header.count()
             if columns:
                 header.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
-                header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
-                wafer_view.setColumnWidth(0, 320)
-            # Only in-range sections: the wafer column keeps the free width.
-            for column in range(1, columns):
-                wafer_view.setColumnWidth(column, 164 if column == 1 else 104)
+                for column,name in enumerate(display.columns):
+                    if name == 'Wafer':
+                        header.setSectionResizeMode(column,QHeaderView.ResizeMode.Interactive)
+                    wafer_view.setColumnWidth(column,320 if name=='Wafer' else 164 if name=='Group' else 96 if name=='Draw' else 104)
             if "Draw" in display:
                 wafer_view.setItemDelegateForColumn(display.columns.get_loc("Draw"), group["wafer_draw_delegate"])
         # Row numbers, not wafer names: the single-wafer table alongside shows the

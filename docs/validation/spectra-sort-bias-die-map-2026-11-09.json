@@ -1,0 +1,32 @@
+{
+  "expanded_run": {
+    "tests": 249,
+    "seconds": 91.309,
+    "passed": 246,
+    "environment_errors": 3
+  },
+  "environment_recheck": {
+    "tests": 3,
+    "seconds": 2.837,
+    "passed": true
+  },
+  "final_spectra_sort_run": {
+    "tests": 75,
+    "seconds": 22.07,
+    "passed": true
+  },
+  "final_workflows": {
+    "tests": 3,
+    "seconds": 0.546,
+    "passed": true
+  },
+  "real_fixture": {
+    "parameter": "OCD_Depth",
+    "out_of_range_rows": 1568,
+    "mapped_rows": 1568,
+    "wafers": 89,
+    "missing_coordinates": 0,
+    "spectra_children_opened": 0
+  },
+  "full_suite_repeated": false
+}

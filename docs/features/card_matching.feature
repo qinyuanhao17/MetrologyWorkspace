@@ -4,6 +4,23 @@ Feature: Build a card matching workbook
 
   Rule: Reference defines the parameters that can be matched
 
+    Scenario: Locate a parameter's out-of-range Bias measurements
+      Given an analyzed parameter has included source rows and millimetre coordinates
+      When the engineer chooses Show Die Map in that parameter's mapping row
+      Then finite absolute Bias values strictly greater than its limit appear as red points
+      And other included points on the same wafers appear gray for context
+      And equality and missing Bias values are not counted as out of range
+      And the map does not change Workbook participation
+      When the engineer changes that parameter's Bias limit
+      Then the open map reflects its new exceedances
+
+    Scenario: Draw individual wafer results from the first matrix column
+      Given the Single wafer matrix lists analyzed measurement sets
+      Then Draw is the first column and Wafer remains adjustable in width
+      When the engineer clicks Draw or presses Space in its cell
+      Then only that measurement set's local plots change
+      And the Draw header can uncheck all local plots
+
     Scenario: Preview two mapped parameters in one workbook
       Given a Reference table with CD_Bot Reference and SPA Reference
       And row-aligned Raw Data with CD_Bot and SPA
@@ -304,6 +321,12 @@ Feature: Build a card matching workbook
       And pressing one of those buttons again reuses its own window
       And the Correlation and Trend window follows Raw Data edits
       But the TEM Wafer Map table is never overwritten from Raw Data
+
+    Scenario: Show TEM single-wafer and grouped results
+      Given TEM is selected with valid measurement identities
+      When the engineer runs the matching analysis
+      Then Single-Wafer metrics shows the TEM measurement fits
+      And enabling Head or Mark grouping shows Group plots for TEM
 
   Rule: A grouped trend reads in one clear order
 

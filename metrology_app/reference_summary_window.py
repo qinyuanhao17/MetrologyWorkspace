@@ -10,6 +10,7 @@ from PyQt6.QtGui import QAction, QDesktopServices, QKeySequence
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
+    QDialog,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -18,12 +19,15 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QListView,
+    QTreeView,
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
     QSplitter,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -31,13 +35,14 @@ from PyQt6.QtWidgets import (
 from .appearance import fit_window_to_screen, help_title_label
 from .cdsem1 import merge_cdsem1, scan_workbooks
 from .reference_merge import merge, scan_csv
+from .file_paths import filesystem_path
 
 
 VENDOR_DETAILS = {
     "NOVA": {
         "filter": "CSV files (*.csv)",
         "extensions": {".csv"},
-        "description": "Combine regular NOVA tables, remove repeated headers and _LBH columns, then de-duplicate complete rows.",
+        "description": "Combine NOVA tables, remove repeated headers, consolidate _LBH flags and de-duplicate complete rows.",
     },
     "PMISH": {
         "filter": "CSV files (*.csv)",
@@ -57,6 +62,33 @@ VENDOR_DETAILS = {
 }
 
 
+class _SourceFoldersDialog(QFileDialog):
+    """Qt's directory browser with multi-selection and no navigation on Accept."""
+
+    def __init__(self, parent, title):
+        super().__init__(parent,title)
+        self.setOption(QFileDialog.Option.DontUseNativeDialog,True)
+        self.setOption(QFileDialog.Option.ShowDirsOnly,True)
+        self.setFileMode(QFileDialog.FileMode.Directory)
+        self.folders = ()
+        for view in self.findChildren(QListView) + self.findChildren(QTreeView):
+            if view.objectName() in ('listView','treeView'):
+                view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+
+    def accept(self):
+        selected = []
+        for view in self.findChildren(QListView) + self.findChildren(QTreeView):
+            if view.objectName() not in ('listView','treeView'):
+                continue
+            model = view.model()
+            if hasattr(model,'filePath'):
+                selected.extend(model.filePath(index) for index in view.selectionModel().selectedRows(0))
+        paths = selected or self.selectedFiles()
+        self.folders = tuple(dict.fromkeys(Path(path).resolve() for path in paths if Path(path).is_dir()))
+        if self.folders:
+            QDialog.accept(self)
+
+
 @dataclass(frozen=True, slots=True)
 class ReferenceSummaryRequest:
     vendor: str
@@ -74,7 +106,7 @@ class ReferenceSummaryReport:
 
 def _issue_lines(output_dir: Path, limit: int = 6) -> tuple[str, ...]:
     """Return a compact issue digest; detailed rows stay in the exported CSV."""
-    report = output_dir / "_issues.csv"
+    report = filesystem_path(output_dir.resolve() / "_issues.csv")
     if not report.is_file():
         return ()
     lines = []
@@ -107,7 +139,7 @@ def run_reference_summary(request: ReferenceSummaryRequest, cancelled=None, prog
         )
     output_dir = Path(result.output_dir)
     files = tuple(sorted(
-        (path for path in output_dir.iterdir() if path.is_file()),
+        (output_dir / path.name for path in filesystem_path(output_dir.resolve()).iterdir() if path.is_file()),
         key=lambda path: path.name.casefold(),
     ))
     return ReferenceSummaryReport(
@@ -175,6 +207,8 @@ class ReferenceSummaryWindow(QMainWindow):
         self._close_when_finished = False
         self._build_ui()
         self._vendor_changed()
+        from .settings import apply_theme
+        apply_theme(self)
 
     @property
     def vendor_name(self):
@@ -186,15 +220,6 @@ class ReferenceSummaryWindow(QMainWindow):
         outer.setContentsMargins(24, 18, 24, 20)
         outer.setSpacing(14)
 
-        title = QLabel("Reference Summary", objectName="pageTitle")
-        subtitle = QLabel(
-            "Consolidate NOVA, PMISH, KLA, or CDSEM1 exports without changing the source files.",
-            objectName="subtitle",
-        )
-        subtitle.setWordWrap(True)
-        outer.addWidget(title)
-        outer.addWidget(subtitle)
-
         split = QSplitter(Qt.Orientation.Horizontal)
         split.setChildrenCollapsible(False)
         split.addWidget(self._build_source_panel())
@@ -203,7 +228,15 @@ class ReferenceSummaryWindow(QMainWindow):
         split.setStretchFactor(1, 6)
         split.setSizes([430, 680])
         outer.addWidget(split, 1)
-        self.setCentralWidget(root)
+        from .reference_alignment_ui import ReferenceAlignmentPage, CoordinateTrendPage
+        self.tabs = QTabWidget()
+        self.tabs.addTab(root, '1. Summary')
+        self.trend_page = CoordinateTrendPage()
+        self.alignment = ReferenceAlignmentPage(self.trend_page)
+        self.tabs.addTab(self.alignment, '2. Wafer Alignment')
+        self.tabs.addTab(self.trend_page, '3. XY Bias Trends')
+        self.alignment.plotted.connect(lambda: self.tabs.setCurrentIndex(2))
+        self.setCentralWidget(self.tabs)
 
         cancel_action = QAction(self)
         cancel_action.setShortcut(QKeySequence(Qt.Key.Key_Escape))
@@ -218,24 +251,19 @@ class ReferenceSummaryWindow(QMainWindow):
         layout.setContentsMargins(18, 16, 18, 18)
         layout.setSpacing(11)
         layout.addWidget(help_title_label(
-            "Source",
+            "Vendor",
             "Choose one vendor format and one or more source files. Folder selection scans subfolders and skips prior output folders.",
         ))
 
-        layout.addWidget(QLabel("VENDOR", objectName="eyebrow"))
         self.vendor = QComboBox(objectName="referenceVendor")
         self.vendor.addItems(VENDOR_DETAILS)
         self.vendor.currentTextChanged.connect(self._vendor_changed)
         layout.addWidget(self.vendor)
-        self.vendor_description = QLabel(objectName="muted")
-        self.vendor_description.setWordWrap(True)
-        self.vendor_description.setMinimumHeight(54)
-        layout.addWidget(self.vendor_description)
 
         source_actions = QHBoxLayout()
         self.files_button = QPushButton("Choose files…")
         self.files_button.clicked.connect(self.choose_files)
-        self.folder_button = QPushButton("Choose folder…")
+        self.folder_button = QPushButton("Choose folders…")
         self.folder_button.clicked.connect(self.choose_folder)
         source_actions.addWidget(self.files_button)
         source_actions.addWidget(self.folder_button)
@@ -331,7 +359,7 @@ class ReferenceSummaryWindow(QMainWindow):
 
     def _vendor_changed(self):
         detail = VENDOR_DETAILS[self.vendor_name]
-        self.vendor_description.setText(detail["description"])
+        self.vendor.setToolTip(detail["description"])
         if self.files:
             self.set_source_files(())
         self._clear_result()
@@ -383,19 +411,25 @@ class ReferenceSummaryWindow(QMainWindow):
             self.set_source_files(paths)
 
     def choose_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, f"Choose {self.vendor_name} source folder")
-        if not folder:
+        dialog = _SourceFoldersDialog(self,f"Choose {self.vendor_name} source folders")
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         try:
-            files = scan_workbooks(folder) if self.vendor_name == "CDSEM1" else scan_csv(folder)
+            self.set_source_folders(dialog.folders)
         except Exception as error:
-            QMessageBox.warning(self, "Cannot scan folder", str(error))
+            QMessageBox.warning(self, "Cannot scan folders", str(error))
+
+    def set_source_folders(self, folders):
+        folders = tuple(dict.fromkeys(Path(folder).resolve() for folder in folders))
+        if not folders:
             return
+        scan = scan_workbooks if self.vendor_name == 'CDSEM1' else scan_csv
+        files = [path for folder in folders for path in scan(folder)]
         if not files:
             kind = "Excel workbooks" if self.vendor_name == "CDSEM1" else "CSV files"
-            QMessageBox.information(self, "No source files", f"No {kind} were found in that folder.")
+            QMessageBox.information(self, "No source files", f"No {kind} were found in the selected folders.")
             return
-        self.output_parent = Path(folder)
+        self.output_parent = folders[0]
         self.set_source_files(files)
 
     def choose_output(self):
@@ -438,6 +472,7 @@ class ReferenceSummaryWindow(QMainWindow):
 
     def _completed(self, report):
         self.report = report
+        self.alignment.set_report(report)
         result = report.result
         self.progress.setRange(0, 1)
         self.progress.setValue(1)

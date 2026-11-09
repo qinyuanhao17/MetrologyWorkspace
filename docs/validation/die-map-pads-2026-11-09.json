@@ -1,0 +1,30 @@
+{
+  "excluded_modules": [
+    "test_auto_weighting",
+    "test_auto_weighting_ocr",
+    "test_auto_weighting_window"
+  ],
+  "module_count": 117,
+  "exit_code": 1,
+  "seconds": 1153.0910040999297,
+  "summary": [
+    "Ran 1433 tests in 1144.824s",
+    "FAILED (failures=2)"
+  ],
+  "failures": [
+    "FAIL: test_wafer_window_opens_with_current_cards_and_uses_new_coefficients_after_edit (tests.test_performance_regressions.WorkbookPerformanceTests.test_wafer_window_opens_with_current_cards_and_uses_new_coefficients_after_edit)",
+    "FAIL: test_die_map_sets_flags_without_replacing_maps_or_changing_checks (tests.test_spectra_info.SpectraInfoWorkflowTests.test_die_map_sets_flags_without_replacing_maps_or_changing_checks)"
+  ],
+  "focused_tests": 19,
+  "focused_passed": true,
+  "real_wafer": {
+    "wafer": "AIE0058.00-23",
+    "width_mm": 24.17,
+    "height_mm": 28.53,
+    "absolute_points_unchanged": true
+  },
+  "recheck": {
+    "flag_range_test": "passed in isolation",
+    "wafer_open_budget": "failed: 0.532 seconds vs 0.4 seconds"
+  }
+}

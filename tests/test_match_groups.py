@@ -106,7 +106,7 @@ class MatchGroupTests(unittest.TestCase):
         self.assertEqual(group_state({"enabled": True, "trend_order": "nonsense"})["trend_order"], "groups")
         self.assertEqual(group_state({"enabled": True, "trend_order": "original"})["trend_order"], "original")
 
-    def test_tem_supports_head_and_mark_groups(self):
+    def test_tem_shows_head_and_mark_group_and_single_wafer_results(self):
         from PyQt6.QtWidgets import QApplication
         from metrology_app.matching_window import MatchingWindow
         app = QApplication.instance() or QApplication([])
@@ -122,9 +122,10 @@ class MatchGroupTests(unittest.TestCase):
             self.assertEqual(window.result.group_plan.group_keys, ("Old:0", "Old:1"))
             self.assertTrue(window.group_settings_action.isEnabled())
             self.assertFalse(window.order_card.isHidden())
-            # TEM uses the classification but keeps neither result tab.
-            self.assertEqual(window.results_tabs.indexOf(window.group_plot_page), -1)
-            self.assertEqual(window.results_tabs.indexOf(window.wafer_groups_widget), -1)
+            self.assertGreaterEqual(window.results_tabs.indexOf(window.group_plot_page), 0)
+            self.assertGreaterEqual(window.results_tabs.indexOf(window.wafer_groups_widget), 0)
+            self.assertGreater(len(window.group_plot_page.scopes), 0)
+            self.assertGreater(window.plot_groups["P"]["wafer_model"].rowCount(), 0)
             window.match_type.setCurrentText("NOVA")
             self.assertGreaterEqual(window.results_tabs.indexOf(window.group_plot_page), 0)
             self.assertGreaterEqual(window.results_tabs.indexOf(window.wafer_groups_widget), 0)
@@ -861,8 +862,8 @@ class MatchGroupTests(unittest.TestCase):
             self.assertEqual(set(window.group_plot_page.plot_groups), {("Old:0", "P"), ("Old:1", "P")})
             window.match_type.setCurrentText("TEM")
             self.assertTrue(window.group_settings_action.isEnabled())
-            self.assertEqual(window.results_tabs.indexOf(window.group_plot_page), -1)
-            self.assertEqual(window.results_tabs.indexOf(window.wafer_groups_widget), -1)
+            self.assertGreaterEqual(window.results_tabs.indexOf(window.group_plot_page), 0)
+            self.assertGreaterEqual(window.results_tabs.indexOf(window.wafer_groups_widget), 0)
             window.group_settings_action.trigger()
             app.processEvents()
             self.assertTrue(dialog.isVisible())

@@ -1,6 +1,6 @@
 # Metrology Workspace 开发交接
 
-更新日期：2026 年 11 月 9 日
+更新日期：2026 年 11 月 10 日
 
 ## 当前状态
 
@@ -26,6 +26,20 @@ python run_tests.py @testModules -v
 
 已修复 v5.1.0 的两项回归错误：Correlation 对可选 raw_model 缓存做兼容检查；LiteralFrameSource 测试遵守内部只读、公开副本可编辑的既有约定。排除 AutoWeighting 后完整回归 1,421 项全部通过，复现和复测记录见 [修复验证](validation/regression-two-errors-2026-11-04.md)。用户随后明确要求覆盖 v5.1.0 标签和安装包/ZIP，并将 CXMT 快进到修复后的同一提交；main 和其他标签不移动。
 
+## 当前未发布开发：Reference Summary 对齐与坐标 Bias
+
+- 三个 Tab：Summary 保留现有汇总；Wafer Alignment 自动载入 Tab1 的输出，使用 Match WKB 的 SheetView/SheetModel、sheetCard、表头提示和行数摘要；Raw 直接 Ctrl+V 或右键 Paste，无单独 Paste Raw Data 按钮。
+- Wafer/Lot/PAD（KLA Slot）组成晶圆身份；Ref 拖动会移动完整行块，Raw 默认锁定顺序，可解锁。只允许显式一对一链接；按 Field 或绝对 XY 及升降序稳定排序，保留 Tab2 初次载入的行身份。
+- 计算 seam 为 `reference_alignment.py`。单位仅从明确单位的列名识别，其他必须手选。按最新需求，以 Raw 单位为准换算 Ref，再计算 Raw − Ref；点数不等、缺失/非有限 XY 不允许截断、插值或以 Field 代替。
+- CDSEM 读双表头 CD Pivot，保留每个 MP 名，并提供坐标 MP 选择；没有单位的 Wafer_X/Y 不猜单位。NOVA 用 MpointX/Y，KLA 用 X/Y，PMISH 和 Raw 用 X(mm)/Y(mm)。用户给的 Raw 示例绝对 XY 全为 NA，只能排序，补齐坐标后才能求 Bias。
+- Tab3 复用 Trend 的 InteractivePlotWidget / PlotPanel / PanelGrid，默认两列，无 Add Compare；普通滚轮滚页，Ctrl 滚轮缩放；换列只移动原图，不重建数据曲线。Choose folders 可多选并去重。
+- 提供的四 Vendor ZIP 共 13 个源文件已核验：10 张输出表、2,129 行、52 个通道内晶圆组。真实 Ref + 人工已知偏移 Raw 的完整 UI 流程通过，源字节不变。PMISH 长配方输出的 Windows 长路径错误已修复。
+- 验证记录见 [Reference Alignment](validation/reference-alignment-2026-11-09.md)。本轮未发布、不移动标签或分支；AutoWeighting 持续排除。
+
+Die Map 后续 UI 调整：常规字重标题、坐标框保持正方形以消除额外上下留白，Die 标签距点中心 2 px；窗口最小 500×640，可单图宽度浏览。超限图红点代表超限、灰点代表同晶圆其他参与点，只读分析/缓存坐标，不加载 Spectra Viewer。Mapping 行高 48 px；Single wafer matrix 的 Draw 调到第一列，原 Wafer 列仍可调宽，保持鼠标/键盘勾选和 header Uncheck all。详见 [最新 UI 验证](validation/die-map-ui-2026-11-10.md)。
+
+以上开发最终完整回归：排除三个 AutoWeighting 模块，119 模块共 **1,448 项全部通过，525.893 秒**；scratch 设置及正常 Windows TEMP 隔离，真实源文件保持不变。
+
 ## v2 Card Matching 历史设计背景
 
 v2 阶段曾以 `v2.0.0-dev.4` 交付，当时 `VERSION` 为 `2.0.0-dev`。这些历史提交、标签和 Release 不随 v5.1.0 发布移动；当前分支与版本以本页上方交接为准。
@@ -40,7 +54,7 @@ v2 阶段曾以 `v2.0.0-dev.4` 交付，当时 `VERSION` 为 `2.0.0-dev`。这�
 - Parameter mapping 标题行提供 `Select all`。映射快照同时保留参数名、勾选状态和期望的 Raw 列；Raw Data 清空或替换为缺列表时不会删除映射，缺失列保持待选择状态、Run Analysis 禁用，并在顶部状态区提示修改。
 - Card 固定按 `Reference = slope × Raw + intercept` 拟合；Preview 应用 Card，Final 直接使用已经加 Card 的 Raw Data。
 - Bias 与 Bias % 是各自独立的开关：取消勾选立即移除对应图，两者都可以不选（结果只显示 Match/Trend）；工作簿内部仍保留主 Bias 模式，勾选状态随工作区文档保存，旧文件按 `bias_mode` 恢复。Reference 为 0 的百分比为 NaN。
-- KLA/NOVA 的 Single-wafer metrics 读取 Raw Data，并复用 Wafer Map 的 Wafer ID/Lot ID/PAD Name 默认身份规则；多个身份字段用多行标签显示，Die Seq 不单独拆组。TEM 隐藏单片结果。
+- KLA/NOVA/TEM 的 Single-wafer metrics 读取 Raw Data，并复用 Wafer Map 的 Wafer ID/Lot ID/PAD Name 默认身份规则；多个身份字段用多行标签显示，Die Seq 不单独拆组。TEM 与其他 Match Type 一样显示 Single-Wafer metrics，并在启用分组后显示 Group plots。
 - Match Workbook 使用可滚动的单页工作流：输入、Parameter mapping 和结果区位于可拖动的纵向 splitter 中；Slope、Intercept、R² 等结果合并回 mapping 行。页面内不再重复显示 `Match Workbook` 标题或设置卡，Open/Save/Export/Save images、Run analysis、Match Type 和 Bias 选择位于原生菜单栏。
 - 结果区不再使用 Parameter 下拉框，并拆为 All parameter plots / Single-wafer metrics 两个 tab。所有映射参数按纵向顺序生成独立卡片；卡片内 Match、Trend 及勾选的 Bias/Bias % 使用单行横向图格。Match 固定为 340 × 330 px，其他主图高 330 px并平分剩余宽度；四图同时显示也不触发外层横向滚动。Match 图标题取 Raw Data column，X/Y 分别标 PMISH/Match Type；参数名与两行拟合公式/R² 使用绘图区上方的独立标题栏，公式位于参数名右侧且不覆盖数据。所有结果图复用 `InteractivePlotWidget` 的完整四边框；普通滚轮传给外层页面，Ctrl+滚轮才缩放当前图，另支持左拖框选放大、右拖平移和双击自动适配。Trend 的 PMISH 是蓝色实线圆点，当前 Match Type 是橙色实线圆点；Trend/Bias 横轴使用 Raw Data 测量身份。Bias 直接显示 nm 和 %，不使用自动 SI 系数。
 - 参数卡标题可拖动排序，拖动时显示半透明卡片和 180 ms 淡入插入线；自动重算和 Preview/Final 切换都会保留 splitter、滚动位置和参数顺序。顺序写入 WKB；结果区不再显示 Reset，以减少顶部空白。

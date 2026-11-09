@@ -22,6 +22,39 @@ APP = QApplication.instance() or QApplication([])
 
 
 class SpectraMapWindowTests(unittest.TestCase):
+    def test_single_tile_window_has_regular_titles_and_tight_square_coordinate_extent(self):
+        source = make_spectrum(1)
+        self.window.show()
+        self.window.set_data((source,),checked_keys={source.key})
+        self.settle_page(1)
+        plot = next(iter(self.window.wafer_plots.values()))
+        plot.plot.grab(); APP.processEvents()
+        self.assertLessEqual(self.window.minimumWidth(),plot.width()+80)
+        self.assertLessEqual(self.window.minimumHeight(),plot.height()+144)
+        self.assertIn('font-weight: 400',plot.title_label.styleSheet())
+        xr,yr = plot.plot.getViewBox().viewRange()
+        self.assertAlmostEqual(xr[1]-xr[0],yr[1]-yr[0],delta=2)
+        half = plot.wafer_diameter/2
+        self.assertLess(yr[1]-half,half*.08)
+
+    def test_pad_outlines_stay_behind_points_and_reuse_geometry_on_check_changes(self):
+        from tests.test_spectra_pad_geometry import point
+        sources = (point(1, 0, 0, 0, 0), point(2, 1, 0, 20, 0), point(3, 0, 1, 0, 30))
+        self.window.set_data(sources, checked_keys={s.key for s in sources})
+        self.settle_page(1)
+        plot = next(iter(self.window.wafer_plots.values()))
+        self.assertEqual((plot.pad_layout.width_mm, plot.pad_layout.height_mm), (20, 30))
+        self.assertEqual(plot.pad_edges.opts["pen"].color().name(), "#c4c4c4")
+        self.assertLess(plot.pad_edges.zValue(), plot.scatter.zValue())
+        radius = plot.wafer_diameter / 2
+        for x0, y0, x1, y1 in plot.pad_layout.segments:
+            self.assertAlmostEqual(np.hypot(x0, y0), radius)
+            self.assertAlmostEqual(np.hypot(x1, y1), radius)
+        geometry = plot.pad_edges.xData
+        self.window.update_checks({sources[0].key}, selected_keys={sources[1].key})
+        self.assertIs(plot.pad_edges.xData, geometry)
+        self.assertEqual(len(plot.scatter.points()), 3)
+
     def test_cards_show_live_point_counts_without_changing_plot_size_or_range(self):
         first, second = make_spectrum(1), make_spectrum(2)
         self.window.set_data((first, second), checked_keys={first.key}, selected_keys={second.key})
@@ -267,7 +300,7 @@ class SpectraMapWindowTests(unittest.TestCase):
             point_plot.plot.grab()
             x, y = point_plot.scatter.getData()
             marker = point_plot.plot.getViewBox().mapViewToScene(QPointF(float(x[0]), float(y[0])))
-            self.assertAlmostEqual(point_plot.labels[0].sceneBoundingRect().top() - marker.y(), 5, places=3)
+            self.assertAlmostEqual(point_plot.labels[0].sceneBoundingRect().top() - marker.y(), 2, places=3)
 
     def test_same_wafer_with_different_lot_or_pad_has_separate_outlined_maps(self):
         spectra = (make_spectrum(1), make_spectrum(1, lot="L2"),
@@ -279,7 +312,7 @@ class SpectraMapWindowTests(unittest.TestCase):
         plot = self.window.wafer_plots[("W1", "L1", "P1")]
         self.assertEqual(plot.title_label.text(), "W1 · L1 · P1")
         outline = [item for item in plot.plot.listDataItems()
-                   if isinstance(item, pg.PlotDataItem)]
+                   if isinstance(item, pg.PlotDataItem) and item is not plot.pad_edges]
         self.assertEqual(len(outline), 1)
         x, y = outline[0].getData()
         self.assertAlmostEqual(float(np.max(np.hypot(x, y))), plot.wafer_diameter / 2)

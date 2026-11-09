@@ -54,7 +54,7 @@ class _DieLabel(pg.TextItem):
 
     def updateTextPos(self):
         super().updateTextPos()
-        self.textItem.moveBy(0, 5)
+        self.textItem.moveBy(0, 2)
 
 
 class WaferPointPlot(QWidget):
@@ -62,9 +62,11 @@ class WaferPointPlot(QWidget):
     checkRequested = pyqtSignal(object, bool)
     selectionMenuRequested = pyqtSignal(object)
 
-    def __init__(self, wafer: str, parent=None):
+    def __init__(self, wafer: str, parent=None, *, checked_label="checked", checked_color="#3E8BD8"):
         super().__init__(parent)
         self.wafer = wafer
+        self._checked_label = checked_label
+        self._checked_color = checked_color
         self.setObjectName("dieMapCard")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setMinimumSize(0, 0)
@@ -85,7 +87,7 @@ class WaferPointPlot(QWidget):
         self.title_label.setWordWrap(True)
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.title_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        self.title_label.setStyleSheet("color: #2b2730; background: transparent; font-size: 16px; font-weight: 600;")
+        self.title_label.setStyleSheet("color: #2b2730; background: transparent; font-size: 16px; font-weight: 400;")
         self.title_label.setToolTip(wafer)
         self.title_label.setFixedHeight(48)
         layout.addWidget(self.title_label)
@@ -110,11 +112,25 @@ class WaferPointPlot(QWidget):
         self.plot.getAxis("right").setStyle(showValues=False)
         self.plot.getAxis("left").setWidth(60)
         self.plot.getAxis("right").setWidth(8)
+        self.plot.getAxis("bottom").setHeight(60)
+        self.plot.getAxis("top").setHeight(8)
+        # Equal horizontal/vertical frame extents keep the circular wafer equally
+        # close to all four axes without stretching XY or growing its Y range.
+        graphics_layout = self.plot.getPlotItem().layout
+        graphics_layout.setContentsMargins(0,0,0,0)
+        graphics_layout.setHorizontalSpacing(0)
+        graphics_layout.setVerticalSpacing(0)
+        graphics_layout.setRowFixedHeight(0,0)
         self.plot.setLabel("bottom", "X (mm)")
         self.plot.setLabel("left", "Y (mm)")
         self.plot.setMouseEnabled(x=False, y=False)
         self.outline = pg.PlotDataItem(pen=pg.mkPen(self._foreground, width=1.5), antialias=True)
         self.plot.addItem(self.outline)
+        self.pad_edges = pg.PlotDataItem(pen=pg.mkPen("#c4c4c4", width=1),
+                                         connect="finite", antialias=True)
+        self.pad_edges.setZValue(-5)
+        self.pad_edges.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+        self.plot.addItem(self.pad_edges, ignoreBounds=True)
         layout.addWidget(
             self.plot,
             0,
@@ -252,6 +268,15 @@ class WaferPointPlot(QWidget):
         )
         self.wafer_diameter = diameter
         half = diameter / 2
+        from .spectra_pad_geometry import pad_layout
+        self.pad_layout = pad_layout(spectra, radius_mm=half)
+        edges = self.pad_layout.segments
+        self.plot.showGrid(x=not bool(edges), y=not bool(edges), alpha=0.14)
+        self.pad_edges.setData(
+            [value for x0, y0, x1, y1 in edges for value in (x0, x1, float("nan"))],
+            [value for x0, y0, x1, y1 in edges for value in (y0, y1, float("nan"))])
+        self.title_label.setToolTip(self.wafer + "\n" + (self.pad_layout.issue or
+            f"PAD grid: {self.pad_layout.width_mm:.2f} × {self.pad_layout.height_mm:.2f} mm"))
         angle = np.linspace(0, 2 * math.pi, 361)
         self.outline.setData(half * np.cos(angle), half * np.sin(angle))
         self.plot.setRange(
@@ -276,7 +301,7 @@ class WaferPointPlot(QWidget):
                 continue
             data = {**data, "state": state}
             point.setData(data)
-            point.setBrush(pg.mkBrush("#3E8BD8" if count else "#D6D9DE"))
+            point.setBrush(pg.mkBrush(self._checked_color if count else "#D6D9DE"))
             point.setPen(pg.mkPen("#202020" if count else "#A8ADB5", width=.8))
         self._update_summary()
 
@@ -284,7 +309,7 @@ class WaferPointPlot(QWidget):
         states = [point.data().get("state") for point in self.scatter.points()]
         selected = sum(bool(self._selected_keys.intersection(keys)) for keys in self._spot_keys)
         mixed = states.count("Mixed")
-        text = f"{len(states)} points · {states.count('Checked')} checked"
+        text = f"{len(states)} points · {states.count('Checked')} {self._checked_label}"
         if mixed:
             text += f" · {mixed} mixed"
         self.summary_label.setText(f"{text} · {selected} selected")
@@ -385,14 +410,15 @@ class SpectraMapWindow(QMainWindow):
     test_flags_changed = pyqtSignal(object)
     checks_changed = pyqtSignal(object)
 
-    def __init__(self, parent=None, *, pin_owner=None):
+    def __init__(self, parent=None, *, pin_owner=None, read_only=False):
         owner_flags = parent.windowFlags() if parent is not None else Qt.WindowType.Window
         super().__init__(parent, owner_flags | Qt.WindowType.Window)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setWindowModality(Qt.WindowModality.NonModal)
         self.setWindowTitle("Spectrum Die Map")
-        fit_window_to_screen(self, (1360, 900), minimum=(900, 620))
+        fit_window_to_screen(self, (1360, 900), minimum=(500, 640))
         self._spectra: tuple[SpectrumFile, ...] = ()
+        self._read_only = read_only
         self._checked_keys: set[str] = set()
         self._test_flags = {}
         self._flag_values = [0, 1, -1]
@@ -427,9 +453,14 @@ class SpectraMapWindow(QMainWindow):
         layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(8)
         controls = QHBoxLayout()
-        controls.addWidget(QLabel("Die Map", objectName="panelTitle"))
+        title = QLabel("Die Map", objectName="panelTitle")
+        title.setStyleSheet('font-weight: 400;')
+        controls.addWidget(title)
         self.summary_label = QLabel("0 wafers · 0 points", objectName="muted")
         controls.addWidget(self.summary_label)
+        controls.addStretch(1)
+        layout.addLayout(controls)
+        controls = QHBoxLayout()
         controls.addStretch(1)
         controls.addWidget(QLabel("Wafers / page", objectName="muted"))
         self.page_size_spin = QSpinBox()
@@ -566,6 +597,8 @@ class SpectraMapWindow(QMainWindow):
             self.select_spectrum_keys(selected_keys)
 
     def _point_check_requested(self, keys, checked):
+        if self._read_only:
+            return
         self.checks_changed.emit({key: checked for key in keys})
 
     def update_test_flags(self, flags, *, flag_values=None):
@@ -610,6 +643,9 @@ class SpectraMapWindow(QMainWindow):
 
     def build_selection_menu(self, wafer=None):
         menu = QMenu(self)
+        if self._read_only:
+            menu.addAction("Out-of-range result — read only").setEnabled(False)
+            return menu
         menu.addAction("Check Selected", self.check_selected_requested.emit).setEnabled(bool(self._selected_keys))
         menu.addAction("Uncheck Selected", self.uncheck_selected_requested.emit).setEnabled(bool(self._selected_keys))
         flags = menu.addMenu("Set Test Flag")
@@ -719,7 +755,8 @@ class SpectraMapWindow(QMainWindow):
                 if (spectrum.identity.wafer, spectrum.identity.lot, spectrum.identity.pad) == wafer
             )
             title = " · ".join(part for part in wafer if part)
-            plot = WaferPointPlot(title)
+            plot = WaferPointPlot(title, checked_label="out of range" if self._read_only else "checked",
+                                  checked_color="#dc2626" if self._read_only else "#3E8BD8")
             plot.apply_theme(self.palette())
             plot.pointSelected.connect(self._points_selected)
             plot.checkRequested.connect(self._point_check_requested)

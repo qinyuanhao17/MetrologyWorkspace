@@ -5,6 +5,14 @@ Feature: Review spectral measurements by wafer
 
   Rule: The spectrum tree preserves declared wafer identity
 
+    Scenario: Sort within the hierarchy and restore the original ordering
+      Given spectra are grouped and some are checked and selected with manual plot axes
+      When the engineer clicks a spectrum tree column heading
+      Then its siblings sort by that column with numeric Die and Field ordering
+      And clicking that heading again reverses the order
+      When the engineer double-clicks any tree column heading
+      Then default source ordering returns without changing checks, selection or plot axes
+
     Scenario: Load the supplied SME batch
       Given the engineer has the supplied nested SME folders
       When the engineer loads the folders
@@ -498,6 +506,29 @@ Feature: Review spectral measurements by wafer
       When an updated spectrum is reloaded and its Raw Data pairing is valid
       Then both report tabs and copied and exported values use its current metadata
 
+  Rule: Die Map PAD outlines use a separate Field grid
+
+    Scenario: Review a single map in a compact window
+      Given a Die Map is open from a Workbook or Spectra Viewer
+      Then its window can shrink to one map tile width
+      And the wafer keeps equal XY scale and equal padding on all four sides
+      And regular-weight titles and close Die labels remain readable
+      And extra fixed-size maps remain available through scrollbars
+
+    Scenario: Draw common PAD dimensions without moving measurement points
+      Given a wafer has absolute XY coordinates and Field X/Y indices
+      When its Die Map is opened
+      Then three reference points determine one common width and height rounded to 0.01 mm
+      And Field (0,0) has its PAD lower-left corner at the plot origin
+      And other PADs start at their Field indices multiplied by the common dimensions
+      And measurement points retain their absolute XY coordinates
+      And light gray grid lines fill the entire wafer including unmeasured cells
+      And each grid line ends at the wafer circle without drawing outside it
+      And shared borders are drawn once beneath the points
+      When checks or selections change
+      Then existing PAD borders are retained
+
+  # Executable PAD acceptance checks: tests.test_spectra_pad_geometry and tests.test_spectra_map.
   # Executable report acceptance checks: tests.test_spectra_info.
   # Executable Workbook acceptance checks: tests.test_spectra_workbook.
   # Executable acceptance checks: tests.test_sme_spectra,

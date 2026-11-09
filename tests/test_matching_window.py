@@ -600,7 +600,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(window.order_source.text(), "3 rows × 4 columns")
         self.assertEqual(window.reference_source.text(), "3 rows × 1 columns")
         self.assertEqual(window.raw_source.text(), "3 rows × 2 columns")
-        self.assertEqual(window.mapping_size.text(), "1 rows × 12 columns")
+        self.assertEqual(window.mapping_size.text(), "1 rows × 13 columns")
         self.assertNotIn("Clipboard", window.order_source.text())
         self.assertNotIn("Clipboard", window.reference_source.text())
         self.assertNotIn("Clipboard", window.raw_source.text())
@@ -1055,7 +1055,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(set(page.plot_groups), {("All:0", "CD"), ("All:1", "CD"),
                                                 ("All:0", "Thickness"), ("All:1", "Thickness")})
         window.match_type.setCurrentText("TEM")
-        self.assertEqual(window.results_tabs.indexOf(page), -1)
+        self.assertGreaterEqual(window.results_tabs.indexOf(page), 0)
 
     def test_single_wafer_draw_indicators_are_centred_and_rows_are_blue_in_both_themes(self):
         from metrology_app.settings import apply_theme
@@ -1128,7 +1128,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertLessEqual(button.height(), 22)
         header = view.horizontalHeader()
         for wafer_width in (320, 420):
-            header.resizeSection(0, wafer_width)
+            header.resizeSection(model.frame.columns.get_loc('Wafer'), wafer_width)
             APP.processEvents()
             view.scrollTo(cell)
             APP.processEvents()
@@ -1137,7 +1137,7 @@ class MatchingWindowTests(unittest.TestCase):
             centre = button.mapTo(header.viewport(), button.rect().center())
             self.assertEqual(header.logicalIndexAt(centre), column)
             self.assertTrue(header.viewport().rect().contains(button.geometry()))
-        view.horizontalScrollBar().setValue(0)
+        view.horizontalScrollBar().setValue(view.horizontalScrollBar().maximum())
         APP.processEvents()
         self.assertTrue(button.isHidden(), "Do not leave a clipped header button outside Draw")
         view.scrollTo(cell)
@@ -1738,8 +1738,8 @@ class MatchingWindowTests(unittest.TestCase):
         window.show()
         APP.processEvents()
         group = window.plot_groups["CD"]
-        self.assertEqual(group["wafer_model"].frame.columns[-1], "Draw")
-        self.assertEqual(group["wafer_view"].columnWidth(0), 320)
+        self.assertEqual(group["wafer_model"].frame.columns[0], "Draw")
+        self.assertEqual(group["wafer_view"].columnWidth(1), 320)
         view = group["wafer_view"]
         self.assertEqual(view.height(), 280)
         table_position = view.mapTo(group["wafer_card"], QPoint())
@@ -1906,12 +1906,12 @@ class MatchingWindowTests(unittest.TestCase):
         window.run_analysis()
         model = window.plot_groups["CD"]["wafer_model"]
         self.assertEqual(model.frame.columns.tolist(),
-                         ["Wafer", "Group", "Row", "Slope", "Intercept", "R²", "Valid pairs", "Draw"])
+                         ["Draw", "Wafer", "Group", "Row", "Slope", "Intercept", "R²", "Valid pairs"])
         self.assertEqual(model.frame['Row'].tolist(), [1, 2])
-        self.assertEqual(model.data(model.index(0, 1)),
+        self.assertEqual(model.data(model.index(0, 2)),
                          "Mixed: Old Optical A / New Optical A / New Optical B")
-        self.assertEqual(model.data(model.index(1, 1)), "New Optical B")
-        self.assertEqual(model.data(model.index(0, 1), Qt.ItemDataRole.ToolTipRole),
+        self.assertEqual(model.data(model.index(1, 2)), "New Optical B")
+        self.assertEqual(model.data(model.index(0, 2), Qt.ItemDataRole.ToolTipRole),
                          "Mixed: Old Optical A / New Optical A / New Optical B")
         state["filters"] = [{"table": "order", "column": "Group", "values": ["New Optical B"]}]
         window.group_controls.restore(state, flags)
@@ -2787,17 +2787,17 @@ class MatchingWindowTests(unittest.TestCase):
         view = card.findChild(QTableView)
         header = view.horizontalHeader()
         self.assertEqual(
-            header.sectionResizeMode(0), QHeaderView.ResizeMode.Interactive
+            header.sectionResizeMode(1), QHeaderView.ResizeMode.Interactive
         )
-        for column in range(1, view.model().columnCount()):
+        for column in (0,*range(2, view.model().columnCount())):
             self.assertEqual(
                 header.sectionResizeMode(column),
                 QHeaderView.ResizeMode.Fixed,
             )
         view.resize(900, 200)
         APP.processEvents()
-        self.assertGreater(header.sectionSize(0), header.sectionSize(1))
-        self.assertLessEqual(header.sectionSize(0), 380)
+        self.assertGreater(header.sectionSize(1), header.sectionSize(0))
+        self.assertLessEqual(header.sectionSize(1), 380)
 
     def test_single_wafer_table_joins_the_identity_lines_with_slashes(self):
         """The Wafer cell shows the whole a/b/c identity instead of eliding."""
@@ -2818,7 +2818,7 @@ class MatchingWindowTests(unittest.TestCase):
         view = self.window.plot_groups["CD"]["wafer_view"]
         model = view.model()
         texts = [
-            model.data(model.index(row, 0), Qt.ItemDataRole.DisplayRole)
+            model.data(model.index(row, model.frame.columns.get_loc('Wafer')), Qt.ItemDataRole.DisplayRole)
             for row in range(model.rowCount())
         ]
         self.assertEqual(texts, [
@@ -2958,7 +2958,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(headers, [
             "Use", "Parameter", "Reference column", "Raw Data column",
             "Slope", "Intercept", "R²", "Valid pairs", "Match type", "Result mode",
-            "Bias limit ±", "Bias out of range",
+            "Bias limit ±", "Bias out of range", "Die Map",
         ])
         self.assertEqual(self.window.mapping_table.item(0, 7).text(), "3")
         self.assertEqual(self.window.mapping_table.item(0, 8).text(), "KLA")
@@ -5090,7 +5090,7 @@ class MatchingWindowTests(unittest.TestCase):
                 reopened.deleteLater()
                 APP.processEvents()
 
-    def test_nova_shows_single_wafer_slope_and_r_squared_but_tem_does_not(self):
+    def test_nova_and_tem_show_single_wafer_slope_and_r_squared(self):
         reference = pd.DataFrame({
             "Wafer ID": ["W1"] * 3 + ["W2"] * 3,
             "CD Reference": [3.0, 5.0, 7.0, 1.0, 4.0, 7.0],
@@ -5114,7 +5114,13 @@ class MatchingWindowTests(unittest.TestCase):
 
         self.window.match_type.setCurrentText("TEM")
         self.window.run_analysis()
-        self.assertTrue(self.window.plot_groups["CD"]["wafer_card"].isHidden())
+        self.assertGreaterEqual(
+            self.window.results_tabs.indexOf(self.window.wafer_groups_widget), 0
+        )
+        tem_group = self.window.plot_groups["CD"]
+        self.assertFalse(tem_group["wafer_card"].isHidden())
+        self.assertEqual(tem_group["wafer_model"].rowCount(), 2)
+
     def test_exports_native_excel_and_excel_with_embedded_matplotlib_after_analysis(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")

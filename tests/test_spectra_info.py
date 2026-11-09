@@ -368,6 +368,8 @@ class SpectraInfoWorkflowTests(unittest.TestCase):
         maps = viewer.open_wafer_map()
         QTest.qWait(100)
         plot = next(iter(maps.wafer_plots.values()))
+        # Capture the rendered view after Qt resolves its aspect-locked layout.
+        plot.grab()
         ranges = plot.plot.getViewBox().viewRange()
         viewer.select_spectrum_keys({sources[1].key})
         menu = maps.build_selection_menu(("W1", "L1", "P1"))

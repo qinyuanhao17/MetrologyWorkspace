@@ -1,5 +1,17 @@
 # Executable scenario map
 
+Die Map 最新显示规则由 `SpectraMapWindowTests.test_single_tile_window_has_regular_titles_and_tight_square_coordinate_extent`、`test_map_uses_equal_aspect_and_infers_common_wafer_diameters` 及 `BiasDieMapTests.test_mapping_button_uses_strict_absolute_bias_and_reuses_the_map_on_limit_changes` 验证：常规字重、单图最小宽度、等边坐标框、贴近的 Die 标签、超限红色、增量更新和 mapping 行高。Draw 首列及原有勾选交互由 `MatchingWindowTests.test_single_wafer_points_link_to_rows_and_checked_rows_have_local_plot_blocks`、`test_single_wafer_draw_cell_click_keyboard_and_uncheck_all` 验证。
+
+`reference_summary.feature` 的多 Vendor 对齐与坐标 Bias 流程由以下测试执行：
+
+- 多文件夹递归扫描及重叠路径去重 → `ReferenceSummaryTests.test_multiple_source_folders_scan_recursively_without_duplicate_files`。
+- PMISH 长配方输出路径可写入并回读 → `ReferenceSummaryTests.test_long_pmish_channel_output_can_be_loaded_into_alignment`。
+- Tab1 自动传 Ref、固定 Raw、整片拖动、显式一对一链接、稳定排序和只绘已链接晶圆 → `ReferenceAlignmentTests.test_tab1_transfer_clipboard_drag_sort_and_linked_only_trends`。
+- Ref 换算到 Raw 单位后求差 → `ReferenceAlignmentTests.test_bias_converts_reference_into_raw_units`；点数不等、未知单位和重复链接拒绝绘制 → `test_only_linked_wafers_are_compared_in_mm_and_mismatch_is_an_error`。
+- Ctrl+V 保留 NA 及 Field，缺少绝对 XY 不虚构坐标 → `test_pasted_raw_table_keeps_na_identity_and_sorts_fields_without_faking_xy`。
+- CDSEM 保留 MP 坐标列并显式选择坐标对 → `test_cdsem_pivot_transfer_retains_mp_coordinate_names`。
+- 两列默认布局、普通滚轮滚页、Ctrl 滚轮缩放及布局调整不重建曲线 → `test_trends_default_two_columns_scroll_without_zoom_and_ctrl_zoom`。
+
 `control_responsiveness.feature` uses the existing Python runner (no extra
 Cucumber dependency). Scenarios map to public workflow regression tests:
 
@@ -73,7 +85,7 @@ Cucumber dependency). Scenarios map to public workflow regression tests:
 - Input-table undo → `MatchingWindowTests.test_keyboard_undo_restores_replaced_reference_and_raw_tables` and `MatchingWindowTests.test_keyboard_undo_restores_deleted_reference_and_raw_tables`
 - Preserve mappings while Raw Data is missing → `MatchingWindowTests.test_clearing_raw_data_keeps_mappings_and_prompts_for_columns`
 - Select every Reference parameter → `MatchingWindowTests.test_select_all_mappings_checks_every_candidate`
-- Single-wafer identity and separate results tab → `MatchWorkbookTests.test_wafer_summary_uses_raw_data_measurement_identity` and `MatchingWindowTests.test_nova_shows_single_wafer_slope_and_r_squared_but_tem_does_not`
+- Single-wafer identity and separate results tab for KLA/NOVA/TEM → `MatchWorkbookTests.test_wafer_summary_uses_raw_data_measurement_identity` and `MatchingWindowTests.test_nova_and_tem_show_single_wafer_slope_and_r_squared`
 - Fit-quality threshold warnings → `MatchingWindowTests.test_mapping_results_flag_out_of_range_slope_and_r_squared` and `MatchingWindowTests.test_single_wafer_table_flags_the_same_quality_thresholds`
 
 场景描述保持业务语义，自动化测试通过 `MatchWorkbook` 的稳定 interface 和 `MatchingWindow` 的用户可见状态验证；WKB 兼容测试不依赖 SQLite 的内部表结构。

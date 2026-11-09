@@ -43,6 +43,7 @@ from .sme_spectra import (
     SPECTRUM_GROUP_FIELDS,
     load_folder,
     LoadIssue,
+    natural_key,
 )
 from .spectra_map import SpectraMapWindow
 from .spectra_analysis import SpectralSeries, residual_series, three_sigma_series
@@ -62,6 +63,7 @@ ROLE_KIND = Qt.ItemDataRole.UserRole
 ROLE_KEY = Qt.ItemDataRole.UserRole + 1
 ROLE_SPECTRA = Qt.ItemDataRole.UserRole + 2
 ROLE_LEAF_GROUP = Qt.ItemDataRole.UserRole + 3
+ROLE_SORT_TEXT = Qt.ItemDataRole.UserRole + 4
 GROUP_KINDS = {"wafer", "lot", "pad", "die"}
 GROUP_LABELS = (("wafer", "Wafer ID"), ("lot", "Lot"), ("pad", "PAD Name"), ("die", "Die"))
 TREE_COLUMNS = (
@@ -102,6 +104,21 @@ CHANNEL_COLORS = (
     "#1F77B4", "#FF7F0E", "#2CA02C", "#D62728", "#9467BD",
     "#8C564B", "#E377C2", "#7F7F7F", "#BCBD22", "#17BECF",
 )
+
+
+class _SpectrumTreeItem(QTreeWidgetItem):
+    def __lt__(self, other):
+        column = self.treeWidget().sortColumn()
+        def key(item):
+            value = item.data(column, ROLE_SORT_TEXT)
+            text = item.text(column) if value is None else str(value)
+            if column in (5, 6, 7, 14, 15):
+                try:
+                    return (0, float(text), natural_key(item.text(0)))
+                except ValueError:
+                    pass
+            return (1, natural_key(text), natural_key(item.text(0)))
+        return key(self) < key(other)
 
 
 def _line_icon(color: QColor, *, selected=False) -> QIcon:
@@ -489,6 +506,11 @@ class SpectraViewerWindow(QMainWindow):
         self.tree.setColumnCount(len(TREE_COLUMNS))
         self.tree.setHeaderLabels(TREE_COLUMNS)
         self.tree.header().setStretchLastSection(False)
+        self.tree.header().setSectionsClickable(True)
+        self.tree.header().setSortIndicatorShown(False)
+        self.tree.header().sectionClicked.connect(self._sort_tree)
+        self.tree.header().sectionDoubleClicked.connect(self._reset_tree_sort)
+        self._tree_sort = None
         self.tree.header().setSectionResizeMode(
             QHeaderView.ResizeMode.Interactive
         )
@@ -841,7 +863,7 @@ class SpectraViewerWindow(QMainWindow):
         return tuple(reversed(parts))
 
     def _new_group_item(self, text: str, kind: str, *, leaf=False):
-        item = QTreeWidgetItem([text, *([""] * (len(TREE_COLUMNS) - 1))])
+        item = _SpectrumTreeItem([text, *([""] * (len(TREE_COLUMNS) - 1))])
         item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
         item.setCheckState(0, Qt.CheckState.Unchecked)
         item.setData(0, ROLE_KIND, kind)
@@ -856,12 +878,27 @@ class SpectraViewerWindow(QMainWindow):
         self._expanded_paths.clear()
         self._rebuild_tree(remember_expansion=False)
 
+    def _sort_tree(self, column):
+        order = (Qt.SortOrder.DescendingOrder if self._tree_sort == (column, Qt.SortOrder.AscendingOrder)
+                 else Qt.SortOrder.AscendingOrder)
+        self._tree_sort = column, order
+        self.tree.setSortingEnabled(True)
+        self.tree.sortItems(column, order)
+        self.tree.header().setSortIndicatorShown(True)
+
+    def _reset_tree_sort(self, _column):
+        self._tree_sort = None
+        self.tree.setSortingEnabled(False)
+        self.tree.header().setSortIndicatorShown(False)
+        self._rebuild_tree()
+
     def _rebuild_tree(self, *, remember_expansion=True):
         self._unfold_timer.stop()
         self._unfold_queue = []
         if remember_expansion:
             self._remember_all_expanded(self.tree.invisibleRootItem())
         self.tree.blockSignals(True)
+        self.tree.setSortingEnabled(False)
         self.tree.clear()
         self.spectrum_items = {}
         self._spectrum_groups_by_key = {}
@@ -878,6 +915,23 @@ class SpectraViewerWindow(QMainWindow):
                 text = (f"Die {value}" if value is not None else "Unknown die") if kind == "die" else (
                     value or {"wafer": "Unknown wafer", "lot": "Unknown lot", "pad": "(No PAD)"}[kind])
                 item = self._new_group_item(text, kind, leaf=leaf)
+                representative = members
+                while isinstance(representative, dict):
+                    representative = next(iter(representative.values()))
+                source = representative[0]
+                identity = source.identity
+                # Collapsed branches sort by their first default-order source,
+                # without materialising all of their lazy spectrum leaves.
+                sort_values = (source.path.name, identity.lot, identity.tool_sn, identity.pad,
+                               identity.die_seq, identity.field_x, identity.field_y,
+                               identity.timestamp, str(source.path.parent),
+                               self._unique_text(c.instrument for c in source.channels),
+                               self._unique_text(c.metadata.get("mode") for c in source.channels),
+                               self._unique_text(c.metadata.get("version") for c in source.channels),
+                               self._unique_text(c.metadata.get("sample_id") for c in source.channels),
+                               len(source.channels), self._unique_text(c.channel_id for c in source.channels))
+                for column, value in enumerate(sort_values, 1):
+                    item.setData(column, ROLE_SORT_TEXT, "" if value is None else str(value))
                 parent.addChild(item)
                 self._all_group_items.append(item)
                 if leaf:
@@ -905,6 +959,9 @@ class SpectraViewerWindow(QMainWindow):
                 errors.addChild(child)
             self.tree.addTopLevelItem(errors)
         self._restore_expanded(self.tree.invisibleRootItem())
+        if self._tree_sort is not None:
+            self.tree.setSortingEnabled(True)
+            self.tree.sortItems(*self._tree_sort)
         self.tree.blockSignals(False)
         self._select_tree_keys()
         self._update_baseline_marker()
@@ -1273,11 +1330,13 @@ class SpectraViewerWindow(QMainWindow):
             return
         spectra = group_item.data(0, ROLE_SPECTRA) or ()
         blocked = self.tree.blockSignals(True)
+        sorting = self.tree.isSortingEnabled()
+        self.tree.setSortingEnabled(False)
         try:
             for spectrum in spectra:
                 identity = spectrum.identity
                 channel_metadata = [channel.metadata for channel in spectrum.channels]
-                leaf = QTreeWidgetItem([
+                leaf = _SpectrumTreeItem([
                     identity.display_name,
                     spectrum.path.name,
                     identity.lot,
@@ -1320,6 +1379,7 @@ class SpectraViewerWindow(QMainWindow):
                 leaf.setHidden(bool(self._data_selection_view.get("hide_excluded") and spectrum.key not in self._checked_keys))
                 self.spectrum_items[spectrum.key] = leaf
         finally:
+            self.tree.setSortingEnabled(sorting)
             self.tree.blockSignals(blocked)
 
     @staticmethod

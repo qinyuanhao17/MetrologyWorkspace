@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Callable
 
 import pandas as pd
+from .file_paths import filesystem_path
 
 OUTPUT_FOLDER = "Reference_Summary_Output"
 CHANNEL_FIELDS = {
@@ -89,7 +90,7 @@ def normalized_angle(text: str) -> str:
 
 
 def decode_csv(path: Path) -> str:
-    raw = path.read_bytes()
+    raw = filesystem_path(path.resolve()).read_bytes()
     encodings = ["utf-16"] if raw.startswith((b"\xff\xfe", b"\xfe\xff")) else ["utf-8-sig", "gb18030"]
     last_exc = None
     for codec in encodings:
@@ -242,13 +243,19 @@ def parse_nova(path: Path, cancelled=None) -> ParsedFile:
     if not nonempty:
         raise ValueError("Empty NOVA file")
     header_cells = nonempty[0][1]
+    width = len(header_cells)
     widths = [(line, len(cells)) for line, cells in nonempty[1:]
-              if len(cells) != len(header_cells)]
+              if len(cells) < width or any(cells[width:])]
     if widths:
         line, actual = widths[0]
         raise ValueError(f"NOVA CSV width mismatch at physical line {line}: "
                          f"{actual} fields vs {len(header_cells)} in header")
-    # NOVA is a regular table: Pandas reads the original CSV directly.
+    if any(len(cells) > width for _, cells in nonempty[1:]):
+        # Re-serialize parsed records, preserving quoted commas, whitespace and
+        # empty declared columns. Only surplus empty fields are discarded.
+        normalized = io.StringIO(newline="")
+        csv.writer(normalized).writerows(row[:width] for row in csv.reader(io.StringIO(text, newline="")))
+        text = normalized.getvalue()
     frame = pd.read_csv(io.StringIO(text), dtype=str, keep_default_na=False,
                         index_col=False, on_bad_lines="error")
     header = [str(c).strip().lstrip("\ufeff") for c in frame.columns]
@@ -267,13 +274,21 @@ def parse_nova(path: Path, cancelled=None) -> ParsedFile:
                                        "HEADER", "Repeated NOVA column header removed"))
     frame = frame.loc[~repeated]
     result.total_measurement_rows = len(frame)
-    kept = [c for c in frame.columns if not c.upper().endswith("_LBH")]
-    frame = frame[kept]
     for i, values in zip(frame.index, frame.itertuples(index=False, name=None)):
-        result.records.append({"channel": (), "data": dict(zip(frame.columns, values)),
+        row = collapse_lbh(dict(zip(frame.columns, values)))
+        result.records.append({"channel": (), "data": row,
                                "path": str(path), "line": source_lines[int(i)],
-                               "schema": tuple(frame.columns)})
+                               "schema": tuple(row)})
     return result
+
+
+def collapse_lbh(row):
+    """Collapse flags: any value other than NO_LBH (including empty) is 1."""
+    columns = [name for name in row if name.upper().endswith("_LBH")]
+    if not columns:
+        return row
+    flag = "1" if any(str(row[name]).strip().upper() != "NO_LBH" for name in columns) else "0"
+    return {**{name: value for name, value in row.items() if name not in columns}, "LBH": flag}
 
 
 def parse_sectioned(path: Path, vendor: str, cancelled=None) -> ParsedFile:
@@ -376,10 +391,10 @@ def parse_sectioned(path: Path, vendor: str, cancelled=None) -> ParsedFile:
                 lot, slot = row.get("LotID", ""), row.get("Slot", "")
                 if lot and slot:
                     row["WaferID"] = lot + "#" + (slot.zfill(2) if slot.isdigit() else slot)
-            row = {k: v for k, v in row.items() if not k.upper().endswith("_LBH")}
         else:
             if "AzimuthAngle" in row:
                 row["AzimuthAngle"] = normalized_angle(row["AzimuthAngle"])
+        row = collapse_lbh(row)
         missing = [c for c in CHANNEL_FIELDS[vendor] if str(row.get(c, "")).strip().casefold() in MISSING]
         if missing:
             result.issues.append(row_error(path, line, "CHANNEL", "Missing: " + ", ".join(missing)))
@@ -434,11 +449,11 @@ def merge(vendor: str, files: list[str | Path], output_parent: str | Path,
     if not files:
         raise ValueError("No CSV files selected")
     files = sorted(dict.fromkeys(Path(p).resolve() for p in files), key=lambda p: str(p).casefold())
-    base = Path(output_parent) / OUTPUT_FOLDER
-    base.mkdir(parents=True, exist_ok=True)
+    base = Path(output_parent).resolve() / OUTPUT_FOLDER
+    filesystem_path(base).mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     final = base / f"{vendor}_{stamp}"
-    tmp = base / f".processing_{uuid.uuid4().hex}"
+    tmp = filesystem_path(base / f".processing_{uuid.uuid4().hex}")
     tmp.mkdir()
     groups: dict[tuple, list[dict]] = defaultdict(list)
     issues: list[dict] = []
@@ -504,7 +519,7 @@ def merge(vendor: str, files: list[str | Path], output_parent: str | Path,
             check_cancel(cancelled)
             pd.DataFrame(items, columns=columns).to_csv(tmp / report, index=False, encoding="utf-8-sig")
         check_cancel(cancelled)
-        os.replace(tmp, final)
+        os.replace(tmp, filesystem_path(final))
         return MergeResult(final, len(groups), total_before, total_after, total_before - total_after,
                            len(issues), sum(s["Status"] == "OK" for s in stats))
     finally:
