@@ -23,7 +23,7 @@ class SpectrumExportTests(unittest.TestCase):
             shutil.copyfile(original, measured)
             other = sources / "other.sme"
             shutil.copyfile(original, other)
-            destination = root / ("destination" + "x" * 60)
+            destination = root / ("destination" + "x" * 70)
             try:
                 targets = export_spectra([measured, other], destination)
                 self.assertGreater(len(str(targets[0])), 260)

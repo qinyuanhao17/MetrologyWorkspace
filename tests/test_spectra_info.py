@@ -72,6 +72,111 @@ class SpectraInfoTests(unittest.TestCase):
 
 
 class SpectraInfoWorkflowTests(unittest.TestCase):
+    def test_open_info_tracks_workbook_reference_edits_without_manual_refresh(self):
+        from metrology_app.matching_window import MatchingWindow
+        owner = MatchingWindow()
+        owner.document.force_close = True
+        self.addCleanup(owner.close)
+        raw, sources = SpectraInfoTests().sources()
+        owner.set_raw_frame(raw)
+        owner.set_reference_frame(pd.DataFrame({"Depth": ["8.100", "9.200"]}))
+        viewer = owner.open_spectra_workspace()
+        viewer.apply_load_result(LoadResult(sources, ()), replace=True)
+        viewer.check_all_spectra()
+        info = viewer.open_spectra_info()
+        QTest.qWait(20)
+        self.assertEqual(info.models[0].frame["Depth"].tolist(), ["8.100", "9.200"])
+
+        self.assertTrue(owner.reference_model.setData(owner.reference_model.index(1, 0), "18.2500"))
+        QTest.qWait(20)
+        for model in info.models:
+            self.assertEqual(model.frame["Depth"].tolist(), ["18.2500", "9.200"])
+
+        self.assertTrue(owner.reference_model.setData(owner.reference_model.index(0, 0), "Revised Depth"))
+        QTest.qWait(20)
+        for model in info.models:
+            self.assertIn("Revised Depth", model.frame)
+            self.assertNotIn("Depth", model.frame)
+
+    def test_open_info_tracks_raw_pairing_repairs_and_preview_final_switches(self):
+        from metrology_app.matching_window import MatchingWindow
+        owner = MatchingWindow()
+        owner.document.force_close = True
+        self.addCleanup(owner.close)
+        raw, sources = SpectraInfoTests().sources()
+        owner.set_raw_frame(raw)
+        owner.set_reference_frame(pd.DataFrame({"Depth": ["8.100", "9.200"]}))
+        viewer = owner.open_spectra_workspace()
+        viewer.apply_load_result(LoadResult(sources, ()), replace=True)
+        viewer.check_all_spectra()
+        info = viewer.open_spectra_info()
+        QTest.qWait(20)
+
+        self.assertTrue(owner.raw_model.setData(owner.raw_model.index(1, 3), "99"))
+        QTest.qWait(20)
+        self.assertTrue(info.problems)
+        self.assertFalse(info.copy_button.isEnabled())
+        self.assertFalse(info.export_button.isEnabled())
+        owner.raw_model.undo.undo()
+        QTest.qWait(20)
+        self.assertFalse(info.problems)
+        self.assertTrue(info.copy_button.isEnabled())
+        self.assertTrue(info.export_button.isEnabled())
+
+        owner.result_mode.setCurrentText("Final")
+        owner.set_raw_frame(raw.iloc[::-1].reset_index(drop=True))
+        QTest.qWait(20)
+        self.assertEqual(info.models[0].frame["Die Seq"].tolist(), [1, 2])
+        owner.result_mode.setCurrentText("Preview")
+        QTest.qWait(20)
+        self.assertEqual(info.models[0].frame["Die Seq"].tolist(), [2, 1])
+        self.assertEqual({s.key for s in viewer.checked_spectra()}, {s.key for s in sources})
+
+    def test_open_info_tracks_reloaded_metadata_and_exports_current_values(self):
+        from metrology_app.matching_window import MatchingWindow
+        owner = MatchingWindow()
+        owner.document.force_close = True
+        self.addCleanup(owner.close)
+        raw, sources = SpectraInfoTests().sources()
+        owner.set_raw_frame(raw)
+        owner.set_reference_frame(pd.DataFrame({"Depth": ["8.100", "9.200"]}))
+        viewer = owner.open_spectra_workspace()
+        viewer.apply_load_result(LoadResult(sources, ()), replace=True)
+        viewer.check_all_spectra()
+        info = viewer.open_spectra_info()
+        QTest.qWait(20)
+
+        updated = replace(sources[0], mtime_ns=2,
+                          identity=replace(sources[0].identity, tool_sn="Updated Tool",
+                                           timestamp="2026-04-08 11:32:09.999"))
+        viewer.apply_load_result(LoadResult((updated,), ()), replace=False)
+        QTest.qWait(20)
+        self.assertTrue(info.problems)
+        self.assertFalse(info.export_button.isEnabled())
+        owner.raw_model.setData(owner.raw_model.index(2, 6), "C:/new/a_20260408113209999.sme")
+        owner.set_reference_frame(pd.DataFrame({"Revised Depth": ["18.2500", "19.7500"]}))
+        viewer.set_test_flags({updated.key: -1})
+        QTest.qWait(20)
+        self.assertFalse(info.problems)
+        for model in info.models:
+            self.assertEqual(model.frame["Tool SN"].tolist(), ["A03-090", "Updated Tool"])
+            self.assertEqual(model.frame["Time"].tolist(), ["20260408113211126", "20260408113209999"])
+            self.assertEqual(model.frame["Revised Depth"].tolist(), ["18.2500", "19.7500"])
+        self.assertEqual(info.models[1].frame["Test Flag"].tolist(), [0, -1])
+        info.tabs.setCurrentIndex(1)
+        info.copy_button.click()
+        copied = pd.read_csv(StringIO(APP.clipboard().text()), sep="\t", dtype=str)
+        self.assertEqual(copied["Revised Depth"].tolist(), ["18.2500", "19.7500"])
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "latest.csv"
+            info.export_csv(path)
+            exported = pd.read_csv(path, dtype=str)
+            self.assertEqual(exported["Time"].tolist(), ["\t20260408113211126", "\t20260408113209999"])
+            self.assertEqual(exported["Test Flag"].tolist(), ["0", "-1"])
+        viewer.set_spectrum_checks({updated.key: False})
+        QTest.qWait(20)
+        self.assertEqual(info.models[0].frame["Die Seq"].tolist(), [2])
+
     def test_copy_wkb_editor_filters_do_not_hide_participating_info_rows(self):
         from metrology_app.selection_script import export_script
         from metrology_app.sme_spectra import file_metadata_dataframe

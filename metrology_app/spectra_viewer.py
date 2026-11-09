@@ -211,7 +211,7 @@ class SpectraViewerWindow(QMainWindow):
         self.info_window = None
         self._info_refresh_timer = QTimer(self, singleShot=True, interval=0)
         self._info_refresh_timer.timeout.connect(self._refresh_spectra_info)
-        self.stateChanged.connect(self._info_refresh_timer.start)
+        self.stateChanged.connect(self.schedule_spectra_info_refresh)
         self._channel_colors: dict[WaferChannelKey, QColor] = {}
         self._color_mode = "wafer"
         self._legend_angles = {}
@@ -1033,6 +1033,11 @@ class SpectraViewerWindow(QMainWindow):
         """Bind current original-order Raw Data and row-aligned Reference frames."""
         self._spectra_info_source = source
         self._refresh_placeholder()
+        self.schedule_spectra_info_refresh()
+
+    def schedule_spectra_info_refresh(self):
+        """Coalesce source edits without changing Spectra participation or plots."""
+        self._info_refresh_timer.start()
 
     def spectra_info(self):
         from .spectra_info import build_spectra_info

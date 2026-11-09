@@ -745,8 +745,8 @@ class MuellerPanel(QWidget):
         self.scroll_area.setWidget(self.plot_splitter)
         layout.addWidget(self.scroll_area)
         self.mij_plots = {
-            name: SpectrumPlotPanel(name, compact=True, context_menu=context_menu)
-            for name in M_COLS
+            name: SpectrumPlotPanel(f"M{index // 4 + 1}{index % 4 + 1}", compact=True, context_menu=context_menu)
+            for index, name in enumerate(M_COLS)
         }
         self.row_splitters = []
         for row in range(4):

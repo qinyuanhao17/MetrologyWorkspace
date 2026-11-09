@@ -48,11 +48,14 @@ def main():
         matching = window.open_component("card_matching")
         dynamic = window.open_component("dynamic_analysis")
         writer = window.open_component("auto_weighting_writer")
+        spectra = window.open_component("spectra_viewer")
+        reference = window.open_component("reference_summary")
         app.processEvents()
         from metrology_app.auto_weighting_ocr import local_self_test
         valid = (wafer.tabs.count() == 3 and correlation.tabs.count() == 4
                  and matching.mode_tabs.count() == 2 and dynamic.tabs.count() == 3
-                 and writer.tabs.count() == 2 and local_self_test())
+                 and writer.tabs.count() == 2 and spectra.tree.columnCount() > 0
+                 and reference.vendor.count() == 4 and local_self_test())
         window.unload_all_components()
         window.close()
         app.processEvents()

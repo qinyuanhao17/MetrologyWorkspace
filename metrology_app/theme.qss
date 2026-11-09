@@ -240,3 +240,13 @@ QPushButton#filterChipEdit { background: transparent; border: none; color: #c19a
 QPushButton#filterChipEdit:hover { color: #e0bdff; }
 QPushButton#filterChipRemove { background: transparent; border: none; color: #9b8fab; padding: 0 5px; font-size: 14px; }
 QPushButton#filterChipRemove:hover { color: #ff9aa8; }
+/* Reference Summary: compact run dashboard; source/output lists are not data previews. */
+QFrame#summaryMetric { background: #100b17; border: 1px solid #33263e; border-radius: 8px; }
+QListWidget#referenceSourceList, QListWidget#referenceOutputList { background: #08050d; border: 1px solid #33263e; border-radius: 8px; padding: 4px; outline: none; }
+QListWidget#referenceSourceList:focus, QListWidget#referenceOutputList:focus { border-color: #9c6eca; }
+QListWidget#referenceSourceList::item, QListWidget#referenceOutputList::item { border-bottom: 1px solid #211829; padding: 8px 7px; }
+QListWidget#referenceOutputList::item:hover { background: #21152f; color: #f4f0f7; }
+QListWidget#referenceOutputList::item:selected { background: #39234e; color: #ffffff; }
+QPlainTextEdit#referenceIssues { background: #08050d; border: 1px solid #33263e; border-radius: 8px; padding: 8px; color: #c9bfd1; }
+QProgressBar#referenceProgress { background: #100b17; border: 1px solid #33263e; border-radius: 6px; min-height: 18px; text-align: center; color: #e7e0eb; }
+QProgressBar#referenceProgress::chunk { background: #6f3fa0; border-radius: 5px; }

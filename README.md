@@ -1,6 +1,6 @@
 # Metrology Workspace
 
-Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、光谱、径向图、相关性图和趋势图。主窗口提供 **Match Workbook**、**Wafer Map**、**Spectra Viewer**、**Correlation and Trend**、**Dynamic** 和 **AutoWeighting Writer** 六个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例；窗口可命名、勾选随 WKB 保存。当前版本为 **v5.1.0**，提供 Windows x64 Setup 和便携 ZIP，见 [发布说明](docs/releases/v5.1.0.md)。历史版本标签保持不变。
+Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、光谱、径向图、相关性图和趋势图。主窗口提供 **Match Workbook**、**Wafer Map**、**Spectra Viewer**、**Correlation and Trend**、**Dynamic**、**AutoWeighting Writer** 和 **Reference Summary** 七个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例；窗口可命名、勾选随 WKB 保存。当前版本为 **v5.1.1**，提供 Windows x64 Setup 和便携 ZIP，见 [发布说明](docs/releases/v5.1.1.md)。历史版本标签保持不变。
 
 v4.3.1 修复 Match Group / Wafer 导出中曲线、Wafer 标签和分界线不一致的问题：原生 Trend、Bias 与 Bias % 改为绑定单元格的 XY series，Show Wafer Group 的真实宽度会同步作用于数据；Wafer 标签保持各自 span 中心。单独 Group 页始终展示全部 Wafer，Match Wafer 改为不分页的一张完整图，数值轴只保留一个 Die Seq 标题，并在每个 Wafer 内按可用宽度生成密集刻度。完整 Undo、宽表粘贴/删除和多窗口阶段切换仍可能等待，不能把局部提速理解为整体流畅度全部达标。
 
@@ -22,7 +22,7 @@ python main.py
 
 主窗口通常以约 1180 × 820 的尺寸居中打开；在小屏幕或高缩放比例下，会按任务栏以上的可用空间自动缩小。分析窗口依次错开，窗口变小时仍可通过滚动条查看内容。
 
-程序启动后不会自动打开分析工具。点击左侧的 **Match Workbook**、**Wafer Map**、**Spectra Viewer**、**Correlation and Trend** 或 **Dynamic** 即可新建窗口。右侧 Activity 保留本次会话的窗口与文件事件，横跨主窗口底部的 Log 会记录 Python 运行环境、错误，以及 WKB 打开和保存位置，便于调试；上下区域可拖动调整，实际拖动后的 Log 高度会在正常关闭时保存并在下次启动恢复。Shell 不显示重复的全局 Close all、Ready、绿色状态点或空闲 `No tools open` 文本。Log 使用 Cascadia Mono、Consolas 等系统等宽字体，随 Light/Dark 主题切换背景，并以蓝色、琥珀色和红色区分 INFO、WARNING、ERROR 标签。
+程序启动后不会自动打开分析工具。点击左侧的 **Match Workbook**、**Wafer Map**、**Spectra Viewer**、**Correlation and Trend**、**Dynamic**、**AutoWeighting Writer** 或 **Reference Summary** 即可新建窗口。**Reference Summary** 支持 NOVA、PMISH、KLA 和 CDSEM1 文件批量汇总，界面只显示文件数、保留行数、通道或 MP 数、问题摘要及输出文件，不展示 100 行数据预览。右侧 Activity 保留本次会话的窗口与文件事件，横跨主窗口底部的 Log 会记录 Python 运行环境、错误，以及 WKB 打开和保存位置，便于调试；上下区域可拖动调整，实际拖动后的 Log 高度会在正常关闭时保存并在下次启动恢复。Shell 不显示重复的全局 Close all、Ready、绿色状态点或空闲 `No tools open` 文本。Log 使用 Cascadia Mono、Consolas 等系统等宽字体，随 Light/Dark 主题切换背景，并以蓝色、琥珀色和红色区分 INFO、WARNING、ERROR 标签。
 
 如果不使用 Conda，也可以在 Python 3.10+ 环境中安装依赖：
 
@@ -115,7 +115,7 @@ python -m PyInstaller --noconfirm --clean MetrologyWorkspace.spec
 
 ## Spectra Viewer
 
-Windows **v5.1.0** 提供 Setup 安装包和便携 ZIP，见 [发布说明](docs/releases/v5.1.0.md)。
+Windows **v5.1.1** 提供 Setup 安装包和便携 ZIP，见 [发布说明](docs/releases/v5.1.1.md)。
 
 **Data → Data selection** 用一行表示一个 SME 文件，Apply 同步树中勾选和绘图。右上角 **Selection Script** 可复制/粘贴带版本号的 JSON，保留全部筛选行、AND/OR、搜索、查看模式、Hide excluded rows 和参与状态。记录仅按 **Wafer ID＋Lot ID＋PAD Name＋Die** 匹配，不使用 SME 名称或路径；同一身份的多条光谱统一应用勾选，来源状态冲突时提示先统一。旧版路径脚本需从更新后的来源窗口重新复制。**Copy WKB Selection** 一次性复制父工作簿的完整脚本，包括 filter conditions 与查看设置，之后可独立修改。其他分析子窗口也使用相同脚本规则；跟随 Match Workbook selection 时显示父窗口选择，Apply 本地改动后自动切到 Full data，父窗口不变。Checked rows / Unchecked rows 按全部记录的当前勾选状态查看；Filtered rows 才按已保存筛选条件查看。
 

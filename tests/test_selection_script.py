@@ -281,7 +281,7 @@ class SelectionScriptTests(unittest.TestCase):
             target = root / "export"
             outputs = export_spectra(paths, target)
             self.assertEqual([p.relative_to(target).as_posix() for p in outputs],
-                             ["sources/A/same.sme", "sources/B/same.sme"])
+                             ["A/same.sme", "B/same.sme"])
             with self.assertRaisesRegex(ValueError, "overwrite"):
                 export_spectra(paths, target)
             self.assertEqual(outputs[0].read_bytes(), paths[0].read_bytes())

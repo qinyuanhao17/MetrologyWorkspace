@@ -6,7 +6,10 @@ from .file_paths import filesystem_path
 
 
 def export_spectra(paths, destination, *, cancelled=None, progress=None, on_error=None):
-    """Copy originals. An optional on_error(path, OSError) chooses retry/skip/cancel."""
+    """Copy originals relative to their common source folder, omitting that root.
+
+    An optional on_error(path, OSError) chooses retry/skip/cancel.
+    """
     paths = tuple(dict.fromkeys(Path(path).resolve() for path in paths))
     if not paths:
         raise ValueError("Check at least one spectrum to export.")
@@ -15,8 +18,7 @@ def export_spectra(paths, destination, *, cancelled=None, progress=None, on_erro
         raise ValueError(f"{len(missing)} original SME files are unavailable. Restore their source files before exporting.\n" + "\n".join(missing[:10]))
     destination = Path(destination).resolve()
     try:
-        common = Path(os.path.commonpath([path.parent for path in paths]))
-        anchor = common.parent if common.name else common
+        anchor = Path(os.path.commonpath([path.parent for path in paths]))
         names = [path.relative_to(anchor) for path in paths]
     except ValueError:  # Different Windows drives retain their drive and folder names.
         names = [Path(path.drive.replace(":", "")) / path.relative_to(path.anchor) for path in paths]

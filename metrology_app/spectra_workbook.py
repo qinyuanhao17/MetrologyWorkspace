@@ -285,6 +285,9 @@ def open_child(owner, scope):
     child._spectra_workbook_owner = owner
     child.set_workbook_selection_source(owner.selection_script)
     child.set_spectra_info_source(lambda: (owner._active_raw_frame(), owner.reference_frame))
+    for model in (owner.reference_model, owner.raw_model, owner.final_raw_model):
+        model.changed.connect(child.schedule_spectra_info_refresh)
+    owner.result_mode.currentIndexChanged.connect(child.schedule_spectra_info_refresh)
     child._analysis_window_name = window_metadata(scope, saved)["name"]
     child.document.refresh_identity()
     def closed(viewer):

@@ -415,6 +415,7 @@ Feature: Review spectral measurements by wafer
       Given checked spectra refer to original SME files in source folders
       When the engineer exports checked spectra
       Then a child window shows progress while the original bytes are copied with their folders
+      And the common source root folder is omitted while its internal folders are retained
       And long folder paths work for batch exports and subsequent reading
       When an original file cannot be copied
       Then the engineer can restore it and Retry or Skip that file
@@ -422,6 +423,13 @@ Feature: Review spectral measurements by wafer
       And existing target files are never overwritten and no SME is generated
       When the engineer cancels or closes the export window
       Then waiting work stops and files created by that export are rolled back
+
+    Scenario: Read Mueller elements with one-based matrix labels
+      Given measured Mueller spectra are displayed in a four by four grid
+      Then the first row is labelled M11, M12, M13 and M14
+      And the last row is labelled M41, M42, M43 and M44
+      And enlarged plot windows use the same labels
+      And each element retains its measured data and saved axis settings
 
     Scenario: Hide and restore legend groups from the context menu
       Given plotted spectra have checked and selected states and manual axes
@@ -470,6 +478,27 @@ Feature: Review spectral measurements by wafer
       When the engineer opens a .spec with unsupported settings
       Then an error is reported before replacing the current spectra
 
+  Rule: Spectra Info follows the current source values
+
+    Scenario: Keep an open report current while editing its Workbook
+      Given Spectra Info is open for checked spectra in a Match Workbook
+      When the engineer edits a Reference value or column name
+      Then both report tabs update without reopening or manually refreshing
+      And copying or exporting uses the updated values in original Raw Data order
+      When the engineer changes Raw Data so a checked spectrum no longer matches
+      Then the report shows the matching issue and blocks copying and export
+      When the engineer undoes that edit
+      Then valid report rows and copying and export become available again
+
+    Scenario: Follow the active Workbook Raw Data and reloaded spectra
+      Given Spectra Info is open for checked spectra in a Match Workbook
+      When the engineer switches between Preview and Final Raw Data
+      Then the report follows the active original Raw Data order
+      And the Spectra Viewer's check states remain unchanged
+      When an updated spectrum is reloaded and its Raw Data pairing is valid
+      Then both report tabs and copied and exported values use its current metadata
+
+  # Executable report acceptance checks: tests.test_spectra_info.
   # Executable Workbook acceptance checks: tests.test_spectra_workbook.
   # Executable acceptance checks: tests.test_sme_spectra,
   # tests.test_spectra_viewer and tests.test_spectra_map.

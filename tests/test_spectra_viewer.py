@@ -1448,6 +1448,13 @@ class SpectraViewerTreeTests(unittest.TestCase):
             sorted(self.window.mueller_panel.mij_plots),
             [f"M{row}{column}" for row in range(4) for column in range(4)],
         )
+        display_names = ["M11", "M12", "M13", "M14", "M21", "M22", "M23", "M24",
+                         "M31", "M32", "M33", "M34", "M41", "M42", "M43", "M44"]
+        panels = list(self.window.mueller_panel.mij_plots.values())
+        self.assertEqual([panel.plot.getPlotItem().titleLabel.text for panel in panels], display_names)
+        floating = self.window.open_plot_window(panels[0])
+        self.assertEqual(floating.windowTitle(), "M11 — Spectrum Plot")
+        self.assertEqual(floating.panel.plot.getPlotItem().titleLabel.text, "M11")
         self.window.view_actions["N"].setChecked(False)
         self.assertFalse(self.window.view_actions["N"].isChecked())
         self.assertNotIn("N", self.window.visible_view_keys())

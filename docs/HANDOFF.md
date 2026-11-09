@@ -1,6 +1,6 @@
 # Metrology Workspace 开发交接
 
-更新日期：2026 年 11 月 4 日
+更新日期：2026 年 11 月 9 日
 
 ## 当前状态
 
@@ -18,11 +18,11 @@ $testModules = Get-ChildItem tests/test_*.py | Where-Object { $_.BaseName -notli
 python run_tests.py @testModules -v
 ```
 
-## v5.1.0 当前交接
+## v5.1.1 当前交接
 
-当前版本为 5.1.0，发布内容为源码标签、Windows x64 Setup 与便携 ZIP，并按用户要求快进同步 CXMT。最新 Spectra Viewer / Die Map / Selection Script / Spectra Info / Test Flag / 路径保存模式及性能边界集中记录在 [根目录 HANDOFF](../HANDOFF.md) 和 [v5.1.0 发布说明](releases/v5.1.0.md)。下文 v2 模块说明保留为历史设计背景，不代表当前发布版本或测试结果。
+当前版本为 5.1.1，发布内容为源码标签、Windows x64 Setup 与便携 ZIP。新增主窗口 Reference Summary，支持 NOVA、PMISH、KLA 和 CDSEM1 汇总且不显示数据行预览；同时包含 Spectra Info、Mueller 标题和 SME 导出修正。当前范围集中记录在 [根目录 HANDOFF](../HANDOFF.md) 和 [v5.1.1 发布说明](releases/v5.1.1.md)。下文 v2 模块说明保留为历史设计背景，不代表当前发布版本或测试结果。
 
-当前测试必须使用 `run_tests.py` 的 scratch 设置隔离。用户继续搁置 AutoWeighting，不运行对应模块或会打开 OCR 的 `main.py --self-test`；发布冒烟使用 `--spectra-smoke-test`。源码回归与打包/安装验证分开记录，失败不能因历史已有而省略。源测量文件、设置、未关联的本地工作簿及既有标签均须保留。当前变更和实际验证见 [性能及路径存储记录](validation/spectra-performance-storage-2026-11-03.md)。
+当前测试必须使用 `run_tests.py` 的 scratch 设置隔离。5.1.1 已恢复 requirements 锁定的 OCR 依赖并运行全部测试；1,457 项中 1,456 项通过，唯一错误来自过长 TEMP 前缀下的测试夹具创建，短 TEMP 定向复测通过。发布冒烟使用 `--spectra-smoke-test`。源码回归与打包/安装验证分开记录，失败不能省略。源测量文件、设置、未关联的本地工作簿及既有标签均须保留。
 
 已修复 v5.1.0 的两项回归错误：Correlation 对可选 raw_model 缓存做兼容检查；LiteralFrameSource 测试遵守内部只读、公开副本可编辑的既有约定。排除 AutoWeighting 后完整回归 1,421 项全部通过，复现和复测记录见 [修复验证](validation/regression-two-errors-2026-11-04.md)。用户随后明确要求覆盖 v5.1.0 标签和安装包/ZIP，并将 CXMT 快进到修复后的同一提交；main 和其他标签不移动。
 
