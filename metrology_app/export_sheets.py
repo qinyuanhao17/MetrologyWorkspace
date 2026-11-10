@@ -1,8 +1,10 @@
 """Report sheet names and formula-safe selection over a newly built workbook."""
 from openpyxl.formula import Tokenizer
 
+from .wafer_metrics import METRICS_SHEET_TITLE
 
-def export_sheet_names(snapshot, *, matching):
+
+def export_sheet_names(snapshot, *, matching, native=True):
     """Plan the writer's visible names without rendering charts or writing cells."""
     from .excel_export import (
         group_show_wafer_sheet_title, sheet_title, stage_suffix)
@@ -26,6 +28,7 @@ def export_sheet_names(snapshot, *, matching):
         report_names(snapshot)
         return names
     sheet_title('_Plot data', used)
+    metrics_title = sheet_title(METRICS_SHEET_TITLE, used) if native and snapshot.get('metrics') else None
     reports = snapshot.get('reports', ())
     scopes = set()
     for workbook, result, _raw, stage_frames in snapshot['stages']:
@@ -58,6 +61,8 @@ def export_sheet_names(snapshot, *, matching):
             frames.append('FullMap')
         for name in frames:
             add(sheet_title(name, set(), suffix))
+    if metrics_title:
+        names.append(metrics_title)
     for name, _frame in snapshot.get('extra_frames', ()):
         add(name)
     for prefix, report in reports:

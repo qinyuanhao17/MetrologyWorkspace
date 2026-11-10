@@ -384,16 +384,24 @@ class MatchAnalysisResult:
             "Selected Bias": selected,
         }, index=self._reference.index.copy())
 
-    def _metrics_groups(self, wafer_column=None, *, mark2_column=None):
+    def _metrics_groups(self, wafer_column=None, *, mark2_column=None, wafer_only=False, custom_fields=()):
         """Measurement rows for the metrics tab, separate from Raw identities."""
-        if mark2_column is None:
-            return self._measurement_groups(wafer_column)
+        if mark2_column is None and not custom_fields:
+            return self._measurement_groups(wafer_column, wafer_only=wafer_only)
         plan = self.group_plan
-        if not plan.mark2_enabled or mark2_column not in plan.state["mark2"]["columns"]:
+        from ..mark2 import metric_hierarchy_fields
+        fields = metric_hierarchy_fields(custom_fields)
+        selected = [field for field in fields if field is not None] if fields else [mark2_column]
+        if not plan.mark2_enabled or any(field not in plan.state["mark2"]["columns"] for field in selected):
             raise ValueError("Choose an imported Mark2 label column for metrics grouping.")
         if getattr(self, "_metrics_group_plan", None) is not plan:
             self._metrics_group_plan = plan
             self._metrics_group_cache = {}
+        if fields:
+            key = (wafer_column, fields)
+            if key not in self._metrics_group_cache:
+                self._metrics_group_cache[key] = self._custom_metrics_measurements(fields, selected, wafer_column)
+            return self._raw, self._metrics_group_cache[key]
         if mark2_column not in self._metrics_group_cache:
             from ..mark2 import labels_for_raw
             from ..measurements import Measurement
@@ -412,23 +420,70 @@ class MatchAnalysisResult:
             ]
         return self._raw, self._metrics_group_cache[mark2_column]
 
-    def wafer_summary(self, parameter, wafer_column=None, *, mark2_column=None):
-        """Fit each measurement identity or selected Mark2 value independently."""
+    def _custom_metrics_measurements(self, fields, selected, wafer_column):
+        from ..mark2 import labels_for_raw, natural_key
+        from ..measurements import Measurement
+
+        plan = self.group_plan
+        imported = labels_for_raw(plan.raw, {**plan.state["mark2"], "selected": selected}) if selected else ()
+        wafer_ids = ()
+        if None in fields:
+            source, column = _wafer_groups(self._reference, self._raw, wafer_column)
+            wafer_ids = source[column].fillna("").astype(str).str.strip().tolist()
+        indices = [None if field is None else selected.index(field) for field in fields]
+        buckets = {}
+        for position, source_row in enumerate(self.source_rows):
+            labels = imported[source_row] if imported else ()
+            values = tuple(wafer_ids[position] if index is None else labels[index] for index in indices)
+            buckets.setdefault(values, []).append(position)
+
+        # Keep a visible placeholder distinct from a literal imported label.
+        missing = []
+        for index, field in enumerate(fields):
+            label = "(No Wafer ID)" if field is None else "(No Mark2 label)"
+            used = {values[index] for values in buckets}
+            while label in used:
+                label += "*"
+            missing.append(label)
+
+        # The exact text breaks natural-sort ties so equal parent labels stay contiguous.
+        ordered = sorted(buckets, key=lambda values: tuple((natural_key(value), value) for value in values))
+        measurements = []
+        for values in ordered:
+            levels = tuple(value or fallback for value, fallback in zip(values, missing))
+            measurements.append(Measurement(
+                json.dumps(values, ensure_ascii=False), "", "", "", tuple(buckets[values]),
+                " / ".join(levels), "Custom classification", levels,
+            ))
+        return measurements
+
+    def wafer_summary(self, parameter, wafer_column=None, *, mark2_column=None, wafer_only=False,
+                      custom_fields=(), value_mode=None):
+        """Fit each group independently and optionally summarize its measured values."""
+        if value_mode not in (None, "raw", "card"):
+            raise ValueError("Choose raw PMISH or PMISH+Card for wafer metrics.")
         try:
             mapping = self._mapping_by_name[parameter]
         except KeyError as error:
             raise ValueError(f"Unknown parameter: {parameter}") from error
-        source, measurements = self._metrics_groups(wafer_column, mark2_column=mark2_column)
+        _, measurements = self._metrics_groups(wafer_column, mark2_column=mark2_column,
+                                               wafer_only=wafer_only, custom_fields=custom_fields)
         reference = pd.to_numeric(self._reference[mapping.reference_column], errors="coerce").to_numpy(float)
         raw = pd.to_numeric(self._raw[mapping.raw_column], errors="coerce").to_numpy(float)
+        measured = raw
+        if value_mode == "card":
+            overall_card = self.card(parameter)
+            measured = overall_card.slope * raw + overall_card.intercept
+        statistic_columns = ["Mean", "Reference Mean", "Mean Bias", "STD", "Reference STD"] if value_mode else []
         rows = []
         for measurement in measurements:
-            mask = np.zeros(len(source), dtype=bool)
-            mask[list(measurement.rows)] = True
-            valid = mask & np.isfinite(raw) & np.isfinite(reference)
-            if valid.sum() >= 2 and np.ptp(raw[valid]) > 0:
+            positions = list(measurement.rows)
+            group_raw, group_reference = raw[positions], reference[positions]
+            valid = np.isfinite(group_raw) & np.isfinite(group_reference)
+            valid_count = int(valid.sum())
+            if valid_count >= 2 and np.ptp(group_raw[valid]) > 0:
                 card = _fit_card(
-                    raw[valid], reference[valid],
+                    group_raw[valid], group_reference[valid],
                     f"{parameter} / {measurement.label}",
                 )
                 slope, intercept, r_squared = card.slope, card.intercept, card.r_squared
@@ -440,15 +495,32 @@ class MatchAnalysisResult:
                     self.group_plan.labels[self.source_rows[row]] for row in measurement.rows
                 ))
                 group_label = ("Mixed: " if len(labels) > 1 else "") + " / ".join(labels)
-            rows.append({
+            row = {
                 "Wafer": measurement.label,
                 "Group": group_label,
                 "Slope": slope,
                 "Intercept": intercept,
                 "R²": r_squared,
-                "Valid pairs": int(valid.sum()),
-            })
-        return pd.DataFrame(rows, columns=["Wafer", "Group", "Slope", "Intercept", "R²", "Valid pairs"])
+                "Valid pairs": valid_count,
+            }
+            if custom_fields:
+                row.update({"Metrics Key": measurement.key, "Metrics Labels": measurement.levels})
+            if value_mode:
+                group_measured = measured[positions]
+                measured_pairs, ref_pairs = group_measured[valid], group_reference[valid]
+                has_measured_pairs = valid_count and np.isfinite(measured_pairs).all()
+                row.update({
+                    "Mean": measured_pairs.mean() if has_measured_pairs else np.nan,
+                    "Reference Mean": ref_pairs.mean() if valid_count else np.nan,
+                    "Mean Bias": (measured_pairs - ref_pairs).mean() if has_measured_pairs else np.nan,
+                    "STD": measured_pairs.std(ddof=1) if has_measured_pairs and valid_count >= 2 else np.nan,
+                    "Reference STD": ref_pairs.std(ddof=1) if valid_count >= 2 else np.nan,
+                })
+            rows.append(row)
+        columns = ["Wafer", "Group", "Slope", "Intercept", "R²", "Valid pairs"]
+        if custom_fields:
+            columns.extend(["Metrics Key", "Metrics Labels"])
+        return pd.DataFrame(rows, columns=columns + statistic_columns)
 
     def group_card(self, parameter, key):
         cache_key = (parameter, key)
@@ -488,9 +560,10 @@ class MatchAnalysisResult:
             result.set_bias_limit(limit, name)
         return result
 
-    def wafer_frames(self, row, *, mark2_column=None):
+    def wafer_frames(self, row, *, mark2_column=None, wafer_only=False, custom_fields=()):
         """Paired sources for exactly one group in wafer_summary."""
-        _, measurements = self._metrics_groups(mark2_column=mark2_column)
+        _, measurements = self._metrics_groups(mark2_column=mark2_column, wafer_only=wafer_only,
+                                               custom_fields=custom_fields)
         if not 0 <= row < len(measurements):
             raise ValueError("Unknown single-wafer row.")
         indices = list(measurements[row].rows)
@@ -574,31 +647,26 @@ class MatchAnalysisResult:
         self._measurement_spans[key] = tuple(spans)
         return spans
 
-    def _measurement_groups(self, wafer_column=None):
+    def _measurement_groups(self, wafer_column=None, *, wafer_only=False):
         # Analysis owns its paired source slices. Metadata is shared by its
         # parameters, but never by a later analysis or a newly created scope.
-        if wafer_column in self._measurements:
-            return self._measurements[wafer_column]
+        key = (wafer_column, wafer_only)
+        if key in self._measurements:
+            return self._measurements[key]
         source, column = _wafer_groups(self._reference, self._raw, wafer_column)
-        names = {_normalized(candidate): candidate for candidate in source.columns}
-        lot_column = next(
-            (names[name] for name in ("lotid", "lot", "lotno") if name in names),
-            None,
-        )
-        pad_column = next(
-            (names[name] for name in ("padname", "pad") if name in names),
-            None,
-        )
-        identity = default_identity_columns(
-            source, column, lot_column, pad_column
-        )
+        identity = [column]
+        if not wafer_only:
+            names = {_normalized(candidate): candidate for candidate in source.columns}
+            lot_column = next((names[name] for name in ("lotid", "lot", "lotno") if name in names), None)
+            pad_column = next((names[name] for name in ("padname", "pad") if name in names), None)
+            identity = default_identity_columns(source, column, lot_column, pad_column)
         measurements = detect_measurements(
             source,
             column,
             identity,
             use_die_seq=False,
         )
-        self._measurements[wafer_column] = source, measurements
+        self._measurements[key] = source, measurements
         return source, measurements
 
 class MatchWorkbook:
@@ -907,7 +975,8 @@ class MatchWorkbook:
         result._group_cards = {}
         if (metadata_from is not None and result.source_rows == metadata_from.source_rows
                 and plan.state == metadata_from.group_plan.state):
-            for requested, (old_source, measurements) in metadata_from._measurements.items():
+            for key, (old_source, measurements) in metadata_from._measurements.items():
+                requested, wafer_only = key
                 try:
                     source, column = _wafer_groups(result._reference, result._raw, requested)
                 except ValueError:
@@ -916,9 +985,12 @@ class MatchWorkbook:
                 columns = [name for name in source if name == column or _normalized(name) in aliases]
                 if (len(source) == len(old_source) and source.columns.equals(old_source.columns)
                         and source[columns].equals(old_source[columns])):
-                    result._measurements[requested] = source, measurements
-                    result._measurement_spans.update({key: value for key, value in metadata_from._measurement_spans.items()
-                                                      if key[0] == requested})
+                    result._measurements[key] = source, measurements
+                    if not wafer_only:
+                        result._measurement_spans.update({
+                            span_key: value for span_key, value in metadata_from._measurement_spans.items()
+                            if span_key[0] == requested
+                        })
         return result
 
     def id_alignment(self, raw=None):

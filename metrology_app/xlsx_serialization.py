@@ -29,7 +29,9 @@ from xml.sax.saxutils import quoteattr
 from zipfile import ZipFile, ZIP_DEFLATED, ZIP_STORED
 
 from openpyxl import LXML
+from openpyxl.chart.data_source import MultiLevelStrData, MultiLevelStrRef
 from openpyxl.compat import safe_string
+from openpyxl.descriptors.nested import NestedInteger
 from openpyxl.drawing.spreadsheet_drawing import SpreadsheetDrawing
 from openpyxl.worksheet._writer import WorksheetWriter
 from openpyxl.writer.excel import ExcelWriter
@@ -37,6 +39,18 @@ from openpyxl.xml.functions import xmlfile
 from openpyxl.xml.constants import SHEET_MAIN_NS
 
 _INVALID_XML = re.compile('[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]')
+
+
+class MultiLevelCategoryCache(MultiLevelStrData):
+    """Serialize the point count as a val attribute."""
+    ptCount = NestedInteger(allow_none=True)
+    __elements__ = ("ptCount", "lvl")
+
+
+class MultiLevelCategoryRef(MultiLevelStrRef):
+    """Write the range reference before its cache, in Excel's element order."""
+    __elements__ = ("f", "multiLvlStrCache")
+    __nested__ = ("f",)
 
 
 def _text(value):

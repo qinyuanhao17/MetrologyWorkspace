@@ -21,6 +21,7 @@ class Measurement:
     rows: tuple
     label: str
     detail: str
+    levels: tuple[str, ...] = ()
 
 
 def wafer_identity_label(frame, wafer_column=None, *, show_pad=True, show_lot=True):

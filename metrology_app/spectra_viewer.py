@@ -1,6 +1,7 @@
 """Interactive SME spectra review workspace."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from time import monotonic
 
@@ -43,6 +44,7 @@ from .sme_spectra import (
     SPECTRUM_GROUP_FIELDS,
     load_folder,
     LoadIssue,
+    natural_key,
 )
 from .spectra_map import SpectraMapWindow
 from .spectra_analysis import SpectralSeries, residual_series, three_sigma_series
@@ -67,6 +69,7 @@ GROUP_LABELS = (("wafer", "Wafer ID"), ("lot", "Lot"), ("pad", "PAD Name"), ("di
 TREE_COLUMNS = (
     "Wafer / Spectrum",
     "SME Name",
+    "Wafer ID",
     "Lot ID",
     "Tool SN",
     "PAD Name",
@@ -82,6 +85,19 @@ TREE_COLUMNS = (
     "Channel Count",
     "Channel ID",
 )
+TREE_GROUP_COLUMNS = {"wafer": "Wafer ID", "lot": "Lot ID", "pad": "PAD Name", "die": "Die Seq"}
+TREE_NUMERIC_COLUMNS = {"Die Seq", "FIELD X", "FIELD Y", "Channel Count"}
+
+
+class _SpectrumTreeItem(QTreeWidgetItem):
+    # Qt moves the existing rows and retains their indexes. The ranks encode
+    # the sibling order, including missing values and stable ties.
+    _sort_rank = 0
+
+    def __lt__(self, other):
+        return self._sort_rank < getattr(other, "_sort_rank", 0)
+
+
 VIEW_LABELS = (
     ("mueller", "Mueller"),
     ("N", "N"),
@@ -235,6 +251,8 @@ class SpectraViewerWindow(QMainWindow):
         self.export_dialog = None
         self._load_replace = True
         self._expanded_paths: set[tuple[str, ...]] = set()
+        self._tree_group_sort: dict[str, bool] = {}
+        self._tree_leaf_sort: tuple[str, bool] | None = None
         self._syncing_tree = False
         self._unfold_queue: list[QTreeWidgetItem] = []
         self._all_group_items: list[QTreeWidgetItem] = []
@@ -492,12 +510,15 @@ class SpectraViewerWindow(QMainWindow):
         self.tree.header().setSectionResizeMode(
             QHeaderView.ResizeMode.Interactive
         )
+        self.tree.header().setSectionsClickable(True)
+        self.tree.header().sectionClicked.connect(self._sort_tree_column)
+        self._update_tree_sort_headers()
         self.tree.setHorizontalScrollMode(
             QAbstractItemView.ScrollMode.ScrollPerPixel
         )
         self.tree.setTextElideMode(Qt.TextElideMode.ElideNone)
         for index, width in enumerate((
-            230, 310, 150, 110, 120, 70, 80, 80, 190, 320, 120, 90, 110, 150, 100, 100,
+            230, 310, 145, 150, 110, 120, 85, 90, 90, 190, 320, 120, 90, 110, 150, 115, 100,
         )):
             self.tree.setColumnWidth(index, width)
         self.tree.setAlternatingRowColors(False)
@@ -841,7 +862,7 @@ class SpectraViewerWindow(QMainWindow):
         return tuple(reversed(parts))
 
     def _new_group_item(self, text: str, kind: str, *, leaf=False):
-        item = QTreeWidgetItem([text, *([""] * (len(TREE_COLUMNS) - 1))])
+        item = _SpectrumTreeItem([text, *([""] * (len(TREE_COLUMNS) - 1))])
         item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
         item.setCheckState(0, Qt.CheckState.Unchecked)
         item.setData(0, ROLE_KIND, kind)
@@ -851,6 +872,98 @@ class SpectraViewerWindow(QMainWindow):
         for column in range(len(TREE_COLUMNS)):
             item.setToolTip(column, text)
         return item
+
+    def _group_sort_field(self, column: int) -> str | None:
+        group_by = self.group_by_combo.currentData()
+        if column == 0:
+            return group_by
+        return next((field for field in SPECTRUM_GROUP_FIELDS[group_by]
+                     if TREE_GROUP_COLUMNS[field] == TREE_COLUMNS[column]), None)
+
+    def _update_tree_sort_headers(self):
+        group_by = self.group_by_combo.currentData()
+        primary = {"wafer": "Wafer", "lot": "Lot", "pad": "PAD", "die": "Die"}[group_by]
+        header = self.tree.headerItem()
+        for column, label in enumerate((f"{primary} / Spectrum", *TREE_COLUMNS[1:])):
+            field = self._group_sort_field(column)
+            if field is not None:
+                descending = self._tree_group_sort.get(field)
+                scope = f"Sort {TREE_GROUP_COLUMNS[field]} within each parent group"
+            else:
+                leaf_sort = self._tree_leaf_sort
+                descending = leaf_sort[1] if leaf_sort and leaf_sort[0] == label else None
+                scope = f"Sort spectra by {label} within each final group"
+            if descending is not None:
+                label += " ↓" if descending else " ↑"
+            header.setText(column, label)
+            header.setToolTip(column, scope)
+
+    @staticmethod
+    def _tree_sort_value(label: str, text: str):
+        text = text.strip()
+        if not text:
+            return None
+        try:
+            if label in TREE_NUMERIC_COLUMNS:
+                return (0, int(text))
+            if label == "Time":
+                timestamp = datetime.fromisoformat(text)
+                if timestamp.tzinfo is not None:
+                    timestamp = timestamp.astimezone(timezone.utc).replace(tzinfo=None)
+                return (0, timestamp)
+        except (ValueError, OverflowError):
+            pass
+        return (1, natural_key(text))
+
+    def _sort_tree_children(self, parent, label: str, descending: bool):
+        if parent.childCount() < 2:
+            return
+        column = TREE_COLUMNS.index(label)
+        children = [parent.child(index) for index in range(parent.childCount())]
+        values, missing = [], []
+        for child in children:
+            value = self._tree_sort_value(label, child.text(column))
+            if value is None or child.data(0, ROLE_KIND) == "errors":
+                missing.append(child)
+            else:
+                values.append((value, child))
+        ordered = [child for _, child in sorted(values, key=lambda pair: pair[0], reverse=descending)] + missing
+        if ordered != children:
+            for rank, child in enumerate(ordered):
+                child._sort_rank = rank
+            parent.sortChildren(column, Qt.SortOrder.AscendingOrder)
+
+    def _sort_group_level(self, field: str, descending: bool):
+        fields = SPECTRUM_GROUP_FIELDS[self.group_by_combo.currentData()]
+        depth = fields.index(field)
+        if depth == 0:
+            parents = (self.tree.invisibleRootItem(),)
+        else:
+            parent_field = fields[depth - 1]
+            parents = (item for item in self._all_group_items if item.data(0, ROLE_KIND) == parent_field)
+        for parent in parents:
+            self._sort_tree_children(parent, TREE_GROUP_COLUMNS[field], descending)
+
+    def _sort_spectrum_group(self, parent):
+        if self._tree_leaf_sort is not None:
+            label, descending = self._tree_leaf_sort
+            if self._group_sort_field(TREE_COLUMNS.index(label)) is None:
+                self._sort_tree_children(parent, label, descending)
+
+    def _sort_tree_column(self, column: int):
+        field = self._group_sort_field(column)
+        if field is not None:
+            descending = not self._tree_group_sort.get(field, True)
+            self._tree_group_sort[field] = descending
+            self._sort_group_level(field, descending)
+        else:
+            label = TREE_COLUMNS[column]
+            descending = self._tree_leaf_sort == (label, False)
+            self._tree_leaf_sort = (label, descending)
+            for item in self._all_group_items:
+                if item.data(0, ROLE_LEAF_GROUP):
+                    self._sort_spectrum_group(item)
+        self._update_tree_sort_headers()
 
     def _grouping_changed(self):
         self._expanded_paths.clear()
@@ -868,8 +981,7 @@ class SpectraViewerWindow(QMainWindow):
         self._all_group_items = []
         group_by = self.group_by_combo.currentData()
         fields = SPECTRUM_GROUP_FIELDS[group_by]
-        header = {"wafer": "Wafer", "lot": "Lot", "pad": "PAD", "die": "Die"}[group_by]
-        self.tree.headerItem().setText(0, f"{header} / Spectrum")
+        self._update_tree_sort_headers()
 
         def add_groups(parent, groups, depth=0):
             kind = fields[depth]
@@ -878,6 +990,7 @@ class SpectraViewerWindow(QMainWindow):
                 text = (f"Die {value}" if value is not None else "Unknown die") if kind == "die" else (
                     value or {"wafer": "Unknown wafer", "lot": "Unknown lot", "pad": "(No PAD)"}[kind])
                 item = self._new_group_item(text, kind, leaf=leaf)
+                item.setText(TREE_COLUMNS.index(TREE_GROUP_COLUMNS[kind]), "" if value is None else str(value))
                 parent.addChild(item)
                 self._all_group_items.append(item)
                 if leaf:
@@ -904,6 +1017,9 @@ class SpectraViewerWindow(QMainWindow):
                     child.setToolTip(column, f"{issue.path}\n{issue.message}")
                 errors.addChild(child)
             self.tree.addTopLevelItem(errors)
+        for field, descending in self._tree_group_sort.items():
+            if field in fields:
+                self._sort_group_level(field, descending)
         self._restore_expanded(self.tree.invisibleRootItem())
         self.tree.blockSignals(False)
         self._select_tree_keys()
@@ -1272,9 +1388,10 @@ class SpectraViewerWindow(QMainWindow):
             for spectrum in spectra:
                 identity = spectrum.identity
                 channel_metadata = [channel.metadata for channel in spectrum.channels]
-                leaf = QTreeWidgetItem([
+                leaf = _SpectrumTreeItem([
                     identity.display_name,
                     spectrum.path.name,
+                    identity.wafer,
                     identity.lot,
                     identity.tool_sn,
                     identity.pad,
@@ -1314,6 +1431,7 @@ class SpectraViewerWindow(QMainWindow):
                 group_item.addChild(leaf)
                 leaf.setHidden(bool(self._data_selection_view.get("hide_excluded") and spectrum.key not in self._checked_keys))
                 self.spectrum_items[spectrum.key] = leaf
+            self._sort_spectrum_group(group_item)
         finally:
             self.tree.blockSignals(blocked)
 

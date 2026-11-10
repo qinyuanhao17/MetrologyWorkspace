@@ -113,7 +113,7 @@ KLA 结果按 PAD 分工作表；PMISH 有 `Pad name` 或 `PadName` 列时也按
 - 如果第一行有重复列名，**Auto rename** 保留第一个原名，后续按列顺序添加 `_1`、`_2` 等后缀，并跳过已占用的名字。该操作只修改表头，也可以用 Ctrl+Z 撤销。
 - Parameter mapping 每行的 **Bias limit ±** 位于 **Bias out of range** 前，支持独立小数限值（默认 0.5，单位 nm / degree / 无量纲）。行内勾选框只控制绝对 Bias 图的红色 ±limit 虚线，不影响统计、不套用到 Bias %。超限数统计当前已应用筛选和 Preview/Final 全部有限 Bias 中严格超出限值的点，边界值不计入；修改仅更新该参数的统计和限值线，不重绘数据曲线。逐参数限值及勾选状态随 WKB 保存，旧文件沿用原全局限值；Summary 包含限值、单位和超限点数。Group 分界使用加粗黑色虚线，下方标签区对应位置有同粗黑色实线（包含两端）；Wafer 分界保持较细灰色虚线。Auto Scale 保留完整横轴数据范围，不在 Trend/Bias 两端额外留白。
 - All parameter plots 内各图上方的 **:: Match / Trend / Bias / Bias %** 标题条可拖动：拖到另一张图的左右边缘调整顺序，拖到上下边缘放到上/下行；图间分隔条可左右拖动改变宽度。图不能浮出窗口或跨参数移动，会随整个参数模块移动；也可右键标题条（键盘 Tab 后 Shift+F10）选择边缘/行位置。布局按参数、Preview/Final 及三图/四图组合分别保存在 WKB 的 UI 状态，刷新数据不重置，旧文件仍使用默认单行布局；移动/缩放容器不重新拟合或修改原始数据。
-- Single-wafer metrics 采用左表右图布局，同高 280 px；表格内部独立横向/纵向滚动，右侧 R²/Slope 图各固定为 420 × 280 px。Wafer 列初始宽度 320 px、可手动调整，后面的 **Group** 列展示已应用设置下的真实分组名称；一个测量组跨多个分组时以 `Mixed:` 列出全部归属，分组未开启时显示 `Not grouped`。点击散点会高亮两张指标图的对应点，并滚动定位/蓝色高亮表格行；再次点击已选点、按 Esc 或点击表格空白处可清除高亮，不影响 Draw。表格最后一列 **Draw** 的勾选框居中，点击整个单元格或按空格均可切换，在这一排下方生成该 Wafer 的 Match/Trend/Bias（可选 Bias %）模块；**Uncheck all** 一次取消该参数全部 Draw，不提供 Check all。取消绘图后布局恢复紧凑。单 Wafer 按现有 Wafer/Lot/PAD 身份分类，不因 Die Seq 重复拆分；只使用当前已应用筛选的数据，独立拟合该 Wafer 的 Card，Preview 默认使用它、Final 默认原始值。图块继承 Parameter mapping 的参数及 Bias limit，支持模块排序、内部图拖动与分隔条调整，选择和布局随 WKB 保存。拟合不足的行不可勾选，不回退整体 Card。Match 图不再显示点/拟合线图例。
+- Single-wafer metrics 采用左表右图布局，同高 280 px；表格内部独立横向/纵向滚动，右侧默认显示 R² 和 Slope，图块各为 420 × 280 px，超出可用宽度时可横向滚动。Wafer 列初始宽度 320 px、可手动调整，后面的 **Group** 列展示已应用设置下的真实分组名称；一个测量组跨多个分组时以 `Mixed:` 列出全部归属，分组未开启时显示 `Not grouped`。点击折线上的数据点会高亮各统计图的对应点，并滚动定位/蓝色高亮表格行；再次点击已选点、按 Esc 或点击表格空白处可清除高亮，不影响 Draw。表格最后一列 **Draw** 的勾选框居中，点击整个单元格或按空格均可切换，在这一排下方生成该 Wafer 的 Match/Trend/Bias（可选 Bias %）模块；**Uncheck all** 一次取消该参数全部 Draw，不提供 Check all。取消绘图后布局恢复紧凑。单 Wafer 按现有 Wafer/Lot/PAD 身份分类，不因 Die Seq 重复拆分；只使用当前已应用筛选的数据，独立拟合该 Wafer 的 Card，Preview 默认使用它、Final 默认原始值。图块继承 Parameter mapping 的参数及 Bias limit，支持模块排序、内部图拖动与分隔条调整，选择和布局随 WKB 保存。拟合不足的行不可勾选，不回退整体 Card。Match 图不再显示点/拟合线图例。
 - **Analysis → Metric highlighting…** 可自定义 Slope 下限/上限和 R² 下限，默认分别为 0.9、1.1 和 0.9。Slope 严格超出区间、R² 严格低于下限时标红；边界值和缺失/非有限值不标红。**Apply** 立即更新 Parameter mapping、Summary、Single-wafer 表格，不改变拟合结果、参与数据、Draw 或图布局；**Cancel** 不提交。设置随 WKB 保存，旧文件保留默认条件。
 - Single-wafer metrics 和 Group plots 的参数大模块也可拖动 **⋮⋮ 参数名** 排序，顺序与 All parameter plots 共用并随 WKB 保存。单 wafer 表格、R²/Slope 图和已勾选的 wafer 子图随整个参数模块移动；Group plots 按参数增加外层大模块，把该参数全部基础/组合 Group 图收在一起。内部 Group 卡片只在同一参数下排序，不会混入另一参数。排序仅移动现有界面，不改变数据或重新拟合。
 - **Groups → Group settings…** 使用与主窗口 Settings 一致的紧凑纵向表单：Head groups、Mark、Trend order、Group sequence，右下角为 **Cancel / Apply**。不再显示 Import combined 或 Clear filters / sort。Apply 成功应用分组设置并更新绘图后自动关闭窗口；失败时保留窗口。Cancel/关闭仍隐藏窗口、保留待应用编辑，不自动绘图。**Original row order** 忽略三张配对表的排序、保留原始输入顺序，并按 Wafer 画灰色细虚线边界：同一 Wafer 内 Lot ID／PAD Name 变化不再产生额外虚线，每条线都是可对照的 wafer 分界；Trend、Bias、Bias % 只显示稀疏 Die Seq，不显示 Group/wafer 标签。已删除的 **Current table order** 旧设置在重开时按 Original row order 处理。切回 Group 顺序时恢复 Group 标签及各 Group 的 Show wafer 设置。
@@ -187,7 +187,7 @@ Mueller 横轴只显示自动生成的等间隔主刻度文字，保留次网格
 
 两张表可以行数不同、顺序不同。分析以 Raw 原始行空间为基准查找 Reference：未匹配的 Raw 记录保留，Reference 值为空；多余的 Reference 记录只保留在源表中。散点拟合及关联窗口的 Correlation 使用成功配对且数值有效的记录，Trend 保留完整 Raw 行空间和对应 Ref 空缺。Reference 筛选使用按 ID 对齐后的参考值。原始源表、字符串及行顺序不被改写。
 
-ID 内部按字段元组比较，避免字符串拼接冲突。身份文本保留前导零、区分大小写，忽略两端空白；明确的坐标/Die 字段仅规范数值写法（例如 `0` 与 `0.0`），不进行坐标偏移、单位换算或近似匹配。同一侧出现重复 ID、或选定字段有空值时，对应记录不配对，不自动选择第一条或求平均。列表下方显示成功/未匹配数量、重复及空键统计，提示文本可查看有问题的数据行号。
+ID 内部按字段元组比较，避免字符串拼接冲突。身份文本保留前导零、区分大小写，忽略两端空白；明确的坐标/Die 字段仅规范数值写法（例如 `0` 与 `0.0`），不进行坐标偏移、单位换算或近似匹配。同一个 ID 的多条 Raw 记录可各自匹配同一条唯一 Reference。Reference 侧出现重复 ID 或任一侧匹配字段有空值时，对应记录不配对。列表下方按 Raw 行统计匹配数量，并标出重复或空键对应的数据行号。
 
 匹配条件及顺序随文档和恢复草稿保存。没有足够有效配对生成 Card 时，该参数的 Card 数值为空，Trend 明确显示原始 Raw 值并禁用无效 Card 开关。旧 Type2 文件若没有保存 ID 字段，会保留原表并等待选择条件，不沿用位置配对。独立修改关联窗口表格后继续遵守草稿保护规则，父窗口刷新不会覆盖这些编辑。
 
@@ -209,9 +209,13 @@ Group settings 的 **Export Mark2 Excel…** 可导出已导入的完整分类�
 
 在 **Groups → Manage groups Mark2…** 勾选一个或多个标签，拖动设置从上到下“外层 → 内层”的层级顺序，再选择 **Source Raw table order**（保持 Raw 输入行顺序）或 **Selected hierarchy order**（按勾选层级逐级排序，同标签保留源行顺序）。点击 **OK** 后自动应用并刷新全部相关图表，无须额外点击 Apply；Cancel 保留原设置。启用 Mark2 时 Group settings 原有的 Trend order 不可选，排序统一在此窗口设置。层级排序中 Slot、Die 等纯数值按数值排序，产品编码保持文本语义。两种模式都只改变绘图顺序，原始 Ref/Raw 表和拟合所用记录不变。
 
-启用后，All parameter plots、Single-wafer 的 Trend、Bias、Bias % 以及关联 Correlation and Trend 的 Trend 使用相同的多级横轴：最内层靠近曲线，外层居中显示连续标签跨度，灰色边界表示层级范围；密集文字会稀疏显示，缩放后显示更多标签。Excel 原生图、Matplotlib 图片图和关联 Trend 的导出使用同一套层级及顺序。配置和导入的完整标签随 wkb/mwkb 正式保存及恢复草稿保留，无须再次导入。
+启用后，All parameter plots、Single-wafer 的 Trend、Bias、Bias % 以及关联 Correlation and Trend 的 Trend 使用相同的多级横轴：最内层靠近曲线，外层居中显示连续标签跨度，灰色边界表示层级范围；密集文字会稀疏显示，缩放后显示更多标签。Match Original 和 Match Wafer 的 Excel 原生 Trend、Bias、Bias % 使用带标记的折线图。同一张表的图共用左侧可编辑的标签区域，按所选 Mark2 层级排列，最内层逐行复制原始 Die Seq。配置和导入的完整标签随 wkb/mwkb 正式保存及恢复草稿保留，无须再次导入。
 
-**Single-wafer metrics 的分类选择：** 页顶 **Classify by** 默认是 **Wafer**，沿用原有 Wafer/Lot/PAD 身份规则。启用 Mark2 并应用后，可单选任一已导入的标签列（包括未勾选为 Trend 横轴层级的列），下拉项显示为 **Mark2 · 列名**。选择后，相同标签值的数据会归入一组，可跨 Wafer 合并；按该组有效 Ref/Raw 配对独立计算 Slope、Intercept、R² 和 Valid pairs，统计表及指标图立即更新。勾选 Draw 后显示该组的 Match、Trend、Bias、Bias %，沿用 Mark2 多级横轴。没有对应标签的记录显示在 `(No Mark2 label)` 组中。默认 Wafer 及每一种标签分类的 Draw 勾选分别保留，分类选择和各组勾选随 wkb 与恢复草稿保存；旧文件仍默认 Wafer。此选择仅控制该 Tab 的统计与绘图。
+**Single-wafer metrics 的分类选择：** 页顶 **Classify by** 默认是 **Wafer only**，仅按 Wafer ID 合并数据，导入映射时使用映射后的 ID。**Wafer / Lot / PAD** 沿用原有身份规则。启用 Mark2 并应用后，可单选任一已导入的标签列（包括未勾选为 Trend 横轴层级的列），下拉项显示为 **Mark2 · 列名**。选择后，相同标签值的数据会归入一组，可跨 Wafer 合并；按该组有效 Ref/Raw 配对独立计算 Slope、Intercept、R² 和 Valid pairs，统计表及指标图立即更新。勾选 Draw 后显示该组的 Match、Trend、Bias、Bias %，沿用 Mark2 多级横轴。没有对应标签的记录显示在 `(No Mark2 label)` 组中。各分类的 Draw 勾选分别保留，分类选择和各组勾选随 wkb 与恢复草稿保存。此选择仅控制该 Tab 的统计与绘图。
+
+**Custom classification…** 可在 Mark2 已导入并应用时从 **Classify by** 打开。最多勾选四项，可混用任一导入的 Mark2 标签和 Wafer ID（有映射时使用映射后的值）。拖动顺序从外层到内层，每个不同的标签组合对应一个统计点，表格与各统计图按同一层级排序。
+
+**Single-wafer metrics 的统计图**可通过页顶 **Statistics charts** 多选 R²、Slope、Mean、Mean Bias 和 STD，勾选项随 WKB 保存。折线横轴使用当前分类标签，横排放不下时改为竖排，仍太密时再抽稀。双击可在独立可缩放窗口中查看。**Values** 在原始 PMISH 和应用参数整体 Card 的 PMISH+Card 之间切换。Mean、Mean Bias 和 STD 使用同一批有效配对。Mean 和 STD 各显示量测、REF 两条线，STD 计算样本标准差。Slope 和 R² 仍按每组的原始 PMISH 与 REF 配对拟合。
 
 Mark2 空白分隔列右侧的自定义表头单独存放，不追加到 Raw Data 或 Reference，也不参与 Wafer 身份字段的自动识别，因此允许名为 **Wafer**、**Wafer ID** 或其他含 Wafer 的自定义标签。默认 **Wafer** 选项与 **Mark2 · Wafer** 以不同的内部值区分，导入无须因该名字报错。
 
@@ -259,6 +263,8 @@ Card 的定义为：
 父窗口 **Save Workbook As…**（`Ctrl+Shift+S`）另存整本工作簿，新路径成为后续保存目标。子窗口保存、独立副本与关闭提示的范围见下方“统一文档保存与恢复”。**Open Recent WKB** 保留最近成功打开或保存的工作簿，**Reveal Workbook in Folder** 定位当前文件。旧 WKB 缺少独立 Final、Map、Dynamic 或选择状态时仍可读取。文件内含数据，不依赖原 Excel/CSV，也不执行 pickle。
 
 **Export Excel** exports editable native charts; **Export Matplotlib** redraws the plots with Matplotlib and embeds them in one workbook. An export dialog selects the output sheets (all by default); unselected formula/chart dependencies remain hidden and editable. Match parameter tables start horizontally at A1, with plots over the data from A5 and literal Raw Data to the right. Reference inputs live in those parameter tables without a duplicate visible Ref block. Preview sheets end with `(WO Card)` and Final sheets with `(W Card)`. FM starts its prepared Wafer/Die Seq/parameter report at A1 and its visual columns at A5: FM Trend (TEM only), Wafer Map, Radius. The complete Copy PNG grid is retained; each Map grid row is 8 cm high. Dynamic retains editable sources, linked pivots and 3 Sigma charts, with 18 cm-wide charts and a top-aligned summary; per-Die Cycle Trend remains in the application but is not duplicated in Excel.
+
+在 **Export Excel** 的工作表选择框可勾选 **Mean&STD**，按当前 Preview/Final、Classify by、Values 和 Statistics charts 导出 Single-Wafer Metrics。各参数的数据横向分块，最左侧保留共用的单级或多级分类标签，右侧的原生带标记折线图都引用这片标签区域。
 
 Each stage includes Original, Group and Wafer views. Group/Wafer formulas refer back to Original by source row without altering literal measurements. Trend/Bias retain every observation and tight X limits; their width grows with visible Die Seq and identity-caption demand, and tick marks match visible tick-label spacing. Wafer and Group footer layers follow the WKB hierarchy. Generated text uses English and Times New Roman.
 

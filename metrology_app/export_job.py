@@ -205,7 +205,7 @@ def start_export(window, path, snapshot, *, matching=False, native=True):
                 raise InterruptedError("Export cancelled")
             from .export_sheets import export_sheet_names
             progress.hide()
-            selected = choose_export_sheets(window, export_sheet_names(job.snapshot, matching=matching))
+            selected = choose_export_sheets(window, export_sheet_names(job.snapshot, matching=matching, native=native))
             if selected is None or job.cancelled.is_set():
                 raise InterruptedError("Export cancelled")
             job.snapshot = dict(job.snapshot, selected_sheets=selected)

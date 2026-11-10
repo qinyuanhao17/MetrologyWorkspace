@@ -19,11 +19,14 @@ class IDMatchingTests(unittest.TestCase):
         self.assertEqual(result.unused_reference, 1)
         pd.testing.assert_frame_equal(ref, before)
 
-    def test_duplicate_and_blank_ids_are_reported_and_excluded_on_both_sides(self):
+    def test_repeated_raw_ids_share_unique_reference_and_ambiguous_ids_stay_unmatched(self):
         ref = pd.DataFrame({"id": ["a", "a", "b", "c", ""], "Value": [1,2,3,4,5]})
         raw = pd.DataFrame({"key": ["a", "b", "b", "c", "", "unknown"]})
         result = align_by_id(ref, raw, {"reference": ["id"], "raw": ["key"]})
-        self.assertEqual(result.reference_rows, (None, None, None, 3, None, None))
+        self.assertEqual(result.reference_rows, (None, 2, 2, 3, None, None))
+        self.assertEqual(result.reference["Value"].tolist(), ["", 3, 3, 4, "", ""])
+        self.assertEqual(result.matched, 3)
+        self.assertEqual(result.unused_reference, 3)
         self.assertEqual(result.duplicate_reference, (0,1))
         self.assertEqual(result.duplicate_raw, (1,2))
         self.assertEqual(result.blank_reference, (4,))

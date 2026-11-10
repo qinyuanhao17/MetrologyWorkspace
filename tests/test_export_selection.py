@@ -89,6 +89,32 @@ class ExportSelectionTests(unittest.TestCase):
             finally:
                 book.close()
 
+    def test_metrics_sheet_exports_active_final_stage_with_single_label_range(self):
+        window = self.window
+        final = window.raw_model.document_frame().copy()
+        final["CD"] = [1, 3, 5, 7]
+        window.result_mode.setCurrentText("Final")
+        window.set_raw_frame(final)
+        window.run_analysis()
+        for key, action in window.metrics_chart_actions.items():
+            action.setChecked(key == "wafer_mean")
+        snapshot = window.excel_export_snapshot()
+        self.assertEqual([result.result_mode for _, result, _, _ in snapshot["stages"]], ["preview", "final"])
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "metrics.xlsx"
+            write_workbook(path, **snapshot, selected_sheets=["Mean&STD"])
+            book = load_workbook(path)
+            try:
+                sheet = book.active
+                self.assertEqual(sheet["A1"].value, "Final · PMISH")
+                self.assertEqual([cell.value for cell in sheet[3][:3]], ["W1", 2, 4])
+                self.assertEqual([cell.value for cell in sheet[4][:3]], ["W2", 6, 8])
+                self.assertEqual(len(sheet._charts), 1)
+                self.assertTrue(all(series.cat.strRef.f == "'Mean&STD'!$A$3:$A$4"
+                                    for series in sheet._charts[0].series))
+            finally:
+                book.close()
+
     def test_invalid_or_empty_selection_never_replaces_previous_file(self):
         with TemporaryDirectory() as folder:
             path = Path(folder) / 'existing.xlsx'
@@ -112,7 +138,9 @@ class ExportSelectionTests(unittest.TestCase):
                     while self.window._excel_export_job is not None and time.monotonic() < deadline:
                         QTest.qWait(10)
                     self.assertIsNone(self.window._excel_export_job)
-                    self.assertIn('Match Wafer (WO Card)', choose.call_args.args[1])
+                    names = choose.call_args.args[1]
+                    self.assertIn('Match Wafer (WO Card)', names)
+                    self.assertEqual('Mean&STD' in names, action is self.window.export_action)
                     start.assert_not_called()
                 self.assertEqual(path.read_bytes(), b'previous export')
                 self.assertTrue(action.isEnabled())

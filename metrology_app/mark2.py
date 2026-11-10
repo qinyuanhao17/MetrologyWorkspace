@@ -145,6 +145,18 @@ def natural_key(value):
                      for v in re.split(r"(\d+)", value))) if value else (2, ())
 
 
+MAX_METRIC_FIELDS = 4
+
+
+def metric_hierarchy_fields(fields):
+    """Validate the ordered metric fields, with None representing effective Wafer ID."""
+    if (not isinstance(fields, (list, tuple)) or len(fields) > MAX_METRIC_FIELDS
+            or any(field is not None and (not isinstance(field, str) or not field.strip()) for field in fields)
+            or len(set(fields)) != len(fields)):
+        raise ValueError("Choose up to four distinct fields for custom metrics classification.")
+    return tuple(fields)
+
+
 def ordered_rows(rows, labels, state):
     rows = sorted(rows)  # Source means the Raw input, independent of table sorting.
     if state["order_mode"] == "hierarchy":

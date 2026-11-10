@@ -110,6 +110,8 @@ class WaferMappingWindowTests(unittest.TestCase):
         pd.testing.assert_frame_equal(self.window.raw_model.document_frame(), self.raw)
         summary = self.window.result.wafer_summary("CD")
         self.assertTrue(all("OLD-" not in str(v) for v in summary["Wafer"]))
+        self.assertEqual(self.window.metrics_group_combo.currentText(), "Wafer only")
+        self.assertEqual(self.window.plot_groups["CD"]["wafer_summary"]["Wafer"].tolist(), ["W1", "W2"])
         self.window.metrics_group_combo.setCurrentIndex(self.window.metrics_group_combo.findData("Product"))
         self.window._wafer_checked("CD", 0, True)
         detail = self.window.plot_groups["CD"]["wafer_details"]["A"]
@@ -123,6 +125,84 @@ class WaferMappingWindowTests(unittest.TestCase):
         self.window.set_wafer_id_mapping(None)
         self.assertEqual(self.window.result.card("CD").valid_pairs, 0)
         self.assertEqual(self.window._effective_raw_frame()["Wafer ID"].tolist(), self.raw["Wafer ID"].tolist())
+
+    def test_wafer_only_draw_keeps_repeated_matches_across_pads_after_mapping(self):
+        extra = self.raw.iloc[0].copy()
+        extra["Wafer ID"], extra["PAD Name"], extra["CD"] = "OLD-OTHER", "P2", "1.5"
+        raw = pd.concat([self.raw, extra.to_frame().T], ignore_index=True)
+        mapping = {**self.mapping, "records": [*self.mapping["records"],
+                   {"identity": extra[IDENTITY].tolist(), "wafer_id": "W1"}]}
+        self.window.set_raw_frame(raw)
+        self.window.set_wafer_id_mapping(mapping)
+
+        group = self.window.plot_groups["CD"]
+        self.assertEqual(group["wafer_summary"]["Wafer"].tolist(), ["W1", "W2"])
+        self.assertEqual(group["wafer_summary"]["Valid pairs"].tolist(), [4, 2])
+        self.window._wafer_checked("CD", 0, True)
+        detail = group["wafer_details"]["W1"]
+        self.assertEqual(detail["result"].card("CD").valid_pairs, 4)
+        self.assertEqual(detail["source_raw"]["PAD Name"].tolist(), ["P1", "P1", "P1", "P2"])
+
+    def test_custom_metrics_hierarchy_uses_mapped_wafer_and_round_trips(self):
+        from unittest.mock import patch
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QDialog
+        from metrology_app.mark2_plotting import HierarchyAxis
+        from metrology_app.mark2_ui import MetricsClassificationDialog
+
+        window = self.window
+        window.set_wafer_id_mapping(self.mapping)
+        choice = window.metrics_group_combo.findText("Custom classification…")
+        self.assertGreaterEqual(choice, 0)
+
+        def choose_product_then_wafer(dialog):
+            self.assertEqual([dialog.fields.item(i).text() for i in range(dialog.fields.count())],
+                             ["Wafer", "Mark2 · Product", "Mark2 · Wafer", "Mark2 · Die"])
+            product = dialog.fields.takeItem(1)
+            dialog.fields.insertItem(0, product)
+            product.setCheckState(Qt.CheckState.Checked)
+            return QDialog.DialogCode.Accepted
+
+        window.metrics_group_combo.setCurrentIndex(choice)
+        with patch.object(MetricsClassificationDialog, "exec", choose_product_then_wafer):
+            window.metrics_group_combo.activated.emit(choice)
+        group = window.plot_groups["CD"]
+        self.assertEqual(group["wafer_summary"]["Metrics Labels"].tolist(),
+                         [("A", "W1"), ("A", "W2"), ("B", "W1"), ("B", "W2")])
+        self.assertEqual(group["wafer_summary"]["Valid pairs"].tolist(), [2, 1, 1, 1])
+        axis = group["wafer_r2"].getAxis("bottom")
+        self.assertIsInstance(axis, HierarchyAxis)
+        self.assertEqual(axis.columns, ("Mark2 · Product", "Wafer"))
+        self.assertEqual([(s["text"], s["start"], s["end"]) for s in axis.hierarchy_spans if s["level"] == 1],
+                         [("A", -.5, 1.5), ("B", 1.5, 3.5)])
+        window._wafer_checked("CD", 0, True)
+        self.assertEqual(next(iter(group["wafer_details"].values()))["result"].card("CD").valid_pairs, 2)
+
+        with TemporaryDirectory() as directory:
+            for key, action in window.metrics_chart_actions.items():
+                action.setChecked(key in {"wafer_mean", "wafer_std"})
+            path = window.save_workbook(Path(directory) / "custom.mwkb")
+            self.assertFalse(window.document.is_dirty())
+            window.metrics_chart_actions["wafer_mean"].setChecked(False)
+            self.assertTrue(window.document.is_dirty())
+            window.metrics_chart_actions["wafer_r2"].setChecked(True)
+            window.metrics_group_combo.setCurrentIndex(0)
+            self.assertNotIsInstance(group["wafer_r2"].getAxis("bottom"), HierarchyAxis)
+            window.load_workbook(path)
+            self.assertEqual(window.metrics_group_combo.currentText(), "Custom classification…")
+            group = window.plot_groups["CD"]
+            self.assertEqual(group["metrics_custom_fields"], ("Product", None))
+            self.assertEqual(group["wafer_model"].frame["Draw"].tolist(), [True, False, False, False])
+            self.assertEqual(window._selected_metrics_charts(), ("wafer_mean", "wafer_std"))
+            self.assertFalse(group["wafer_mean"].isHidden())
+            self.assertFalse(group["wafer_std"].isHidden())
+            snapshot = window.workspace_snapshot()
+            snapshot.states["match_ui"]["metrics_chart_keys"] = []
+            window.restore_workspace(snapshot)
+            self.assertEqual(window._selected_metrics_charts(), ())
+            del snapshot.states["match_ui"]["metrics_chart_keys"]
+            window.restore_workspace(snapshot)
+            self.assertEqual(window._selected_metrics_charts(), ("wafer_r2", "wafer_slope"))
 
     def test_wkb_recovery_final_stage_excel_and_selection_script(self):
         self.window.result_mode.setCurrentText("Final")

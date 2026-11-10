@@ -62,7 +62,7 @@ class IDAlignment:
         if self.unused_reference:
             text += f"; {self.unused_reference} unused Reference rows"
         for label, rows in (("duplicate Reference IDs", self.duplicate_reference),
-                            ("duplicate Raw IDs", self.duplicate_raw),
+                            ("repeated Raw IDs", self.duplicate_raw),
                             ("blank Reference keys", self.blank_reference),
                             ("blank Raw keys", self.blank_raw)):
             if rows:
@@ -71,8 +71,9 @@ class IDAlignment:
 
     @property
     def details(self):
-        lines = [self.message, "Duplicate or incomplete IDs are excluded, never averaged or matched by position."]
-        for label, rows in (("Duplicate Reference", self.duplicate_reference), ("Duplicate Raw", self.duplicate_raw),
+        lines = [self.message,
+                 "Raw rows with the same ID can share a unique Reference row. Duplicate Reference IDs and incomplete IDs are excluded."]
+        for label, rows in (("Duplicate Reference", self.duplicate_reference), ("Repeated Raw", self.duplicate_raw),
                             ("Blank Reference", self.blank_reference), ("Blank Raw", self.blank_raw)):
             if rows:
                 lines.append(f"{label} data rows (1-based): " + ", ".join(str(i+1) for i in rows[:20]))
@@ -99,11 +100,12 @@ def align_by_id(reference, raw, conditions):
     ref_ids, raw_ids = ids(reference, keys["reference"]), ids(raw, keys["raw"])
     ref_counts, raw_counts = Counter(ref_ids), Counter(raw_ids)
     lookup = {key: row for row, key in enumerate(ref_ids) if key is not None and ref_counts[key] == 1}
-    positions = tuple(lookup.get(key) if key is not None and raw_counts[key] == 1 else None for key in raw_ids)
+    positions = tuple(lookup.get(key) for key in raw_ids)
     aligned = reference.reset_index(drop=True).reindex([-1 if row is None else row for row in positions])
     aligned = aligned.reset_index(drop=True).fillna("")
     used = {row for row in positions if row is not None}
-    return IDAlignment(aligned, positions, len(used), len(raw), len(reference)-len(used),
+    matched = len(positions) - positions.count(None)
+    return IDAlignment(aligned, positions, matched, len(raw), len(reference)-len(used),
         tuple(i for i, key in enumerate(ref_ids) if key is not None and ref_counts[key] > 1),
         tuple(i for i, key in enumerate(raw_ids) if key is not None and raw_counts[key] > 1),
         tuple(i for i, key in enumerate(ref_ids) if key is None),

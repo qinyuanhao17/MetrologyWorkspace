@@ -1170,14 +1170,14 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(group["wafer_view"].selectionModel().selectedRows()[0].row(), 1)
         QTest.mouseClick(plot.viewport(), Qt.MouseButton.LeftButton, pos=position)
         self.assertEqual(group["wafer_view"].selectionModel().selectedRows(), [])
-        for highlight in group["wafer_highlights"].values():
-            self.assertEqual(len(highlight.points()), 0)
+        for key in ("wafer_r2", "wafer_slope"):
+            self.assertEqual(len(group[key].highlight.points()), 0)
         QTest.mouseClick(plot.viewport(), Qt.MouseButton.LeftButton, pos=position)
         QTest.keyClick(plot, Qt.Key.Key_Escape)
         self.assertEqual(group["wafer_view"].selectionModel().selectedRows(), [])
         view = group["wafer_view"]
         view.selectRow(0)
-        self.assertEqual(len(group["wafer_highlights"]["wafer_r2"].points()), 1)
+        self.assertEqual(len(group["wafer_r2"].highlight.points()), 1)
         QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton, pos=QPoint(20, view.viewport().height() - 20))
         self.assertEqual(view.selectionModel().selectedRows(), [])
         self.assertEqual(group["wafer_model"].frame["Draw"].tolist(), [True, False])
@@ -1757,7 +1757,7 @@ class MatchingWindowTests(unittest.TestCase):
             QTest.mouseClick(plot.viewport(), Qt.MouseButton.LeftButton, pos=position)
             self.assertEqual(group["wafer_view"].currentIndex().row(), 1)
             self.assertEqual(group["wafer_selected_row"], 1)
-            self.assertEqual([point.pos().x() for point in group["wafer_highlights"][key].points()], [1.])
+            self.assertEqual([point.pos().x() for point in plot.highlight.points()], [1.])
         model = group["wafer_model"]
         self.assertTrue(model.setData(model.index(0, model.frame.columns.get_loc("Draw")), Qt.CheckState.Checked, Qt.ItemDataRole.CheckStateRole))
         APP.processEvents()
@@ -2682,8 +2682,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertTrue(self.window.status.wordWrap())
         self.assertFalse(self.window.analyze_button.isEnabled())
 
-    def test_single_wafer_plots_use_the_table_row_numbers_as_ticks(self):
-        """Full wafer names would collide, so the axis uses the table index."""
+    def test_single_wafer_plots_use_wafer_labels_as_ticks(self):
         reference = pd.DataFrame({
             "Wafer ID": ["W1"] * 3 + ["W2"] * 3 + ["W3"] * 3,
             "CD Reference": [3.0, 5.0, 7.0, 1.0, 4.0, 7.0, 2.0, 4.0, 6.0],
@@ -2699,12 +2698,12 @@ class MatchingWindowTests(unittest.TestCase):
         APP.processEvents()
 
         group = self.window.plot_groups["CD"]
-        expected = [[(0.0, "1"), (1.0, "2"), (2.0, "3")]]
+        expected = [[(0, "W1"), (1, "W2"), (2, "W3")]]
         for name in ("wafer_r2", "wafer_slope"):
             self.assertEqual(group[name].getAxis("bottom")._tickLevels, expected)
 
     def test_single_wafer_ticks_thin_out_when_the_rows_do_not_fit(self):
-        """Dense plots show every nth row number instead of overlapping."""
+        """Dense plots rotate labels before thinning them and fit more on zoom."""
         wafers = [f"W{index:03d}" for index in range(1, 151)]
         reference = pd.DataFrame({
             "Wafer ID": [wafer for wafer in wafers for _ in range(2)],
@@ -2721,54 +2720,21 @@ class MatchingWindowTests(unittest.TestCase):
         APP.processEvents()
 
         group = self.window.plot_groups["CD"]
-        levels = group["wafer_r2"].getAxis("bottom")._tickLevels[0]
-        labels = [int(text) for _position, text in levels]
-        step = labels[1] - labels[0]
+        plot = group["wafer_r2"]
+        axis = plot.getAxis("bottom")
+        self.assertTrue(axis._labels[1])
+        levels = axis._tickLevels[0]
+        indices = [position for position, _label in levels]
+        step = indices[1] - indices[0]
         self.assertGreater(step, 1)
-        self.assertLess(len(labels), len(wafers))
-        self.assertEqual(labels, list(range(1, len(wafers) + 1, step)))
-        self.assertEqual(
-            group["wafer_slope"].getAxis("bottom")._tickLevels[0],
-            levels,
-        )
-
-    def test_single_wafer_tick_step_scales_with_the_plot_width(self):
-        """A narrower plot keeps fewer row-number labels than a wide one."""
-
-        class _Box:
-            def __init__(self, width):
-                self._width = width
-
-            def width(self):
-                return self._width
-
-        class _Item:
-            def __init__(self, width):
-                self._box = _Box(width)
-
-            def getViewBox(self):
-                return self._box
-
-        class _Plot:
-            def __init__(self, width):
-                self._item = _Item(width)
-
-            def font(self):
-                return APP.font()
-
-            def getPlotItem(self):
-                return self._item
-
-        narrow = MatchingWindow._wafer_row_tick_levels(
-            {"wafer_r2": _Plot(320)}, 121
-        )
-        wide = MatchingWindow._wafer_row_tick_levels(
-            {"wafer_r2": _Plot(1400)}, 121
-        )
-        narrow_step = int(narrow[1][1]) - int(narrow[0][1])
-        wide_step = int(wide[1][1]) - int(wide[0][1])
-        self.assertGreaterEqual(wide_step, 1)
-        self.assertGreater(narrow_step, wide_step)
+        self.assertLess(len(levels), len(wafers))
+        self.assertEqual(levels, [(i, wafers[i]) for i in range(0, len(wafers), step)])
+        plot.setXRange(35.5, 51.5, padding=0)
+        self.assertTrue(axis._labels[1])
+        self.assertEqual(axis._tickLevels[0], [(i, wafers[i]) for i in range(36, 52)])
+        plot.setXRange(35.5, 39.5, padding=0)
+        self.assertFalse(axis._labels[1])
+        self.assertEqual(axis._tickLevels[0], [(i, wafers[i]) for i in range(36, 40)])
 
     def test_single_wafer_table_keeps_the_identity_column_compact(self):
         """Wafer identities remain readable without stretching across the window."""
@@ -2800,7 +2766,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertLessEqual(header.sectionSize(0), 380)
 
     def test_single_wafer_table_joins_the_identity_lines_with_slashes(self):
-        """The Wafer cell shows the whole a/b/c identity instead of eliding."""
+        """Wafer only merges across Lot and PAD, while the full identity can still split."""
         self.window.set_reference_frame(pd.DataFrame({
             "CD Reference": [12.0, 22.0, 32.0, 42.0],
         }), "Clipboard")
@@ -2814,6 +2780,12 @@ class MatchingWindowTests(unittest.TestCase):
         self.window.match_type.setCurrentText("NOVA")
         self.window.run_analysis()
         APP.processEvents()
+
+        self.assertEqual(self.window.metrics_group_combo.currentText(), "Wafer only")
+        summary = self.window.plot_groups["CD"]["wafer_summary"]
+        self.assertEqual(summary["Wafer"].tolist(), ["AH06836.00-01"])
+        self.assertEqual(summary["Valid pairs"].tolist(), [4])
+        self.window.metrics_group_combo.setCurrentText("Wafer / Lot / PAD")
 
         view = self.window.plot_groups["CD"]["wafer_view"]
         model = view.model()

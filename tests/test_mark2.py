@@ -121,6 +121,76 @@ class Mark2IntegrationTests(unittest.TestCase):
         self.window.deleteLater()
         self.app.processEvents()
 
+    def test_custom_classification_allows_at_most_four_fields(self):
+        from PyQt6.QtCore import Qt
+        from metrology_app.mark2_ui import MetricsClassificationDialog
+
+        dialog = MetricsClassificationDialog(["Product", "Lot", "SLOT", "Die"], ())
+        try:
+            for index in range(1, dialog.fields.count()):
+                dialog.fields.item(index).setCheckState(Qt.CheckState.Checked)
+            self.assertEqual(dialog.fields.selection(), [None, "Product", "Lot", "SLOT"])
+            self.assertIn("Uncheck a field", dialog.status.text())
+        finally:
+            dialog.deleteLater()
+
+    def test_mark2_statistics_use_paired_means_and_overall_card(self):
+        from PyQt6.QtCore import QPoint, Qt
+        from PyQt6.QtTest import QTest
+
+        window = self.window
+        raw_data = window.raw_model.document_frame().reset_index(drop=True)
+        raw_data.loc[3] = ["d", "04", "L", "T", "P", "2", "0", "1", "5.000"]
+        ref_data = window.reference_model.document_frame().reset_index(drop=True)
+        ref_data.loc[2] = ["04", "2", "11.0000"]
+        window.set_raw_frame(raw_data)
+        window.set_reference_frame(ref_data)
+        records = [*self.state["records"],
+                   {"identity": raw_data.loc[3, HEADERS].tolist(), "values": ["A", "2", "2"]}]
+        window.group_controls.change("mark2", {**self.state, "records": records})
+        window.run_analysis()
+        window.metrics_group_combo.setCurrentIndex(window.metrics_group_combo.findData("Product"))
+        window.results_tabs.setCurrentWidget(window.wafer_groups_widget)
+        for action in window.metrics_chart_actions.values():
+            action.setChecked(True)
+        window.resize(1150, 750)
+        window.show()
+        self.app.processEvents()
+        group = window.plot_groups["CD"]
+        raw = group["wafer_summary"].set_index("Wafer")
+        stats = ["Mean", "Reference Mean", "Mean Bias", "STD", "Reference STD"]
+        np.testing.assert_allclose(raw.loc["A", stats].astype(float), [3.5, 8, -4.5, np.sqrt(4.5), np.sqrt(18)])
+        self.assertTrue(raw.loc["B", ["STD", "Reference STD"]].isna().all())
+        std_plot = group["wafer_std"]
+        for curve, column in zip(std_plot.listDataItems()[:2], ("STD", "Reference STD"), strict=True):
+            np.testing.assert_allclose(curve.yData, group["wafer_summary"][column])
+        mean_plot = group["wafer_mean"]
+        self.assertEqual(mean_plot.getAxis("bottom")._tickLevels[0],
+                         list(enumerate(group["wafer_summary"]["Wafer"])))
+        curves = mean_plot.listDataItems()
+        self.assertTrue(all(curve.opts["pen"] is not None for curve in curves[:2]))
+        scroll = group["wafer_scroll"]
+        scrollbar = scroll.horizontalScrollBar()
+        self.assertGreater(scrollbar.maximum(), 0)
+        old_x = mean_plot.mapTo(scroll.viewport(), QPoint()).x()
+        scrollbar.setValue(mean_plot.x())
+        self.assertLess(mean_plot.mapTo(scroll.viewport(), QPoint()).x(), old_x)
+        QTest.mouseDClick(mean_plot.viewport(), Qt.MouseButton.LeftButton, pos=QPoint(70, 80))
+        dialog, enlarged = group["wafer_popouts"]["wafer_mean"]
+        try:
+            self.assertTrue(dialog.isVisible())
+            self.assertFalse(dialog.isModal())
+            dialog.resize(650, 400)
+            self.app.processEvents()
+            self.assertGreater(enlarged.width(), mean_plot.width())
+            window.metrics_value_combo.setCurrentIndex(window.metrics_value_combo.findData("card"))
+            card = group["wafer_summary"].set_index("Wafer")
+            np.testing.assert_allclose(card.loc["A", stats].astype(float), [8, 8, 0, np.sqrt(18), np.sqrt(18)])
+            pd.testing.assert_frame_equal(raw[["Slope", "R²"]], card[["Slope", "R²"]])
+            np.testing.assert_allclose(enlarged.listDataItems()[0].yData, group["wafer_summary"]["Mean"])
+        finally:
+            dialog.close()
+
     def test_window_axes_pairing_and_saved_recovery(self):
         from metrology_app.mark2_plotting import HierarchyAxis
         from metrology_app.matching_window import MatchingWindow
@@ -288,6 +358,7 @@ class Mark2IntegrationTests(unittest.TestCase):
         from metrology_app.excel_export import _parameter_data, parameter_figure
         from metrology_app.mark2_export import layout
         from openpyxl import load_workbook
+        from openpyxl.chart import LineChart, ScatterChart
         from zipfile import ZipFile
         data = _parameter_data(self.window.result, "CD", order="original")
         self.assertEqual(data["Source row"].tolist(), [2, 1, 0])
@@ -298,13 +369,89 @@ class Mark2IntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = self.window.export_excel(Path(folder) / "mark2.xlsx")
             book = load_workbook(path)
-            charts = [c for s in book for c in s._charts]
-            self.assertTrue(charts)
+            for sheet in (s for s in book if s.title.startswith(("Match Original", "Match Wafer"))):
+                self.assertEqual([sheet.cell(2, col).value for col in range(1, 5)],
+                                 ["Product", "Slot", "Die", "Die Seq"])
+                self.assertEqual([sheet.cell(row, 4).value for row in range(3, 6)],
+                                 [sheet.cell(row, 7).value for row in range(3, 6)])
+                match, *sequence_charts = sheet._charts
+                self.assertIsInstance(match, ScatterChart)
+                self.assertTrue(sequence_charts)
+                for chart in sequence_charts:
+                    self.assertIsInstance(chart, LineChart)
+                    self.assertFalse(chart.x_axis.noMultiLvlLbl)
+                    self.assertIsNone(chart.x_axis.majorTickMark)
+                    self.assertEqual(chart.x_axis.spPr.ln.solidFill.srgbClr, "D9D9D9")
+                    self.assertEqual(chart.x_axis.spPr.ln.w, 9525)
+                    for series in chart.series:
+                        self.assertEqual(series.marker.symbol, "circle")
+                        categories = series.cat.multiLvlStrRef
+                        self.assertEqual(categories.f, f"'{sheet.title}'!$A$3:$D$5")
             with ZipFile(path) as archive:
-                drawings = [archive.read(n).decode("utf-8") for n in archive.namelist() if "identity-" in n and n.endswith(".xml")]
-            self.assertTrue(any("Mark2 caption" in xml and "TxLink" in xml for xml in drawings))
+                self.assertFalse(any(n.startswith("xl/drawings/identity-") for n in archive.namelist()))
             self.assertTrue(any("Mark2 · Product" == cell.value for sheet in book for row in sheet for cell in row))
             book.close()
+
+    def test_metrics_sheet_shares_hierarchy_across_parameters_and_selected_charts(self):
+        from openpyxl import load_workbook
+        from openpyxl.chart import LineChart
+        from metrology_app.excel_export import write_workbook
+        from metrology_app.export_sheets import export_sheet_names
+        from metrology_app.matching import ParameterMapping
+
+        window = self.window
+        raw = window.raw_model.document_frame().copy()
+        reference = window.reference_model.document_frame().copy()
+        raw["CD2"] = ["10", "20", "30"]
+        reference["CD2"] = ["50", "30"]
+        window.set_raw_frame(raw)
+        window.set_reference_frame(reference)
+        window._populate_mappings([ParameterMapping(name, name, name) for name in ("CD", "CD2")])
+        records = [{**record, "values": [product, *record["values"][1:]]}
+                   for product, record in zip(("A", "A", "B"), self.state["records"])]
+        window.group_controls.change("mark2", {**self.state, "records": records})
+        window.run_analysis()
+        window._metrics_custom_fields = ("Product", None)
+        window._metrics_custom_enabled = True
+        window._sync_metrics_group_choices()
+        for key, action in window.metrics_chart_actions.items():
+            action.setChecked(key in {"wafer_mean", "wafer_std"})
+        window.metrics_value_combo.setCurrentIndex(window.metrics_value_combo.findData("card"))
+
+        snapshot = window.excel_export_snapshot()
+        self.assertIn("Mean&STD", export_sheet_names(snapshot, matching=True))
+        self.assertNotIn("Mean&STD", export_sheet_names(snapshot, matching=True, native=False))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "metrics.xlsx"
+            write_workbook(path, **snapshot, selected_sheets=["Mean&STD"])
+            report = load_workbook(path)
+            try:
+                self.assertEqual(report.sheetnames, ["Mean&STD"])
+                sheet = report.active
+                self.assertEqual([cell.value for cell in sheet[2][:6]],
+                                 ["Product", "Wafer", "PMISH+Card Mean", "REF Mean", "PMISH+Card STD", "REF STD"])
+                self.assertEqual([sheet["C1"].value, sheet["H1"].value], ["CD", "CD2"])
+                self.assertEqual([cell.value for cell in sheet[3][:4]], ["A", "03", 4, 4])
+                self.assertAlmostEqual(sheet["E3"].value, np.sqrt(2))
+                self.assertAlmostEqual(sheet["J3"].value, np.sqrt(200))
+                self.assertEqual([cell.value for cell in sheet[4][:4]], ["B", "04", None, None])
+                self.assertEqual(len(sheet._charts), 4)
+                for chart in sheet._charts:
+                    self.assertIsInstance(chart, LineChart)
+                    self.assertEqual(chart.x_axis.tickLblPos, "nextTo")
+                    self.assertIsNone(chart.x_axis.tickLblSkip)
+                    self.assertEqual(chart.x_axis.txPr.bodyPr.rot, -60_000_000)
+                    self.assertEqual(chart.x_axis.txPr.bodyPr.wrap, "square")
+                    self.assertEqual(chart.x_axis.txPr.p[0].pPr.defRPr.sz, 900)
+                    self.assertEqual([series.tx.v for series in chart.series], ["PMISH+Card", "REF"])
+                    self.assertTrue(all(series.marker.symbol == "circle" for series in chart.series))
+                    self.assertTrue(all(series.cat.multiLvlStrRef.f == "'Mean&STD'!$A$3:$B$4"
+                                        for series in chart.series))
+                    self.assertTrue(all([point.v for point in series.cat.multiLvlStrRef.multiLvlStrCache.lvl[0].pt]
+                                        == ["03", "04"] for series in chart.series))
+                self.assertEqual(sheet._charts[2].series[0].val.numRef.f, "'Mean&STD'!$H$3:$H$4")
+            finally:
+                report.close()
 
     def test_multiple_parameter_export_keeps_label_blocks_and_literal_source_separate(self):
         from metrology_app.matching import MatchWorkbook, ParameterMapping
@@ -323,15 +470,19 @@ class Mark2IntegrationTests(unittest.TestCase):
             report = load_workbook(path)
             try:
                 sheet = next(s for s in report if s.title.startswith("Match Original"))
-                self.assertEqual(sheet.cell(1, 1).value, "CD")
-                self.assertEqual(sheet.cell(1, 12).value, "CD2")
+                self.assertEqual(sheet.cell(1, 6).value, "CD")
+                self.assertEqual(sheet.cell(1, 17).value, "CD2")
                 import re
-                first_source = re.search(r"!\$(\w+)\$(\d+)", sheet.cell(3, 6).value)
-                second_source = re.search(r"!\$(\w+)\$(\d+)", sheet.cell(3, 17).value)
+                first_source = re.search(r"!\$(\w+)\$(\d+)", sheet.cell(3, 11).value)
+                second_source = re.search(r"!\$(\w+)\$(\d+)", sheet.cell(3, 22).value)
                 self.assertEqual(sheet[f"{first_source[1]}{first_source[2]}"].value, "3.000")
                 self.assertEqual(sheet[f"{second_source[1]}{second_source[2]}"].value, "30.000")
-                self.assertEqual(sheet.cell(3, 3).value, "A")
-                self.assertEqual(sheet.cell(3, 14).value, "A")
+                self.assertEqual(sheet.cell(3, 8).value, "A")
+                self.assertEqual(sheet.cell(3, 19).value, "A")
+                category_refs = {series.cat.multiLvlStrRef.f
+                                 for chart in sheet._charts for series in chart.series
+                                 if series.cat is not None}
+                self.assertEqual(category_refs, {f"'{sheet.title}'!$A$3:$D$5"})
             finally:
                 report.close()
 

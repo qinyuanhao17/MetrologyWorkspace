@@ -77,6 +77,8 @@ from .match_group_ui import CombinedGroupDialog, GroupControls, GroupPlotPage, P
 from .data_selection import DataSelectionDialog
 from .plotting import InteractivePlotWidget, place_legend_above_frame
 from .plotting.sequence_axis import SpanLabelAxis, space_wafer_plot
+from .plotting.wafer_metrics import WaferMetricPlot
+from .wafer_metrics import DEFAULT_METRIC_PLOTS, METRIC_PLOTS
 from .plotting.annotations import attach_point_hover, plain_y_axes, set_plot_statistics
 from .plotting.identity_labels import plot_label_options
 from .settings import (
@@ -92,12 +94,15 @@ from .workbook_startup import AXIS_MODE_LABELS, analysis_settings as normalized_
 from .workbook_type import normalize_workbook_type
 from .id_matching import align_by_id, matching_keys as normalized_matching_keys
 from .matching_conditions import MatchingConditions
+from .mark2 import metric_hierarchy_fields
+from .mark2_ui import MetricsClassificationDialog
 
 
 PLOT_LIMIT = 20_000
 _PARAMETER_MIME = "application/x-metrology-match-parameter"
 LOGGER = get_logger()
 DEFAULT_METRIC_HIGHLIGHTING = {"slope_min": .9, "slope_max": 1.1, "rsq_min": .9}
+_CUSTOM_METRICS_CHOICE = -1
 
 
 def _mapping_choice_rows(selected):
@@ -785,8 +790,13 @@ class MatchingWindow(QMainWindow):
         self._statistics_state = {}
         self._plot_layout_states = {}
         self._single_wafer_checks = {"preview": {}, "final": {}}
+        self._wafer_only_checks = {"preview": {}, "final": {}}
+        self._metrics_wafer_only = True
         self._metrics_group_field = None
         self._mark2_metrics_checks = {"preview": {}, "final": {}}
+        self._metrics_custom_fields = ()
+        self._metrics_custom_enabled = False
+        self._custom_metrics_checks = {"preview": {}, "final": {}}
         self._plot_label_options = plot_label_options()
         self._plot_layout_identity_timer = QTimer(self)
         self._plot_layout_identity_timer.setSingleShot(True)
@@ -913,8 +923,14 @@ class MatchingWindow(QMainWindow):
               "removed_mapping_columns": sorted(self._removed_mapping_columns),
               "metric_highlighting": dict(self.metric_highlighting),
               "single_wafer_checks": capture(self._single_wafer_checks),
+              "wafer_only_checks": capture(self._wafer_only_checks),
+              "metrics_wafer_only": self._metrics_wafer_only,
               "metrics_group_field": self._metrics_group_field,
               "mark2_metrics_checks": capture(self._mark2_metrics_checks),
+              "metrics_custom_fields": list(self._metrics_custom_fields),
+              "metrics_custom_enabled": self._metrics_custom_enabled,
+              "custom_metrics_checks": capture(self._custom_metrics_checks),
+              "metrics_chart_keys": list(self._selected_metrics_charts()),
               "group_plots": self.group_plot_page.selection_state(),
               "plot_layouts": capture(self._plot_layout_states),
               "plot_labels": capture(self._plot_label_options),
@@ -985,30 +1001,46 @@ class MatchingWindow(QMainWindow):
         if mapping_choices is not None:
             _mapping_choice_rows(mapping_choices)
         checks = snapshot.states.get("match_ui", {}).get("single_wafer_checks", {})
+        wafer_only_checks = snapshot.states.get("match_ui", {}).get("wafer_only_checks", {})
+        wafer_only = snapshot.states.get("match_ui", {}).get("metrics_wafer_only", True)
         metrics_field = snapshot.states.get("match_ui", {}).get("metrics_group_field")
         metrics_checks = snapshot.states.get("match_ui", {}).get("mark2_metrics_checks", {})
+        custom_fields = metric_hierarchy_fields(snapshot.states.get("match_ui", {}).get("metrics_custom_fields", []))
+        custom_enabled = snapshot.states.get("match_ui", {}).get("metrics_custom_enabled", False)
+        custom_checks = snapshot.states.get("match_ui", {}).get("custom_metrics_checks", {})
+        chart_keys = snapshot.states.get("match_ui", {}).get("metrics_chart_keys", list(DEFAULT_METRIC_PLOTS))
+        if (not isinstance(chart_keys, list)
+                or any(not isinstance(key, str) or key not in METRIC_PLOTS for key in chart_keys)
+                or len(set(chart_keys)) != len(chart_keys)):
+            raise ValueError("Invalid metrics chart selection.")
+        if type(custom_enabled) is not bool or (custom_enabled and not custom_fields):
+            raise ValueError("Invalid custom metrics classification.")
+        if type(wafer_only) is not bool:
+            raise ValueError("Invalid Wafer only setting.")
         if metrics_field is not None and (not isinstance(metrics_field, str) or not metrics_field.strip()):
             raise ValueError("Invalid metrics grouping field.")
-        if not isinstance(metrics_checks, dict) or set(metrics_checks) - {"preview", "final"}:
-            raise ValueError("Invalid Mark2 metrics plot selection.")
-        for fields in metrics_checks.values():
-            if not isinstance(fields, dict):
+        for scoped_checks in (metrics_checks, custom_checks):
+            if not isinstance(scoped_checks, dict) or set(scoped_checks) - {"preview", "final"}:
                 raise ValueError("Invalid Mark2 metrics plot selection.")
-            for field, selections in fields.items():
-                if (not isinstance(field, str) or not field.strip() or not isinstance(selections, dict)
-                        or any(not isinstance(name, str) or not isinstance(labels, list)
-                               or any(not isinstance(label, str) for label in labels)
-                               for name, labels in selections.items())):
+            for fields in scoped_checks.values():
+                if not isinstance(fields, dict):
                     raise ValueError("Invalid Mark2 metrics plot selection.")
-        if not isinstance(checks, dict) or set(checks) - {"preview", "final"}:
-            raise ValueError("Invalid single-wafer plot selection.")
-        for selections in checks.values():
-            if not isinstance(selections, dict) or any(
-                not isinstance(name, str) or not isinstance(labels, list)
-                or any(not isinstance(label, str) for label in labels)
-                for name, labels in selections.items()
-            ):
+                for field, selections in fields.items():
+                    if (not isinstance(field, str) or not field.strip() or not isinstance(selections, dict)
+                            or any(not isinstance(name, str) or not isinstance(labels, list)
+                                   or any(not isinstance(label, str) for label in labels)
+                                   for name, labels in selections.items())):
+                        raise ValueError("Invalid Mark2 metrics plot selection.")
+        for saved_checks in (checks, wafer_only_checks):
+            if not isinstance(saved_checks, dict) or set(saved_checks) - {"preview", "final"}:
                 raise ValueError("Invalid single-wafer plot selection.")
+            for selections in saved_checks.values():
+                if not isinstance(selections, dict) or any(
+                    not isinstance(name, str) or not isinstance(labels, list)
+                    or any(not isinstance(label, str) for label in labels)
+                    for name, labels in selections.items()
+                ):
+                    raise ValueError("Invalid single-wafer plot selection.")
         if self._spectra_windows:
             from .spectra_workbook import close_children
             close_children(self)
@@ -1023,6 +1055,9 @@ class MatchingWindow(QMainWindow):
             self.matching_settings_toggle.setChecked(matching_expanded)
         self._update_workbook_type_ui()
         self._clear_plot_groups()
+        for key, action in self.metrics_chart_actions.items():
+            with QSignalBlocker(action):
+                action.setChecked(key in chart_keys)
         self.set_plot_labels(labels)
         self.expand_wafer_ids.setChecked(expanded)
         self._removed_mapping_columns = set(removed)
@@ -1038,8 +1073,13 @@ class MatchingWindow(QMainWindow):
         self._statistics_state = {tuple(key): bool(value) for key, value in snapshot.states.get("match_ui", {}).get("statistics", [])}
         self._plot_layout_states = plot_layouts
         self._single_wafer_checks = {stage: deepcopy(checks.get(stage, {})) for stage in ("preview", "final")}
+        self._wafer_only_checks = {stage: deepcopy(wafer_only_checks.get(stage, {})) for stage in ("preview", "final")}
+        self._metrics_wafer_only = wafer_only
         self._metrics_group_field = metrics_field
         self._mark2_metrics_checks = {stage: deepcopy(metrics_checks.get(stage, {})) for stage in ("preview", "final")}
+        self._metrics_custom_fields = custom_fields
+        self._metrics_custom_enabled = custom_enabled
+        self._custom_metrics_checks = {stage: deepcopy(custom_checks.get(stage, {})) for stage in ("preview", "final")}
         if not state.get("draft") and not (self.workbook_type == "type2" and not self.matching_keys["reference"]):
             workbook = MatchWorkbook.from_snapshot(snapshot)
             return self._restore_analyzed_workbook(
@@ -1866,10 +1906,28 @@ class MatchingWindow(QMainWindow):
         metrics_group_layout.addWidget(QLabel("Classify by"))
         self.metrics_group_combo = QComboBox()
         self.metrics_group_combo.setMinimumWidth(220)
-        self.metrics_group_combo.addItem("Wafer", None)
-        self.metrics_group_combo.setEnabled(False)
-        self.metrics_group_combo.setToolTip("Enable Mark2 to classify metrics by one imported label column.")
+        self.metrics_group_combo.setToolTip("Classify by Wafer ID, full wafer identity, or imported Mark2 labels.")
         metrics_group_layout.addWidget(self.metrics_group_combo)
+        metrics_group_layout.addWidget(QLabel("Values"))
+        self.metrics_value_combo = QComboBox()
+        self.metrics_value_combo.addItem("PMISH", "raw")
+        self.metrics_value_combo.addItem("PMISH+Card", "card")
+        self.metrics_value_combo.setToolTip("Mean, Mean Bias and STD use the selected values. PMISH+Card uses the overall Card.")
+        metrics_group_layout.addWidget(self.metrics_value_combo)
+        metrics_chart_button = QToolButton()
+        metrics_chart_button.setText("Statistics charts")
+        metrics_chart_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        metrics_chart_menu = QMenu(metrics_chart_button)
+        self.metrics_chart_actions = {}
+        for key, (title, _columns, _colors) in METRIC_PLOTS.items():
+            action = metrics_chart_menu.addAction(title)
+            action.setCheckable(True)
+            action.setChecked(key in DEFAULT_METRIC_PLOTS)
+            action.toggled.connect(self._metrics_charts_changed)
+            self.metrics_chart_actions[key] = action
+        metrics_chart_button.setMenu(metrics_chart_menu)
+        metrics_group_layout.addWidget(metrics_chart_button)
+        self.metrics_value_combo.currentIndexChanged.connect(self._metrics_display_changed)
         metrics_group_layout.addStretch()
         wafer_page_layout.addWidget(self.metrics_group_bar)
         self.wafer_groups_layout = QVBoxLayout()
@@ -1886,6 +1944,7 @@ class MatchingWindow(QMainWindow):
         self.group_plot_page.hide()
         self.results_tabs.currentChanged.connect(self._refresh_visible_wafer_metrics)
         self.metrics_group_combo.currentIndexChanged.connect(self._metrics_group_changed)
+        self.metrics_group_combo.activated.connect(self._edit_metrics_classification)
         layout.addWidget(self.results_tabs, 1)
         panel.setMinimumHeight(520)
         return panel
@@ -1976,44 +2035,105 @@ class MatchingWindow(QMainWindow):
                 self._draw_wafer_metrics(parameter, group)
         self._resize_results_for_plot_groups()
 
-    def _active_metrics_group_field(self):
+    def _metrics_mark2_columns(self):
         plan = self.result.group_plan if self.result is not None else None
-        if (self.workbook_type == "type2" and plan is not None and plan.mark2_enabled
-                and self._metrics_group_field in plan.state["mark2"]["columns"]):
+        if self.workbook_type == "type2" and plan is not None and plan.mark2_enabled:
+            return plan.state["mark2"]["columns"]
+        return []
+
+    def _active_metrics_group_field(self):
+        if self._metrics_group_field in self._metrics_mark2_columns():
             return self._metrics_group_field
         return None
 
+    def _active_metrics_custom_fields(self):
+        columns = self._metrics_mark2_columns()
+        if (self._metrics_custom_enabled and columns
+                and all(field is None or field in columns for field in self._metrics_custom_fields)):
+            return self._metrics_custom_fields
+        return ()
+
     def _sync_metrics_group_choices(self):
         plan = self.result.group_plan if self.result is not None else None
-        fields = (plan.state["mark2"]["columns"]
-                  if self.workbook_type == "type2" and plan is not None and plan.mark2_enabled else [])
+        fields = self._metrics_mark2_columns()
+        active_field = self._active_metrics_group_field()
+        custom_fields = self._active_metrics_custom_fields()
         with QSignalBlocker(self.metrics_group_combo):
             self.metrics_group_combo.clear()
-            self.metrics_group_combo.addItem("Wafer", None)
+            self.metrics_group_combo.addItem("Wafer only")
+            self.metrics_group_combo.addItem("Wafer / Lot / PAD")
             for field in fields:
                 self.metrics_group_combo.addItem(f"Mark2 · {field}", field)
-            self.metrics_group_combo.setCurrentIndex(max(0, self.metrics_group_combo.findData(self._active_metrics_group_field())))
-        self.metrics_group_combo.setEnabled(bool(fields))
+            if fields:
+                self.metrics_group_combo.addItem("Custom classification…", _CUSTOM_METRICS_CHOICE)
+            if custom_fields:
+                active_index = self.metrics_group_combo.count() - 1
+            elif active_field is not None:
+                active_index = fields.index(active_field) + 2
+            else:
+                active_index = int(not self._metrics_wafer_only)
+            self.metrics_group_combo.setCurrentIndex(active_index)
         for group in self.plot_groups.values():
             if (group.get("metrics_source_plan") is not plan
-                    or group.get("metrics_group_field") != self._active_metrics_group_field()):
+                    or group.get("metrics_group_field") != active_field
+                    or group.get("metrics_custom_fields") != custom_fields
+                    or group.get("metrics_wafer_only") != (not custom_fields and active_field is None and self._metrics_wafer_only)):
                 group["wafer_metrics_pending"] = True
 
     def _metrics_plot_checks(self):
         stage = self.workbook.result_mode
+        custom_fields = self._active_metrics_custom_fields()
+        if custom_fields:
+            key = json.dumps(custom_fields, ensure_ascii=False)
+            return self._custom_metrics_checks.setdefault(stage, {}).setdefault(key, {})
         field = self._active_metrics_group_field()
         if field is None:
-            return self._single_wafer_checks.setdefault(stage, {})
+            checks = self._wafer_only_checks if self._metrics_wafer_only else self._single_wafer_checks
+            return checks.setdefault(stage, {})
         return self._mark2_metrics_checks.setdefault(stage, {}).setdefault(field, {})
 
-    def _metrics_group_changed(self, _index):
-        self._metrics_group_field = self.metrics_group_combo.currentData()
+    def _metrics_group_changed(self, index):
+        field = self.metrics_group_combo.currentData()
+        if field == _CUSTOM_METRICS_CHOICE:
+            return  # The activated signal also handles opening the current custom choice.
+        self._metrics_custom_enabled = False
+        self._metrics_group_field = field
+        self._metrics_wafer_only = index != 1
+        self._metrics_display_changed()
+        if hasattr(self, "document"):
+            self.document.refresh_identity()
+
+    def _edit_metrics_classification(self, index):
+        if self.metrics_group_combo.itemData(index) != _CUSTOM_METRICS_CHOICE:
+            return
+        dialog = MetricsClassificationDialog(self._metrics_mark2_columns(), self._metrics_custom_fields, self)
+        accepted = dialog.exec() == QDialog.DialogCode.Accepted
+        if accepted:
+            self._metrics_custom_fields = metric_hierarchy_fields(dialog.fields.selection())
+            self._metrics_custom_enabled = True
+            self._metrics_group_field = None
+            self._metrics_wafer_only = True
+        dialog.deleteLater()
+        self._sync_metrics_group_choices()
+        if accepted:
+            self._metrics_display_changed()
+            self.document.refresh_identity()
+
+    def _metrics_display_changed(self, *_args):
         if self.result is not None:
             for parameter, group in self.plot_groups.items():
                 self._draw_wafer_metrics(parameter, group)
             self._resize_results_for_plot_groups()
+
+    def _metrics_charts_changed(self, *_args):
+        for group in self.plot_groups.values():
+            if "wafer_summary" in group:
+                self._draw_wafer_metric_charts(group)
         if hasattr(self, "document"):
             self.document.refresh_identity()
+
+    def _selected_metrics_charts(self):
+        return tuple(key for key, action in self.metrics_chart_actions.items() if action.isChecked())
 
     def parameter_order(self):
         """Return the user-visible parameter card order."""
@@ -5181,6 +5301,8 @@ class MatchingWindow(QMainWindow):
             # panel arrangements stay with their own Preview/Final widgets.
             self._stage_plot_cache[previous_key[1]] = (previous_key, self.plot_groups)
             for group in self.plot_groups.values():
+                for dialog, _plot in tuple(group["wafer_popouts"].values()):
+                    dialog.close()
                 for layout, key in ((self.plot_groups_layout, 'card'), (self.wafer_groups_layout, 'wafer_card')):
                     layout.removeWidget(group[key])
                     group[key].hide()
@@ -5408,30 +5530,22 @@ class MatchingWindow(QMainWindow):
         wafer_view.clearRequested.connect(lambda: self._clear_wafer_selection(parameter))
         wafer_metrics_layout = QHBoxLayout()
         wafer_metrics_layout.setSpacing(14)
-        wafer_metrics_layout.addWidget(wafer_view, 1)
+        wafer_metrics_layout.addWidget(wafer_view, 1, Qt.AlignmentFlag.AlignTop)
         wafer_plots = QWidget()
         wafer_plot_layout = QGridLayout(wafer_plots)
         wafer_plot_layout.setContentsMargins(0, 0, 0, 0)
         wafer_plot_layout.setHorizontalSpacing(14)
-        wafer_r2 = self._plot_widget("Wafer", "R²")
-        wafer_slope = self._plot_widget("Wafer", "Slope")
-        for column, plot in enumerate((wafer_r2, wafer_slope)):
-            plot.setFixedSize(420, 280)
-            plot.getAxis("left").enableAutoSIPrefix(False)
-            wafer_plot_layout.addWidget(plot, 0, column)
-        for plot in (wafer_r2, wafer_slope):
-            plot.setToolTip("Click a point to find its row. Click the same point again, or press Esc, to clear the highlight.")
-            # Dense single-wafer plots thin the row-number ticks out so the
-            # labels never overlap, however narrow the card becomes.
-            plot.getPlotItem().getViewBox().sigResized.connect(
-                lambda *_args, name=parameter: self._refresh_wafer_ticks(name)
-            )
-        for widget in (wafer_view, wafer_r2, wafer_slope):
-            shortcut = QShortcut(QKeySequence(Qt.Key.Key_Escape), widget)
-            shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-            shortcut.activated.connect(lambda: self._clear_wafer_selection(parameter))
-        wafer_plots.setFixedSize(854, 280)
-        wafer_metrics_layout.addWidget(wafer_plots)
+        wafer_plot_layout.setColumnStretch(len(METRIC_PLOTS), 1)
+        wafer_scroll = QScrollArea()
+        wafer_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        wafer_scroll.setWidgetResizable(True)
+        wafer_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        wafer_scroll.setWidget(wafer_plots)
+        wafer_scroll.setFixedHeight(280 + wafer_scroll.horizontalScrollBar().sizeHint().height())
+        wafer_metrics_layout.addWidget(wafer_scroll, 3, Qt.AlignmentFlag.AlignTop)
+        shortcut = QShortcut(QKeySequence(Qt.Key.Key_Escape), wafer_view)
+        shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        shortcut.activated.connect(lambda: self._clear_wafer_selection(parameter))
         wafer_layout.addLayout(wafer_metrics_layout)
         wafer_detail_layout = QVBoxLayout()
         wafer_detail_layout.setSpacing(12)
@@ -5459,8 +5573,9 @@ class MatchingWindow(QMainWindow):
             "wafer_header": wafer_header,
             "wafer_metrics_layout": wafer_metrics_layout,
             "wafer_uncheck_all": uncheck_all,
-            "wafer_r2": wafer_r2,
-            "wafer_slope": wafer_slope,
+            "wafer_plot_layout": wafer_plot_layout,
+            "wafer_scroll": wafer_scroll,
+            "wafer_popouts": {},
             "wafer_detail_layout": wafer_detail_layout,
             "wafer_details": {},
             "trend_card_key": trend_card_key,
@@ -5864,33 +5979,38 @@ class MatchingWindow(QMainWindow):
             group["wafer_card"].hide()
             return
         field = self._active_metrics_group_field()
+        custom_fields = self._active_metrics_custom_fields()
+        wafer_only = not custom_fields and field is None and self._metrics_wafer_only
         try:
-            summary = self.result.wafer_summary(parameter, mark2_column=field)
+            summary = self.result.wafer_summary(
+                parameter, mark2_column=field, wafer_only=wafer_only, custom_fields=custom_fields,
+                value_mode=self.metrics_value_combo.currentData())
         except ValueError:
             summary = pd.DataFrame()
             enabled = False
         group["wafer_card"].setVisible(enabled)
-        previous = group.get("wafer_summary")
-        reuse_points = (previous is not None and group.get("metrics_group_field") == field
-                        and previous.get("Wafer", pd.Series(dtype=object)).equals(summary.get("Wafer", pd.Series(dtype=object)))
-                        and all(len(group[key].listDataItems()) == 2 and key in group.get("wafer_highlights", {})
-                                for key in ("wafer_r2", "wafer_slope")))
-        metric_points = {key: group[key].listDataItems()[0] for key in ("wafer_r2", "wafer_slope")} if reuse_points else {}
         # One line per wafer: the identity's newline-separated fields (wafer,
         # PAD, Lot, ...) are joined with "/" in classification order so the
         # cell shows the whole label instead of eliding after the first line.
-        display = summary.copy()
+        display = summary.drop(columns=["Mean", "Reference Mean", "Mean Bias", "STD", "Reference STD",
+                                        "Metrics Key", "Metrics Labels"], errors="ignore")
         display.insert(min(2, len(display.columns)), 'Row', np.arange(1, len(display) + 1))
         group["wafer_summary"] = summary
         group["metrics_group_field"] = field
+        group["metrics_custom_fields"] = custom_fields
+        group["metrics_wafer_only"] = wafer_only
         group["metrics_source_plan"] = self.result.group_plan
+        keys = list(summary.get("Metrics Key", summary.get("Wafer", [])))
+        group["wafer_keys"] = keys
         selected = self._metrics_plot_checks().setdefault(parameter, [])
-        display["Draw"] = [label in selected for label in summary.get("Wafer", [])]
+        display["Draw"] = [key in selected for key in keys]
         if "Wafer" in display.columns:
             display["Wafer"] = [
                 str(value).replace("\n", "/") for value in display["Wafer"]
             ]
-        if field is not None:
+        if custom_fields:
+            display.rename(columns={"Wafer": "Classification"}, inplace=True)
+        elif field is not None:
             display.rename(columns={"Wafer": f"Mark2 · {field}"}, inplace=True)
         group["wafer_model"].set_frame(display)
         group["wafer_uncheck_all"].setEnabled(bool(display["Draw"].any()))
@@ -5910,55 +6030,85 @@ class MatchingWindow(QMainWindow):
                 wafer_view.setColumnWidth(column, 164 if column == 1 else 104)
             if "Draw" in display:
                 wafer_view.setItemDelegateForColumn(display.columns.get_loc("Draw"), group["wafer_draw_delegate"])
-        # Row numbers, not wafer names: the single-wafer table alongside shows the
-        # same index. Dense rows thin the labels out to every nth row number.
-        group["wafer_tick_count"] = len(summary)
-        group["wafer_tick_levels"] = None
-        for key in ("wafer_r2", "wafer_slope"):
-            if not reuse_points:
-                group[key].clear()
-        if not reuse_points:
-            group["wafer_highlights"] = {}
         group["wafer_selected_row"] = None
-        if summary.empty:
-            self._draw_single_wafer_plots(parameter)
-            return
-        x = np.arange(len(summary), dtype=float)
-        self._refresh_wafer_ticks(parameter)
-        wafer_r2 = group["wafer_r2"]
-        wafer_slope = group["wafer_slope"]
-        r_squared = summary["R²"].to_numpy(float)
-        slope = summary["Slope"].to_numpy(float)
-        valid_r2 = np.isfinite(r_squared)
-        valid_slope = np.isfinite(slope)
-        if reuse_points:
-            metric_points["wafer_r2"].setData(x[valid_r2], r_squared[valid_r2], data=np.flatnonzero(valid_r2))
-            metric_points["wafer_slope"].setData(x[valid_slope], slope[valid_slope], data=np.flatnonzero(valid_slope))
-        elif valid_r2.any():
-            curve = wafer_r2.plot(x[valid_r2], r_squared[valid_r2], pen=None,
-                                 symbol="o", symbolSize=8, symbolBrush="#4f8bd6", data=np.flatnonzero(valid_r2))
-            curve.sigPointsClicked.connect(lambda _curve, points, _event: self._select_wafer(parameter, int(points[0].data()), toggle=True))
-        if valid_slope.any() and not reuse_points:
-            curve = wafer_slope.plot(x[valid_slope], slope[valid_slope], pen=None,
-                                    symbol="o", symbolSize=8, symbolBrush="#e09f3e", data=np.flatnonzero(valid_slope))
-            curve.sigPointsClicked.connect(lambda _curve, points, _event: self._select_wafer(parameter, int(points[0].data()), toggle=True))
-        scope = "Single-Wafer" if field is None else f"Mark2 · {field}"
-        wafer_r2.setTitle(f"{scope} R²")
-        wafer_slope.setTitle(f"{scope} slope")
-        for plot in (wafer_r2, wafer_slope):
-            plot.setLabel("bottom", "Wafer" if field is None else f"Mark2 · {field}")
-        for key in ("wafer_r2", "wafer_slope"):
-            if reuse_points:
-                group["wafer_highlights"][key].setData([], [])
-                continue
-            highlight = pg.ScatterPlotItem(size=14, pen=pg.mkPen("#dc2626", width=2), brush=pg.mkBrush(None))
-            highlight.setZValue(10)
-            # pyqtgraph dispatches clicks to the ring above the data point;
-            # clicking that ring is the same as clicking the selected point.
-            highlight.sigClicked.connect(lambda *_: self._clear_wafer_selection(parameter))
-            group[key].addItem(highlight, ignoreBounds=True)
-            group["wafer_highlights"][key] = highlight
+        self._draw_wafer_metric_charts(group)
         self._draw_single_wafer_plots(parameter)
+
+    def _draw_wafer_metric_charts(self, group):
+        summary = group["wafer_summary"]
+        parameter = group["parameter"]
+        plot_layout = group["wafer_plot_layout"]
+        levels = len(group["metrics_custom_fields"])
+        height = 280 + 28 * levels if levels > 1 else 280
+        group["wafer_view"].setFixedHeight(height)
+        scroll = group["wafer_scroll"]
+        scroll.setFixedHeight(height + scroll.horizontalScrollBar().sizeHint().height())
+        visible_count = 0
+        for column, key in enumerate(METRIC_PLOTS):
+            visible = not summary.empty and self.metrics_chart_actions[key].isChecked()
+            plot = group.get(key)
+            if visible and plot is None:
+                plot = self._plot_widget("", "", WaferMetricPlot)
+                plot.enlarge_on_double_click = True
+                plot.setToolTip("Double-click to enlarge · Click a point to find its table row · Esc to clear selection")
+                plot.enlargeRequested.connect(lambda metric=key: self._open_wafer_metric(group, metric))
+                plot.pointSelected.connect(lambda row: self._select_wafer(parameter, row, toggle=True))
+                shortcut = QShortcut(QKeySequence(Qt.Key.Key_Escape), plot)
+                shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+                shortcut.activated.connect(lambda: self._clear_wafer_selection(parameter))
+                plot_layout.addWidget(plot, 0, column, Qt.AlignmentFlag.AlignTop)
+                group[key] = plot
+            if plot is not None:
+                plot.setVisible(visible)
+            if visible:
+                visible_count += 1
+                plot.setFixedSize(420, height)
+                self._update_wafer_metric_plot(group, key, plot)
+            if key in group["wafer_popouts"]:
+                dialog, enlarged = group["wafer_popouts"][key]
+                if summary.empty:
+                    dialog.close()
+                else:
+                    self._update_wafer_metric_plot(group, key, enlarged)
+        if visible_count:
+            # Leave any width beyond the displayed plots to the table.
+            scroll.setMaximumWidth(420 * visible_count + plot_layout.horizontalSpacing() * (visible_count - 1))
+        scroll.setVisible(bool(visible_count))
+
+    def _update_wafer_metric_plot(self, group, key, plot):
+        field = group["metrics_group_field"]
+        category = "Wafer ID" if group["metrics_wafer_only"] else "Wafer / Lot / PAD"
+        if field is not None:
+            category = f"Mark2 · {field}"
+        value_label = self.metrics_value_combo.currentText()
+        custom_fields = group["metrics_custom_fields"]
+        columns = tuple("Wafer" if field is None else f"Mark2 · {field}" for field in custom_fields)
+        if len(columns) == 1:
+            category = columns[0]
+        plot.set_summary(key, group["wafer_summary"], category, value_label, hierarchy_columns=columns)
+        plot.highlight_row(group.get("wafer_selected_row"))
+
+    def _open_wafer_metric(self, group, key):
+        if key in group["wafer_popouts"]:
+            dialog, _ = group["wafer_popouts"][key]
+            if dialog.isMinimized():
+                dialog.showNormal()
+            dialog.raise_()
+            dialog.activateWindow()
+            return
+        dialog = QDialog(group["wafer_card"], Qt.WindowType.Window | Qt.WindowType.WindowMinMaxButtonsHint
+                         | Qt.WindowType.WindowCloseButtonHint)
+        dialog.setWindowTitle(f'{group["parameter"]} · {METRIC_PLOTS[key][0]}')
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        layout = QVBoxLayout(dialog)
+        plot = self._plot_widget("", "", WaferMetricPlot)
+        plot.pointSelected.connect(lambda row: self._select_wafer(group["parameter"], row, toggle=True))
+        layout.addWidget(plot)
+        group["wafer_popouts"][key] = (dialog, plot)
+        dialog.finished.connect(lambda _result: group["wafer_popouts"].pop(key, None))
+        self._update_wafer_metric_plot(group, key, plot)
+        fit_window_to_screen(dialog, (960, 620), minimum=(420, 280))
+        dialog.show()
 
     def _wafer_selection_changed(self, parameter):
         group = self.plot_groups.get(parameter)
@@ -5979,8 +6129,7 @@ class MatchingWindow(QMainWindow):
         with QSignalBlocker(view.selectionModel()):
             view.clearSelection()
             view.setCurrentIndex(QModelIndex())
-        for highlight in group.get("wafer_highlights", {}).values():
-            highlight.setData([], [])
+        self._highlight_wafer_metric_plots(group, None)
 
     def _select_wafer(self, parameter, row, *, toggle=False, scroll=True):
         group = self.plot_groups.get(parameter)
@@ -5999,15 +6148,20 @@ class MatchingWindow(QMainWindow):
             # Do not reset horizontal scroll to the Wafer column, hiding Draw.
             view.verticalScrollBar().setValue(view.verticalHeader().sectionPosition(row)
                                               - view.viewport().height() // 2 + view.rowHeight(row) // 2)
-        for key, column in (("wafer_r2", "R²"), ("wafer_slope", "Slope")):
-            value = group["wafer_summary"].iloc[row][column]
-            highlight = group.get("wafer_highlights", {}).get(key)
-            if highlight is not None:
-                highlight.setData([float(row)] if np.isfinite(value) else [], [value] if np.isfinite(value) else [])
+        self._highlight_wafer_metric_plots(group, row)
+
+    @staticmethod
+    def _highlight_wafer_metric_plots(group, row):
+        for key in METRIC_PLOTS:
+            plot = group.get(key)
+            if plot is not None and not plot.isHidden():
+                plot.highlight_row(row)
+        for _dialog, plot in group["wafer_popouts"].values():
+            plot.highlight_row(row)
 
     def _wafer_checked(self, parameter, row, checked):
         group = self.plot_groups[parameter]
-        label = group["wafer_summary"].iloc[row]["Wafer"]
+        label = group["wafer_keys"][row]
         selected = self._metrics_plot_checks().setdefault(parameter, [])
         if checked and label not in selected:
             selected.append(label)
@@ -6037,7 +6191,7 @@ class MatchingWindow(QMainWindow):
         details = group["wafer_details"]
         summary = group["wafer_summary"]
         selected = self._metrics_plot_checks()[parameter]
-        labels = list(summary.get("Wafer", []))
+        labels = group["wafer_keys"]
         for label in tuple(details):
             if label not in selected or label not in labels or pd.isna(summary.iloc[labels.index(label)]["Slope"]):
                 group["wafer_detail_layout"].removeWidget(details[label]["card"])
@@ -6048,15 +6202,23 @@ class MatchingWindow(QMainWindow):
         plan = self.result.group_plan
         mark2_grouping = ({"mark2_enabled": True, "mark2": plan.state["mark2"]}
                           if plan.mark2_enabled else None)
-        field = self._active_metrics_group_field()
-        signature = (mapping, self.workbook.result_mode, self._selected_bias_views(), mark2_grouping, field)
+        field = group["metrics_group_field"]
+        wafer_only = group["metrics_wafer_only"]
+        custom_fields = group["metrics_custom_fields"]
+        signature = (mapping, self.workbook.result_mode, self._selected_bias_views(),
+                     mark2_grouping, field, wafer_only, custom_fields)
         for label in selected:
             if label not in labels:
                 continue
             row = labels.index(label)
             if pd.isna(summary.iloc[row]["Slope"]):
                 continue
-            reference, raw = self.result.wafer_frames(row, mark2_column=field)
+            reference, raw = self.result.wafer_frames(row, mark2_column=field, wafer_only=wafer_only,
+                                                     custom_fields=custom_fields)
+            if self.workbook.workbook_type == "type2":
+                # Repeated Raw IDs can share one aligned REF row. The detail
+                # workbook matches again, so keep one copy of each source REF.
+                reference = reference.drop_duplicates().reset_index(drop=True)
             detail = details.get(label)
             if (detail is not None and detail["source_reference"].equals(reference)
                     and detail["source_raw"].equals(raw) and detail["signature"] == signature):
@@ -6087,10 +6249,17 @@ class MatchingWindow(QMainWindow):
                 group["wafer_detail_layout"].removeWidget(detail["card"])
                 detail["card"].hide()
                 detail["card"].deleteLater()
-            storage_key = ("single-wafer:" + json.dumps([parameter, label], ensure_ascii=False)
-                           if field is None else "single-mark2:" + json.dumps([field, parameter, label], ensure_ascii=False))
+            if custom_fields:
+                storage_key = "single-custom:" + json.dumps([custom_fields, parameter, label], ensure_ascii=False)
+            elif field is None:
+                prefix = "single-wafer-only:" if wafer_only else "single-wafer:"
+                storage_key = prefix + json.dumps([parameter, label], ensure_ascii=False)
+            else:
+                storage_key = "single-mark2:" + json.dumps([field, parameter, label], ensure_ascii=False)
             detail = self._create_plot_group(parameter, storage_key)
-            caption = label if field is None else f"{field}: {label}"
+            caption = summary.iloc[row]["Wafer"]
+            if field is not None:
+                caption = f"{field}: {caption}"
             detail["card"].findChild(_ParameterDragHandle).setText("⋮⋮  " + parameter + " · " + caption.replace("\n", " / "))
             detail["workbook"] = MatchWorkbook(reference, raw, [mapping], match_type=self.workbook.match_type,
                                               grouping_state=mark2_grouping,
@@ -6141,38 +6310,6 @@ class MatchingWindow(QMainWindow):
             plot.getViewBox().sigResized.connect(refresh)
             plot.getViewBox().sigRangeChanged.connect(refresh)
             refresh()
-
-    def _refresh_wafer_ticks(self, parameter, _view_box=None):
-        """Redraw the row-number ticks of one single-wafer card, if it has data."""
-        group = self.plot_groups.get(parameter)
-        if group is None:
-            return
-        count = int(group.get("wafer_tick_count") or 0)
-        if count <= 0:
-            return
-        levels = self._wafer_row_tick_levels(group, count)
-        if levels == group.get("wafer_tick_levels"):
-            return
-        group["wafer_tick_levels"] = levels
-        for key in ("wafer_r2", "wafer_slope"):
-            group[key].getAxis("bottom").setTicks([levels])
-
-    @staticmethod
-    def _wafer_row_tick_levels(group, count):
-        """Show every nth row number so neighbouring labels cannot overlap."""
-        plot = group["wafer_r2"]
-        metrics = QFontMetrics(plot.font())
-        widest = max(
-            metrics.horizontalAdvance("1"),
-            metrics.horizontalAdvance(str(count)),
-        )
-        spacing = max(28.0, float(widest) + 12.0)
-        width = float(plot.getPlotItem().getViewBox().width())
-        if width < 120.0:  # Not laid out yet; refine once the card is shown.
-            width = 480.0
-        room = max(1, int(width // spacing))
-        step = max(1, (count + room - 1) // room)
-        return [(float(index), str(index + 1)) for index in range(0, count, step)]
 
     def _resize_results_for_plot_groups(self):
         total = 64
@@ -6311,7 +6448,29 @@ class MatchingWindow(QMainWindow):
             reports.append((f'{name} ', report))
         return {"reference": self.reference_model.document_frame().copy(deep=True), "stages": stages,
                 "reports": reports, "extra_frames": extra_frames, "plot_labels": dict(self._plot_label_options["trend"]),
-                "fullmap_parameters": [mapping.name for mapping in self.workbook.mappings]}
+                "fullmap_parameters": [mapping.name for mapping in self.workbook.mappings],
+                "metrics": self._metrics_export_settings(stages)}
+
+    def _metrics_export_settings(self, stages):
+        keys = self._selected_metrics_charts()
+        if not keys or (self.workbook_type != "type2" and self.workbook.match_type not in {"NOVA", "KLA"}):
+            return None
+        active_mode = self.workbook.result_mode
+        result = next((result for _, result, _, _ in stages if result.result_mode == active_mode), None)
+        if result is None or not result.parameter_names:
+            return None
+        custom_fields = self._active_metrics_custom_fields()
+        field = self._active_metrics_group_field()
+        wafer_only = not custom_fields and field is None and self._metrics_wafer_only
+        classification = {"mark2_column": field, "wafer_only": wafer_only, "custom_fields": custom_fields}
+        try:
+            if result.wafer_summary(result.parameter_names[0], **classification).empty:
+                return None
+        except ValueError:
+            return None
+        return {"stage": active_mode, "classification": classification, "charts": keys,
+                "value_mode": self.metrics_value_combo.currentData(),
+                "parameters": self.workbook.parameter_order}
 
     def export_excel(self, path, *, native=True, images=None):
         """Export a human-readable workbook with native, cell-bound Excel charts."""

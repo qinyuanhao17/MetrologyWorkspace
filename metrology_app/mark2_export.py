@@ -1,7 +1,43 @@
-"""Editable, cell-linked Mark2 chart footers on the shared ordinal domain."""
+"""Mark2 sequence axes for Excel and image reports."""
 import numpy as np
 
-from .mark2 import hierarchy
+from .mark2 import hierarchy, text
+
+
+def native_categories(sheet, first, column, fields, values, dies=None):
+    """Write one shared label range, optionally ending in the source Die Seq."""
+    from openpyxl.chart import Reference
+    from openpyxl.chart.data_source import AxDataSource, Level, StrData, StrRef, StrVal
+    from .xlsx_serialization import MultiLevelCategoryCache, MultiLevelCategoryRef
+
+    rows = (tuple(map(text, row)) for row in values)
+    if dies is not None:
+        fields = [*fields, "Die Seq"]
+        rows = ((*row, die) for row, die in zip(rows, dies, strict=True))
+    levels = [[] for _ in fields]
+    for offset, field in enumerate(fields):
+        sheet.cell(first - 1, column + offset, field).data_type = "s"
+
+    previous = None
+    for index, row in enumerate(rows):
+        changed = previous is None
+        for level, value in enumerate(row):
+            changed = changed or value != previous[level]
+            if changed or level == len(fields) - 1:
+                # A changed outer label starts a new span on all inner levels.
+                # An empty cell extends the previous span. A space starts a
+                # visually blank span when the source label itself is missing.
+                label = value or " "
+                sheet.cell(first + index, column + level, label).data_type = "s"
+                levels[level].append(StrVal(idx=index, v=label))
+        previous = row
+
+    source = Reference(sheet, min_col=column, max_col=column + len(fields) - 1,
+                       min_row=first, max_row=first + len(values) - 1)
+    if len(fields) == 1:
+        return AxDataSource(strRef=StrRef(f=str(source), strCache=StrData(ptCount=len(values), pt=levels[0])))
+    cache = MultiLevelCategoryCache(ptCount=len(values), lvl=[Level(pt=points) for points in reversed(levels)])
+    return AxDataSource(multiLvlStrRef=MultiLevelCategoryRef(f=str(source), multiLvlStrCache=cache))
 
 
 def captions(columns, values, source, *, origin=1):

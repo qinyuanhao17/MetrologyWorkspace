@@ -35,6 +35,7 @@ from openpyxl.chart.trendline import Trendline, TrendlineLabel
 from openpyxl.drawing.text import CharacterProperties, Font as DrawingFont, Paragraph, ParagraphProperties
 
 from .appearance import TREND_LINE_WIDTH, TREND_MARKER_SIZE
+from .wafer_metrics import METRIC_PLOTS, METRICS_SHEET_TITLE
 
 MAX_TITLE = 31
 _INVALID_TITLE = set('[]:*?/\\')
@@ -1019,20 +1020,34 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
         layout['mode'] = axis_mode
         layouts = [layout]
     if data.attrs.get("mark2"):
-        from .mark2_export import layout as mark2_layout
+        from .mark2_export import layout as mark2_layout, native_categories as mark2_categories
         axis_mode = "mark2"
         fields = data.attrs["mark2"]["columns"]
         values = data[[f"Mark2 · {name}" for name in fields]].values.tolist()
-        footer = parameter_footer(worksheet, first_row, data, columns, axis_mode)
+        footer = [] if native else parameter_footer(worksheet, first_row, data, columns, axis_mode)
         layouts = [mark2_layout(fields, values, footer)]
+        if native and count:
+            shared_axis = getattr(worksheet, '_mark2_axis', None)
+            if shared_axis is None:
+                categories = mark2_categories(
+                    worksheet, first_row, 1, fields, values, data['Die Seq'].tolist())
+                shared_axis = worksheet._mark2_axis = (source_rows, categories)
+                for column in range(1, len(fields) + 2):
+                    label = worksheet.cell(first_row - 1, column)
+                    label.font = Font(bold=True)
+                    label.fill = PatternFill("solid", fgColor="EEF2F7")
+                    worksheet.column_dimensions[get_column_letter(column)].width = max(14, len(label.value) + 2)
+            if shared_axis[0] != source_rows:
+                raise ValueError("Mark2 charts on a report sheet must share the same source row order.")
+            layouts[0]['categories'] = shared_axis[1]
     panel_rows = max(
         1, len(layouts) * (2 + int(bool(show_percent))))
     category_columns = [(columns["Group"], data["Group label"].tolist())] if "Group" in columns and not wafer_only else None
     detailed_columns = ([(columns["Group"], data["Group label"].tolist())] if "Group" in columns and not wafer_only else []) + [
         (columns["Wafer"], data["Wafer"].tolist()), (columns["Die Seq"], data["Die Seq"].tolist())]
     for layout in layouts:
-        if axis_mode in ('group', 'wafer', 'mark2') and count:
-            layout['native_die_axis'] = native and axis_mode != 'mark2' and _native_die_axis_eligible(data, layout, axis_mode)
+        if axis_mode in ('group', 'wafer') and count:
+            layout['native_die_axis'] = native and _native_die_axis_eligible(data, layout, axis_mode)
             # Keep source/helper cells identical across native and Matplotlib
             # reports, even if the native chart no longer needs numeric X.
             categories = _native_identity_categories(helper, helper_row, layout)
@@ -1172,11 +1187,12 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
             # boundaries are affine. Other layouts retain the numeric X scale.
             numeric_identity = getattr(
                 layout.get("categories"), "numRef", None) is not None
-            identity_overlay = layout.get('mode') in ('group', 'wafer', 'mark2')
+            native_mark2_axis = layout.get('mode') == 'mark2'
+            identity_overlay = layout.get('mode') in ('group', 'wafer')
             chart = ScatterChart() if numeric_identity else LineChart()
             if numeric_identity:
                 chart.scatterStyle = "lineMarker"
-            elif layout.get('native_die_axis'):
+            elif layout.get('native_die_axis') or native_mark2_axis:
                 chart.y_axis.crossBetween = 'between'
             chart._identity_count = last_row - first_row + 1
             chart.title = (
@@ -1186,8 +1202,12 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
                 parameter if panel == "Trend" else panel)
             chart.y_axis.title = parameter if panel == "Trend" else f"Bias ({unit})" if panel == "Bias" and unit and unit != "1" else panel
             chart.height, chart.width = PANEL_HEIGHT_CM, layout["native_width"]
-            chart._identity_captions = layout.get(
-                'captions', layout.get('native_captions'))
+            if native_mark2_axis:
+                chart._native_category_axis = True
+                chart.x_axis.noMultiLvlLbl = False
+            else:
+                chart._identity_captions = layout.get(
+                    'captions', layout.get('native_captions'))
             if numeric_identity:
                 chart._numeric_identity_axis = True
                 chart.x_axis.scaling.min, chart.x_axis.scaling.max = (
@@ -1211,7 +1231,7 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
                 ]
                 chart._identity_axis_range = layout["limits"]
             chart.x_axis.title = None
-            if isinstance(chart, LineChart):
+            if isinstance(chart, LineChart) and not native_mark2_axis:
                 chart.x_axis.tickLblSkip = max(
                     1, int(np.ceil(len(raw) / 18)))
             if (not identity_overlay and not numeric_identity
@@ -1355,16 +1375,20 @@ def write_parameter_sheets(book, used_titles, result, workbook, *, native=True, 
         layout = sequence_layout(data['Group label'], name='Group')
         shared_widths[parameter] = (layout['width'], layout['width'])
     block_width = (7 if result.result_mode == 'preview' else 6) + int(result.group_plan.enabled)
+    table_start = 1
     if result.group_plan.mark2_enabled:
-        block_width += len(result.group_plan.state["mark2"]["selected"])
+        mark2_levels = len(result.group_plan.state["mark2"]["selected"])
+        block_width += mark2_levels
+        if native:
+            table_start += mark2_levels + 2  # Selected fields, Die Seq, and a gutter.
     # Horizontal parameter tables, then source measurements to their right.
     # Keep one literal source table to the right of the prepared parameter tables.
     trend_width = max((widths[0] for widths in shared_widths.values()), default=TREND_WIDTH_CM)
     chart_pixels = (
         MATCH_WIDTH_CM + CHART_HORIZONTAL_GAP_CM + trend_width
     ) * 96 / 2.54
-    source_column = max(len(result.parameter_names) * (block_width + 1) + 1,
-                        _next_plot_column(original, 1, chart_pixels + 120))
+    source_column = max(len(result.parameter_names) * (block_width + 1) + table_start,
+                        _next_plot_column(original, table_start, chart_pixels + 120))
     original._source_start_column = source_column
     _write_frame(original, original_raw, start_column=source_column)
     sheet = original
@@ -1379,9 +1403,9 @@ def write_parameter_sheets(book, used_titles, result, workbook, *, native=True, 
             result.card(parameter), "Overall", "All", stage, native=native, images=images,
             show_percent="percent" in workbook.bias_views, reference_label=workbook.match_type, original=original,
             axis_mode='die', panel_widths=shared_widths.get(parameter),
-            start_column=1 + index * (block_width + 1),
+            start_column=table_start + index * (block_width + 1),
             chart_row=chart_start, chart_index=index,
-            chart_column=1)
+            chart_column=table_start)
     if result.group_plan.enabled:
         group_views = [(
             'Match Group',
@@ -1432,10 +1456,10 @@ def write_parameter_sheets(book, used_titles, result, workbook, *, native=True, 
             result.card(parameter), "Overall", "Wafer", stage, native=native, images=images,
             show_percent="percent" in workbook.bias_views, reference_label=workbook.match_type,
             original=original, wafer_only=True, axis_mode='wafer',
-            start_column=1 + index * (block_width + 1),
+            start_column=table_start + index * (block_width + 1),
             chart_row=chart_start, chart_index=index,
             chart_top_cm=chart_top_cm,
-            chart_column=1)
+            chart_column=table_start)
         if chart_top_cm is None:
             chart_top_cm = _row_top_cm(wafer, chart_start)
         chart_top_cm += page_count * wafer_panel_rows * (
@@ -1541,6 +1565,92 @@ def write_rsq_sheet(book, used_titles, result, *, native=True, images=None):
             embed_plot(sheet, plot, f"{anchor_column}{anchor_row + index * 25}",
                           plot["title"] + stage_suffix(result.result_mode), images)
     return sheet
+
+
+def write_metrics_sheet(sheet, result, settings):
+    """Write the active metrics classification and editable Excel line charts."""
+    from .mark2_export import native_categories as shared_categories
+
+    classification = settings["classification"]
+    custom_fields = classification["custom_fields"]
+    field = classification["mark2_column"]
+    if custom_fields:
+        label_names = {None: "Wafer", "Wafer": "Mark2 · Wafer"}
+        fields = tuple(label_names.get(name, name) for name in custom_fields)
+    else:
+        fields = (field or ("Wafer" if classification["wafer_only"] else "Wafer / Lot / PAD"),)
+    mode = settings["value_mode"]
+    value_label = "PMISH+Card" if mode == "card" else "PMISH"
+    parameters = settings["parameters"]
+    charts = [METRIC_PLOTS[key] for key in settings["charts"]]
+    metric_columns = [column for _, columns, _ in charts for column in columns]
+    headers = {"Mean": f"{value_label} Mean", "Reference Mean": "REF Mean",
+               "STD": f"{value_label} STD", "Reference STD": "REF STD"}
+
+    first_summary = result.wafer_summary(parameters[0], **classification, value_mode=mode)
+    values = (first_summary["Metrics Labels"].tolist() if custom_fields
+              else [(label.replace("\n", " / "),) for label in first_summary["Wafer"]])
+    _checkpoint(sheet.parent, f"Writing {sheet.title}")
+    first_row = 3
+    last_row = first_row + len(values) - 1
+    categories = shared_categories(sheet, first_row, 1, fields, values)
+    sheet.cell(1, 1, f"{result.result_mode.title()} · {value_label}").font = Font(bold=True)
+    sheet.freeze_panes = sheet.cell(first_row, len(fields) + 1)
+    for column, field in enumerate(fields, start=1):
+        sheet.cell(first_row - 1, column).font = Font(bold=True)
+        width = max([len(field), *(len(row[column - 1]) for row in values[:100])])
+        sheet.column_dimensions[get_column_letter(column)].width = min(36, max(14, width + 2))
+
+    block_width = len(metric_columns) + 1
+    chart_column = len(fields) + len(parameters) * block_width + 1
+    chart_columns = []
+    for _ in charts:
+        chart_columns.append(chart_column)
+        chart_column = _next_plot_column(sheet, chart_column, ceil(TREND_WIDTH_CM * 96 / 2.54))
+    chart_row_step = ceil((PANEL_HEIGHT_CM + CHART_VERTICAL_GAP_CM) * 72 / (2.54 * 15))
+    for index, parameter in enumerate(parameters):
+        _checkpoint(sheet.parent, f"Writing {sheet.title} · {parameter}")
+        summary = first_summary if index == 0 else result.wafer_summary(parameter, **classification, value_mode=mode)
+        base = len(fields) + 1 + index * block_width
+        cell = sheet.cell(1, base, parameter)
+        cell.data_type = "s"
+        cell.font = Font(bold=True)
+        if len(metric_columns) > 1:
+            sheet.merge_cells(start_row=1, end_row=1, start_column=base, end_column=base + len(metric_columns) - 1)
+        data_columns = {}
+        for column, name in enumerate(metric_columns, start=base):
+            data_columns[name] = column
+            header = headers.get(name, name)
+            sheet.cell(first_row - 1, column, header).font = Font(bold=True)
+            sheet.column_dimensions[get_column_letter(column)].width = max(14, len(header) + 2)
+        for row, numbers in enumerate(summary[metric_columns].itertuples(index=False, name=None), start=first_row):
+            if row % 256 == 0:
+                _checkpoint(sheet.parent)
+            for column, number in enumerate(numbers, start=base):
+                sheet.cell(row, column, _value(number))
+
+        for anchor_column, (title, columns, _) in zip(chart_columns, charts):
+            chart = LineChart()
+            chart.title = f"{parameter} · {title}"
+            chart.y_axis.title = title
+            chart.height, chart.width = PANEL_HEIGHT_CM, TREND_WIDTH_CM
+            chart.y_axis.crossBetween = "between"
+            chart.x_axis.noMultiLvlLbl = False
+            chart._native_category_axis = True
+            chart._excel_auto_category_labels = True
+            if len(columns) == 1:
+                chart.legend = None
+            for series_index, name in enumerate(columns):
+                chart.add_data(Reference(sheet, min_col=data_columns[name], min_row=first_row - 1, max_row=last_row),
+                               titles_from_data=True)
+                series = chart.series[-1]
+                series.cat = categories
+                if len(columns) == 2:
+                    series.tx = SeriesLabel(v=(value_label, "REF")[series_index])
+                style_native_series(series, series_index, marker_size=TREND_MARKER_SIZE,
+                                    line_width=int(TREND_LINE_WIDTH * 12700))
+            chart_limits(chart, summary[list(columns)].to_numpy(float).ravel())
+            sheet.add_chart(chart, f"{get_column_letter(anchor_column)}{first_row + index * chart_row_step}")
 
 
 def write_all_trend_sheet(book, used_titles, result, workbook, *, native=True, images=None):
@@ -1656,17 +1766,20 @@ def write_all_trend_sheet(book, used_titles, result, workbook, *, native=True, i
     return sheet
 
 
-def write_workbook(path, *, reference, stages, native=True, images=None, reports=(), extra_frames=(), plot_labels=None, fullmap_parameters=(), cancelled=lambda: False, progress=None, selected_sheets=None):
+def write_workbook(path, *, reference, stages, native=True, images=None, reports=(), extra_frames=(), plot_labels=None,
+                   fullmap_parameters=(), metrics=None, cancelled=lambda: False, progress=None, selected_sheets=None):
     """Write the workbook export: data sheets plus native-chart Match sheets."""
     book = Workbook()
     from .export_rendering import rendering_session
     with rendering_session(book, native=native):
         return _write_workbook(book, path, reference=reference, stages=stages, native=native,
             images=images, reports=reports, extra_frames=extra_frames, plot_labels=plot_labels,
-            fullmap_parameters=fullmap_parameters, cancelled=cancelled, progress=progress, selected_sheets=selected_sheets)
+            fullmap_parameters=fullmap_parameters, metrics=metrics, cancelled=cancelled, progress=progress,
+            selected_sheets=selected_sheets)
 
 
-def _write_workbook(book, path, *, reference, stages, native, images, reports, extra_frames, plot_labels, fullmap_parameters, cancelled, progress, selected_sheets):
+def _write_workbook(book, path, *, reference, stages, native, images, reports, extra_frames, plot_labels,
+                    fullmap_parameters, metrics, cancelled, progress, selected_sheets):
     book._export_cancelled = cancelled
     book._export_progress = progress
     book.remove(book.active)
@@ -1679,6 +1792,7 @@ def _write_workbook(book, path, *, reference, stages, native, images, reports, e
         return sheet
 
     helper = book.create_sheet(sheet_title("_Plot data", used))
+    metrics_title = sheet_title(METRICS_SHEET_TITLE, used) if native and metrics else None
     helper.sheet_state = "hidden"
     _write_frame(helper, reference)  # Preserve original Reference names and measurement strings.
     for workbook, result, raw, stage_frames in stages:
@@ -1704,6 +1818,9 @@ def _write_workbook(book, path, *, reference, stages, native, images, reports, e
                               picture_shapes=fullmap_report.get('picture_shapes', {}) if fullmap_report else {})
             else:
                 data_sheet(sheet_title(name, set(), suffix), frame)
+    if metrics_title and (selected_sheets is None or metrics_title in selected_sheets):
+        result = next(result for _, result, _, _ in stages if result.result_mode == metrics["stage"])
+        write_metrics_sheet(book.create_sheet(metrics_title), result, metrics)
     for name, frame in extra_frames:
         if name.startswith("FullMap"):
             write_fullmap(book.create_sheet(sheet_title(name, used)), frame, fullmap_parameters,
@@ -1733,8 +1850,8 @@ def style_workbook(book):
     from copy import copy
     from openpyxl.drawing.colors import ColorChoice
     properties = CharacterProperties(latin=DrawingFont(typeface=EXPORT_FONT), sz=1400)
-    def chart_text():
-        tick_properties = CharacterProperties(latin=DrawingFont(typeface=EXPORT_FONT), sz=1100)
+    def chart_text(size=1100):
+        tick_properties = CharacterProperties(latin=DrawingFont(typeface=EXPORT_FONT), sz=size)
         return RichText(p=[Paragraph(pPr=ParagraphProperties(defRPr=tick_properties), endParaRPr=tick_properties)])
     def hidden_chart_text():
         tick_properties = CharacterProperties(
@@ -1777,12 +1894,14 @@ def style_workbook(book):
             # Only reports with explicit replacement drawings hide their axis.
             numeric_identity = bool(getattr(chart, "_numeric_identity_axis", False))
             identity_overlay = numeric_identity or bool(getattr(chart, '_identity_axis_overlay', False))
+            auto_category_labels = getattr(chart, "_excel_auto_category_labels", False)
             chart.x_axis.delete = identity_overlay
             chart.y_axis.delete = False
             chart.x_axis.tickLblPos = (
-                "none" if identity_overlay else "low")
+                "none" if identity_overlay else
+                "nextTo" if auto_category_labels else "low")
             chart.y_axis.tickLblPos = "nextTo"
-            if hasattr(chart.x_axis, "noMultiLvlLbl"):
+            if hasattr(chart.x_axis, "noMultiLvlLbl") and not getattr(chart, '_native_category_axis', False):
                 separate_captions = bool(getattr(
                     chart, '_identity_captions', None))
                 chart.x_axis.noMultiLvlLbl = separate_captions
@@ -1834,25 +1953,37 @@ def style_workbook(book):
                     label.txPr.p[0].pPr.algn = 'ctr'
                     label.numFmt = NumFmt(formatCode='General', sourceLinked=False)
             for axis in (chart.x_axis, chart.y_axis):
+                native_category_axis = axis is chart.x_axis and getattr(chart, "_native_category_axis", False)
+                auto_labels = axis is chart.x_axis and auto_category_labels
                 axis.majorTickMark = (
-                    "none" if identity_overlay and axis is chart.x_axis
+                    "none" if native_category_axis or (identity_overlay and axis is chart.x_axis)
                     else "out")
                 axis.minorTickMark = "none"
                 if axis.crosses != "max":
                     axis.crosses = "min"
                 axis.spPr = GraphicalProperties(
-                    ln=LineProperties(solidFill="595959", w=15240, prstDash="solid"))
+                    ln=LineProperties(solidFill="D9D9D9", w=9525, cap="flat")
+                    if native_category_axis
+                    else LineProperties(solidFill="595959", w=15240, prstDash="solid"))
                 axis.txPr = (
                     hidden_chart_text()
                     if identity_overlay and axis is chart.x_axis
-                    else chart_text())
-                axis.txPr.bodyPr.rot = 0
-                axis.txPr.bodyPr.horzOverflow = "overflow"
-                axis.txPr.bodyPr.vertOverflow = "overflow"
-                # openpyxl's NoneSet converts the valid OOXML literal "none"
-                # to Python None. Preserve it explicitly to prevent Excel
-                # wrapping a Wafer caption into the width of one data point.
-                axis.txPr.bodyPr.__dict__["wrap"] = "none"
+                    else chart_text(900 if auto_labels else 1100))
+                body = axis.txPr.bodyPr
+                if auto_labels:
+                    # Excel uses this sentinel for automatic axis label rotation.
+                    body.rot = -60_000_000
+                    body.vert = "horz"
+                    body.vertOverflow = "ellipsis"
+                    body.wrap = "square"
+                    body.anchor = "ctr"
+                    body.anchorCtr = True
+                else:
+                    body.rot = 0
+                    body.horzOverflow = "overflow"
+                    body.vertOverflow = "overflow"
+                    # Preserve the OOXML literal "none" that openpyxl's NoneSet drops.
+                    body.__dict__["wrap"] = "none"
                 step = getattr(axis, "majorUnit", None)
                 if step is not None:
                     decimals = max(0, int(-np.floor(np.log10(step))))
