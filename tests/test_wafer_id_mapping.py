@@ -7,7 +7,9 @@ import unittest
 
 import pandas as pd
 from openpyxl import Workbook, load_workbook
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import Qt
+from PyQt6.QtTest import QTest
+from PyQt6.QtWidgets import QApplication, QDoubleSpinBox
 
 from metrology_app.matching import ParameterMapping
 from metrology_app.matching_window import MatchingWindow
@@ -282,6 +284,50 @@ class WaferMappingWindowTests(unittest.TestCase):
                          {self.spectra[i].key for i in (0, 2, 3, 4, 5)})
         info = viewer.spectra_info().with_flags
         self.assertEqual(info["REF CD"].tolist(), ["3.0000", "7.0000", "9.0000", "11.0000", ""])
+
+    def test_open_spectra_info_refreshes_after_reference_edit_with_mapped_ids(self):
+        self.window.set_wafer_id_mapping(self.mapping)
+        viewer = self.window.open_spectra_workspace()
+        viewer.apply_load_result(LoadResult(self.spectra, ()), replace=True)
+        viewer.set_spectrum_checks({s.key: True for s in self.spectra})
+        info = viewer.open_spectra_info()
+        model = self.window.reference_model
+        # W1 / Die 1 is on the third Ref row and the first Raw row.
+        self.assertTrue(model.setData(model.index(3, 2), "3.2500", Qt.ItemDataRole.EditRole))
+        QTest.qWait(10)
+        self.assertEqual(info.result.with_flags["REF CD"].tolist(),
+                         ["3.2500", "5.0000", "7.0000", "9.0000", "11.0000", ""])
+        self.assertEqual(len(viewer.checked_spectra()), len(self.spectra))
+
+    def test_bias_map_finds_mapped_sme_coordinates_after_raw_row_exclusion(self):
+        self.window.set_wafer_id_mapping(self.mapping)
+        self.window.result_mode.setCurrentText("Final")
+        self.window.set_raw_frame(self.raw)
+        selection = {"records": [{"id": str(i), "key": key} for i, key in enumerate(row_ids(self.raw))],
+                     "excluded": ["4"], "hide_excluded": True}
+        for state in (self.window.group_controls.state, self.window.group_controls.state["applied"]):
+            state["data_selection"] = deepcopy(selection)
+        viewer = self.window.open_spectra_workspace(scope="spectra.final")
+        viewer.apply_load_result(LoadResult(self.spectra, ()), replace=True)
+        self.window.mapping_table.cellWidget(0, 10).findChild(QDoubleSpinBox).setValue(4.5)
+        self.window.run_analysis()
+        self.assertEqual(self.window.result.source_rows, (0, 1, 2, 3, 5))
+        button = self.window.mapping_table.cellWidget(0, 12)
+        self.assertTrue(button.isEnabled())
+        button.click()
+        map_window = self.window._bias_die_maps["CD"]
+        QTest.qWait(40)
+        plot = map_window.wafer_plots[("W2", "L1", "P1")]
+        colors = {point.data()["keys"][0]: point.brush().color().name()
+                  for point in plot.scatter.points()}
+        self.assertEqual(colors, {"source-row:3": "#dc2626", "source-row:5": "#d6d9de"})
+        self.assertEqual(plot._plot_positions, [(1.0, 0.0), (3.0, 0.0)])
+        self.assertEqual(map_window.statusBar().currentMessage().split(" · ")[:2],
+                         ["1 out-of-range rows", "0 missing XY"])
+        self.assertEqual(self.window.raw_model.document_frame()["Wafer ID"].iloc[3], "OLD-W2")
+        group = self.window.plot_groups["CD"]
+        draw = group["wafer_model"].frame.columns.get_loc("Draw")
+        self.assertEqual(group["wafer_view"].horizontalHeader().visualIndex(draw), draw)
 
 
 if __name__ == "__main__":

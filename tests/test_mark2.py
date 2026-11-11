@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 from openpyxl import Workbook
 
-from metrology_app.mark2 import config, hierarchy, import_excel, labels_for_raw, ordered_rows
+from metrology_app.mark2 import bind_labels, config, hierarchy, import_excel, labels_for_raw, ordered_rows
 
 
 HEADERS = ["Cur SME File Path", "Wafer ID", "Lot ID", "Tool SN", "PAD Name", "Die Seq", "FIELD X", "FIELD Y"]
@@ -24,6 +24,22 @@ def fixture():
 
 
 class Mark2Tests(unittest.TestCase):
+    def test_pasted_labels_validate_every_cell_and_bind_to_raw_identity(self):
+        raw, previous = fixture()
+        labels = pd.DataFrame({"Product": ["B", "A", "C"], "Tool": ["01", 0, "02"]})
+        state = bind_labels(raw, labels, previous)
+        self.assertEqual(labels_for_raw(raw.iloc[[2, 0, 1]], state),
+                         (("C", "02"), ("B", "01"), ("A", "0")))
+        self.assertEqual(state["order_mode"], previous["order_mode"])
+        with self.assertRaisesRegex(ValueError, "2 label rows.*3 rows"):
+            bind_labels(raw, labels.iloc[:2])
+        with self.assertRaisesRegex(ValueError, '"Tool" is empty at Raw Data row 2'):
+            bind_labels(raw, labels.assign(Tool=["01", "   ", "02"]))
+        with self.assertRaisesRegex(ValueError, "distinct, non-empty label names"):
+            bind_labels(raw, labels.set_axis(["Tool", "Tool"], axis=1))
+        with self.assertRaisesRegex(ValueError, "row 3 has a duplicate"):
+            bind_labels(raw.iloc[[0, 1, 0]], labels)
+
     def test_source_identity_survives_reordering_and_preserves_leading_zeros(self):
         raw, state = fixture()
         raw = raw.iloc[[2, 0, 1]].reset_index(drop=True)
@@ -120,6 +136,59 @@ class Mark2IntegrationTests(unittest.TestCase):
         self.window.close()
         self.window.deleteLater()
         self.app.processEvents()
+
+    def test_mark2_table_paste_is_a_draft_until_confirmed(self):
+        from unittest.mock import patch
+        from PyQt6.QtCore import Qt
+        window = self.window
+        controls = window.group_controls
+        self.assertIs(window.order_stack.currentWidget(), window.mark2_card)
+        self.app.clipboard().setText("Product\tTool\nX\t01\nY\t0\nZ\t")
+        window.mark2_view.paste(replace=True)
+        self.assertEqual(controls.state["mark2"]["records"], self.state["records"])
+        window._refresh_group_projection()
+        self.assertEqual(window.mark2_model.document_frame()["Product"].tolist(), ["X", "Y", "Z"])
+        with patch("metrology_app.matching_window.QMessageBox.warning") as warning:
+            window.confirm_mark2_button.click()
+        self.assertIn('"Tool" is empty at Raw Data row 3', warning.call_args.args[2])
+        self.assertEqual(controls.state["mark2"]["records"], self.state["records"])
+
+        model = window.mark2_model
+        self.assertTrue(model.setData(model.index(3, 1), "02", Qt.ItemDataRole.EditRole))
+        window.confirm_mark2_button.click()
+        self.assertEqual(window.result.group_plan.mark2_labels,
+                         (("X", "01"), ("Y", "0"), ("Z", "02")))
+        self.assertTrue(model.undo.isClean())
+        with tempfile.TemporaryDirectory() as directory:
+            saved = window.save_workbook(Path(directory) / "mark2.mwkb")
+            window.load_workbook(saved)
+        self.assertEqual(window.mark2_model.document_frame()["Tool"].tolist(), ["01", "0", "02"])
+        controls.mark2_enabled.setChecked(False)
+        self.assertIs(window.order_stack.currentWidget(), window.order_card)
+
+    def test_import_excel_replaces_mark2_draft_and_displays_all_labels_in_raw_order(self):
+        from unittest.mock import patch
+        window = self.window
+        controls = window.group_controls
+        self.app.clipboard().setText("Draft\nold\nold\nold")
+        window.mark2_view.paste(replace=True)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "labels.xlsx"
+            book = Workbook()
+            sheet = book.active
+            sheet.append([*HEADERS, None, "Product", "Tool"])
+            raw, _ = fixture()
+            for index in (2, 0):
+                sheet.append([*raw.iloc[index].tolist(), None, f"P{index}", f"0{index}"])
+            book.save(path)
+            book.close()
+            with patch("metrology_app.match_group_ui.QFileDialog.getOpenFileName", return_value=(str(path), "")):
+                controls.mark2_import_button.click()
+        expected = pd.DataFrame({"Product": ["P0", "", "P2"], "Tool": ["00", "", "02"]})
+        pd.testing.assert_frame_equal(window.mark2_model.document_frame(), expected)
+        state = controls.state["mark2"]
+        controls.change("mark2", {**state, "selected": ["Product"]})
+        pd.testing.assert_frame_equal(window.mark2_model.document_frame(), expected)
 
     def test_custom_classification_allows_at_most_four_fields(self):
         from PyQt6.QtCore import Qt

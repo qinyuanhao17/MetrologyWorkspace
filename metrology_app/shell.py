@@ -4,6 +4,7 @@ from datetime import datetime
 import logging
 import platform
 from pathlib import Path
+import sqlite3
 import sys
 import traceback
 
@@ -109,6 +110,7 @@ class MainWindow(QMainWindow):
         self._instance_serial = {}
         self.module_buttons = {}
         self._help_window = None
+        self._note_window = None
         self._diagnostic_handler = None
         self._log_entries = []
         self._log_theme = get_settings()["theme"]
@@ -181,6 +183,11 @@ class MainWindow(QMainWindow):
         self.help_button.setDefaultAction(self.help_action)
         self.help_button.setToolTip("Open Help and SOP tutorials (F1)")
         toolbar.addWidget(self.help_button)
+        self.note_button = QToolButton(objectName="toolbarNote")
+        self.note_button.setText("Note")
+        self.note_button.setToolTip("Open notes")
+        self.note_button.clicked.connect(self.open_note)
+        toolbar.addWidget(self.note_button)
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         toolbar.addWidget(spacer)
@@ -188,12 +195,14 @@ class MainWindow(QMainWindow):
         self._sync_toolbar_button_size()
 
     def _sync_toolbar_button_size(self):
-        """Keep the adjacent menu and Help controls exactly the same size."""
-        for button in (self.menu_button, self.help_button):
+        """Keep the adjacent toolbar controls the same size."""
+        buttons = (self.menu_button, self.help_button, self.note_button)
+        size = QSize(0, 0)
+        for button in buttons:
             button.ensurePolished()
-        size = self.menu_button.sizeHint().expandedTo(self.help_button.sizeHint())
-        self.menu_button.setFixedSize(size)
-        self.help_button.setFixedSize(size)
+            size = size.expandedTo(button.sizeHint())
+        for button in buttons:
+            button.setFixedSize(size)
 
     def open_help(self):
         if self._help_window is None:
@@ -211,6 +220,27 @@ class MainWindow(QMainWindow):
 
     def _help_closed(self, *_):
         self._help_window = None
+
+    def open_note(self):
+        if self._note_window is None:
+            from .note_window import NoteWindow
+
+            try:
+                self._note_window = NoteWindow(self)
+            except (OSError, sqlite3.Error) as error:
+                QMessageBox.warning(self, "Cannot open Note", str(error))
+                return
+            self._note_window.destroyed.connect(self._note_closed)
+        window = self._note_window
+        if window.isMinimized():
+            window.showNormal()
+        else:
+            window.show()
+        window.raise_()
+        window.activateWindow()
+
+    def _note_closed(self, *_):
+        self._note_window = None
 
     def _update_menu_icon(self, theme):
         colour = QColor("#18181b" if theme == "light" else "#e7e0eb")
@@ -459,10 +489,15 @@ class MainWindow(QMainWindow):
         self._refresh_log_output(theme)
         if self._help_window is not None:
             self._help_window.apply_help_theme(theme)
+        if self._note_window is not None:
+            self._note_window.apply_note_theme(theme)
         for instances in self.loaded_components.values():
             for widget in instances:
                 apply_theme(widget, theme)
                 style_titlebar(widget, theme)
+                apply_note_theme = getattr(widget, "apply_workbook_note_theme", None)
+                if callable(apply_note_theme):
+                    apply_note_theme(theme)
 
     def unload_component(self, component_id):
         instances = list(self.loaded_components.get(component_id, []))
@@ -481,6 +516,10 @@ class MainWindow(QMainWindow):
 
     def unload_all_components(self):
         windows = [widget for items in tuple(self.loaded_components.values()) for widget in tuple(items)]
+        for widget in windows:
+            require_note_closed = getattr(widget, "require_workbook_note_closed", None)
+            if callable(require_note_closed) and not require_note_closed():
+                return False
         decisions = []
         for widget in windows:
             document = getattr(widget, "document", None)
@@ -643,7 +682,13 @@ class MainWindow(QMainWindow):
         return component
 
     def closeEvent(self, event):
+        if self._note_window is not None and not self._note_window.flush_changes():
+            event.ignore()
+            return
         if self.unload_all_components():
+            if self._note_window is not None and not self._note_window.close():
+                event.ignore()
+                return
             if self._help_window is not None:
                 self._help_window.close()
             if self._shell_splitter_moved:

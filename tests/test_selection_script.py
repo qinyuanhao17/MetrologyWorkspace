@@ -281,10 +281,10 @@ class SelectionScriptTests(unittest.TestCase):
             target = root / "export"
             outputs = export_spectra(paths, target)
             self.assertEqual([p.relative_to(target).as_posix() for p in outputs],
-                             ["sources/A/same.sme", "sources/B/same.sme"])
+                             ["A/same.sme", "B/same.sme"])
             with self.assertRaisesRegex(ValueError, "overwrite"):
                 export_spectra(paths, target)
-            self.assertEqual(outputs[0].read_bytes(), paths[0].read_bytes())
+            self.assertEqual([p.read_bytes() for p in outputs], [p.read_bytes() for p in paths])
             with self.assertRaisesRegex(ValueError, "unavailable"):
                 export_spectra([paths[0], root / "missing.sme"], root / "missing-output")
             self.assertFalse((root / "missing-output").exists())

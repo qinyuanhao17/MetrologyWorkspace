@@ -316,7 +316,7 @@ class SpectraWorkbookTests(unittest.TestCase):
                 files = list(target.rglob("*.sme"))
                 self.assertEqual(len(files), 2)
                 for source in (result.spectra[0], result.spectra[-1]):
-                    output = target / root.name / source.path.relative_to(root)
+                    output = target / source.path.relative_to(root)
                     self.assertEqual(output.read_bytes(), source.path.read_bytes())
                 self.assertEqual(len(load_folder(target).spectra), 2)
                 self.assertIn("Export Succeeded√", viewer.export_dialog.status_label.text())

@@ -578,7 +578,7 @@ class GroupControls(QWidget):
         self.group_order_button.setEnabled(not mark2)
         if mark2:
             matched = (sum(any(values) for values in self.plan.mark2_labels) if self.plan is not None else 0)
-            self.status.setText(self.status.text() + f"\nMark2: {len(self.state['mark2']['records']):,} imported records · "
+            self.status.setText(self.status.text() + f"\nMark2: {len(self.state['mark2']['records']):,} label records · "
                                 f"{matched:,}/{len(self.raw):,} Raw rows with selected labels. "
                                 "Set fields and order in Groups → Manage groups Mark2.")
             if not self.state["mark2"]["records"] or not self.state["mark2"]["selected"]:
@@ -619,7 +619,8 @@ class GroupControls(QWidget):
     def manage_mark2(self):
         from .mark2_ui import Mark2Dialog
         if not self.state["mark2_enabled"] or not self.state["mark2"]["columns"]:
-            QMessageBox.information(self, "Manage groups Mark2", "Enable Mark2 and import its Excel in Group settings first.")
+            QMessageBox.information(self, "Manage groups Mark2",
+                                    "Enable Mark2 and bind labels in the Mark2 table or import its Excel first.")
             return
         dialog = Mark2Dialog(self.state["mark2"], self)
         if dialog.exec() == QDialog.DialogCode.Accepted:

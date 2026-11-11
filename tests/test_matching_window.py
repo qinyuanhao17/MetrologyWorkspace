@@ -600,7 +600,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(window.order_source.text(), "3 rows × 4 columns")
         self.assertEqual(window.reference_source.text(), "3 rows × 1 columns")
         self.assertEqual(window.raw_source.text(), "3 rows × 2 columns")
-        self.assertEqual(window.mapping_size.text(), "1 rows × 12 columns")
+        self.assertEqual(window.mapping_size.text(), "1 rows × 13 columns")
         self.assertNotIn("Clipboard", window.order_source.text())
         self.assertNotIn("Clipboard", window.reference_source.text())
         self.assertNotIn("Clipboard", window.raw_source.text())
@@ -1055,7 +1055,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(set(page.plot_groups), {("All:0", "CD"), ("All:1", "CD"),
                                                 ("All:0", "Thickness"), ("All:1", "Thickness")})
         window.match_type.setCurrentText("TEM")
-        self.assertEqual(window.results_tabs.indexOf(page), -1)
+        self.assertGreaterEqual(window.results_tabs.indexOf(page), 0)
 
     def test_single_wafer_draw_indicators_are_centred_and_rows_are_blue_in_both_themes(self):
         from metrology_app.settings import apply_theme
@@ -1137,7 +1137,7 @@ class MatchingWindowTests(unittest.TestCase):
             centre = button.mapTo(header.viewport(), button.rect().center())
             self.assertEqual(header.logicalIndexAt(centre), column)
             self.assertTrue(header.viewport().rect().contains(button.geometry()))
-        view.horizontalScrollBar().setValue(0)
+        view.horizontalScrollBar().setValue(view.horizontalScrollBar().maximum())
         APP.processEvents()
         self.assertTrue(button.isHidden(), "Do not leave a clipped header button outside Draw")
         view.scrollTo(cell)
@@ -2002,6 +2002,36 @@ class MatchingWindowTests(unittest.TestCase):
                 reopened.close()
                 reopened.deleteLater()
                 APP.processEvents()
+
+    def test_type1_bias_map_uses_absolute_limit_and_draws_pad_grid(self):
+        window = self.window
+        window.result_mode.setCurrentText("Final")
+        window.set_reference_frame(pd.DataFrame({"CD Reference": [10., 20., 30., 40.]}))
+        window.set_raw_frame(pd.DataFrame({
+            "Wafer ID": ["W1"] * 4, "Lot ID": ["L1"] * 4, "PAD Name": ["P1"] * 4,
+            "Die Seq": [1, 2, 3, 4], "FIELD X": [0, 1, 0, 1], "FIELD Y": [0, 0, 1, 1],
+            "X (mm)": [0, 20, 0, 20], "Y (mm)": [0, 0, 30, 30],
+            "CD": [10., 20.5, 29., 40.],
+        }))
+        button = window.mapping_table.cellWidget(0, 12)
+        self.assertFalse(button.isEnabled())
+        window.run_analysis()
+        self.assertTrue(button.isEnabled())
+        button.click()
+        die_map = window._bias_die_maps["CD"]
+        QTest.qWait(40)
+        plot = die_map.wafer_plots[("W1", "L1", "P1")]
+        self.assertEqual(die_map._checked_keys, {"source-row:2"})
+        self.assertEqual(die_map.point_count, 4)
+        self.assertEqual((plot.pad_layout.width_mm, plot.pad_layout.height_mm), (20, 30))
+        self.assertTrue(len(plot.pad_edges.getData()[0]))
+        self.assertFalse(die_map.build_selection_menu().actions()[0].isEnabled())
+        spin = window.mapping_table.cellWidget(0, 10).findChild(QDoubleSpinBox)
+        spin.setValue(.75)
+        self.assertIs(die_map.wafer_plots[("W1", "L1", "P1")], plot)
+        spin.setValue(1)
+        self.assertEqual(die_map.point_count, 0)
+        self.assertEqual(die_map.empty.text(), "No out-of-range points.")
 
     def test_bias_limit_updates_mapping_count_without_redrawing_and_reopens(self):
         window = self.window
@@ -2930,7 +2960,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(headers, [
             "Use", "Parameter", "Reference column", "Raw Data column",
             "Slope", "Intercept", "R²", "Valid pairs", "Match type", "Result mode",
-            "Bias limit ±", "Bias out of range",
+            "Bias limit ±", "Bias out of range", "Die Map",
         ])
         self.assertEqual(self.window.mapping_table.item(0, 7).text(), "3")
         self.assertEqual(self.window.mapping_table.item(0, 8).text(), "KLA")
@@ -5062,7 +5092,7 @@ class MatchingWindowTests(unittest.TestCase):
                 reopened.deleteLater()
                 APP.processEvents()
 
-    def test_nova_shows_single_wafer_slope_and_r_squared_but_tem_does_not(self):
+    def test_nova_and_tem_show_single_wafer_metrics_with_draw_first(self):
         reference = pd.DataFrame({
             "Wafer ID": ["W1"] * 3 + ["W2"] * 3,
             "CD Reference": [3.0, 5.0, 7.0, 1.0, 4.0, 7.0],
@@ -5086,7 +5116,11 @@ class MatchingWindowTests(unittest.TestCase):
 
         self.window.match_type.setCurrentText("TEM")
         self.window.run_analysis()
-        self.assertTrue(self.window.plot_groups["CD"]["wafer_card"].isHidden())
+        group = self.window.plot_groups["CD"]
+        self.assertFalse(group["wafer_card"].isHidden())
+        self.assertEqual(group["wafer_model"].rowCount(), 2)
+        column = group["wafer_model"].frame.columns.get_loc("Draw")
+        self.assertEqual(group["wafer_view"].horizontalHeader().visualIndex(column), 0)
     def test_exports_native_excel_and_excel_with_embedded_matplotlib_after_analysis(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")

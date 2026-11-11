@@ -6,7 +6,6 @@ import unittest
 from dataclasses import replace
 
 import numpy as np
-import pyqtgraph as pg
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -278,10 +277,8 @@ class SpectraMapWindowTests(unittest.TestCase):
         self.settle_page(3)
         plot = self.window.wafer_plots[("W1", "L1", "P1")]
         self.assertEqual(plot.title_label.text(), "W1 · L1 · P1")
-        outline = [item for item in plot.plot.listDataItems()
-                   if isinstance(item, pg.PlotDataItem)]
-        self.assertEqual(len(outline), 1)
-        x, y = outline[0].getData()
+        self.assertIn(plot.outline, plot.plot.listDataItems())
+        x, y = plot.outline.getData()
         self.assertAlmostEqual(float(np.max(np.hypot(x, y))), plot.wafer_diameter / 2)
         self.assertEqual(plot.labels[0].toPlainText(), "1")
 

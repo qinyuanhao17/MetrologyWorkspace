@@ -53,6 +53,51 @@ def _identity(values, columns):
     return tuple(_value(v, _coordinate(c)) for v, c in zip(values, columns))
 
 
+def bind_labels(raw, labels, previous=None):
+    """Bind a complete pasted label table to the current original Raw order."""
+    from .wafer_id_mapping import original_raw
+    raw = original_raw(raw)
+    if raw.empty:
+        raise ValueError("Paste Raw Data before binding Mark2 labels.")
+    columns = [text(name) for name in labels.columns]
+    if not columns or any(not name for name in columns) or len(set(columns)) != len(columns):
+        raise ValueError("Mark2 needs distinct, non-empty label names in the first row.")
+    if len(labels) != len(raw):
+        raise ValueError(f"Mark2 has {len(labels):,} label rows. Raw Data has {len(raw):,} rows. "
+                         "Paste one label row for every Raw Data row, excluding the header.")
+    identity_columns = list(raw.columns[:8])
+    if (len(identity_columns) != 8 or any(not text(name) for name in identity_columns)
+            or len({normalized(name) for name in identity_columns}) != 8):
+        raise ValueError("The first eight Raw Data columns must have distinct, non-empty identity headers.")
+
+    records, seen = [], set()
+    identities = raw.iloc[:, :8].itertuples(index=False, name=None)
+    for row, (identity, values) in enumerate(zip(identities, labels.itertuples(index=False, name=None)), 1):
+        identity = [text(value) for value in identity]
+        values = [text(value) for value in values]
+        for name, value in zip(columns, values):
+            if not value:
+                raise ValueError(f'Mark2 label "{name}" is empty at Raw Data row {row:,}.')
+        key = _identity(identity, identity_columns)
+        if not any(identity) or key in seen:
+            raise ValueError(f"Raw Data row {row:,} has a duplicate or empty eight-column identity.")
+        seen.add(key)
+        records.append({"identity": identity, "values": values})
+    previous = previous or config()
+    selected = [name for name in previous["selected"] if name in columns]
+    selected.extend(name for name in columns if name not in previous["columns"])
+    return config({"identity_columns": identity_columns, "columns": columns, "records": records,
+                   "selected": selected or columns, "order_mode": previous["order_mode"]})
+
+
+def labels_table(raw, state):
+    """Display all imported fields in original Raw order, including unmatched rows."""
+    columns = state["columns"]
+    if not columns or raw.empty:
+        return pd.DataFrame(columns=columns)
+    return pd.DataFrame(labels_for_raw(raw, {**state, "selected": columns}), columns=columns)
+
+
 def import_excel(path, sheet=0):
     from openpyxl import load_workbook
     book = load_workbook(path, read_only=True, data_only=True)

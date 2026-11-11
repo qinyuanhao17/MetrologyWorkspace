@@ -17,6 +17,7 @@ import sqlite3
 import tempfile
 
 from .workbook_type import normalize_workbook_type
+from .notes import WORKBOOK_NOTES_SCOPE, workbook_note_records
 
 FORMAT_VERSION = 1
 WORKSPACE_TYPES = {"match_workbook", "wafer_map", "dynamic", "correlation_trend", "auto_weighting", "spectra_viewer"}
@@ -122,6 +123,8 @@ def _validate(snapshot):
         raise ValueError("This WKB is missing its Match settings.")
     if snapshot.workspace_type == "match_workbook":
         normalize_workbook_type(snapshot.states["match"].get("workbook_type", "type1"))
+        if WORKBOOK_NOTES_SCOPE in snapshot.states:
+            workbook_note_records(snapshot.states[WORKBOOK_NOTES_SCOPE])
         from .id_matching import matching_keys
         matching_keys(snapshot.states["match"].get("matching_keys"))
         from .wafer_id_mapping import config as wafer_mapping_config

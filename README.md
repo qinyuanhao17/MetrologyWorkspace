@@ -137,13 +137,13 @@ Windows **v5.1.0** 提供 Setup 安装包和便携 ZIP，见 [发布说明](docs
 
 **Open Die Map** 显示所有量测位点，已勾选为蓝色，未勾选为浅灰色。轮廓、位点、选中圈与 Test Flag 小旗开启抗锯齿。左键在单张 Die Map 内拖动矩形选中框内点，Ctrl/Shift 框选追加，单击空白取消选择；双击位点切换其光谱勾选。勾选仅更新现有位点的颜色，不重建整页或改变图尺寸。右键 **Check Unselected / Uncheck Unselected** 仅作用于右键所在晶圆。**Apply Check To Similar Wafer** 和 **Apply Flag to Similar Wafer** 分别复制勾选及旗标，要求 Die 编号集合相同，且每个对应 Die 的 X、Y 绝对差分别小于 **0.4 mm**；缺失/冲突坐标或来源混合状态会明确提示。图块尺寸固定，窗口缩小时用滚动条浏览；窗口与双击打开的光谱图可置顶悬浮。
 
-树右键 **Export Checked Spectra…** 按原 Folder 层级复制已有 SME 原文件，不生成或改写 SME。导出子窗口遇到不可用原件时支持重试或跳过，最后列出未导出文件；目标重名不覆盖。成功显示绿色加粗 **Export Succeeded√**，失败显示红色加粗 **Export Failed×**。
+树右键 **Export Checked Spectra…** 复制已有 SME 原文件，保留所选文件共同源目录下的子目录，不生成或改写 SME。导出子窗口遇到不可用原件时支持重试或跳过，最后列出未导出文件；目标重名不覆盖。成功显示绿色加粗 **Export Succeeded√**，失败显示红色加粗 **Export Failed×**。
 
 Match Workbook 顶部提供 **Open Spectra Viewer** 子窗口入口，可在菜单中新建、命名、勾选和删除多个光谱窗口。该入口为工作簿级，Preview/Final 共用入口，Card 不修改光谱数据。**Options → Spec Save Type** 提供互斥的 **Embed Spectra Data**（默认完整嵌入）和 **Spectra Paths Only**（仅原 SME 路径）两种保存模式，子窗口随 `.mwkb` 保存。切换为路径模式再保存，会从新 WKB 中移除嵌入采样并缩小文件；正常 `.bak` 仍保留上一保存版本。路径模式依赖原 SME 位置，文件缺失时明确提示并保留引用及勾选/旗标；完整嵌入模式可在原 SME 移动后继续查看。勾选、多选、Filter By、Color By、BSL、分析模式、隐藏图例、视图开关、手动坐标范围和分隔条都随文件恢复。子窗口中的 **Save Match Workbook / Ctrl+S** 保存所属工作簿；关闭子窗口只保留会话草稿，父窗口统一处理未保存提示。保存后标题显示对应 WKB 或独立 `.spec` 名称。
 
 Spectra Viewer 也支持独立的 **`.spec`** 文件：File → **Save Spectra / Save Spectra As…** 按当前 Spec Save Type 保存光谱或路径及设置，**Open Spectra File…** 重新打开；主界面的 Open Workspace 和拖入文件也能识别 `.spec`。Match WKB 子窗口中，**Ctrl+S / Ctrl+Shift+S 始终保存或另存所属 Match WKB**，`.spec` 通过菜单单独保存；独立 Spectra Viewer 中，这两个快捷键保存或另存 `.spec`。保存 `.spec` 不会同时保存父 WKB。
 
-WKB 子窗口的 **Spectra Info** 按 Raw Data 的 Original row order 输出当前勾选光谱，有带/不带 Test Flag 两个 tab。按 Wafer ID、Lot、PAD、Die 和 FIELD X/Y 匹配，Time 来自 SME，Type 为 Accuracy，Reference 列沿用原列名和顺序；隐藏记录不参与复制或 CSV 导出。**Options** 中的文件名时间戳校验默认开启，与 SME 内时间不符或来源不匹配会提示并阻止导出。**Data → Set Test Flag** 支持按身份字段分组、搜索、添加整数旗标和批量分配，0 为 Fallback。Die Map 也可给选中点设置旗标：1 绿色、−1 红色，0 不显示；点的蓝/灰色仍只表示勾选状态。Test Flag 与 Marks 下拉框都避免滚轮误改。
+WKB 子窗口的 **Spectra Info** 按 Raw Data 的 Original row order 输出当前勾选光谱，有带/不带 Test Flag 两个 tab。按 Wafer ID、Lot、PAD、Die 和 FIELD X/Y 匹配，Time 来自 SME，Type 为 Accuracy，Reference 列沿用原列名和顺序；隐藏记录不参与复制或 CSV 导出。编辑工作簿的 Raw 或 Ref，或切换 Preview/Final 时，已打开的表会自动刷新。**Options** 中的文件名时间戳校验默认开启，与 SME 内时间不符或来源不匹配会提示并阻止导出。**Data → Set Test Flag** 支持按身份字段分组、搜索、添加整数旗标和批量分配，0 为 Fallback。Die Map 也可给选中点设置旗标：1 绿色、−1 红色，0 不显示；点的蓝/灰色仍只表示勾选状态。Test Flag 与 Marks 下拉框都避免滚轮误改。
 
 顶部 **Color By** 可选 **Wafer** 或 **SME Name**。Wafer 按 Wafer ID、Lot、PAD 的完整组合区分颜色；SME Name 按具体光谱文件区分颜色，重复文件名仍按源路径区分。两种方式都为不同 Channel 分配不同颜色，各图、图例与悬浮图保持一致。勾选、分类、缩放及切回已有模式时保留已分配颜色；双击图例只切换对应着色组的显示。优先使用 Tableau Category10，较多组合扩展色相、饱和度和亮度，避免循环复用相同 RGB。3σ 每条曲线汇总多个文件，因此仍按 Wafer/通道着色；此时 Color By 显示 Wafer 并禁用，离开 3σ 后恢复原选择。物理 Channel 数量统计不受着色分组影响。
 
@@ -167,7 +167,7 @@ Legend 区域的右键提供 **Show All / Hide All / Select Channel**，可跨�
 
 读取在后台进行，进度提示限制刷新频率，长文件名和加载控件不会挤压已有绘图区。TSD 加密封装单独标记为 encrypted，并提示从授权环境导出解密后的 SME 副本；其余可读取文件照常载入。重复 Add 不累积相同错误或重建未变化的曲线，保留现有缩放。密集绘图的数据准备与布局重绘逐图处理，曲线图像由两个后台进程绘制；窗口缩放时保留已有曲线预览，后台完成后换成新尺寸的清晰图像。连续更改只发布最新数据和坐标版本，取消勾选或关闭窗口会取消过期工作；高亮保持原线宽且不改变轴范围。全量图像仍需后台更新时间，具体耗时与输入停顿分别记录在 [读取与画质验证](docs/validation/spectra-load-quality-2026-11-02.md)。
 
-**Open Die Map** 打开独立非模态窗口，每张图对应一个 Wafer ID、Lot、PAD 组合，标题包含这三个字段，默认 12 张图一页；图块保持正方形，并沿用按 X/Y 范围识别常见 100/200/300 mm 晶圆的规则。图内只绘制晶圆轮廓、全部有效坐标位点和 Die 编号，不插值或绘制色阶面。点击点会同步选择树中的 Spectrum、突出对应图例和高亮曲线。
+**Open Die Map** 打开独立非模态窗口，每张图对应一个 Wafer ID、Lot、PAD 组合，标题包含这三个字段，默认 12 张图一页；图块保持正方形，并沿用按 X/Y 范围识别常见 100/200/300 mm 晶圆的规则。图内绘制晶圆轮廓、有效量测位点和 Die 编号。Field X/Y 和毫米坐标足以确定间距时，浅灰 PAD 网格会填充晶圆轮廓。点击点会同步选择树中的 Spectrum、突出对应图例和高亮曲线。
 
 不修改原光谱数据，不做插值或启用 OpenGL。BBSE 仿真样本保留在 `Simulation` 树分组中，不虚构 Die Map 位点；未知结构进入 `Load errors`。Instrument、Mode、SE3/SE3.5 等版本字段仅作信息展示，按实际通道数组结构读取，波长点数由各通道自身数据决定；支持已验证的 UVSE、IRSE 和 LDSR-P 数据，TSD 加密文件仍需授权环境提供可读副本。
 
@@ -204,6 +204,8 @@ ID 内部按字段元组比较，避免字符串拼接冲突。身份文本保�
 ### Type2：Mark2 多级横轴
 
 Group settings 的 **Export Mark2 Excel…** 可导出已导入的完整分类表，保留前八列身份、第九列空白及第十列起全部标签（包括未勾选用于绘图的列），可再次导入。仅在勾选 Mark2 且已有导入分类记录时启用；从 WKB 恢复的已导入分类同样可导出。
+
+在 **Groups → Group settings** 勾选 **Mark2** 后，原 **Order** 区域会显示 **Mark2** 标签表。可直接粘贴多列标签，第一行是列名，下面的数据按当前 Raw Data 的原始行序排列。点击 **Confirm binding** 时，每列必须与 Raw Data 的行数一致，每个标签格都必须有值。校验通过后按 Raw 前八列的身份绑定标签，未确认的编辑保留在表中。通过 **Import Mark2 Excel…** 导入时，Mark2 表按 Raw Data 的原始行序显示匹配到的全部标签列。
 
 在 **Groups → Group settings** 勾选 **Mark2**，点击 **Import Mark2 Excel…** 导入标签表。表格第 1 行是表头，前八列复制 Raw Data 的身份列，第九列留空，第十列起每列为一种标签（如 Tool、Product、Lot、Slot、Die Seq）。有多个工作表时可选择导入哪个表。标签通过前八列的组合身份关联 Raw Data，导入顺序可不同；重复身份会提示，Raw 中找不到或身份重复的行保留数据点、标签留空。身份和标签中的文本前导零会保留。Mark2 与 Head、Mark 互斥；切换时保留各自配置，旧文件默认不启用 Mark2。
 
@@ -254,8 +256,9 @@ Card 的定义为：
 
 - **Preview** 会把新生成的 slope/intercept 应用到当前 Raw Data，得到 Card Value，再用它绘制 Trend、Bias、Wafer Map 和 Radius Plot。
 - **Final** 使用自己的 Raw Data，假定这些值已经由 OCD 软件应用 Card，不会复用 Preview Raw Data，也不会重复加 Card；Trend、Bias、Wafer Map 和 Radius Plot 都直接使用 Final 输入值。
+- 参数映射表的 **Show Die Map** 打开只读超限图。红点表示绝对 Bias 大于该参数的限值，灰点是同片晶圆上的其他量测点。图中使用 Raw 表的毫米坐标或已加载、缓存的光谱坐标，状态栏显示无法定位的超限行数。
 - `Bias` 是 `Evaluated Value - Reference`；`Bias %` 是 `(Evaluated Value - Reference) / Reference × 100%`。两者可以同时显示，Reference 为 0 时百分比留空，不猜测替代值。
-- KLA/NOVA 的 Single-wafer tab 使用 Raw Data 的 Wafer ID、Lot ID 和 PAD Name，并沿用 Wafer Map 的默认身份规则；只有真正变化的 Lot/PAD 才参与分组，Die Seq 不单独拆组。多个身份字段分行显示，避免横轴文字重叠。TEM 同样支持 Head/Mark 分组和 Data selection（Group settings、Order 表都可用），但结果区不显示 **Single-wafer metrics** 与 **Group plots** 两个 tab。
+- Type1 的 KLA/NOVA/TEM 单片指标页 使用 Raw Data 的 Wafer ID、Lot ID 和 PAD Name，并沿用 Wafer Map 的默认身份规则；只有真正变化的 Lot/PAD 才参与分组，Die Seq 不单独拆组。多个身份字段分行显示，避免横轴文字重叠。TEM 也提供 **Single-Wafer metrics**，并在启用分组时显示 **Group plots**。Type1 的 **Draw** 勾选框在单片指标表的第一列。
 - Match 始终显示线性拟合，不再提供重复的开关；图名使用映射的 Raw Data column，横轴是 PMISH、纵轴是当前 Match Type。参数名与两行拟合公式/R² 使用绘图区上方的独立标题栏，公式位于参数名右侧且不会覆盖曲线或数据点。Match、Trend、Bias 和单片指标图统一显示完整四边坐标轴，并与 Correlation and Trend 一样支持 Ctrl+滚轮缩放、左键拖框放大、右键平移和双击自动适配；不按 Ctrl 的滚轮会继续滚动外层页面。Trend 中 PMISH 使用蓝色实线圆点，当前 Match Type 使用橙色实线圆点，且不重复显示无意义的纵轴名。Bias 使用蓝色点线并按原始数值显示 `Bias (nm)` 和 `Bias (%)`，禁用自动 SI 缩放，不再出现 ×0.001 或百分比系数。分析层仍按需生成每个参数的派生数据，界面只保留经过极值采样的绘图数组，不复制 50 份完整结果表。
 
 **Save Workbook** 保存 Reference、Preview/Final 独立 Raw Data、参数映射、Bias 显示选择、分析设置、分隔栏布局、参数顺序，以及三个分析工具中实际显示和编辑的数据及配置。各阶段勾选的 wafer、parameter 和已确认的绘图选择也一起写入 `.wkb`，无需逐个子工具另存。KLA/NOVA 在尚无 Map 快照时由相应 Raw Data 初始化；TEM 需输入独立 Map 数据。已保存的 Preview/Final 分别恢复，不互相覆盖。

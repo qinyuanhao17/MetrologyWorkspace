@@ -185,6 +185,9 @@ class SpectraInfoWorkflowTests(unittest.TestCase):
         self.assertNotIn("Test Flag", info.table_frame())
         self.assertEqual(info.table_frame()["Die Seq"].tolist(), [2])
         self.assertEqual(info.result.source_rows, (0,))
+        owner.set_reference_frame(pd.DataFrame({"First": ["8.100", "9.200"], "Second": ["3.450", "4.500"]}))
+        QTest.qWait(20)
+        self.assertEqual(info.result.with_flags["Second"].tolist(), ["3.450"])
         viewer.set_test_flags({sources[1].key: 1})
         QTest.qWait(20)
         def configure_flags():
@@ -204,7 +207,7 @@ class SpectraInfoWorkflowTests(unittest.TestCase):
         info.copy_button.click()
         copied = pd.read_csv(StringIO(APP.clipboard().text()), sep="\t", dtype=str)
         self.assertEqual(copied["Die Seq"].tolist(), ["2"])
-        self.assertEqual(copied["Second"].tolist(), ["3.400"])
+        self.assertEqual(copied["Second"].tolist(), ["3.450"])
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "info.csv"
             info.export_csv(path)

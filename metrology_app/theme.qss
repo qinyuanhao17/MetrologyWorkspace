@@ -41,8 +41,35 @@ QFrame#sectionSeparator { background: #2b2133; border: none; max-height: 1px; }
 QToolBar#mainToolbar { background: #08050d; border: none; border-bottom: 1px solid #281e30; spacing: 7px; padding: 8px 12px; min-height: 42px; }
 QToolBar#mainToolbar QToolButton { color: #b9adbf; background: #140d1c; border: 1px solid #302538; border-radius: 6px; padding: 7px 12px; }
 QToolBar#mainToolbar QToolButton:hover { color: #f4f0f7; border-color: #8050b2; background: #21152f; }
-QToolButton#toolbarMenu, QToolButton#toolbarHelp { padding: 6px 10px; }
+QToolButton#toolbarMenu, QToolButton#toolbarHelp, QToolButton#toolbarNote { padding: 6px 10px; }
 QToolButton#toolbarMenu::menu-indicator { image: none; width: 0; }
+QWidget#noteSidebar, QWidget#noteTablePanel, QListWidget#noteList { background: #100b17; }
+QWidget#noteWorkspace, QTextEdit#noteEditor { background: #0d0814; }
+QSplitter#noteSidebarSplitter::handle, QSplitter#noteTableSplitter::handle { background: #302538; }
+QLabel#noteHeading { color: #f4f0f7; font-size: 19px; font-weight: 600; padding-left: 6px; }
+QLineEdit#noteTitle { background: transparent; border: none; padding: 2px 8px; color: #f4f0f7; placeholder-text-color: #9b8fa7; font-size: 23px; font-weight: 600; }
+QListWidget#noteList, QTextEdit#noteEditor { border: none; outline: none; }
+QFrame#noteToolGroup, QPushButton#noteAction, QPushButton#noteTablesMenu, QToolButton#noteDeleteTable { background: #160e21; border: 1px solid #302538; border-radius: 17px; }
+QPushButton#noteAction { min-height: 20px; padding: 5px 12px; }
+QPushButton#noteTablesMenu { min-height: 20px; padding: 5px 25px 5px 12px; }
+QPushButton#noteTablesMenu::menu-indicator { image: url("__ARROW_DOWN__"); subcontrol-origin: padding; subcontrol-position: right center; right: 9px; width: 9px; height: 6px; }
+QToolButton#noteDeleteTable { min-width: 18px; min-height: 18px; padding: 6px; }
+QPushButton#noteAction:hover, QPushButton#noteTablesMenu:hover, QToolButton#noteDeleteTable:hover { background: #2c1a3e; border-color: #9b6ec7; }
+QPushButton#noteAction:pressed, QPushButton#noteTablesMenu:pressed, QToolButton#noteDeleteTable:pressed { background: #452a5e; }
+QPushButton#noteAction:disabled, QPushButton#noteTablesMenu:disabled { background: #100a17; color: #81738e; }
+QToolButton#noteFormatButton, QPushButton#noteFormatButton { background: transparent; border: none; border-radius: 11px; min-width: 17px; min-height: 22px; padding: 2px 6px; }
+QToolButton#noteFormatButton:hover, QPushButton#noteFormatButton:hover, QToolButton#noteFormatButton:checked { background: #39234e; }
+QToolButton#noteFormatButton:checked { color: #f4f0f7; }
+QToolButton#noteFormatButton:disabled, QPushButton#noteFormatButton:disabled { background: transparent; color: #81738e; }
+QFontComboBox#noteFontPicker, QSpinBox#noteFontSize { background: transparent; border: 1px solid transparent; border-radius: 10px; min-height: 20px; padding: 2px 6px; }
+QFontComboBox#noteFontPicker:focus, QSpinBox#noteFontSize:focus { border-color: #9c6eca; }
+QFontComboBox#noteFontPicker QLineEdit, QSpinBox#noteFontSize QLineEdit { background: transparent; border: none; min-height: 0; padding: 0; }
+QFontComboBox#noteFontPicker:disabled, QFontComboBox#noteFontPicker:disabled QLineEdit { color: #81738e; }
+QSpinBox#noteFontSize::up-button, QSpinBox#noteFontSize::down-button { subcontrol-origin: border; width: 16px; border: none; background: transparent; }
+QSpinBox#noteFontSize::up-button { subcontrol-position: top right; }
+QSpinBox#noteFontSize::down-button { subcontrol-position: bottom right; }
+QSpinBox#noteFontSize::up-arrow { image: url("__ARROW_UP__"); width: 9px; height: 6px; }
+QSpinBox#noteFontSize::down-arrow { image: url("__ARROW_DOWN__"); width: 9px; height: 6px; }
 QMenuBar { background: #0d0814; color: #ddd5e5; padding: 2px 4px; }
 QMenuBar::item { background: transparent; padding: 6px 10px; border-radius: 6px; }
 QMenuBar::item:selected { background: #2f1d42; color: #f4f0f7; }
