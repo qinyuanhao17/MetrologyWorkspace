@@ -1,0 +1,74 @@
+{
+  "scope": "Focused validation only; full suite deferred by user. AutoWeighting not run.",
+  "focused_tests": {
+    "count": 30,
+    "seconds": 3.992,
+    "passed": true,
+    "log": ".cache/ref-formats-final.log"
+  },
+  "real_file": {
+    "raw_rows": 17199,
+    "cd_rows": 1911,
+    "chips": 91,
+    "mp_names": [
+      "SN-X-MP1",
+      "SN-X-3S",
+      "CD-MAX",
+      "CD-MIN",
+      "CD-RANGE",
+      "SN-Y-MP1",
+      "SN1-MD-MP1",
+      "SN1-NM-MP1",
+      "SN1-MAX",
+      "SN1-MIN",
+      "SN1-PW",
+      "SN2-MD-MP1",
+      "SN2-NM-MP1",
+      "SN2-MAX",
+      "SN2-MIN",
+      "SN2-PW",
+      "S2MD-S1MD",
+      "S2MD-S1NM",
+      "S2NM-S1MD",
+      "S2NM-S1NM",
+      "MEAN"
+    ],
+    "pivot_shape": [
+      91,
+      725
+    ],
+    "results_shape": [
+      91,
+      32
+    ],
+    "result_values_verified": 1911,
+    "duplicates": 0,
+    "missing_pairs": 0,
+    "wafer_and_lot_blank": true,
+    "source_sha256": "dc851920501be751a1c5629c62409e3ed8c8190b78d1424fcea880d2ab645214",
+    "source_unchanged": true,
+    "ui_summary_complete": true,
+    "xlsx": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\MyCodes\\MetrologyWorkspace\\.cache\\cdsem-compatibility-validation\\output\\Reference_Summary_Output\\CDSEM1_20261112_161317_618021\\CDSEM1_cd_sem_ref_560187f0.xlsx",
+    "csv": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\MyCodes\\MetrologyWorkspace\\.cache\\cdsem-compatibility-validation\\output\\Reference_Summary_Output\\CDSEM1_20261112_161317_618021\\CDSEM1_cd_sem_ref_560187f0_Results.csv"
+  },
+  "legacy": {
+    "source_count": 13,
+    "baseline_commit": "f441c0e",
+    "all_original_records_unchanged": true,
+    "csv_excel_equivalence_count": 13,
+    "archive_sha256": "626cb526310599a9b2f549ed0de6655b0d76fa16e8d1a32173723fe894188efc",
+    "archive_unchanged": true
+  },
+  "real_cli": {
+    "output_dir": ".cache\\cdsem-compatibility-validation\\cli-output\\Reference_Summary_Output\\CDSEM1_20261112_162616_312629",
+    "channel_count": 21,
+    "input_rows": 1911,
+    "kept_rows": 1911,
+    "duplicates": 0,
+    "error_count": 0,
+    "parsed_files": 1,
+    "site_count": 91,
+    "mp_count": 21
+  },
+  "numerics": "Raw source XML precision retained; all 1911 exported Results equal the original Excel numeric values; no rounding."
+}

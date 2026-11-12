@@ -89,12 +89,12 @@ class SpectraInfoWorkflowTests(unittest.TestCase):
 
         self.assertTrue(owner.reference_model.setData(owner.reference_model.index(1, 0), "18.2500"))
         QTest.qWait(20)
-        for model in info.models:
+        for model in info.models[:2]:
             self.assertEqual(model.frame["Depth"].tolist(), ["18.2500", "9.200"])
 
         self.assertTrue(owner.reference_model.setData(owner.reference_model.index(0, 0), "Revised Depth"))
         QTest.qWait(20)
-        for model in info.models:
+        for model in info.models[:2]:
             self.assertIn("Revised Depth", model.frame)
             self.assertNotIn("Depth", model.frame)
 
@@ -158,7 +158,7 @@ class SpectraInfoWorkflowTests(unittest.TestCase):
         viewer.set_test_flags({updated.key: -1})
         QTest.qWait(20)
         self.assertFalse(info.problems)
-        for model in info.models:
+        for model in info.models[:2]:
             self.assertEqual(model.frame["Tool SN"].tolist(), ["A03-090", "Updated Tool"])
             self.assertEqual(model.frame["Time"].tolist(), ["20260408113211126", "20260408113209999"])
             self.assertEqual(model.frame["Revised Depth"].tolist(), ["18.2500", "19.7500"])
@@ -286,7 +286,7 @@ class SpectraInfoWorkflowTests(unittest.TestCase):
         self.assertEqual(errors, [])
         info = viewer.open_spectra_info()
         self.assertFalse(info.problems)
-        self.assertEqual(info.tabs.count(), 2)
+        self.assertEqual(info.tabs.count(), 3)
         self.assertNotIn("Test Flag", info.table_frame())
         self.assertEqual(info.table_frame()["Die Seq"].tolist(), [2])
         self.assertEqual(info.result.source_rows, (0,))

@@ -1,4 +1,4 @@
-"""CDSEM1: first-sheet-only CDSEM XLSX parser and MP_Name pivot.
+"""CDSEM1: CSV / first-sheet Excel CD parser and MP_Name pivot.
 
 No Excel SDK dependency: source worksheet is streamed from OOXML; pandas performs
 filtering/validation; output is written as standards-compliant OOXML by stdlib.
@@ -11,18 +11,17 @@ import os
 import shutil
 import uuid
 import zipfile
-import xml.etree.ElementTree as ET
 from collections import OrderedDict, Counter
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from posixpath import normpath
 from xml.sax.saxutils import escape
 
 import pandas as pd
 
 from .reference_merge import OUTPUT_FOLDER, check_cancel
+from .reference_input import SOURCE_EXTENSIONS, iter_first_sheet, iter_source_rows
 
 NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -73,73 +72,11 @@ def scan_workbooks(folder: str | Path) -> list[Path]:
     return sorted(files, key=lambda p: str(p).casefold())
 
 
-def _first_sheet_path(z: zipfile.ZipFile) -> tuple[str, str]:
-    root = ET.fromstring(z.read("xl/workbook.xml"))
-    sheets = root.find(TAG("sheets"))
-    if sheets is None or not list(sheets):
-        raise ValueError("Excel workbook does not contain a worksheet")
-    first = sheets[0]
-    rel_id = first.get("{" + REL + "}id")
-    relationship = ET.fromstring(z.read("xl/_rels/workbook.xml.rels"))
-    for link in relationship.findall("{" + PKG + "}Relationship"):
-        if link.get("Id") == rel_id:
-            if link.get("TargetMode") == "External":
-                raise ValueError("First worksheet points to an external resource")
-            target = link.get("Target", "").lstrip("/")
-            member = target if target.startswith("xl/") else normpath("xl/" + target)
-            if not member.startswith("xl/worksheets/") or member not in z.namelist():
-                raise ValueError("First worksheet XML not found")
-            return first.get("name", "Sheet1"), member
-    raise ValueError("First worksheet relationship not found")
-
-
-def _col_index(cell_address: str) -> int:
-    n = 0
-    for ch in cell_address.upper():
-        if not "A" <= ch <= "Z":
-            break
-        n = n * 26 + ord(ch) - ord("A") + 1
-    return n - 1
-
-
-def iter_first_sheet(path: str | Path, cancelled=None):
-    """Yield (sheet_name, Excel_row_number, {column_index: raw_value})."""
-    with zipfile.ZipFile(path) as z:
-        name, member = _first_sheet_path(z)
-        shared = []
-        if "xl/sharedStrings.xml" in z.namelist():
-            with z.open("xl/sharedStrings.xml") as f:
-                for _, elem in ET.iterparse(f, events=("end",)):
-                    if elem.tag == TAG("si"):
-                        shared.append("".join(t.text or "" for t in elem.iter(TAG("t"))))
-                        elem.clear()
-        with z.open(member) as stream:
-            for _, elem in ET.iterparse(stream, events=("end",)):
-                if elem.tag != TAG("row"):
-                    continue
-                check_cancel(cancelled)
-                values = {}
-                for cell in elem.findall(TAG("c")):
-                    index = _col_index(cell.get("r", ""))
-                    if index < 0:
-                        continue
-                    typ = cell.get("t", "")
-                    val = cell.find(TAG("v"))
-                    if val is not None:
-                        raw = val.text or ""
-                        if typ == "s" and raw:
-                            raw = shared[int(raw)]
-                    else:
-                        inline = cell.find(TAG("is"))
-                        raw = "".join(t.text or "" for t in inline.iter(TAG("t"))) if inline is not None else ""
-                    values[index] = raw
-                yield name, int(elem.get("r", "0")), values
-                elem.clear()
 
 
 def read_cd_rows(path: str | Path, cancelled=None) -> tuple[str, int, list[dict]]:
     columns, data, total, sheet = None, [], 0, ""
-    for name, line, cells in iter_first_sheet(path, cancelled=cancelled):
+    for name, line, cells in iter_source_rows(path, cancelled=cancelled):
         if columns is None:
             sheet = name
             if not cells:
@@ -147,7 +84,7 @@ def read_cd_rows(path: str | Path, cancelled=None) -> tuple[str, int, list[dict]
             columns = [cells.get(i, "").strip() for i in range(max(cells) + 1)]
             if len(set(columns)) != len(columns) or not all(columns):
                 raise ValueError(f"First sheet has empty/duplicate header fields: {name}")
-            required = {"ACD_No", "MP_Name", "Wafer_ID", "Chip_X", "Chip_Y", "Result"}
+            required = {"ACD_No", "MP_Name", "Chip_X", "Chip_Y", "Result"}
             missing = required - set(columns)
             if missing:
                 raise ValueError("Missing CDSEM1 columns: " + ", ".join(sorted(missing)))
@@ -157,9 +94,12 @@ def read_cd_rows(path: str | Path, cancelled=None) -> tuple[str, int, list[dict]
         if cells.get(index["ACD_No"], "").strip().casefold() != "cd":
             continue
         row = {col: cells.get(i, "") for i, col in enumerate(columns)}
+        row.setdefault('Wafer_ID','')
+        row.setdefault('Lot_ID','')
         row["SourceRow"] = str(line)
-        if not row["MP_Name"].strip():
-            raise ValueError(f"MP_Name missing at original first-sheet row {line}")
+        for field in ('MP_Name','Chip_X','Chip_Y'):
+            if not row[field].strip():
+                raise ValueError(f"{field} missing at source row {line}")
         data.append(row)
     if columns is None:
         raise ValueError("First worksheet is empty")
@@ -168,9 +108,19 @@ def read_cd_rows(path: str | Path, cancelled=None) -> tuple[str, int, list[dict]
     return sheet, total, data
 
 
-def pivot_cd_rows(rows: list[dict], sheet_name: str, source_name: str) -> dict:
+def pivot_cd_rows(rows: list[dict], sheet_name: str, source_name: str, *, source_rows=None) -> dict:
     """Use Pandas for duplicate detection; create one chip row per MP group."""
     frame = pd.DataFrame(rows).fillna("")
+    for field in ('Lot_ID','Wafer_ID'):
+        if field not in frame:
+            frame[field] = ''
+    for field in ('MP_Name','Chip_X','Chip_Y'):
+        if field not in frame:
+            raise ValueError(f'{field} is missing')
+        missing = frame[field].astype(str).str.strip().eq('')
+        if missing.any():
+            source_rows = frame.loc[missing,'SourceRow'].tolist() if 'SourceRow' in frame else frame.index[missing].tolist()
+            raise ValueError(f'{field} missing at source rows {source_rows[:8]}')
     original = len(frame)
     # Exact duplicates are measured without SourceRow, which is provenance only.
     subset = [col for col in frame if col != "SourceRow"]
@@ -193,13 +143,17 @@ def pivot_cd_rows(rows: list[dict], sheet_name: str, source_name: str) -> dict:
         if site_data:
             first = next(iter(site_data.values()))
             for col in COMMON:
-                if str(record.get(col, "")) != str(first.get(col, "")):
+                current, previous = str(record.get(col, "")), str(first.get(col, ""))
+                if col == 'ACD_No':
+                    current, previous = current.strip().casefold(), previous.strip().casefold()
+                if current != previous:
                     raise ValueError(f"Conflicting shared {col}: wafer/chip={chip}, MP={mp}, SourceRow={record['SourceRow']}")
         site_data[mp] = record
     expected = len(sites) * len(mps)
     missing = expected - len(frame)
     counts = Counter(str(v) for v in frame["MP_Name"])
     return {"sheet": sheet_name, "source": source_name,
+            "source_rows": original if source_rows is None else source_rows,
             "input_rows": original, "unique_cd_rows": len(frame), "duplicates": duplicate_count,
             "sites": sites, "mps": mps, "mp_counts": counts,
             "missing": missing}
@@ -359,6 +313,7 @@ def export_cdsem1(book: dict, output_xlsx: Path, output_csv: Path, *, cancelled=
         ['Check', 'Value', 'Notes'],
         ['Input file',book['source'],'One output workbook per source'],
         ['Source first worksheet',book['sheet'],'Only the FIRST worksheet is parsed'],
+        ['Source rows',book.get('source_rows',book['input_rows']),'All source data rows before ACD_No selection'],
         ['ACD_No=CD rows',book['input_rows'],'Rows selected before de-duplication'],
         ['Unique CD rows',book['unique_cd_rows'],'Identical records counted once'],
         ['Identical duplicates',book['duplicates'],'Compared without SourceRow'],
@@ -366,6 +321,8 @@ def export_cdsem1(book: dict, output_xlsx: Path, output_csv: Path, *, cancelled=
         ['MP_Name count',len(mps),'One grouped section per MP_Name'],
         ['Missing chip+MP pairs',book['missing'],'If nonzero, blank cells are expected'],
         ['Coordinate treatment','Chip_X/Y common','Wafer_X/Y retained beneath each MP_Name'],
+        ['Wafer identity','Blank' if all(not str(key[1]).strip() for key in sites) else 'From source',
+         'Blank Wafer_ID: confirm the source contains only one wafer; no Wafer_ID is generated.' if all(not str(key[1]).strip() for key in sites) else 'Source identities retained'],
         ['', '', ''],
         ['MP_Name', 'Measurement rows', 'Missing sites'],
     ]
@@ -396,10 +353,10 @@ def merge_cdsem1(files: list[str | Path], output_parent: str | Path,
                  *, cancelled=None, progress=None) -> CDSEM1Result:
     files = sorted({Path(x).resolve() for x in files}, key=lambda x: str(x).casefold())
     if not files:
-        raise ValueError('CDSEM1: no workbooks selected')
+        raise ValueError('CDSEM1: no source files selected')
     for file in files:
-        if file.suffix.casefold() not in EXTS:
-            raise ValueError(f'CDSEM1 accepts .xlsx or .xlsm only: {file}')
+        if file.suffix.casefold() not in SOURCE_EXTENSIONS:
+            raise ValueError(f'CDSEM1 accepts .csv, .xlsx or .xlsm: {file}')
     base = Path(output_parent) / OUTPUT_FOLDER
     base.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
@@ -413,7 +370,7 @@ def merge_cdsem1(files: list[str | Path], output_parent: str | Path,
             check_cancel(cancelled)
             try:
                 sheet, total, rows = read_cd_rows(file, cancelled=cancelled)
-                book = pivot_cd_rows(rows, sheet, file.name)
+                book = pivot_cd_rows(rows, sheet, file.name, source_rows=total)
                 # Use a short hash to distinguish identical base filenames from different folders.
                 stem = ''.join(c if c.isalnum() or c in '-_' else '_' for c in file.stem)[:62]
                 import hashlib
@@ -442,7 +399,7 @@ def merge_cdsem1(files: list[str | Path], output_parent: str | Path,
                 if progress:
                     progress(index, len(files), f'CDSEM1 FAILED: {file.name}: {exc}')
         if not successful:
-            raise ValueError('CDSEM1: all input workbooks failed: ' + '; '.join(i['Issue'] for i in issues))
+            raise ValueError('CDSEM1: all input files failed: ' + '; '.join(i['Issue'] for i in issues))
         pd.DataFrame(stats).to_csv(temp/'_files.csv', index=False, encoding='utf-8-sig')
         pd.DataFrame(issues, columns=['File','Issue']).to_csv(temp/'_issues.csv', index=False, encoding='utf-8-sig')
         check_cancel(cancelled)

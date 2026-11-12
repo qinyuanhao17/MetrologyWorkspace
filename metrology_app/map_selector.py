@@ -184,6 +184,23 @@ class MapSelector(QTableWidget):
         self.blockSignals(False)
         self.changed.emit()
 
+    def set_labels(self, labels):
+        """Refresh captions without changing boxes, selection or pending Draw."""
+        labels = dict(labels or {})
+        if labels == self.labels:
+            return
+        with QSignalBlocker(self):
+            self.labels = labels
+            self.setVerticalHeaderLabels([labels.get(key,key) for key in self.wafers])
+            for row,key in enumerate(self.wafers):
+                for column,metric in enumerate(self.metrics):
+                    item = self.item(row,column)
+                    if item is not None:
+                        name = labels.get(key,key)
+                        item.setText(f'{metric}\n{name}')
+                        if item.flags() & Qt.ItemFlag.ItemIsEnabled:
+                            item.setToolTip(f'{name} / {metric}\nDrag to select; Ctrl adds or removes boxes.')
+
     def _reuse_cells(self, wafers, metrics, labels):
         """Keep unchanged boxes when a few wafer or parameter choices change."""
         old, new = set(self.wafers), set(wafers)

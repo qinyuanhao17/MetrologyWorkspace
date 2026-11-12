@@ -1,0 +1,77 @@
+{
+  "input": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\JC1913\\matching-analysis.mwkb",
+  "sha256_before": "c002afab609b5b5820263e71abd5cdb677e77df7e464d22266af5e9e61985ab2",
+  "source_unchanged": true,
+  "wafer_count": 89,
+  "all_parameter_count": 24,
+  "parameters": [
+    "MSE",
+    "GOF",
+    "NGOF",
+    "LBH",
+    "OCD_DEPTH1",
+    "W_EB",
+    "M14_EMARatio_m2",
+    "TCDmin",
+    "TCDmaj",
+    "AA_Depth",
+    "BotHT_off",
+    "MCD1min_off",
+    "MCD2min_off",
+    "HMOX_HT",
+    "OX_Liner",
+    "AACut_MCD",
+    "HMTCD_off",
+    "AACut_TCDoff",
+    "Fin_HT",
+    "Fin_SWAmin",
+    "CutDeponFin",
+    "W_Recess",
+    "TiN_SP",
+    "OCD_Depth"
+  ],
+  "pages": 18,
+  "all_selected_wafers_reachable_once": true,
+  "rendered_pages": [
+    {
+      "page": 1,
+      "shape": [
+        5,
+        24
+      ],
+      "maps": 120,
+      "seconds": 0.7279840999981388
+    },
+    {
+      "page": 18,
+      "shape": [
+        4,
+        24
+      ],
+      "maps": 96,
+      "seconds": 0.6061313000100199
+    }
+  ],
+  "caption": "POR · AI01750.00-07 · AI01750.00 · ARRAY",
+  "statistics": "Min 19.832   Max 21.252   Mean 20.417   Sigma 0.401",
+  "group_toggle_retains_surfaces": true,
+  "correlation_ref_raw_locks": true,
+  "one_time_wkb_group_copy": true,
+  "full_suite_run": false,
+  "focused_regression": {
+    "tests": 221,
+    "seconds": 96.638,
+    "passed": true
+  },
+  "final_related_run": {
+    "tests": 55,
+    "seconds": 46.802,
+    "passed": true
+  },
+  "final_linked_lock_run": {
+    "tests": 45,
+    "seconds": 16.659,
+    "passed": true
+  },
+  "linked_raw_updates_preserve_locked_metadata": true
+}

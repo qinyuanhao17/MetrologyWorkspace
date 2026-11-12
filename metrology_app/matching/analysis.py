@@ -1019,7 +1019,11 @@ class MatchWorkbook:
         source = Path(path)
         with closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as connection:
             try:
-                metadata = pd.read_sql_query("SELECT * FROM metadata LIMIT 1", connection).iloc[0]
+                cursor = connection.execute("SELECT * FROM metadata LIMIT 1")
+                row = cursor.fetchone()
+                if row is None:
+                    raise ValueError('Missing Matching Workbook metadata.')
+                metadata = pd.Series(row,index=[column[0] for column in cursor.description])
             except (sqlite3.DatabaseError, IndexError, pd.errors.DatabaseError) as error:
                 raise ValueError("This file is not a valid Matching Workbook (WKB).") from error
             schema_version = int(metadata["schema_version"])
@@ -1028,10 +1032,8 @@ class MatchWorkbook:
                     f"Unsupported WKB schema {metadata['schema_version']}; "
                     f"expected 1 through {SCHEMA_VERSION}."
                 )
-            mapping_rows = pd.read_sql_query(
-                "SELECT name, reference_column, raw_column FROM parameter_mappings ORDER BY position",
-                connection,
-            )
+            cursor = connection.execute('SELECT name, reference_column, raw_column FROM parameter_mappings ORDER BY position')
+            mapping_rows = pd.DataFrame.from_records(cursor.fetchall(),columns=[column[0] for column in cursor.description])
             reference = _read_frame(connection, "reference_data")
             raw = _read_frame(connection, "raw_data")
             preview_raw = (
@@ -1221,7 +1223,8 @@ def _write_frame(connection, table, frame):
 
 
 def _read_frame(connection, table):
-    frame = pd.read_sql_query(f'SELECT * FROM "{table}" ORDER BY "{_ROW_COLUMN}"', connection)
+    cursor = connection.execute(f'SELECT * FROM "{table}" ORDER BY "{_ROW_COLUMN}"')
+    frame = pd.DataFrame.from_records(cursor.fetchall(),columns=[column[0] for column in cursor.description])
     return frame.drop(columns=[_ROW_COLUMN])
 
 

@@ -72,5 +72,18 @@ Feature: Share source participation between analysis windows
       And every corresponding X and Y difference must be less than 0.4 mm
       And source coordinates and measurement values remain unchanged
 
+  Rule: Finding available filter values supports several search terms
+
+    Scenario: Find multiple values and apply their checkbox choices
+      Given a column filter lists available values with existing checkbox choices
+      When the engineer finds values using search terms separated by commas or spaces
+      Then values matching any term are shown regardless of letter case
+      And English commas, Chinese commas and whitespace can be mixed as separators
+      And empty terms are ignored
+      And searching alone preserves every checkbox choice
+      When the engineer checks the visible values and accepts the filter
+      Then those chosen values filter the selection table
+      And the same choices transfer through Selection Script
+
   # Executable scenarios: tests.test_selection_script,
   # tests.test_workbook_copy_data and tests.test_spectra_workbook.

@@ -11,6 +11,7 @@ from .selection_script import canonical_die
 
 INFO_COLUMNS = ("Wafer ID", "Lot ID", "Tool SN", "PAD Name", "Die Seq",
                 "Relative Column", "Relative Row", "Time", "Type")
+XY_COLUMNS = ("Wafer ID", "Lot ID", "PAD Name", "Die Seq", "FIELD X", "FIELD Y", "X(mm)", "Y(mm)")
 
 
 @dataclass(frozen=True)
@@ -18,6 +19,9 @@ class SpectraInfo:
     with_flags: pd.DataFrame
     source_rows: tuple[int, ...]
     issues: tuple[str, ...]
+    xy: pd.DataFrame
+    raw_order: bool = True
+    spectrum_keys: tuple[str, ...] = ()
 
     @property
     def without_flags(self):
@@ -44,18 +48,8 @@ def _text(value):
     return "" if pd.isna(value) else str(value).strip()
 
 
-def build_spectra_info(raw, reference, spectra, *, checked_keys, visible_keys=None,
-                       verify_timestamp=True, flags=None):
-    """Return export-ready visible rows and all selected-source pairing errors.
-
-    Matching uses Wafer/Lot/PAD/Die/FIELD X/FIELD Y, optionally disambiguated by
-    the filename time from Raw Data. Each required SME must match exactly one
-    raw row and no two required SMEs may consume the same row.
-    """
-    spectra = tuple(spectra)
-    visible = {s.key for s in spectra} if visible_keys is None else set(visible_keys)
-    required = set(checked_keys) | visible
-    flags = flags or {}
+def _raw_pairs(raw, spectra, required, verify_timestamp):
+    """Pair each selected SME once, retaining original Raw Data row positions."""
     columns = {normalized(c): c for c in raw}
     names = ("waferid", "lotid", "padname", "dieseq", "fieldx", "fieldy")
     missing = [name for name in names if name not in columns]
@@ -88,9 +82,33 @@ def build_spectra_info(raw, reference, spectra, *, checked_keys, visible_keys=No
             issues.append(f"Ambiguous Raw Data match ({len(candidates)} rows): {label}.")
             continue
         pairs[candidates[0]].append(source)
-    records, rows = [], []
+    return sorted(pairs.items()), issues
+
+
+def build_spectra_info(raw, reference, spectra, *, checked_keys, visible_keys=None,
+                       verify_timestamp=True, flags=None):
+    """Return original Raw-order tables, or natural SME order without Raw Data.
+
+    Matching uses Wafer/Lot/PAD/Die/FIELD X/FIELD Y, optionally disambiguated by
+    the filename time from Raw Data. Each required SME must match exactly one
+    raw row and no two required SMEs may consume the same row. With no Raw Data,
+    source_rows refers to the input spectra positions; Reference is not paired.
+    XY always comes from SME coordinates, with missing values left empty.
+    """
+    spectra = tuple(spectra)
+    visible = {s.key for s in spectra} if visible_keys is None else set(visible_keys)
+    required = set(checked_keys) | visible
+    flags = flags or {}
+    raw_order = raw is not None and not raw.empty
+    if raw_order:
+        pairs, issues = _raw_pairs(raw, spectra, required, verify_timestamp)
+    else:
+        pairs = [(row, [source]) for row, source in sorted(enumerate(spectra), key=lambda item: item[1].sort_key)
+                 if source.key in required]
+        issues, reference = [], pd.DataFrame()
+    records, rows, coordinates, keys = [], [], [], []
     ref_columns = list(reference.columns)
-    for row, sources in sorted(pairs.items()):
+    for row, sources in pairs:
         if len(sources) != 1:
             issues.append(f"Ambiguous spectra: {len(sources)} files match Raw Data row {row + 1}; select one measurement.")
             continue
@@ -102,6 +120,9 @@ def build_spectra_info(raw, reference, spectra, *, checked_keys, visible_keys=No
                         identity.field_x, identity.field_y, spectrum_time(source), "Accuracy",
                         *[reference.iat[row, i] if row < len(reference) else "" for i in range(len(ref_columns))],
                         flags.get(source.key, 0)])
+        coordinates.append([identity.wafer, identity.lot, identity.pad, identity.die_seq,
+                            identity.field_x, identity.field_y, source.x_mm, source.y_mm])
         rows.append(row)
+        keys.append(source.key)
     return SpectraInfo(pd.DataFrame(records, columns=[*INFO_COLUMNS, *ref_columns, "Test Flag"]),
-                       tuple(rows), tuple(issues))
+                       tuple(rows), tuple(issues), pd.DataFrame(coordinates, columns=XY_COLUMNS), raw_order, tuple(keys))

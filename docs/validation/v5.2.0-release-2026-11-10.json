@@ -1,0 +1,51 @@
+{
+  "tag": "v5.2.0",
+  "commit": "f441c0ef848644db09ca51366c0afbfbfa28b02f",
+  "url": "https://github.com/qinyuanhao17/MetrologyWorkspace/releases/tag/v5.2.0",
+  "draft": false,
+  "latest": true,
+  "assets": [
+    {
+      "name": "BUILD-INFO.json",
+      "bytes": 1010,
+      "url": "https://github.com/qinyuanhao17/MetrologyWorkspace/releases/download/v5.2.0/BUILD-INFO.json",
+      "digest": "sha256:e17d73f06802e01f7b76f90cd421db16a09b795649100915ad6bbdb3c67ac37f"
+    },
+    {
+      "name": "BUILD-VALIDATION.json",
+      "bytes": 1425,
+      "url": "https://github.com/qinyuanhao17/MetrologyWorkspace/releases/download/v5.2.0/BUILD-VALIDATION.json",
+      "digest": "sha256:40400151bec9b23cf877afa7ccbfc7e8c4d39b79d665448f5c264fa35efc40ba"
+    },
+    {
+      "name": "CHECKSUMS.txt",
+      "bytes": 537,
+      "url": "https://github.com/qinyuanhao17/MetrologyWorkspace/releases/download/v5.2.0/CHECKSUMS.txt",
+      "digest": "sha256:89fc6139041a5de75d2657899c2a0e7d802424416173fa088c2a537b722ab766"
+    },
+    {
+      "name": "DOWNLOADS.md",
+      "bytes": 259,
+      "url": "https://github.com/qinyuanhao17/MetrologyWorkspace/releases/download/v5.2.0/DOWNLOADS.md",
+      "digest": "sha256:7f3a7c53001ca942c30446f6e0a12cac56609de129630527c0b119198a1156d5"
+    },
+    {
+      "name": "MetrologyWorkspace-v5.2.0-Windows-x64-Setup.exe",
+      "bytes": 146298999,
+      "url": "https://github.com/qinyuanhao17/MetrologyWorkspace/releases/download/v5.2.0/MetrologyWorkspace-v5.2.0-Windows-x64-Setup.exe",
+      "digest": "sha256:d4357420984cf62bc91eae9271bac3039be8a81bff6521ffe043ddf86239a428"
+    },
+    {
+      "name": "PAYLOAD-SHA256.json",
+      "bytes": 185528,
+      "url": "https://github.com/qinyuanhao17/MetrologyWorkspace/releases/download/v5.2.0/PAYLOAD-SHA256.json",
+      "digest": "sha256:89f3e7a5e746a1b95f121a7ab3d926aa0d30b0a0e363afed612e37ad7cd1f05d"
+    },
+    {
+      "name": "REGRESSION.json",
+      "bytes": 290,
+      "url": "https://github.com/qinyuanhao17/MetrologyWorkspace/releases/download/v5.2.0/REGRESSION.json",
+      "digest": "sha256:83b57c8df00b10063bb8af46886d9018a5d4ad1fd0fcebb2a5d0c42de6931e15"
+    }
+  ]
+}

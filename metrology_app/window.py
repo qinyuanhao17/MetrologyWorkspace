@@ -217,6 +217,10 @@ class MainWindow(QMainWindow):
         self.export_matplotlib_action.triggered.connect(self.export_matplotlib_dialog)
         self.ownership_label = QLabel()
         self.statusBar().addPermanentWidget(self.ownership_label)
+        if self.workspace_type == 'wafer_map':
+            from .correlation_options import CorrelationOptions
+            self.display_options = CorrelationOptions(self)
+            self.document.mark_clean()
         self.document.refresh_identity()
 
     @property
@@ -270,6 +274,8 @@ class MainWindow(QMainWindow):
         """Consume or detach read-only state views immediately on the GUI thread."""
         frames = self._workspace_source_frames(readonly=readonly)
         states = {"ui": analysis_state(self)}
+        if self.workspace_type == 'wafer_map' and getattr(self,'display_options',None) is not None:
+            states['wafer_groups'] = self.display_options.snapshot()
         if getattr(self, "_participation_excluded", None):
             states["workbook_participation"] = sorted(self._participation_excluded)
         states["data_selection"] = {
@@ -326,6 +332,8 @@ class MainWindow(QMainWindow):
             # WKB already contains the editable sheet, including invalid drafts.
             # Do not run import-time Dynamic inference over saved measurements.
             MainWindow.set_table(self, frame, "WKB workspace")
+            if self.workspace_type == 'wafer_map' and getattr(self,'display_options',None) is not None:
+                self.display_options.restore(snapshot.states.get('wafer_groups',{}))
 
     @recovery_decision
     def load_workspace(self, path):
@@ -651,7 +659,7 @@ class MainWindow(QMainWindow):
         formula.addWidget(self.undo_button)
         formula.addWidget(self.redo_button)
         layout.addLayout(formula)
-        self.sheet = SheetView(self.model, metadata_locks=self.workspace_type == "wafer_map")
+        self.sheet = SheetView(self.model, metadata_locks=self.workspace_type in ("wafer_map","correlation_trend"))
         self.sheet.table_pasted.connect(self.mark_table_pasted)
         layout.addWidget(self.sheet, 1)
         footer = QHBoxLayout()
@@ -1189,10 +1197,21 @@ class MainWindow(QMainWindow):
         self.selection["groups"] = {key: tuple(row for row in rows if row in allowed)
                                     for key, rows in self.selection["groups"].items()}
         self.selection["wafers"] = [key for key in wafers if self.selection["groups"].get(key)]
+        if self.workspace_type == 'wafer_map' and getattr(self,'display_options',None) is not None:
+            self.display_options.decorate_wafer_selection(self.selection)
         self.plot_page.set_input(self._frame, self.selection)
         self.radius_page.set_input(self._frame, self.selection)
         self.statusBar().showMessage(f"{len(wafers)} measurement sets selected    ·    {len(metrics)} parameters selected")
         self.selection_changed.emit(self.selection_state())
+
+    def set_workbook_groups(self, book):
+        if self.workspace_type != 'wafer_map':
+            return
+        if self.model.duplicate_header_count():
+            return
+        from .correlation_groups import prepare_group_context
+        self.display_options.remember_workbook(prepare_group_context(book,self.model.frame(),False))
+        self.display_options.refresh()
 
     def current_cell(self, index, *_args):
         if index.isValid():

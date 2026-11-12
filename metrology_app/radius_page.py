@@ -270,6 +270,18 @@ class RadiusPage(QWidget):
                      tuple((key, tuple(selection["groups"].get(key, ()))) for key in selection["wafers"])
                      if "groups" in selection else None)
         if signature == self.signature:
+            if selection.get('labels') != self.selection.get('labels'):
+                labels = selection.get('labels',{})
+                self.selection['labels'] = dict(labels)
+                self.selector.set_labels(labels)
+                for source in self.plot_sources:
+                    if not source.get('skip'):
+                        source['label'] = labels.get(source.get('wafer'),source['label'])
+                for panel in self.radius_grid.panels:
+                    if not panel.source.get('skip'):
+                        panel.source['label'] = labels.get(panel.source.get('wafer'),panel.source['label'])
+                    panel.update()
+                self._export_dirty = True
             return
         # Only a data change may redraw by itself. Adding or removing wafers or
         # parameters rebuilds the box grid, so the engineer picks the boxes again
@@ -416,7 +428,7 @@ class RadiusPage(QWidget):
                     else:
                         limit = 1
                     stats = f"Min {data.value.min():.5g}   Max {data.value.max():.5g}   Mean {data.value.mean():.5g}"
-                    sources.append({"metric": metric, "label": labels.get(wafer, wafer),
+                    sources.append({"wafer":wafer,"metric": metric, "label": labels.get(wafer, wafer),
                                     "radius": radius, "value": data.value.to_numpy(float),
                                     "die": data["die"].tolist() if "die" in data else [""] * len(data),
                                     "limit": limit, "unit": unit, "color": color, "stats": stats})

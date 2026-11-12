@@ -22,7 +22,7 @@ from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QTransform
 from PyQt6.QtWidgets import QGraphicsView, QToolTip
 
-from .plot import ValueLabels, contour_colour, display_colormap
+from .plot import ValueLabels, contour_colour, display_colormap, map_statistics_text
 from .plotting.identity_labels import measurement_caption
 
 PAGE_ZOOM_PERCENTAGES = (1, 2, 5, 10, 15, 25, 50, 75, 100, 125, 150, 175, 200, 250, 300)
@@ -420,7 +420,7 @@ class WaferPanel(pg.GraphicsObject):
             painter.setPen(QPen(QColor("#303030"), .8*100/72))
             painter.drawRect(self.box)
             return
-        stats = f"Min {self.values.min():.5g}   Max {self.values.max():.5g}   Mean {self.values.mean():.5g}"
+        stats = map_statistics_text(self.values)
         self.text(painter, stats, QRectF(rect.left()-35, title_bottom-line, rect.width()+70, line))
         painter.save()
         painter.setClipRect(rect)

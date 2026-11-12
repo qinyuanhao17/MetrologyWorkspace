@@ -1,10 +1,11 @@
 """Spectra Info tables and local Test Flag assignment."""
 from collections import defaultdict
+import re
 
 from PyQt6.QtCore import Qt, QSignalBlocker
 from PyQt6.QtWidgets import (QApplication, QDialog, QDialogButtonBox, QFileDialog,
                             QHeaderView, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
-                            QPushButton, QTabWidget, QTableView, QTreeWidget, QTreeWidgetItem,
+                            QMenu, QPushButton, QTabWidget, QTableView, QTreeWidget, QTreeWidgetItem,
                             QVBoxLayout, QWidget)
 
 from .appearance import fit_window_to_screen
@@ -17,7 +18,32 @@ class SpectraInfoWindow(QMainWindow):
     def __init__(self, viewer):
         super().__init__(viewer, Qt.WindowType.Window)
         from .matching_window import DataFrameModel
+        owner = self
+
+        class InfoModel(DataFrameModel):
+            def flags(self, index):
+                flags = super().flags(index)
+                if index.isValid() and self.frame.columns[index.column()] == "Test Flag":
+                    flags |= Qt.ItemFlag.ItemIsEditable
+                return flags
+
+            def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+                if role == Qt.ItemDataRole.EditRole and index.isValid():
+                    return str(self.frame.iat[index.row(), index.column()])
+                return super().data(index, role)
+
+            def setData(self, index, value, role=Qt.ItemDataRole.EditRole):
+                if (role != Qt.ItemDataRole.EditRole or not index.isValid()
+                        or not self.flags(index) & Qt.ItemFlag.ItemIsEditable):
+                    return False
+                if not owner.edit_flag(index.row(), value):
+                    return False
+                self.frame["Test Flag"] = self.frame["Test Flag"].astype(object)
+                self.frame.iat[index.row(), index.column()] = int(str(value).strip())
+                self.dataChanged.emit(index, index, [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole])
+                return True
         self.viewer = viewer
+        viewer.add_edit_history_actions(self)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setWindowTitle("Spectra Info")
         fit_window_to_screen(self, (1250, 730), minimum=(750, 450))
@@ -39,14 +65,21 @@ class SpectraInfoWindow(QMainWindow):
         layout.addLayout(tools)
         self.tabs = QTabWidget()
         self.models, self.tables = [], []
-        for title in ("Spectra Info", "With Test Flag"):
+        for tab, title in enumerate(("Spectra Info", "With Test Flag", "XY")):
             table = QTableView()
-            model = DataFrameModel()
+            model = InfoModel(parent=self)
             table.setModel(model)
             table.setAlternatingRowColors(True)
             table.setSortingEnabled(False)
             table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
             table.horizontalHeader().setDefaultSectionSize(135)
+            header = table.horizontalHeader()
+            header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            header.customContextMenuRequested.connect(
+                lambda point, i=tab, h=header: self.build_column_menu(i, h.logicalIndexAt(point)).exec(h.mapToGlobal(point)))
+            table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            table.customContextMenuRequested.connect(
+                lambda point, i=tab, t=table: self.build_column_menu(i, t.indexAt(point).column()).exec(t.viewport().mapToGlobal(point)))
             attach_copy_feedback(table)
             self.models.append(model)
             self.tables.append(table)
@@ -63,18 +96,20 @@ class SpectraInfoWindow(QMainWindow):
     def refresh(self):
         try:
             self.result = self.viewer.spectra_info()
-            frames = (self.result.without_flags, self.result.with_flags)
+            frames = (self.result.without_flags, self.result.with_flags, self.result.xy)
             problems = self.result.issues
         except ValueError as error:
             import pandas as pd
             self.result = None
-            frames, problems = (pd.DataFrame(), pd.DataFrame()), (str(error),)
-        for model, table, frame in zip(self.models, self.tables, frames):
+            frames, problems = (pd.DataFrame(), pd.DataFrame(), pd.DataFrame()), (str(error),)
+        for tab, (model, table, frame) in enumerate(zip(self.models, self.tables, frames)):
+            frame = frame.drop(columns=list(self.viewer.info_deleted_columns[tab]), errors="ignore")
             model.set_frame(frame)
             signature = "|".join(frame.columns)
             if table.property("spectraInfoColumns") != signature:
                 widths = {"Time": 185, "Die Seq": 70, "Tool SN": 90, "Type": 90,
-                          "Relative Column": 110, "Relative Row": 110, "Test Flag": 80}
+                          "Relative Column": 110, "Relative Row": 110, "Test Flag": 80,
+                          "FIELD X": 90, "FIELD Y": 90, "X(mm)": 110, "Y(mm)": 110}
                 for column, name in enumerate(frame.columns):
                     table.setColumnWidth(column, widths.get(name, 135))
                 table.setProperty("spectraInfoColumns", signature)
@@ -87,8 +122,38 @@ class SpectraInfoWindow(QMainWindow):
         self.issues.setVisible(bool(problems))
         self.copy_button.setEnabled(not problems)
         self.export_button.setEnabled(not problems)
-        self.status.setText(f"{len(frames[0]):,} visible rows · original Raw Data order"
+        order = ("original Raw Data order" if self.result is not None and self.result.raw_order
+                 else "natural Wafer / Lot / PAD / Die / Time order")
+        self.status.setText(f"{len(frames[0]):,} visible rows · {order}"
                             + (f" · {len(problems)} matching issues" if problems else ""))
+
+    def build_column_menu(self, tab, column):
+        menu = QMenu(self)
+        frame = self.models[tab].frame
+        if 0 <= column < len(frame.columns):
+            selected = [index.column() for index in self.tables[tab].selectionModel().selectedColumns()]
+            columns = selected if column in selected else [column]
+            names = [frame.columns[i] for i in columns]
+            menu.addAction("Delete Column" if len(names) == 1 else "Delete Columns",
+                           lambda: self.viewer.delete_info_columns(tab, names))
+            menu.addSeparator()
+        menu.addAction(self.undo_action)
+        menu.addAction(self.redo_action)
+        return menu
+
+    def edit_flag(self, row, value):
+        if self.problems or self.result is None or not 0 <= row < len(self.result.spectrum_keys):
+            return False
+        if not re.fullmatch(r"[+-]?\d+", str(value).strip()):
+            self.status.setText("Test Flag must be an integer.")
+            return False
+        try:
+            value = int(str(value).strip())
+        except ValueError:
+            self.status.setText("Test Flag must be an integer.")
+            return False
+        self.viewer.set_test_flags({self.result.spectrum_keys[row]: value})
+        return True
 
     def table_frame(self):
         self.refresh()

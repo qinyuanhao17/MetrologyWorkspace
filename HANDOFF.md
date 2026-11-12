@@ -1,6 +1,6 @@
 # Metrology Workspace handoff
 
-更新日期：2026-11-10
+更新日期：2026-11-12
 
 ## 快速开始
 
@@ -17,9 +17,21 @@ $testModules = Get-ChildItem tests/test_*.py | Where-Object { $_.BaseName -notli
 
 ## 当前未发布开发
 
+- Correlation 列锁收尾：WKB Raw 自动刷新也保留锁定元数据原字符串，仅更新未锁量测。45 项分组/列锁/WKB 联动测试通过（16.659 秒），临时空父 Raw 的既有保留行为正常；本轮仍不全量。
+
+- Group 已扩展至 Correlation and Trend、Wafer Map：复用紧凑身份明细表；新本地 Mark 为 POR（Fallback）/POR+/POR-，保留旧配置，Marks 批量分配可 Replace/Append，生成真实 Old/POR。保留 WKB 连续跟随，新增一次性 Copy WKB Groups；Wafer Map 只显示分类，不拆图或改变参与行。标题第二行 Group · Wafer · Lot · PAD，第三行 Min/Max/Mean/Sigma（有效点总体 1σ，ddof=0），原位更新标题保留曲面；Ref/Raw 两张 Correlation 表都启用同款列锁和保存恢复。参数全选超出单批 120 图的问题改为自动缩小每页晶圆数：真实 WKB 当前 89 片、24 参数分 18 页，首页 120 图/末页 96 图均成功。相关 221 项通过，收尾 55 项通过；未全量、未发布、AutoWeighting 不测。见 [验证记录](docs/validation/workspace-groups-2026-11-12.md)。
+
+- Spectra Viewer Groups 已重新布局为紧凑设置、身份明细表、底部状态/Apply。最新更正：Test Flag 与 Spectra Info/Die Map 共用，Group Apply 和一次性 Copy WKB Groups 同步旗标，取代原独立 Group TestFlag；保留 check 和源数据。新本地 Mark 默认 POR（Fallback）/POR+/POR-，保留旧文档自定义值；树 Add Mark 支持 Replace/Append，叠加生成真正的 Old/POR，多个不同 Mark 用逗号汇总。树右键 Highlight 用 #EE3377 粗线前景，空白清选中不清高亮，保留隐藏规则与原曲线/轴范围；随 .spec/WKB 保存并支持撤销。主图和放大图按 U 取消勾选所选光谱，仅绘图区响应。Legend 分隔栏仍可拖动、双击恢复。123 项相关定向回归通过，实际 WKB 1,890 行身份明细及 3 个原始 SME UI 验收，源哈希未变；未跑全量、未发布、AutoWeighting 未运行。见 [最新记录](docs/validation/spectra-group-interactions-2026-11-12.md)。
+- Show Die Map 三态颜色：Data selection 未勾选浅灰、已勾选超限红色、其余已勾选蓝色；灰点不受 Hide excluded rows 影响。全 Raw 构建坐标背景，参与状态与超限状态分开，坐标相同复用点对象和图/缩放。兼容 StoredFrame，用原生 SQLite 单列 fetch 读取缓存 metadata，不物化 samples。26 项相关定向测试通过；实际 JC1913 单片 21 点验证灰 1 / 红 8 / 蓝 12，源 WKB 哈希未变，未跑全量。见 [验证记录](docs/validation/bias-die-map-colors-2026-11-12.md)。
+- Spectra Info 三页统一排序，右键 Delete Column(s) 为每页单独的报告投影，右列左移、复制/CSV 不含删除列，SME/Raw 不动；投影随 .spec/WKB 草稿保存。With Test Flag 可直接编辑整数，使用输出行的 spectrum key 更新，不能按 catalogue 行号写错 Die；旗标与 Die Map 实时双向同步，保留图对象/缩放/check。Viewer、Info、Die Map 共享 QUndoStack：Ctrl+Z / Ctrl+Shift+Z 撤销/重做删列和旗标，新文档清空历史。73 项相关定向测试通过；真实 WKB Raw 1,890 行配合 3 个原始 SME 验收，源哈希未变，本轮仍未跑全量。见 [验收记录](docs/validation/spectra-info-edits-2026-11-12.md)。
+- Spectra Info 增加 XY Tab（身份、FIELD X/Y、SME X/Y mm），独立 Viewer 也可打开。有 Raw Data 时严格用原序；没有时复用自然 Wafer/Lot/PAD、Die Seq、Time、源路径稳定排序。8 份已有 WKB 的每组 Die 均升序，但组间可能保留导入序，不覆盖真实 Raw 顺序。坐标已接入 Data selection / Selection Script / .spec 持久化；73 项相关定向测试通过，新增坐标筛选持久化断言另有 4 项复测。JC1913 实测 1,890 行及坐标全部匹配、勾选 Die 1/3 后 180 行，3 个 SME 坐标重新读取核对，源文件未改。本轮仍不跑全量；见 [验收记录](docs/validation/spectra-info-xy-2026-11-12.md)。
+- Reference Summary 四 Vendor 支持 CSV / XLSX / XLSM，Excel 仅读首 Sheet。CDSEM1 可缺少 Wafer_ID、Lot_ID，输出保持空白；仍严格验证 MP/Chip 坐标和重复冲突，文件间不合并。真实 `cd_sem_ref.xlsx`：17,199 原始行→1,911 CD、91 Chip、21 MP，Pivot 91×725、Results 91×32，逐项核对 1,911 个 Result；13 份旧 Vendor 输入与 v5.2.0 解析结果一致。**用户最新要求暂不做全量测试**，本轮只跑相关定向测试；见 [验收记录](docs/validation/reference-input-formats-2026-11-12.md)。AutoWeighting 继续不测。
+- Data selection 列筛选的 Find values 支持空格与中英文逗号分隔并可混用，任一关键词匹配；忽略空项和大小写。查找只改变值列表显示，All/None 仅操作可见值，原有选择和脚本格式保留。空格扩展已通过 55 项定向测试，排除 AutoWeighting 后全量 **1,464 项通过，533.982 秒**。见 [验证记录](docs/validation/filter-value-search-2026-11-12.md)。
+- WKB 启动/读取优化：最近列表及 Shell 路由只查元信息，启动对话框复用已校验 snapshot，所有 SQLite 读取改用原生 fetch。未打开 Spectra 帧用私有磁盘副本承载，Save/Save As/恢复流式携带；全文件 SHA 冲突保护、最终复核、fsync 和复制式 `.bak` 保留，正式容器仍为 v1。真实 JC1913 1,890 条光谱的保存内容摘要相同、全量可解码，源文件未改。三次复测中位数：冷启动按钮 2.824→0.346 秒，409.6 MB WKB 打开 4.659→1.470 秒，加载后 RSS 599.6→180.3 MB。最终全量排除 AutoWeighting 后 **1,462 项通过，532.500 秒**；沙箱内硬链接夹具权限错误已在沙箱外复测及全量通过。详见 [加载验证](docs/validation/workbook-loading-2026-11-11.md)。本轮未发布。
+- Correlation and Trend 新增可选 Groups / Plot labels：独立配置复用 WKB 的 Head、Mark、TestFlag 和排序；WKB 子窗口默认跟随，亦可关闭跟随独立配置。Group 总开关只改变 Trend 分组显示，不改变参与行；标签原位更新并保留缩放。独立文档及子窗口草稿保存选项，源身份变化须重新确认旗标。此功能在 v5.2.0 之后，尚未发布；全量回归排除 AutoWeighting 后 **1,453 项通过，952.742 秒**，实际 WKB 另有验收；见 [验证记录](docs/validation/correlation-group-options-2026-11-11.md)。
 - Reference Summary 三 Tab：汇总、Ref/Raw 对齐、坐标 Bias Trend。Ref 自动读汇总结果，Raw 直接表内 Ctrl+V；固定 Raw 顺序、整片拖动、显式一对一链接及稳定坐标排序。Ref 先换算到 Raw 单位后求 Raw − Ref，未知单位/缺失坐标/不同点数不猜测。Trend 默认两列，普通滚轮滚页、Ctrl 才缩放，无 Add Compare；文件夹可多选。
 - 提供的四 Vendor ZIP 已核验 13 文件、10 张输出表、2,129 行；PMISH 长配方输出路径支持 Windows 长路径。CDSEM 使用全量 CD Pivot，并显式选择 MP 坐标对。见 [对齐验证](docs/validation/reference-alignment-2026-11-09.md)。
-- Die Map 当前超限点为红色、背景点灰色；此图只读取 Raw/缓存坐标，不创建或加载 Spectra Viewer。普通及超限 Die Map 采用常规字重、等边坐标框和更近的 Die 标签，最小窗口 500×640。Mapping 行高 48 px，Single wafer matrix 的 Draw 在第一列。见 [UI 验证](docs/validation/die-map-ui-2026-11-10.md)。
+- Die Map 超限点为红色，已勾选正常点蓝色，Data selection 未勾选点灰色；此图只读取 Raw/缓存坐标，不创建或加载 Spectra Viewer。普通及超限 Die Map 采用常规字重、等边坐标框和更近的 Die 标签，最小窗口 500×640。Mapping 行高 48 px，Single wafer matrix 的 Draw 在第一列。见 [UI 验证](docs/validation/die-map-ui-2026-11-10.md)。
 - 最终全量回归（排除 AutoWeighting）**1,448 项全部通过，525.893 秒**。真实四 Vendor 文件和 JC1913 WKB 均另有验收记录。本轮没有更新版本、标签、安装包或分支。
 
 ## v5.2.0 发布

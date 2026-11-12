@@ -6,7 +6,7 @@ from time import monotonic
 
 from PyQt6 import sip
 from PyQt6.QtCore import QEvent, QItemSelectionModel, QSize, QTimer, Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QAction, QActionGroup, QColor, QIcon, QPainter, QPalette, QPen, QPixmap, QPixmapCache
+from PyQt6.QtGui import QAction, QActionGroup, QColor, QIcon, QKeySequence, QPainter, QPalette, QPen, QPixmap, QPixmapCache, QUndoCommand, QUndoStack
 from PyQt6.QtWidgets import (
     QAbstractScrollArea,
     QComboBox,
@@ -64,6 +64,7 @@ ROLE_KEY = Qt.ItemDataRole.UserRole + 1
 ROLE_SPECTRA = Qt.ItemDataRole.UserRole + 2
 ROLE_LEAF_GROUP = Qt.ItemDataRole.UserRole + 3
 ROLE_SORT_TEXT = Qt.ItemDataRole.UserRole + 4
+ROLE_BASE_TEXT = Qt.ItemDataRole.UserRole + 5
 GROUP_KINDS = {"wafer", "lot", "pad", "die"}
 GROUP_LABELS = (("wafer", "Wafer ID"), ("lot", "Lot"), ("pad", "PAD Name"), ("die", "Die"))
 TREE_COLUMNS = (
@@ -194,6 +195,18 @@ class SpectraLoadThread(QThread):
         self.completed.emit(result)
 
 
+class _SpectraEdit(QUndoCommand):
+    def __init__(self, text, undo, redo):
+        super().__init__(text)
+        self._undo, self._redo = undo, redo
+
+    def undo(self):
+        self._undo()
+
+    def redo(self):
+        self._redo()
+
+
 class SpectraViewerWindow(QMainWindow):
     """A minimal source-preserving spectrum browser and plotting workspace."""
     stateChanged = pyqtSignal()
@@ -219,6 +232,8 @@ class SpectraViewerWindow(QMainWindow):
         self._checked_keys: set[str] = set()
         self._hidden_channel_keys: set[WaferChannelKey] = set()
         self.test_flags = {}
+        self.edit_history = QUndoStack(self)
+        self.info_deleted_columns = [set(), set(), set()]
         self.spec_save_type = "embedded"
         self._unavailable_paths = {}
         self._unavailable_checked = set()
@@ -236,6 +251,7 @@ class SpectraViewerWindow(QMainWindow):
         self._color_keys = {}
         self._color_order = {}
         self._selected_keys: set[str] = set()
+        self.highlighted_keys: set[str] = set()
         self._baseline_key: str | None = None
         self._analysis_mode = "original"
         self._analysis_cache_revision = None
@@ -268,13 +284,17 @@ class SpectraViewerWindow(QMainWindow):
         self._build_view_actions()
         self._build_ui()
         self._build_menus()
+        self.add_edit_history_actions(self)
         self.apply_theme(self.palette())
         from .workspace_document import WkbDocument
         self._workbook_embedded = True
         self.document = WkbDocument(self)
+        from .spectra_groups import SpectraGroupOptions
+        self.group_options = SpectraGroupOptions(self)
         self.stateChanged.connect(self.document.identity_timer.start)
         self.tree.itemSelectionChanged.connect(self.document.identity_timer.start)
         for panel in (*self.plot_panels.values(), *self.mueller_panel.mij_plots.values()):
+            panel.uncheckRequested.connect(self.uncheck_selected_spectra)
             panel.plot.getViewBox().sigRangeChanged.connect(lambda *_: self.document.identity_timer.start())
             if panel.secondary is not None:
                 panel.secondary.sigRangeChanged.connect(lambda *_: self.document.identity_timer.start())
@@ -548,7 +568,7 @@ class SpectraViewerWindow(QMainWindow):
         legend_row = ResizablePlotSplitter(Qt.Orientation.Horizontal)
         self.legend_splitter = legend_row
         legend_row.setObjectName("spectraLegendSplitter")
-        legend_row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        legend_row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.legends: dict[str, QListWidget] = {}
         self.legend_sections: dict[str, QWidget] = {}
         for name in LEGEND_METRICS:
@@ -580,15 +600,16 @@ class SpectraViewerWindow(QMainWindow):
             legend.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             legend.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
             legend.setSpacing(1)
-            legend.setFixedHeight(92)
+            legend.setMinimumHeight(32)
             legend.setToolTip("Scroll to browse channels. Double-click to hide or restore a channel. Right-click for Select Channel, Show All or Hide All.")
             legend.itemDoubleClicked.connect(self._legend_double_clicked)
             section.addWidget(legend)
             legend_row.addWidget(section_widget)
             self.legends[name] = legend
             self.legend_sections[name] = section_widget
-        legend_row.setFixedHeight(max(section.sizeHint().height() for section in self.legend_sections.values()))
-        layout.addWidget(legend_row)
+        legend_row.setMinimumHeight(60)
+        self.legend_plot_splitter = ResizablePlotSplitter(Qt.Orientation.Vertical, default_sizes=(1,5))
+        self.legend_plot_splitter.addWidget(legend_row)
 
         self.plot_panels = {
             "N": SpectrumPlotPanel(
@@ -634,9 +655,14 @@ class SpectraViewerWindow(QMainWindow):
             objectName="subtitle",
         )
         self.plot_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.plot_placeholder, 1)
+        body = QWidget()
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(0,0,0,0)
+        body_layout.addWidget(self.plot_placeholder, 1)
         self.plot_splitter.hide()
-        layout.addWidget(self.plot_splitter, 1)
+        body_layout.addWidget(self.plot_splitter, 1)
+        self.legend_plot_splitter.addWidget(body)
+        layout.addWidget(self.legend_plot_splitter,1)
         self._refresh_plot_layout()
         return frame
 
@@ -720,6 +746,9 @@ class SpectraViewerWindow(QMainWindow):
             )
             return
         if replace:
+            self.edit_history.clear()
+            self.info_deleted_columns = [set(), set(), set()]
+            self.group_options.reset()
             self.catalog.replace(result)
             self._unavailable_paths.clear()
             self._unavailable_checked.clear()
@@ -728,6 +757,7 @@ class SpectraViewerWindow(QMainWindow):
             self._plot_revision += 1
             self._checked_keys.clear()
             self._selected_keys.clear()
+            self._apply_highlights(set())
             self._hidden_channel_keys.clear()
             self.test_flags.clear()
             self._channel_colors.clear()
@@ -753,7 +783,9 @@ class SpectraViewerWindow(QMainWindow):
 
     def _refresh_placeholder(self):
         spectra = self.catalog.spectra
-        self.spectra_info_button.setEnabled(self._spectra_info_source is not None and bool(spectra))
+        if hasattr(self, 'group_options'):
+            self.group_options.refresh_enabled()
+        self.spectra_info_button.setEnabled(bool(spectra))
         self.test_flag_action.setEnabled(bool(spectra))
         self.copy_wkb_selection_action.setEnabled(self._workbook_selection_source is not None and bool(spectra))
         if not spectra:
@@ -858,7 +890,7 @@ class SpectraViewerWindow(QMainWindow):
     def _item_path(cls, item: QTreeWidgetItem) -> tuple[str, ...]:
         parts = []
         while item is not None:
-            parts.append(item.text(0))
+            parts.append(item.data(0, ROLE_BASE_TEXT) or item.text(0))
             item = item.parent()
         return tuple(reversed(parts))
 
@@ -867,6 +899,7 @@ class SpectraViewerWindow(QMainWindow):
         item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
         item.setCheckState(0, Qt.CheckState.Unchecked)
         item.setData(0, ROLE_KIND, kind)
+        item.setData(0, ROLE_BASE_TEXT, text)
         item.setData(0, ROLE_LEAF_GROUP, leaf)
         if leaf:
             item.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator)
@@ -967,6 +1000,8 @@ class SpectraViewerWindow(QMainWindow):
         self._update_baseline_marker()
         self._refresh_placeholder()
 
+        self.refresh_group_labels(emit_state=False)
+
     def build_tree_menu(self):
         menu = QMenu(self)
         menu.setObjectName("spectrumTreeMenu")
@@ -976,6 +1011,12 @@ class SpectraViewerWindow(QMainWindow):
         menu.addSeparator()
         menu.addAction("Check Selected", self.check_selected_spectra).setEnabled(bool(self._selected_keys))
         menu.addAction("Uncheck Selected", self.uncheck_selected_spectra).setEnabled(bool(self._selected_keys))
+        highlight = menu.addAction("Highlight")
+        highlight.setCheckable(True)
+        highlight.setChecked(bool(self._selected_keys) and self._selected_keys <= self.highlighted_keys)
+        highlight.setEnabled(bool(self._selected_keys))
+        highlight.triggered.connect(self.highlight_selected_spectra)
+        self.group_options.mark_menu(menu)
         menu.addSeparator()
         menu.addAction("Set as BSL", self.set_selected_as_baseline).setEnabled(len(self._selected_keys) == 1)
         menu.addAction("Clear BSL", self.clear_baseline).setEnabled(self.baseline_spectrum is not None)
@@ -1098,10 +1139,8 @@ class SpectraViewerWindow(QMainWindow):
 
     def spectra_info(self):
         from .spectra_info import build_spectra_info
-        if self._spectra_info_source is None:
-            raise ValueError("Spectra Info requires the source Match Workbook's Raw Data and Reference.")
         sources = self.catalog.spectra
-        raw, reference = self._spectra_info_source()
+        raw, reference = self._spectra_info_source() if self._spectra_info_source is not None else (None, None)
         return build_spectra_info(raw, reference, sources, checked_keys=self._checked_keys,
                                   visible_keys=self._checked_keys, verify_timestamp=self.verify_spectra_time_action.isChecked(),
                                   flags=self.test_flags)
@@ -1124,9 +1163,64 @@ class SpectraViewerWindow(QMainWindow):
         if self.info_window is not None and not sip.isdeleted(self.info_window) and self.info_window.isVisible():
             self.info_window.refresh()
 
+    def add_edit_history_actions(self, window):
+        """Window-local shortcuts share report/flag history without reaching parent WKB edits."""
+        for name, shortcut, create in (("undo", "Ctrl+Z", self.edit_history.createUndoAction),
+                                       ("redo", "Ctrl+Shift+Z", self.edit_history.createRedoAction)):
+            action = create(window, name.title())
+            action.setShortcut(QKeySequence(shortcut))
+            action.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            window.addAction(action)
+            setattr(window, name + "_action", action)
+
+    def record_edit(self, title, undo, redo):
+        self.edit_history.push(_SpectraEdit(title,undo,redo))
+
+    def refresh_group_labels(self, *, emit_state=True):
+        if not hasattr(self, 'group_options'):
+            return
+        blocked = self.tree.blockSignals(True)
+        for item in self._all_group_items:
+            if item.data(0, ROLE_KIND) == 'wafer':
+                keys = set()
+                self._spectrum_descendants(item,keys)
+                mark = self.group_options.mark_caption(keys)
+                base = item.data(0, ROLE_BASE_TEXT) or item.text(0)
+                item.setText(0, f'{base} | {mark}' if mark else base)
+                item.setToolTip(0,item.text(0))
+        self.tree.blockSignals(blocked)
+        for legend in self.legends.values():
+            self._refresh_legend(legend,[legend.item(i).data(Qt.ItemDataRole.UserRole) for i in range(legend.count())])
+        self._sync_map()
+        if emit_state:
+            self.stateChanged.emit()
+
+    def delete_info_columns(self, tab, columns):
+        before = set(self.info_deleted_columns[tab])
+        after = before | set(columns)
+        if after != before:
+            self.edit_history.push(_SpectraEdit("Delete report columns",
+                lambda: self._apply_info_columns(tab, before), lambda: self._apply_info_columns(tab, after)))
+
+    def _apply_info_columns(self, tab, columns):
+        self.info_deleted_columns[tab] = set(columns)
+        self.stateChanged.emit()
+
     def set_test_flags(self, updates):
         if any(type(value) is not int for value in updates.values()):
             raise ValueError("Test Flags must be integers.")
+        valid = {source.key for source in self.catalog.spectra}
+        changes = {key: value for key, value in updates.items()
+                   if key in valid and value != self.test_flags.get(key, 0)}
+        if changes:
+            before = {key: self.test_flags.get(key, 0) for key in changes}
+            self.edit_history.push(_SpectraEdit("Set Test Flag",
+                lambda: self._apply_test_flags(before), lambda: self._apply_test_flags(changes)))
+        else:
+            self._sync_map()
+            self.stateChanged.emit()
+
+    def _apply_test_flags(self, updates):
         valid = {source.key for source in self.catalog.spectra}
         for key, value in updates.items():
             if key in valid:
@@ -1136,8 +1230,7 @@ class SpectraViewerWindow(QMainWindow):
                     self.test_flags[key] = value
                 else:
                     self.test_flags.pop(key, None)
-        self._sync_map()
-        self.stateChanged.emit()
+        self.group_options.flags_changed()
 
     def open_test_flags(self):
         from .spectra_info_ui import TestFlagDialog
@@ -1227,6 +1320,7 @@ class SpectraViewerWindow(QMainWindow):
             return
         remaining = {source.key for source in self.catalog.spectra}
         self._checked_keys.intersection_update(remaining)
+        self._apply_highlights(self.highlighted_keys & remaining)
         self.test_flags = {key: value for key, value in self.test_flags.items()
                            if key in remaining}
         self._selected_keys.clear()
@@ -1248,6 +1342,21 @@ class SpectraViewerWindow(QMainWindow):
 
     def uncheck_selected_spectra(self):
         self._set_selected_spectra_checked(False)
+
+    def highlight_selected_spectra(self, enabled=True):
+        before = set(self.highlighted_keys)
+        after = before | self._selected_keys if enabled else before - self._selected_keys
+        if before != after:
+            self.record_edit('Highlight spectra', lambda:self._apply_highlights(before),
+                             lambda:self._apply_highlights(after))
+
+    def _apply_highlights(self, keys):
+        self.highlighted_keys = set(keys) & {s.key for s in self.catalog.spectra}
+        for panel in (*self.plot_panels.values(), *self.mueller_panel.mij_plots.values()):
+            panel.set_emphasized_keys(self.highlighted_keys)
+        for window in self.floating_plot_windows.values():
+            window.panel.set_emphasized_keys(self.highlighted_keys)
+        self.stateChanged.emit()
 
     def _set_selected_spectra_checked(self, checked):
         if not self._selected_keys:
@@ -1628,11 +1737,14 @@ class SpectraViewerWindow(QMainWindow):
             legend.blockSignals(False)
         for index, key in enumerate(channel_keys):
             item = legend.item(index)
+            label = self.group_options.legend_label(key)
+            if item.text() != label:
+                item.setText(label)
             angle = self._angle_two(key)
-            info = f"{self._analysis_mode}:{angle}"
+            info = f"{self._analysis_mode}:{angle}:{label}"
             if item.data(Qt.ItemDataRole.UserRole + 2) != info:
                 item.setToolTip(
-                f"{key.legend_label}\nDouble-click to hide or restore this wafer/channel in all plots.\n"
+                f"{label}\nDouble-click to hide or restore this wafer/channel in all plots.\n"
                 f"Source: {key.spectrum_key or ' · '.join((key.wafer, key.lot, key.pad))}\n"
                 f"Angle 2: {angle}\n"
                 + ("3σ = 3 × sample SD (n−1), per Wafer/channel; n ≥ 2 at each exact wavelength."
@@ -1895,7 +2007,7 @@ class SpectraViewerWindow(QMainWindow):
         window.panel.spectraSelected.connect(self.select_spectrum_keys)
         self.floating_plot_windows[source] = window
         window.destroyed.connect(
-            lambda _=None, panel=source: self.floating_plot_windows.pop(panel, None)
+            lambda _=None, panel=source, windows=self.floating_plot_windows: windows.pop(panel, None)
         )
         window.show()
         window.raise_()
@@ -2065,6 +2177,7 @@ class SpectraViewerWindow(QMainWindow):
             self.map_window.activateWindow()
             return self.map_window
         self.map_window = SpectraMapWindow(pin_owner=self)
+        self.add_edit_history_actions(self.map_window)
         self.map_window.spectra_selected.connect(self.select_spectrum_keys)
         self.map_window.check_selected_requested.connect(self.check_selected_spectra)
         self.map_window.uncheck_selected_requested.connect(self.uncheck_selected_spectra)
@@ -2085,6 +2198,7 @@ class SpectraViewerWindow(QMainWindow):
         if self.map_window is None or sip.isdeleted(self.map_window):
             return
         self.map_window.update_test_flags(self.test_flags, flag_values=self.test_flag_values)
+        self.map_window.update_groups(self.group_options.labels())
         signature = (
             tuple(
                 (spectrum.key, id(spectrum))

@@ -1,8 +1,12 @@
 """Out-of-range maps retain analysis row identities and measured millimetres."""
 import unittest
 from dataclasses import replace
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import json
 
 import pandas as pd
+from PyQt6.QtCore import QTimer
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QDoubleSpinBox
 
@@ -14,6 +18,77 @@ from tests.test_spectra_viewer import APP, make_spectrum
 
 
 class BiasDieMapTests(unittest.TestCase):
+    def test_closed_deferred_spectra_supply_metadata_coordinates_without_opening_viewer(self):
+        from metrology_app.workspace_store import WorkspaceSnapshot, save_workspace, load_workspace
+        owner = MatchingWindow()
+        owner.document.force_close = True
+        self.addCleanup(owner.close)
+        raw = pd.DataFrame({'Wafer ID':['W1']*3, 'Lot ID':['L1']*3, 'PAD Name':['P1']*3,
+                            'Die Seq':[1,2,3], 'CD':[0,1.1,3.5]})
+        ref = pd.DataFrame({'CD Reference':[0,1,2]})
+        owner.set_reference_frame(ref)
+        owner.result_mode.setCurrentText('Final')
+        owner.set_raw_frame(raw)
+        metadata = [json.dumps({'identity':{'wafer':'W1','lot':'L1','pad':'P1','die_seq':die},
+                                'x_mm':die*10, 'y_mm':die*-5}) for die in (1,2,3)]
+        frame = pd.DataFrame({'source':['a','b','c'], 'metadata':metadata,
+                              'samples':['This is not a decodable sample payload']*3})
+        with TemporaryDirectory() as directory:
+            path = save_workspace(Path(directory)/'cached.mwkb', WorkspaceSnapshot('match_workbook',
+                {'raw':raw,'reference':ref,'spectra.preview.spectra':frame}, {'match':{}}))
+            draft = load_workspace(path, defer_spectra=True)
+            owner._workspace_frames['spectra.preview.spectra'] = draft.frames['spectra.preview.spectra']
+            owner.run_analysis()
+            window = owner.show_bias_die_map(0)
+            self.assertIsNotNone(window)
+            QTest.qWait(80)
+            self.assertEqual(window.point_count, 3)
+            self.assertEqual(owner._spectra_windows, {})
+            points = next(iter(window.wafer_plots.values())).scatter.points()
+            self.assertEqual(sorted((point.pos().x(),point.pos().y()) for point in points),
+                             [(10,-5),(20,-10),(30,-15)])
+
+    def test_data_selection_excluded_gray_outlier_red_normal_blue_and_incremental_refresh(self):
+        owner = MatchingWindow()
+        owner.document.force_close = True
+        self.addCleanup(owner.close)
+        owner.set_reference_frame(pd.DataFrame({'CD Reference':[0,1,2,3,4]}))
+        owner.result_mode.setCurrentText('Final')
+        owner.set_raw_frame(pd.DataFrame({'Wafer ID':['W1']*5, 'Lot ID':['L1']*5, 'PAD Name':['P1']*5,
+            'Die Seq':[1,2,3,4,5], 'X(mm)':[0,20,40,60,80], 'Y(mm)':[0,10,20,30,40],
+            'CD':[0,1.1,4.5,3.2,6.5]}))
+        owner.run_analysis()
+        window = owner.show_bias_die_map(0)
+        QTest.qWait(80)
+        plot = next(iter(window.wafer_plots.values()))
+        plot.grab()
+        ranges = plot.plot.getViewBox().viewRange()
+        scatter = plot.scatter
+        errors = []
+        def exclude():
+            dialog = APP.activeModalWidget()
+            try:
+                dialog.model.checked.discard(dialog.model.ids[2])
+                dialog.hide_excluded.setChecked(True)
+                dialog.accept()
+            except Exception as error:
+                errors.append(error)
+                dialog.reject()
+        QTimer.singleShot(0, exclude)
+        owner.select_analysis_data()
+        self.assertEqual(errors, [])
+        QTest.qWait(30)
+        self.assertNotIn(2, owner.result.source_rows)
+        self.assertEqual(window.point_count, 5)
+        self.assertIs(next(iter(window.wafer_plots.values())), plot)
+        self.assertIs(plot.scatter, scatter)
+        self.assertEqual(plot.plot.getViewBox().viewRange(), ranges)
+        colors = {key:point.brush().color().name() for point in plot.scatter.points()
+                  for key in point.data()['keys']}
+        self.assertEqual(colors, {'source-row:0':'#3e8bd8', 'source-row:1':'#3e8bd8',
+                                  'source-row:2':'#d6d9de', 'source-row:3':'#3e8bd8', 'source-row:4':'#dc2626'})
+        self.assertIn('Gray: excluded', window.statusBar().currentMessage())
+
     def test_tree_headers_sort_numeric_fields_and_double_click_restores_default(self):
         viewer = SpectraViewerWindow()
         viewer.document.force_close = True

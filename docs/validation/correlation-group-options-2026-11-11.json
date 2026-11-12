@@ -1,0 +1,32 @@
+{
+  "excluded_modules": [
+    "test_auto_weighting",
+    "test_auto_weighting_ocr",
+    "test_auto_weighting_window"
+  ],
+  "module_count": 120,
+  "exit_code": 0,
+  "seconds": 959.4940866999968,
+  "summary": [
+    "Ran 1453 tests in 952.742s",
+    "OK"
+  ],
+  "failures": [],
+  "real_workbook_probe": {
+    "real_raw_rows": 1890,
+    "groups": 2,
+    "group_settings_applied": true,
+    "master_disabled_retains_rows": true,
+    "label_toggle_retains_plot_objects_and_ranges": true,
+    "raw_table_unchanged": true,
+    "source_workbook_unchanged": true,
+    "reference": "synthetic row-aligned UI fixture"
+  },
+  "focused_validation": {
+    "result": "OK",
+    "seconds": 74.64,
+    "final_ui_seconds": 1.394,
+    "tests": 101,
+    "final_ui_tests": 5
+  }
+}

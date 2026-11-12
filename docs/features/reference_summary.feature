@@ -38,6 +38,32 @@ Feature: Summarize multi-vendor reference exports
       And the workbook produces CD Pivot, CD Results and Checks sheets
       And the source workbook is not combined with another CDSEM1 workbook
 
+    Scenario: Read a confirmed single wafer without identity columns
+      Given a single-wafer CDSEM1 file has no Wafer_ID or Lot_ID columns
+      When the engineer runs Reference Summary
+      Then both identity columns remain empty and chips are grouped by Chip_X and Chip_Y
+      And MP names retain their spelling, case and first appearance order
+      And CD Pivot retains its Common and per-MP field groups
+      And CD Results, Results CSV and Checks describe the same measurements
+
+    Scenario: Reject ambiguous measurements instead of overwriting them
+      Given CDSEM1 records have the same chip and MP name
+      When only their SourceRow values differ
+      Then only the first complete measurement is retained
+      When their measurement values differ
+      Then that source file fails with a conflict report
+      And blank MP names or Chip coordinates also fail with their source rows
+
+  Rule: All vendors accept CSV and first-sheet Excel input
+
+    Scenario: Read equivalent vendor records through either transport
+      Given equivalent NOVA, PMISH, KLA or CDSEM1 records in CSV, XLSX and XLSM
+      When the engineer selects files or scans source folders
+      Then all three formats are available
+      And parsing produces the same measurements and vendor field order
+      And other Excel worksheets and temporary lock files are ignored
+      And source files remain unchanged
+
   Rule: Coordinate comparison uses explicit one-to-one wafer links
 
     Scenario: Align Ref wafer blocks while Raw order is fixed

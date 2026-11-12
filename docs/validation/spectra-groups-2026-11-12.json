@@ -1,0 +1,43 @@
+{
+  "source": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\JC1913\\matching-analysis.mwkb",
+  "source_sha256": "c002afab609b5b5820263e71abd5cdb677e77df7e464d22266af5e9e61985ab2",
+  "source_unchanged": true,
+  "copied_groups": {
+    "matched": 1890,
+    "unmatched": 0
+  },
+  "original_wkb_group_settings_unchanged": true,
+  "wkb_head_and_mark_grouping_enabled": false,
+  "real_sme_ui_count": 3,
+  "tree_mark_and_legend_prefix_verified": true,
+  "die_map_group_verified": true,
+  "curves_colors_ranges_checks_and_spectral_flags_unchanged": true,
+  "legend_height_draggable": true,
+  "spec_restore_verified": true,
+  "sme_files_unchanged": true,
+  "copy_validation": "1890 stored SME metadata records; only the three listed original SME sample files loaded for UI validation.",
+  "full_suite_run": false,
+  "focused_tests": [
+    {
+      "count": 117,
+      "seconds": 40.424,
+      "passed": true,
+      "log": ".cache/spectra-groups-final.log"
+    },
+    {
+      "count": 26,
+      "seconds": 12.229,
+      "passed": true,
+      "log": ".cache/spectra-groups-storage.log"
+    },
+    {
+      "count": 5,
+      "seconds": 1.402,
+      "passed": true,
+      "log": ".cache/spectra-groups-final-settings.log"
+    }
+  ],
+  "auto_weighting_run": false,
+  "real_harness_exit_code": 0,
+  "real_harness_log": ".cache/spectra-groups-real-final.log"
+}

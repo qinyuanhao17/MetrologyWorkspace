@@ -26,6 +26,8 @@ python main.py
 
 Reference Summary 现有三页：**Summary** 汇总源文件；**Wafer Alignment** 自动载入 Ref，并可在 Raw Data 表内 Ctrl+V 粘贴、整片拖动、一对一链接及按 Field 或绝对 XY 稳定排序；**XY Bias Trends** 仅绘已链接的晶圆。Ref 坐标先换算到 Raw 所选单位，再计算 Raw − Ref。点数不同、缺失 XY 或未指定单位会提示，不截断或虚构坐标。Trend 默认两列，普通滚轮滚页，Ctrl＋滚轮缩放；Choose folders 支持多选并去重扫描路径。
 
+四种 Vendor 均支持 `.csv`、`.xlsx`、`.xlsm`，Excel 只读取第一张 Sheet。CDSEM1 每个源文件独立处理，只保留 `ACD_No=CD`；缺少 `Wafer_ID` 或 `Lot_ID` 时输出空白，不生成身份。无 Wafer ID 的源文件须确认只有一片晶圆。MP 名称、大小写及首次出现顺序保持原样；缺失 MP/Chip 坐标或同 Chip＋MP 测量冲突会报错，完全重复行忽略 SourceRow 后去重。CD Pivot 保留 Common 11 列和每个 MP 的 34 列，另输出 CD Results、Checks 和 Results CSV。命令行可用 `python main.py --vendor CDSEM1 --files "C:\Data\cd_sem_ref.xlsx"`，可加 `--output-parent` 指定输出位置。见 [定向验收记录](docs/validation/reference-input-formats-2026-11-12.md)；本轮按要求未跑全量测试。
+
 如果不使用 Conda，也可以在 Python 3.10+ 环境中安装依赖：
 
 ```powershell
@@ -87,7 +89,9 @@ python -m PyInstaller --noconfirm --clean MetrologyWorkspace.spec
 
 ## Data 工作区
 
-- **Groups → Data selection → Hide excluded rows in tables** 勾选并 Apply 后，Order / Reference / Raw Data 隐藏不参与分析的记录；取消勾选并 Apply 可恢复显示。此操作不删除源数据、不重新编号，也不改变原来的参与选择。子窗口选择 **Match Workbook selection** 时遵从相同显示规则；**Full data** 不沿用父级隐藏规则。
+Data selection 列筛选中的 **Find values** 可输入 `W1 W3`、`W1,W3` 或 `W1，W3` 查找多个值，空格和逗号可以混用，任一关键词匹配即可，忽略大小写及空项。查找保留已有勾选；**All / None** 只操作显示中的值。
+
+- **Data → Data selection → Hide excluded rows in tables** 勾选并 Apply 后，Order / Reference / Raw Data 隐藏不参与分析的记录；取消勾选并 Apply 可恢复显示。此操作不删除源数据、不重新编号，也不改变原来的参与选择。子窗口选择 **Match Workbook selection** 时遵从相同显示规则；**Full data** 不沿用父级隐藏规则。
 - 隐藏/排序的表格中 **Ctrl+V** 按可见行映射到原始记录：允许只覆盖剩余可见行的一部分，超过范围会提示并阻止。隐藏行不被改动；若要整表替换或增加记录，请先恢复全部行。**Ctrl+Shift+V** 不允许绕过隐藏行保护。
 - 双击 Raw Data 卡片的标题或表格外空白处，可将同一编辑器悬浮；再次双击或关闭浮窗即还原。左上角图钉（Alt+P）切换仅在母窗口之上或本软件内部最上层，不置顶到其他软件之上。Raw 归属 Match Workbook，其他面板归属各自分析窗口。原表格、复制粘贴、Undo/Redo 和分析联动保持不变，不产生数据副本。
 - Wafer Map 的 **Opacity** 后有 **Decimals**，默认 2 位、范围 0–10，使用十进制四舍五入（负数临界值也远离零舍入）。该项只影响点值文字，不改测量值、插值或统计；与主窗口 **Settings → Point value decimals** 共用设置，不随 WKB 保存，旧 WKB 也不能覆盖主设置。
@@ -104,7 +108,7 @@ python -m PyInstaller --noconfirm --clean MetrologyWorkspace.spec
 - Single-wafer metrics 和 Group plots 的参数大模块也可拖动 **⋮⋮ 参数名** 排序，顺序与 All parameter plots 共用并随 WKB 保存。单 wafer 表格、R²/Slope 图和已勾选的 wafer 子图随整个参数模块移动；Group plots 按参数增加外层大模块，把该参数全部基础/组合 Group 图收在一起。内部 Group 卡片只在同一参数下排序，不会混入另一参数。排序仅移动现有界面，不改变数据或重新拟合。
 - **Groups → Group settings…** 使用与主窗口 Settings 一致的紧凑纵向表单：Head groups、Mark、Trend order、Group sequence，右下角为 **Cancel / Apply**。不再显示 Import combined 或 Clear filters / sort。Apply 成功应用分组设置并更新绘图后自动关闭窗口；失败时保留窗口。Cancel/关闭仍隐藏窗口、保留待应用编辑，不自动绘图。**Original row order** 忽略三张配对表的排序、保留原始输入顺序，并按 Wafer 画灰色细虚线边界：同一 Wafer 内 Lot ID／PAD Name 变化不再产生额外虚线，每条线都是可对照的 wafer 分界；Trend、Bias、Bias % 只显示稀疏 Die Seq，不显示 Group/wafer 标签。已删除的 **Current table order** 旧设置在重开时按 Original row order 处理。切回 Group 顺序时恢复 Group 标签及各 Group 的 Show wafer 设置。
 - **Group plots** 使用与 All parameter plots 相同的可拖动 Match / Trend / Bias / Bias % 图块；默认绘制全部基础 Group 和组合 Group 对应的已启用参数，不额外绘制 All。**Head groups 与 Mark 两个开关在所有 Match Type（KLA／NOVA／TEM）下默认都不勾选，加载或粘贴带 TestFlag 的表也不会自动打开，需要时显式勾选。** 没有选图入口、绘图、PNG 或分页工具栏，所有图块在一个区域内滚动浏览；旧文件的选图、单 wafer 和分页设置自动忽略，单 wafer 图仍在 Single-wafer metrics 中勾选绘制。仅通过 **Groups → Manage groups…** 管理组合：上方固定基础 Group 复选框，下方为可编辑的组合 Group 行列表；**Add** 增行、双击改名，选择行后勾选上方成员，**Apply** 提交全部编辑，**Cancel** 不提交。Trend / Bias / Bias % 默认只显示稀疏 Die Seq 和 Group 名称；管理窗口每个基础、组合 Group 后的 **Show wafer** 默认不勾选，勾选并 Apply 后上层显示 Wafer ID、Lot ID、PAD Name 的值（不带字段名），下层每个 Group 只显示一次名称。Wafer 标签限制在各自区间内，空间不足时省略 Lot/PAD、优先保留 Wafer ID；标签区 Wafer 分界线为细灰线。Trend / Bias / Bias % 的相邻有效点跨 Wafer/Group 边界连续连接，仅真实缺失值断开。这些显示设置不改变组合成员、数据或 Card。组合 Group 的源记录去重合并，独立拟合新 Card；增删或改名后自动更新绘图。该页的 **Use group Card** 勾选后使用显示范围的独立 Card（合并 Group 使用新 Card），取消后使用对应参数的整体 Card；不会改变数据范围。Trend 的 Card 勾选独立控制是否校准，Final Bias 仍沿用原始值规则。All parameter plots、Single-wafer 与 Group plots 的 Trend 统一不显示 Y 轴标题：标题就是对应的 Raw Data 列名，标题行内的图例把 Reference 曲线标为当前 Match Type（KLA／NOVA／TEM）、把 Raw Data 曲线标为 PMISH，图例与标题同排、不再压在曲线上。
-- **Groups → Data selection…** 可按 Order、Reference、Raw Data 的所有列搜索、筛选和排序，整行点击切换 **Use**，Shift 点击批量设置可见区间。过滤是布尔矩阵：**Add row** 新建一行（每行是一个布尔组），行内条件用各自的 **AND / OR** 下拉连接、先算行内；行与行之间再用 **AND / OR** 连接，因此 `(A OR B) AND C` 这类组合都能表达（同一层内 AND 先于 OR 计算，与 SQL 一致）。每行末尾的 **+** 给该行加条件，条件的 **Edit / ×** 修改或删除，**Clear filters** 清空全部，矩阵随选择一起保存。**Check Visible / Uncheck Visible** 只改变可见记录的参与状态。**Apply** 后 selection 会保持：Raw Data 被整表替换或行数变化时，能对上的行按身份延续、其余按原位置延续，不会因为重新粘贴就把选择清空；只有 selection 用到的列（过滤列/身份列）不存在了，才会在提示栏提醒重新执行 Data selection。未勾选记录不参与 Workbook 分析及可追溯同源子工具绘图，但原始三表和 WKB 仍保留它们。搜索/列筛选本身只改变展示；**Cancel** 不提交勾选。独立导入的其他来源及 TEM 独立工具数据不按位置猜测匹配。旧文件保留已有分析筛选，首次应用 Data selection 时转换成显式参与勾选。
+- **Data → Data selection…** 可按 Order、Reference、Raw Data 的所有列搜索、筛选和排序，整行点击切换 **Use**，Shift 点击批量设置可见区间。过滤是布尔矩阵：**Add row** 新建一行（每行是一个布尔组），行内条件用各自的 **AND / OR** 下拉连接、先算行内；行与行之间再用 **AND / OR** 连接，因此 `(A OR B) AND C` 这类组合都能表达（同一层内 AND 先于 OR 计算，与 SQL 一致）。每行末尾的 **+** 给该行加条件，条件的 **Edit / ×** 修改或删除，**Clear filters** 清空全部，矩阵随选择一起保存。**Check Visible / Uncheck Visible** 只改变可见记录的参与状态。**Apply** 后 selection 会保持：Raw Data 被整表替换或行数变化时，能对上的行按身份延续、其余按原位置延续，不会因为重新粘贴就把选择清空；只有 selection 用到的列（过滤列/身份列）不存在了，才会在提示栏提醒重新执行 Data selection。未勾选记录不参与 Workbook 分析及可追溯同源子工具绘图，但原始三表和 WKB 仍保留它们。搜索/列筛选本身只改变展示；**Cancel** 不提交勾选。独立导入的其他来源及 TEM 独立工具数据不按位置猜测匹配。旧文件保留已有分析筛选，首次应用 Data selection 时转换成显式参与勾选。
 - **子窗口的数据来源**（Wafer Map / Radius、Correlation and Trend、Dynamic）：从 Workbook 打开时，菜单栏 **Data** 里有两个互斥选项——**Match Workbook selection**（默认）表示窗口里的表就是 selection 之后的数据；**Full data (before selection)** 表示重新复制 selection 之前的完整数据。切换会按当前 Workbook 数据重建该窗口的表（窗口已有独立修改时会先确认）。两种模式都可以再用 **Data selection…** 给本窗口追加自己的行选择，只影响本窗口的绘图/统计；右上角显示 `N ROWS / M COLUMNS · X ROWS USED`。
 - **Mark** 是可选分类（原 Age）：新建 Workbook 默认不启用，关闭时只按 TestFlag / 测头分组，已有 Mark 名称和分配保留。启用后点 **Marks…** 管理：每个量测组最多一个 Mark，名称完全自由（不限于 POR 等固定值），双击改名、**Add Mark / Delete Mark** 随时增删。第一个 Mark 是兜底组，✓ 标出，未显式分配的量测组自动归入它；只保留两个 Mark 就能当二元分类（默认 Old / New），需要多元时继续添加。删除某个 Mark 后，原属它的量测组回到第一个 Mark。搜索框只筛选列表，**Assign Visible** 批量分配给搜索后可见的量测组；点击首行再按住 Shift 点击末行，可把首行的 Mark 应用到可见区间。改名会同步更新 Order 表的 Mark / Group 筛选值。旧 WKB 自动保留原 Old/New 行为；在 Group settings 点击 Apply 后，表格和图使用自定义名称。关闭 Mark 时忽略 Mark 列的筛选/排序，已选 Mark × 测头组的筛选合并到测头，重新启用后恢复。**Order 表没有任何 TestFlag 时，只要启用 Mark 就按 Mark 分组**（组名就是 Mark 名称，不带 TestFlag 说明）；TestFlag 和 Mark 都没有时不分任何组，Group plots 页也不出现。
 - Wafers 列表上方显示当前身份字段，例如 `Wafer ID / Lot ID / PAD Name`。身份字段可以多选。
@@ -130,6 +134,14 @@ Match Workbook 顶部提供 **Open Spectra Viewer** 子窗口入口，可在菜�
 Spectra Viewer 也支持独立的 **`.spec`** 文件：File → **Save Spectra / Save Spectra As…** 按当前 Spec Save Type 保存光谱或路径及设置，**Open Spectra File…** 重新打开；主界面的 Open Workspace 和拖入文件也能识别 `.spec`。Match WKB 子窗口中，**Ctrl+S / Ctrl+Shift+S 始终保存或另存所属 Match WKB**，`.spec` 通过菜单单独保存；独立 Spectra Viewer 中，这两个快捷键保存或另存 `.spec`。保存 `.spec` 不会同时保存父 WKB。
 
 WKB 子窗口的 **Spectra Info** 按 Raw Data 的 Original row order 输出当前勾选光谱，有带/不带 Test Flag 两个 tab。按 Wafer ID、Lot、PAD、Die 和 FIELD X/Y 匹配，Time 来自 SME，Type 为 Accuracy，Reference 列沿用原列名和顺序；隐藏记录不参与复制或 CSV 导出。**Options** 中的文件名时间戳校验默认开启，与 SME 内时间不符或来源不匹配会提示并阻止导出。**Data → Set Test Flag** 支持按身份字段分组、搜索、添加整数旗标和批量分配，0 为 Fallback。Die Map 也可给选中点设置旗标：1 绿色、−1 红色，0 不显示；点的蓝/灰色仍只表示勾选状态。Test Flag 与 Marks 下拉框都避免滚轮误改。
+
+**Spectra Info → XY** 新增坐标表：Wafer ID、Lot ID、PAD Name、Die Seq、FIELD X/Y、X(mm)、Y(mm)。物理坐标直接来自 SME，缺失留空、保留原精度；支持复制和 CSV 导出。绑定 WKB 且有 Raw Data 时严格沿用原行序；独立 Viewer 或 Raw Data 为空时按 Wafer → Lot → PAD 自然排序、Die Seq 数值升序，再以测量时间和源路径稳定区分重复 Die。Data selection 也提供 X(mm)/Y(mm) 筛选，Apply 后的勾选结果同步到 XY 表。对话框的 Filtered rows/Search 仍只用于查看和编辑，不额外改变已勾选光谱的导出范围。
+
+Spectra Info 三页采用相同的行序。表头或表格右键 **Delete Column(s)** 删除当前页的报告列，右侧列左移，复制/导出同样移除该列，原始数据保留；设置随 `.spec` 或 WKB 子窗口草稿保存。**With Test Flag** 页可直接编辑整数旗标，与 Die Map 双向同步，旗子原位更新。Spectra Info、Viewer 和 Die Map 共用删列及旗标修改历史：`Ctrl+Z` 撤销，`Ctrl+Shift+Z` 重做；新载入文档清空操作历史。
+
+Spectra Viewer 的 **Groups** 菜单提供 Enable Groups、Copy WKB Groups 和 Group settings。复制按 Wafer ID / Lot ID / PAD / Die 一次性获取 WKB 当前已应用的 Head/Mark 分类及共享 Test Flag，之后可独立修改；重复身份分类冲突会拒绝，未匹配项保持未分组。Group settings 使用紧凑设置栏和带 Wafer / Lot / PAD / Die 身份的明细表，Test Flag 与 Spectra Info、Die Map 共用状态，Apply 后同步，支持撤销/重做。新建本地 Mark 默认 **POR（Fallback）、POR+、POR-**；已有文档/WKB 自定义 Mark 保留。树右键 **Set Mark → Add Mark…** 提供 Replace / Append：前者替换，后者把 `Old` 叠加成真正的 `Old/POR` Mark。legend 显示 `Mark | 原图例`，Wafer 节点显示 `Wafer ID | Mark`，同片不同 Mark 用逗号并列；Die Map 标题及点提示同步 Group。Mark 修改保留光谱、勾选、曲线颜色和轴范围；设置随 `.spec`/WKB 子窗口保存。Legend 四区可左右调整，与绘图区之间也可上下拖动，双击分隔栏还原。
+
+树右键 **Highlight** 为选中光谱添加亮洋红粗线前景高亮，点击空白取消选择后仍保留，再次取消 Highlight 可移除；不改变原始数据、通道配色或轴范围，隐藏/未勾选曲线仍隐藏。高亮随 `.spec`/WKB 保存并支持撤销/重做。主图或双击放大的图中选中光谱后，按 **U** 取消勾选；文本编辑框不受该快捷键影响。
 
 顶部 **Color By** 可选 **Wafer** 或 **SME Name**。Wafer 按 Wafer ID、Lot、PAD 的完整组合区分颜色；SME Name 按具体光谱文件区分颜色，重复文件名仍按源路径区分。两种方式都为不同 Channel 分配不同颜色，各图、图例与悬浮图保持一致。勾选、分类、缩放及切回已有模式时保留已分配颜色；双击图例只切换对应着色组的显示。优先使用 Tableau Category10，较多组合扩展色相、饱和度和亮度，避免循环复用相同 RGB。3σ 每条曲线汇总多个文件，因此仍按 Wafer/通道着色；此时 Color By 显示 Wafer 并禁用，离开 3σ 后恢复原选择。物理 Channel 数量统计不受着色分组影响。
 
@@ -172,6 +184,8 @@ Mueller 横轴只显示自动生成的等间隔主刻度文字，保留次网格
 
 从主窗口启动 Match Workbook 时，先选择 **New Workbook**、**Open Workbook** 或最近文件。最近列表每行显示“文件名 + 保存时间（文件修改时间）+ 所在目录”，单击即打开。**Open Workbook** 与最近文件都直接按文件里保存的 Match Type、Bias、Trend Y axes、倍率和原来的 tab 打开，不再经过设置页，打开后保持已保存状态；只有 **New Workbook** 需要确认 Analysis 设置：默认 KLA、Bias、Auto 10×、Preview，且至少选择一个 Bias 视图。旧文件两个 Bias 视图都不选时也能直接打开，之后可在 Analysis 菜单补选。取消不会留下空窗口。File 的 **New Workbook…**（Ctrl+N）与 **Open Workbook…**（Ctrl+O）遵循同一规则。Final 缺少输入时进入等待补数据的页面。Analysis 设置在 Preview/Final 间共用。
 5. 首次执行 **Run analysis** 后，Slope、Intercept、R²、Valid pairs 等结果直接显示在 Parameter mapping 的同一行。以后在 Raw Data 的 A1 粘贴新表或更改 Raw Data column 都会自动重新分析，不需要重复点击；Reference 与 Raw Data 都直接在网格中按 `Ctrl+V` 粘贴（只覆盖粘贴范围），`Ctrl+Shift+V` 才清空整表再粘贴；单元格编辑和 Delete 清空均可用 `Ctrl+Z` 撤销。Raw Data 暂时清空或缺少原参数列时，Reference 建立的映射仍会保留，界面会提示重新选择缺失的 Raw Data column。Slope 小于 0.9 或大于 1.1、R² 小于 0.9 时，值会以红色警示并说明阈值。Parameter mapping 里的 **Raw Data column** 下拉框不吃鼠标滚轮：滚轮只滚动页面，不会误改映射（其他下拉框仍是标准行为）。
+
+Parameter mapping 的 **Show Die Map** 在有超限点的晶圆中保留全部可定位的 Raw 点：Data selection 未勾选为浅灰，勾选且超限为红色，其余勾选点为蓝色。Hide excluded rows 只隐藏表格行，不移除图上灰点；Apply 后颜色同步更新，坐标未变时保留图对象和缩放。关闭的 Spectra 草稿只读取缓存坐标元信息，不打开 Viewer 或解码光谱采样。
 6. 结果区分为 **All parameter plots** 和 **Single-wafer metrics** 两个 tab。全部参数按纵向卡片显示，只有一个参数时也从结果区顶部开始；Match、Trend、Bias、Bias % 按当前选择排在同一横行。Match 固定为 510 × 330 px，Trend、Bias 和 Bias % 统一为 330 px 高并平分剩余宽度；四图同时显示时也会收进可见工作区，不需要横向滚动且不会互相重叠。绘图区上下对齐、四边同粗，Trend/Bias 不再重复显示 Wafer 轴标题。Trend 右上角的 **Card** 可在原始 PMISH 与加 Card 后的 PMISH 间切换。拖动参数卡标题时会显示半透明预览和淡入的插入位置；当前顺序会直接保留，不再占用空间显示 Reset。输入、映射和结果区之间的分隔线可以拖动；首次运行成功后，修改 Reference、当前模式的 Raw Data 或 Parameter mapping 会自动原位刷新，并保持分隔栏、滚动位置和参数顺序。Preview 与 Final 各自保留独立 Raw Data，切换模式不会清空另一侧数据或已有结果。当前模式对应的 **Open Preview/Final Wafer Map / Radius** 与 **Open Preview/Final Dynamic** 位于顶部右侧。
 
 顶部右侧还提供 **Open Correlation and Trend**：它直接读取当前模式的 Reference 与 Raw Data，分别显示在两个数据页。Raw Data 保留全部原始列；Ref Data 用 parameter mapping 的参数名显示量测值，并把 Wafer ID、Lot ID、PAD Name 与 Die Seq 按行对齐 Raw Data。Correlation 只在 Reference 内部或 Raw Data 内部拟合，不做跨来源 correlation；所有 Reference 图先显示并使用橙色，随后是蓝色 Raw Data 图。Trend 使用相同的来源顺序与配色。
@@ -215,6 +229,8 @@ Large menu exports prepare an owned report in a separate process, with up to six
 Wafer Map 或 Radius Plot 成功绘制并保存过后，WKB 会分别保存“自动绘制已启用”和实际框选组合。保存子窗口再打开、或重新加载 WKB，都会恢复仍存在的组合并直接出图，不必再次点击 **Draw selected**；尚未确认 Draw 的新框选仍等待点击，不自动绘制。旧 schema 1–10 仍可读取。
 
 ### 统一文档保存与恢复
+
+最近工作簿选择界面和 Shell 最近菜单只读取文件类型元信息。打开 Match Workbook 时，尚未打开的 Spectra 子窗口草稿保留为只读磁盘快照，按需读取；保存、另存和恢复继续携带完整光谱，不会把未加载的数据当成空数据。SQLite 表使用原生 fetch 读取，保留原始字符串、列类型和行序；旧 `.mwkb` 格式保持兼容。
 
 Match Workbook 使用 SQLite `.wkb`；独立 Wafer Map / Radius 使用 `.wmap`，Dynamic `.wdyn`，Correlation and Trend `.wct`。**Ctrl+S** 保存当前文档，独立工具和 Match 父窗口的 **Ctrl+Shift+S** 另存为。主窗口菜单的 Open Workspace、最近文件和拖放按内部类型打开正确工具。旧独立 `.wkb` 仍可读，第一次 Save 会要求另存规范后缀，原文件保留。
 
@@ -261,7 +277,9 @@ Wafer Maps 成功绘制一次后会记住实际绘制的方框。此后**只有�
 
 坐标列优先匹配 `X(mm) / Y(mm)`，其次是 FIELD X/Y 和 X/Y，也可以手动指定。阵列中的行对应测量条目，列对应参数。同一个 Wafer ID 下，不同 PAD Name 会作为不同条目。
 
-每张图显示插值曲面、原始测点、点值、坐标轴和 Min/Max/Mean，不在阵列底部重复显示 RBF、边缘扩展或晶圆尺寸说明。默认色阶为 Turbo，也可以选择 Viridis、Plasma、Jet、Coolwarm 或 Spectral。**Colors** 两端的手柄用于裁剪调色板范围；拖动时只更新颜色，不重新计算 RBF。**Opacity** 只改变填色透明度，等值线和测点保持实心。
+每张图第一行为参数名，第二行为 `Group · Wafer ID · Lot · PAD`（无 Group 时省略该项），第三行为 Min/Max/Mean/Sigma。Sigma 是有效量测点的总体标准差（1σ，ddof=0），不从插值网格统计。默认色阶为 Turbo，也可以选择 Viridis、Plasma、Jet、Coolwarm 或 Spectral。**Colors** 两端的手柄用于裁剪调色板范围；拖动时只更新颜色，不重新计算 RBF。**Opacity** 只改变填色透明度，等值线和测点保持实心。
+
+Wafer Map 的 **Groups** 菜单支持本地 Head/Mark/TestFlag、Enable Groups、Use WKB Group settings 和一次性 **Copy WKB Groups**。只显示分类，不按 Group 拆分晶圆或改变参与行；切换分类和标题时复用已有曲面。Group settings 使用带身份列的紧凑明细表。新独立配置默认 Mark 为 POR（Fallback）、POR+、POR-，保留旧文件及复制的自定义值；Marks 的批量分配提供 Replace / Append，叠加会生成真正的 `Old/POR` Mark。配置随独立文件/WKB 子窗口草稿保存。
 
 **Point values**、**Measurement points**、**Contour lines**、**Point outline** 和 **Scale bar** 可以单独开关。程序会复用已有插值结果，因此切换这些显示项不会改变当前缩放或滚动位置。在 18 张图的测试数据上，叠加层更新约为 0.05 秒；原来的完整重绘约为 1.2 秒。
 
@@ -286,6 +304,10 @@ Radius Plot 使用 Data 中当前勾选的测量条目和参数，但保留自�
 X < 0 位于负半轴，X > 0 位于正半轴，X = 0 时半径为 0。每个“测量条目 × 参数”单独绘制，不会把多组数据叠在一张图上。标准毫米坐标沿用 100/200/300 mm 晶圆识别，缩放、字体、分辨率和 PNG 输出规则与 Wafer Maps 一致。
 
 ## Correlation and Trend
+
+**Groups** 菜单可开关 Group 显示，使用 **Group settings…** 配置与 Match Workbook 相同的 Head、Mark、TestFlag 和 Trend 分组顺序。**Plot labels** 可独立开关 PAD / Lot 标签。WKB 子窗口默认跟随父窗口的 Group 和 Plot Label 设置；取消对应的 **Use WKB…** 后可在子窗口单独配置，不会修改父工作簿。选项随独立文档或 WKB 子窗口草稿保存；关闭 Group 显示不改变数据参与状态。
+
+Correlation and Trend 同样使用紧凑 Group 身份明细表、新独立配置的 POR/POR+/POR- 默认 Mark、Replace/Append 和一次性 **Copy WKB Groups**。一次性复制后不继续跟随父窗口，原有连续跟随开关仍可使用。Ref Data 和 Raw Data 表现在均可使用 Wafer Map 同款元数据列锁：点击列名格的锁图标或 Ctrl+L 切换；锁保护列名、原始字符串和行位，粘贴/删除只改未锁内容，形状冲突明确提示；锁状态随独立文件和子窗口草稿保存。
 
 该工具用 **Ref Data** 与 **Raw Data** 两个独立页保留来源表；Raw Data 始终显示全部原始列，Reference 的 Wafer ID、Lot ID、PAD Name 与 Die Seq 按行取自 Raw Data。两个页面支持同样的导入、粘贴和编辑操作。新表格会默认选中所有测量条目，并勾选可用的建模参数列。MSE、GOF、NGOF、LBH、fitTime、regIter（包括 `reglter` 拼写）、CINDEX、Seq、Logical ID，以及 `Cur SME File Path`、Wafer ID、Lot ID、Tool SN、PAD Name、Die Seq、FIELD X/Y、X(mm)/Y(mm) 都不是建模的物理参数，不会出现在参数列表里。名称匹配忽略大小写、空格、下划线和连字符。双来源模式下，Correlation 先列完 Reference 的来源内拟合，再列 Raw Data；Trend 也按 Reference 后 Raw Data 排列，并以橙色/蓝色区分来源。
 
@@ -324,7 +346,7 @@ Trend 的 Y 轴单位按 OCD 行业规则识别：名称含 `SWA` 视为 degree�
 - 空白身份值不会自动向下填充，也不会猜测。
 - 同一测量条目内不允许重复 X/Y。程序会报告无法拆分的重复点，不会擅自平均或覆盖原行。
 - 无有效数据的组合会留在画布中并显示原因。修改数据、选择或设置后，旧结果会隐藏。
-- 每批最多处理 120 个阵列位置。
+- 每批最多处理 120 个阵列位置。Wafer Map 会结合勾选参数数量自动缩小每页晶圆数，保留全部参数，通过翻页访问全部晶圆；例如 24 个参数时每页最多 5 片，不再因默认每页 12 片超出上限而整批失败。
 
 Wafer Map 使用 SciPy 薄板样条 RBF 插值。它用于展示和比较量测结果，不是 KLA 专有算法的复现。目前不提供 A/B 差值界面，也不会自动换算测量单位。
 

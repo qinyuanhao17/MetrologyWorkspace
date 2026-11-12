@@ -32,6 +32,48 @@ class WorkbookStartupTests(unittest.TestCase):
         self.windows.append(window)
         return window
 
+    def test_recent_choosers_only_read_routing_metadata_not_measurement_payloads(self):
+        from metrology_app.settings import remember_recent_wkb
+        from metrology_app.workbook_startup import WorkbookStartupDialog
+        from metrology_app.shell import MainWindow
+        remember_recent_wkb(self.path)
+        with patch('metrology_app.workbook_startup.load_workspace', side_effect=AssertionError('payload read')):
+            dialog = WorkbookStartupDialog()
+            self.addCleanup(dialog.deleteLater)
+            self.assertEqual(dialog.recent_list.count(),1)
+        shell = MainWindow(); self.windows.append(shell)
+        with patch('metrology_app.shell.load_workspace', side_effect=AssertionError('payload read')):
+            shell.refresh_recent_workspaces()
+            self.assertEqual(len(shell.recent_workspace_menu.actions()),1)
+
+    def test_recent_choice_passes_the_validated_snapshot_instead_of_loading_it_again(self):
+        from metrology_app.settings import remember_recent_wkb
+        from metrology_app.shell import MainWindow
+        from metrology_app.workbook_startup import WorkbookStartupDialog
+        remember_recent_wkb(self.path)
+        shell = MainWindow(); self.windows.append(shell)
+        def choose():
+            dialog = APP.activeModalWidget()
+            dialog.select_workbook(self.path)
+        with patch('metrology_app.workbook_startup.load_workspace', wraps=load_workspace) as first, \
+             patch('metrology_app.matching_window.load_workspace', wraps=load_workspace) as second:
+            QTimer.singleShot(0,choose)
+            child = shell.launch_match_workbook()
+        self.assertEqual(first.call_count,1)
+        self.assertEqual(second.call_count,0)
+        self.assertEqual(child.workbook_path,self.path.resolve())
+        self.assertFalse(child.document.is_dirty())
+
+    def test_replaced_file_after_chooser_read_is_reloaded_before_installing_snapshot(self):
+        old = load_workspace(self.path)
+        updated = load_workspace(self.path)
+        updated.frames['raw'].loc[0,'CD'] = '7.000'
+        save_workspace(self.path,updated)
+        window = self.window()
+        window.load_workbook(self.path,snapshot=old)
+        self.assertEqual(window.raw_frame.loc[0,'CD'],'7.000')
+        self.assertEqual(window.document.revision,updated.revision)
+
     def tearDown(self):
         with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Discard):
             for window in self.windows:

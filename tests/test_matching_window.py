@@ -1395,6 +1395,8 @@ class MatchingWindowTests(unittest.TestCase):
         window.set_raw_frame(raw)
         window.run_analysis()
         self.assertTrue(hasattr(window, "data_selection_action"))
+        self.assertIn(window.data_selection_action,window.data_menu.actions())
+        self.assertNotIn(window.data_selection_action,window.groups_menu.actions())
         errors = []
         def choose():
             dialog = APP.activeModalWidget()

@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .array_plot import ArrayOptions, draw_array, drawn_axes, prepare_array
+from .array_plot import ArrayOptions, MAX_ARRAY_MAPS, draw_array, drawn_axes, prepare_array
 from .appearance import (COLOR_MAP_OPTIONS, MAX_COPY_PIXELS, MAX_EXPORT_PIXELS,
                          configure_resolution_combo, export_dpi, resolution_settings,
                          screen_render_scale)
@@ -438,6 +438,10 @@ class PlotPage(QWidget):
                      tuple((key, tuple(selection["groups"].get(key, ()))) for key in selection["wafers"])
                      if "groups" in selection else None)
         if signature == self.signature:
+            if selection.get('labels') != self.selection.get('labels'):
+                self.selection['labels'] = dict(selection.get('labels',{}))
+                self.selector.set_labels(selection.get('labels'))
+                self._update_captions()
             return
         # Only a data change may redraw by itself. Adding or removing wafers or
         # parameters rebuilds the box grid, so the engineer picks the maps again
@@ -467,6 +471,18 @@ class PlotPage(QWidget):
             # Auto redraw only replays the last successful draw; a pending box
             # selection waits for the engineer to press Draw selected.
             self.queue_input_refresh()
+
+    def _update_captions(self):
+        labels = self.selection.get('labels',{})
+        if self.result is not None:
+            for source in self.result['scenes']:
+                if not source.get('skip'):
+                    source['label'] = labels.get(source['wafer'],source['label'])
+        for panel in self.map_grid.panels:
+            if not panel.source.get('skip'):
+                panel.source['label'] = labels.get(panel.source['wafer'],panel.source['label'])
+                panel.update()
+        self._export_dirty = True
 
     def show_selector(self):
         self.page_intent = "selector"
@@ -533,10 +549,13 @@ class PlotPage(QWidget):
         self.page_index = 0
         self.invalidate()
 
-    def paginate_wafers(self, wafers):
+    def paginate_wafers(self, wafers, metrics=None):
         """One page at a time; a wafer always brings all its metrics along."""
         wafers = list(wafers)
-        size = max(1, self.page_size.value())
+        count = max(1,len(self.selection.get('metrics',()) if metrics is None else metrics))
+        size = max(1,min(self.page_size.value(),MAX_ARRAY_MAPS // count))
+        self._effective_page_size = size
+        self.page_label.setToolTip(f'Up to {size} wafers per page for {count} parameters; {MAX_ARRAY_MAPS} maps per page.')
         pages = max(1, (len(wafers) + size - 1) // size)
         self.page_index = min(max(0, self.page_index), pages - 1)
         start = self.page_index * size
@@ -559,7 +578,9 @@ class PlotPage(QWidget):
         self.draw_maps()
 
     def _update_page_controls(self, index, pages):
-        self.page_label.setText(f"Page {index + 1} / {pages}")
+        size = getattr(self,'_effective_page_size',self.page_size.value())
+        suffix = f' · {size} wafers/page' if size < self.page_size.value() else ''
+        self.page_label.setText(f"Page {index + 1} / {pages}{suffix}")
         self.page_back.setEnabled(index > 0)
         self.page_next.setEnabled(index < pages - 1)
 
@@ -658,7 +679,7 @@ class PlotPage(QWidget):
             # reserving blank space for every combination of the Data selection.
             wafers, metrics = drawn_axes(self.selection.get("wafers", []),
                                          self.selection.get("metrics", []), cells)
-            wafers, page_index, pages = self.paginate_wafers(wafers)
+            wafers, page_index, pages = self.paginate_wafers(wafers,metrics)
             self._update_page_controls(page_index, pages)
             self._page_total = pages
             selection = dict(self.selection, cells=list(cells),
@@ -804,6 +825,9 @@ class PlotPage(QWidget):
         self.status.setText(f"Could not update wafer graphics; current data is not drawn: {message}")
 
     def render_result(self, result):
+        for source in result['scenes']:
+            if not source.get('skip'):
+                source['label'] = self.selection.get('labels',{}).get(source['wafer'],source['label'])
         try:
             self._cancel_background_draw()
             # A worker may finish after this presentation-only control changed.
@@ -845,6 +869,7 @@ class PlotPage(QWidget):
             saved_view = self.capture_view() if state['preserve_view'] else None
             self.result = result
             self._pending_render = None
+            self._update_captions()
             self._export_dirty = True
             self.dirty = False
             self.has_drawn_once = True

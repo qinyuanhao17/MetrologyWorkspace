@@ -56,10 +56,13 @@ def snapshot(viewer):
     panels = {**viewer.plot_panels, **viewer.mueller_panel.mij_plots}
     ui = {"version": 1, "save_type": viewer.spec_save_type,
           "checked": sorted(viewer._checked_keys | viewer._unavailable_checked), "selected": sorted(viewer._selected_keys),
+          "highlighted": sorted(viewer.highlighted_keys),
           "baseline": viewer._baseline_key, "analysis": viewer.analysis_mode,
           "group_by": viewer.group_by_combo.currentData(), "color_by": viewer._color_mode,
           "data_selection": deepcopy(viewer._data_selection_view),
           "test_flags": dict(viewer.test_flags), "verify_spectra_time": viewer.verify_spectra_time_action.isChecked(),
+          "info_deleted_columns": [sorted(columns) for columns in viewer.info_deleted_columns],
+          "groups": viewer.group_options.snapshot(),
           "test_flag_values": list(viewer.test_flag_values), "test_flag_grouping": list(viewer.test_flag_grouping),
           "views": {name: action.isChecked() for name, action in viewer.view_actions.items()},
           "colors": [[asdict(key), color.rgba()] for key, color in viewer._channel_colors.items()],
@@ -81,7 +84,7 @@ def _view_state(view):
 
 def _splitters(viewer):
     return (viewer.main_splitter, viewer.legend_splitter, viewer.plot_splitter, viewer.left_plot_splitter,
-            viewer.mueller_panel.plot_splitter, *viewer.mueller_panel.row_splitters)
+            viewer.mueller_panel.plot_splitter, *viewer.mueller_panel.row_splitters, viewer.legend_plot_splitter)
 
 
 def _restore_range(view, saved):
@@ -92,6 +95,8 @@ def _restore_range(view, saved):
 
 
 def _validate_ui(viewer, draft):
+    from .spectra_groups import validate_groups
+    validate_groups(draft.states.get("ui", {}).get("groups"))
     """Reject unsupported controls before replacing any live source data."""
     ui = draft.states.get("ui", {})
     if ui.get("save_type", "embedded") not in ("embedded", "paths"):
@@ -99,6 +104,11 @@ def _validate_ui(viewer, draft):
     flags = ui.get("test_flags", {})
     values = ui.get("test_flag_values", [0, 1, -1])
     grouping = ui.get("test_flag_grouping", ["wafer", "lot", "pad"])
+    removed = ui.get("info_deleted_columns", [[], [], []])
+    if (not isinstance(removed, list) or len(removed) != 3
+            or any(not isinstance(columns, list) or any(not isinstance(column, str) for column in columns)
+                   for columns in removed)):
+        raise ValueError("Invalid Spectra Info report columns.")
     if (not isinstance(flags, dict) or any(not isinstance(key, str) or type(value) is not int
                                          for key, value in flags.items())
             or type(ui.get("verify_spectra_time", True)) is not bool
@@ -115,6 +125,8 @@ def _validate_ui(viewer, draft):
     for name in ("checked", "selected"):
         if not isinstance(ui.get(name), list) or not all(isinstance(key, str) for key in ui[name]):
             raise ValueError("Invalid spectrum selection.")
+    if not isinstance(ui.get('highlighted',[]),list) or any(not isinstance(k,str) for k in ui.get('highlighted',[])):
+        raise ValueError('Invalid highlighted spectra.')
     views = ui.get("views", {})
     if set(views) != set(viewer.view_actions) or any(type(value) is not bool for value in views.values()):
         raise ValueError("Invalid Spectra views.")
@@ -215,7 +227,11 @@ def restore(viewer, draft):
     keys = {s.key for s in spectra}
     viewer._checked_keys = set(ui["checked"]) & keys
     viewer._data_selection_view = view
+    viewer.group_options.restore(ui.get("groups"))
+    viewer.info_deleted_columns = [set(columns) for columns in ui.get("info_deleted_columns", [[], [], []])]
     viewer.test_flags = {key: value for key, value in ui.get("test_flags", {}).items() if key in keys | unavailable.keys() and value}
+    viewer.group_options._cache = None
+    viewer._apply_highlights(ui.get('highlighted',[]))
     viewer.test_flag_values = list(dict.fromkeys((*ui.get("test_flag_values", [0, 1, -1]), *viewer.test_flags.values())))
     viewer.test_flag_grouping = list(ui.get("test_flag_grouping", ["wafer", "lot", "pad"]))
     viewer.verify_spectra_time_action.setChecked(ui.get("verify_spectra_time", True))
@@ -276,7 +292,12 @@ def open_child(owner, scope):
     saved = owner._workspace_states.get(scope, {})
     try:
         if "ui" in saved:
-            restore(child, WorkspaceSnapshot("spectra_viewer", {"spectra": owner._workspace_frames[f"{scope}.spectra"]}, {"ui": saved["ui"]}))
+            from .workspace_frames import StoredFrame
+            from .workspace_document import document_io
+            frame = owner._workspace_frames[f"{scope}.spectra"]
+            if isinstance(frame,StoredFrame):
+                frame = document_io(child,frame.load,'Reading saved spectra…')
+            restore(child, WorkspaceSnapshot("spectra_viewer", {"spectra": frame}, {"ui": saved["ui"]}))
     except Exception:
         child.deleteLater()
         raise
@@ -284,6 +305,7 @@ def open_child(owner, scope):
     child._workbook_child = True
     child._spectra_workbook_owner = owner
     child.set_workbook_selection_source(owner.selection_script)
+    child.group_options.set_source(lambda: (owner._active_raw_frame(), owner.group_controls.flags_frame(), owner.group_controls.state))
     child.set_spectra_info_source(lambda: (owner._active_raw_frame(), owner.reference_frame))
     for model in (owner.reference_model, owner.raw_model, owner.final_raw_model):
         model.changed.connect(child.schedule_spectra_info_refresh)

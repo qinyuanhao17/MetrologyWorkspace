@@ -359,7 +359,8 @@ class ColumnFilterDialog(QDialog):
         for label, field in (("Contains", self.query), ("Minimum", self.minimum), ("Maximum", self.maximum)):
             form.addRow(label, field)
         layout.addLayout(form)
-        self.search = QLineEdit(placeholderText="Find a value…")
+        self.search = QLineEdit(placeholderText="Find values (commas or spaces)…")
+        self.search.setToolTip('Separate search values with commas (, / ，) or spaces. Any matching value is shown.')
         layout.addWidget(self.search)
         actions = QHBoxLayout()
         self.all_button, self.none_button = QPushButton("All"), QPushButton("None")
@@ -376,7 +377,7 @@ class ColumnFilterDialog(QDialog):
             item.setCheckState(Qt.CheckState.Checked if selected is None or value in selected else Qt.CheckState.Unchecked)
             self.values.addItem(item)
         layout.addWidget(self.values)
-        self.search.textChanged.connect(lambda text: [self.values.item(i).setHidden(text.lower() not in self.values.item(i).text().lower()) for i in range(self.values.count())])
+        self.search.textChanged.connect(self._find_values)
         self.all_button.clicked.connect(lambda: self.check_visible(True))
         self.none_button.clicked.connect(lambda: self.check_visible(False))
         self.removed = False
@@ -388,6 +389,12 @@ class ColumnFilterDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def _find_values(self, text):
+        terms = text.replace('，', ' ').replace(',', ' ').lower().split()
+        for i in range(self.values.count()):
+            item = self.values.item(i)
+            item.setHidden(bool(terms) and not any(term in item.text().lower() for term in terms))
 
     def _remove(self):
         self.removed = True
@@ -783,6 +790,10 @@ class GroupControls(QWidget):
         batch_mark.setEditable(True)
         apply_visible = QPushButton("Assign Visible", objectName="assignVisibleMark")
         batch.addWidget(batch_mark, 1)
+        assign_mode = ScrollSafeComboBox(objectName='markAssignmentMode')
+        assign_mode.addItems(['Replace','Append'])
+        assign_mode.setToolTip('Replace the current Mark, or append a composite Mark such as Old/POR.')
+        batch.addWidget(assign_mode)
         batch.addWidget(apply_visible)
         layout.addLayout(batch)
         chosen = list(self.plan.identity_columns)
@@ -909,11 +920,24 @@ class GroupControls(QWidget):
             names = [spec["name"] for spec in mark_specs() if spec["name"]]
             if not name or name not in names:
                 return
-            for item, combo in combos:
+            targets = [(item,combo,('/'.join(dict.fromkeys((*combo.currentText().strip().split('/'),name)))
+                                    if assign_mode.currentIndex() == 1 else name))
+                       for item,combo in combos if not item.isHidden()]
+            known = {n.casefold() for n in names}
+            for _item,_combo,target in targets:
+                if target.casefold() not in known:
+                    spec_id = uuid4().hex
+                    value = QTreeWidgetItem([target,''])
+                    value.setData(0,Qt.ItemDataRole.UserRole,spec_id)
+                    value.setFlags(value.flags() | Qt.ItemFlag.ItemIsEditable)
+                    marks.addTopLevelItem(value)
+                    known.add(target.casefold())
+            refresh_visible_columns()
+            for item, combo, target in targets:
                 if item.isHidden():
                     continue
-                touched(item.data(0, Qt.ItemDataRole.UserRole), name)
-                combo.setCurrentText(name)
+                touched(item.data(0, Qt.ItemDataRole.UserRole), target)
+                combo.setCurrentText(target)
 
         def row_pressed(item, column):
             if column != 0 or item is None:

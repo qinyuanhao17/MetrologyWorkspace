@@ -1,0 +1,24 @@
+{
+  "source_workbook": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\JC1913\\matching-analysis.mwkb",
+  "source_sha256": "c002afab609b5b5820263e71abd5cdb677e77df7e464d22266af5e9e61985ab2",
+  "source_unchanged": true,
+  "raw_rows": 1890,
+  "original_sme_files": 3,
+  "sme_files_unchanged": true,
+  "all_tabs_original_raw_order": true,
+  "delete_column_shifts_and_export_omits": true,
+  "green_1_red_minus1_zero_absent": true,
+  "info_flag_to_exact_sme_row": true,
+  "undo_redo_shared": true,
+  "same_die_plot_and_ranges": true,
+  "checks_unchanged": true,
+  "child_draft_restore": true,
+  "full_suite_run": false,
+  "focused_tests": {
+    "count": 73,
+    "seconds": 20.23,
+    "passed": true,
+    "log": ".cache/spectra-info-edits-final.log"
+  },
+  "auto_weighting_run": false
+}

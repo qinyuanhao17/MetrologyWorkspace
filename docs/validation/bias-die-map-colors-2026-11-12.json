@@ -1,0 +1,26 @@
+{
+  "source": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\JC1913\\matching-analysis.mwkb",
+  "source_sha256": "c002afab609b5b5820263e71abd5cdb677e77df7e464d22266af5e9e61985ab2",
+  "source_unchanged": true,
+  "raw_rows_validated": 21,
+  "metadata_rows_available": 1890,
+  "parameter": "OCD_Depth",
+  "excluded_source_row": 0,
+  "point_colors": {
+    "#3e8bd8": 12,
+    "#d6d9de": 1,
+    "#dc2626": 8
+  },
+  "all_points_retained": true,
+  "same_plot_and_ranges": true,
+  "spectra_viewer_not_opened": true,
+  "sample_payload_not_decoded": true,
+  "full_suite_run": false,
+  "focused_tests": {
+    "count": 26,
+    "seconds": 3.841,
+    "passed": true,
+    "log": ".cache/bias-map-colors-final.log"
+  },
+  "auto_weighting_run": false
+}

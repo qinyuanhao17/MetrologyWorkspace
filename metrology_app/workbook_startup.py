@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
 from .matching import MatchWorkbook
 from .matching.analysis import _normalized_trend_axis_settings
 from .settings import apply_theme, recent_wkb_paths
-from .workspace_store import MATCH_FILTER, load_workspace
+from .workspace_store import MATCH_FILTER, load_workspace, workspace_kind
 
 
 AXIS_MODE_LABELS = {
@@ -154,8 +154,7 @@ class WorkbookStartupDialog(QDialog):
             if path.suffix.lower() not in (".mwkb", ".wkb", ".bak") or not path.is_file():
                 continue
             try:
-                snapshot = load_workspace(path)
-                if snapshot.workspace_type != "match_workbook" or "recovery" in snapshot.states:
+                if workspace_kind(path, allow_recovery=False) != "match_workbook":
                     continue
             except (OSError, ValueError):
                 continue
@@ -251,7 +250,9 @@ class WorkbookStartupDialog(QDialog):
 
     def _read_workbook(self, path):
         try:
-            snapshot = load_workspace(path, expected_type="match_workbook")
+            from .workspace_document import document_io, large_spectra_payload
+            read = lambda: load_workspace(path, expected_type="match_workbook", defer_spectra=True)
+            snapshot = document_io(self,read,'Opening Workbook…') if large_spectra_payload(path=path) else read()
             if "recovery" in snapshot.states:
                 raise ValueError("Use File > Recover Workbook Draft to open a recovery file.")
             if not snapshot.states["match"].get("draft"):

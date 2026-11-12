@@ -1,0 +1,34 @@
+{
+  "wkb": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\JC1913\\matching-analysis.mwkb",
+  "source_sha256": "c002afab609b5b5820263e71abd5cdb677e77df7e464d22266af5e9e61985ab2",
+  "source_unchanged": true,
+  "wkb_classification_rows": 1890,
+  "identity_table_columns": [
+    "Wafer ID",
+    "Lot ID",
+    "PAD Name",
+    "Die Seq",
+    "TestFlag",
+    "Head",
+    "Mark",
+    "Group"
+  ],
+  "composite_mark": "Old/POR",
+  "shared_test_flags_verified": true,
+  "real_sme_count": 3,
+  "highlight_color": "#EE3377",
+  "original_curve_items_and_ranges_preserved": true,
+  "floating_plot_u_uncheck_verified": true,
+  "original_sme_unchanged": true,
+  "full_suite_run": false,
+  "focused_regression": {
+    "tests": 123,
+    "seconds": 80.809,
+    "passed": true
+  },
+  "final_group_interaction_storage": {
+    "tests": 31,
+    "seconds": 24.323,
+    "passed": true
+  }
+}

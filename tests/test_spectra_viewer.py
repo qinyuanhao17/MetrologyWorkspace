@@ -1498,6 +1498,8 @@ class SpectraViewerTreeTests(unittest.TestCase):
                 "Uncheck All Spectra",
                 "Check Selected",
                 "Uncheck Selected",
+                "Highlight",
+                "Set Mark",
                 "Set as BSL",
                 "Clear BSL",
                 "Fold Tree",

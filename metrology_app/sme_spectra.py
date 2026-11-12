@@ -777,9 +777,9 @@ def file_metadata_dataframe(spectra) -> Any:
          "Tool SN": s.identity.tool_sn, "FIELD X": s.identity.field_x,
          "FIELD Y": s.identity.field_y, "Time": s.identity.timestamp,
          "Folder": str(s.path.parent), "Instrument": ", ".join(dict.fromkeys(c.instrument for c in s.channels)),
-         "Channel Count": len(s.channels)} for s in spectra], columns=[
+         "Channel Count": len(s.channels), "X(mm)": s.x_mm, "Y(mm)": s.y_mm} for s in spectra], columns=[
              "Cur SME File Path", "Wafer ID", "Lot ID", "PAD Name", "Die Seq", "SME Name",
-             "Tool SN", "FIELD X", "FIELD Y", "Time", "Folder", "Instrument", "Channel Count"])
+             "Tool SN", "FIELD X", "FIELD Y", "Time", "Folder", "Instrument", "Channel Count", "X(mm)", "Y(mm)"])
 
 
 def metadata_dataframe(spectra) -> Any:

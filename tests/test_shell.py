@@ -37,6 +37,26 @@ class FakeScreen:
 
 
 class ShellTests(unittest.TestCase):
+    def test_invalid_document_is_not_registered_as_an_empty_tool_after_metadata_routing(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from contextlib import closing
+        import sqlite3
+        import pandas as pd
+        from metrology_app.workspace_store import WorkspaceSnapshot,save_workspace
+        shell=MainWindow()
+        try:
+            with TemporaryDirectory() as directory:
+                path=save_workspace(Path(directory)/'invalid.wmap',WorkspaceSnapshot(
+                    'wafer_map',{'input_data':pd.DataFrame({'CD':['1.00']})}))
+                with closing(sqlite3.connect(path)) as connection,connection:
+                    connection.execute('DELETE FROM frame_catalog')
+                with self.assertRaisesRegex(ValueError,'required'):
+                    shell.load_path(path)
+                self.assertEqual(shell.loaded_components.get('wafer_map',[]),[])
+        finally:
+            shell.close();shell.deleteLater();APP.processEvents()
+
     def test_shell_omits_global_close_and_ready_status_chrome(self):
         shell = MainWindow()
         try:

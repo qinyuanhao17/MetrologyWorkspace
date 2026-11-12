@@ -16,6 +16,52 @@ APP = QApplication.instance() or QApplication([])
 
 
 class SelectionScriptTests(unittest.TestCase):
+    def test_find_filter_values_matches_comma_separated_terms_without_changing_checks(self):
+        from metrology_app.match_group_ui import ColumnFilterDialog
+        values = pd.Series(['A17','B28','A99','MiXeD',''])
+        dialog = ColumnFilterDialog('Wafer ID',values,{'values':['B28','A99']},None)
+        self.addCleanup(dialog.deleteLater)
+        def visible():
+            return [dialog.values.item(i).data(Qt.ItemDataRole.UserRole)
+                    for i in range(dialog.values.count()) if not dialog.values.item(i).isHidden()]
+        for query,expected in (('a17',['A17']),('a17 b28',['A17','B28']),
+                               ('a17\tMiXeD\nB28',['A17','B28','MiXeD']),
+                               (' a17, mixed， , b28 ',['A17','B28','MiXeD']),
+                               (' , ， ',values.tolist()),('   ',values.tolist()),
+                               ('unmatched,z',[]),('28',['B28']),('',values.tolist())):
+            dialog.search.setText(query)
+            self.assertEqual(visible(),expected)
+            self.assertEqual(dialog.specification()['values'],['B28','A99'])
+        dialog.search.setText('a17, mixed，b28')
+        dialog.none_button.click()
+        self.assertEqual(dialog.specification()['values'],['A99'])
+        dialog.all_button.click()
+        self.assertEqual(dialog.specification()['values'],['A17','B28','A99','MiXeD'])
+
+    def test_multiple_found_values_apply_and_transfer_as_a_selection_filter(self):
+        from PyQt6.QtCore import QTimer
+        frame = pd.DataFrame({'Wafer ID':['W1','W2','W3']})
+        dialog = FrameSelectionDialog(frame)
+        self.addCleanup(dialog.close)
+        self.addCleanup(dialog.deleteLater)
+        def choose():
+            finder = APP.activeModalWidget()
+            finder.none_button.click()
+            finder.search.setText('W1 W3')
+            finder.all_button.click()
+            finder.accept()
+        QTimer.singleShot(0,choose)
+        dialog.add_filter('Wafer ID')
+        self.assertEqual(dialog.model.rows,[0,2])
+        recipe = dialog.selection_script()
+        self.assertEqual(json.loads(recipe)['filters'][0][0]['values'],['W1','W3'])
+        target = FrameSelectionDialog(frame.iloc[::-1].reset_index(drop=True))
+        self.addCleanup(target.close)
+        self.addCleanup(target.deleteLater)
+        target.apply_selection_script(recipe)
+        self.assertEqual(target.model.rows,[0,2])
+        pd.testing.assert_frame_equal(dialog.model.frame,frame)
+
     def test_checked_row_modes_retain_filters_and_refresh_after_bulk_edits(self):
         frame = pd.DataFrame({"Wafer ID": ["W1", "W2", "W3"]})
         filters = [[{"column": "Wafer ID", "values": ["W1"]}]]

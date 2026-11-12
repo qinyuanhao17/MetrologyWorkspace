@@ -8,11 +8,20 @@ Feature: Build a card matching workbook
       Given an analyzed parameter has included source rows and millimetre coordinates
       When the engineer chooses Show Die Map in that parameter's mapping row
       Then finite absolute Bias values strictly greater than its limit appear as red points
-      And other included points on the same wafers appear gray for context
+      And other included points on the same wafers appear blue for context
+      And Data selection excluded points remain visible in gray even when table rows are hidden
       And equality and missing Bias values are not counted as out of range
       And the map does not change Workbook participation
       When the engineer changes that parameter's Bias limit
       Then the open map reflects its new exceedances
+
+    Scenario: Exclude an outlier without losing its measured position
+      Given a mapped wafer has two outliers and normal points
+      When the engineer unchecks one outlier in Data selection and applies
+      Then that point remains at the same coordinates in gray
+      And the remaining included outlier is red and included normal points are blue
+      And the existing map, scatter item and axis ranges are retained
+      And saved unopened spectra supply coordinate metadata without decoding sample payloads
 
     Scenario: Draw individual wafer results from the first matrix column
       Given the Single wafer matrix lists analyzed measurement sets

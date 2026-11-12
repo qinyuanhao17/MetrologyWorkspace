@@ -1,0 +1,106 @@
+{
+  "input": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\JC1913\\matching-analysis.mwkb",
+  "source_sha256": "c002afab609b5b5820263e71abd5cdb677e77df7e464d22266af5e9e61985ab2",
+  "source_unchanged": true,
+  "raw_rows": 1890,
+  "xy_rows": 1890,
+  "all_xy_values_checked": true,
+  "all_rows_original_raw_order": true,
+  "checked_die_1_3_rows": 180,
+  "standalone_order_matches_this_workbook": true,
+  "csv_roundtrip": true,
+  "ui_xy_and_check_changes_verified": true,
+  "fresh_sme_coordinates": [
+    {
+      "file": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\JC1913\\test_SME_only_01_of_08\\AI01750.00-06\\AI01750.00-06_AI01750.00_A03-090_ARRAY_Die1_C0_R0_20260408113209026.sme",
+      "x_mm": 0.862592,
+      "y_mm": -5.856863,
+      "unchanged": true
+    },
+    {
+      "file": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\JC1913\\test_SME_only_01_of_08\\AI01750.00-06\\AI01750.00-06_AI01750.00_A03-090_ARRAY_Die2_C1_R-2_20260408113211126.sme",
+      "x_mm": 22.906362,
+      "y_mm": -55.144761,
+      "unchanged": true
+    },
+    {
+      "file": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\JC1913\\test_SME_only_01_of_08\\AI01750.00-06\\AI01750.00-06_AI01750.00_A03-090_ARRAY_Die3_C-3_R-2_20260408113213577.sme",
+      "x_mm": -65.268717,
+      "y_mm": -55.144761,
+      "unchanged": true
+    }
+  ],
+  "coordinate_validation": "Saved SME metadata only, no sample decoding; fresh SME coordinates independently parsed for the listed files.",
+  "raw_order_analysis": [
+    {
+      "file": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\JC1913\\matching-analysis.mwkb",
+      "rows": 1890,
+      "wafer_lot_pad_groups": 90,
+      "ascending_die_groups": 90,
+      "natural_group_order": true
+    },
+    {
+      "file": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\matching-analysis.wkb",
+      "rows": 13,
+      "wafer_lot_pad_groups": 1,
+      "ascending_die_groups": 1,
+      "natural_group_order": true
+    },
+    {
+      "file": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\matching-analysis_nova_multi_param.wkb",
+      "rows": 7731,
+      "wafer_lot_pad_groups": 255,
+      "ascending_die_groups": 255,
+      "natural_group_order": false
+    },
+    {
+      "file": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\matching-analysis_nova_testfilter1.wkb",
+      "rows": 7731,
+      "wafer_lot_pad_groups": 255,
+      "ascending_die_groups": 255,
+      "natural_group_order": false
+    },
+    {
+      "file": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\matching-analysis_nova1.wkb",
+      "rows": 7731,
+      "wafer_lot_pad_groups": 255,
+      "ascending_die_groups": 255,
+      "natural_group_order": false
+    },
+    {
+      "file": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\matching-analysis_nova.wkb",
+      "rows": 3300,
+      "wafer_lot_pad_groups": 121,
+      "ascending_die_groups": 121,
+      "natural_group_order": true
+    },
+    {
+      "file": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\matching-analysis_nova_testfilter.wkb",
+      "rows": 7731,
+      "wafer_lot_pad_groups": 255,
+      "ascending_die_groups": 255,
+      "natural_group_order": false
+    },
+    {
+      "file": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\matching-analysis1.wkb",
+      "rows": 15,
+      "wafer_lot_pad_groups": 3,
+      "ascending_die_groups": 3,
+      "natural_group_order": true
+    }
+  ],
+  "focused_tests": {
+    "count": 73,
+    "seconds": 22.236,
+    "passed": true,
+    "log": ".cache/spectra-xy-final.log"
+  },
+  "persistence_recheck": {
+    "count": 4,
+    "seconds": 0.828,
+    "passed": true
+  },
+  "full_suite_run": false,
+  "auto_weighting_run": false,
+  "output_csv": "C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\MyCodes\\MetrologyWorkspace\\.cache\\spectra-xy-validation\\Spectra_XY.csv"
+}

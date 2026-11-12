@@ -86,7 +86,7 @@ from .sheet import DuplicateHeaderBanner, SheetModel, SheetView, column_letter
 from .table_clipboard import attach_copy_feedback
 from .table_selection import RangeSelectionTableView
 from .widgets import ScrollSafeComboBox
-from .workspace_store import EXTENSIONS, MATCH_FILTER, WorkspaceSnapshot, file_revision, load_workspace, save_workspace, workspace_path
+from .workspace_store import EXTENSIONS, MATCH_FILTER, WorkspaceSnapshot, file_revision, file_stamp, load_workspace, save_workspace, workspace_path
 from .workspace_document import WkbDocument, commit_editors, local_snapshot, local_ui, recovery_decision, recovery_directory, writable_path
 from .workbook_startup import AXIS_MODE_LABELS, analysis_settings as normalized_analysis_settings
 
@@ -1243,6 +1243,10 @@ class MatchingWindow(QMainWindow):
         recover_action = self.file_menu.addAction("Recover Workbook Draft…")
         recover_action.triggered.connect(self.recover_draft)
 
+        self.data_menu = self.menuBar().addMenu("Data")
+        self.data_selection_action = self.data_menu.addAction("Data selection…")
+        self.data_selection_action.triggered.connect(self.select_analysis_data)
+
         self.analysis_menu = self.menuBar().addMenu("Analysis")
         self.run_action = QAction("Run analysis", self)
         self.run_action.setShortcut(QKeySequence("Ctrl+Return"))
@@ -1320,8 +1324,6 @@ class MatchingWindow(QMainWindow):
         self.group_settings_action.triggered.connect(self.open_group_settings)
         self.manage_groups_action = self.groups_menu.addAction("Manage groups…")
         self.manage_groups_action.triggered.connect(self.manage_groups)
-        self.data_selection_action = self.groups_menu.addAction("Data selection…")
-        self.data_selection_action.triggered.connect(self.select_analysis_data)
         self.plot_labels_menu = self.groups_menu.addMenu("Plot labels")
         labels_panel = QWidget()
         labels_layout = QGridLayout(labels_panel)
@@ -1425,7 +1427,10 @@ class MatchingWindow(QMainWindow):
         for name, attribute in (("trend", "sequence_page"), ("map", "plot_page"), ("radius", "radius_page")):
             page = getattr(workspace, attribute, None)
             if page is not None:
-                page.set_identity_labels(self._plot_label_options[name])
+                if name == 'trend' and hasattr(workspace,'set_workbook_plot_labels'):
+                    workspace.set_workbook_plot_labels(self._plot_label_options[name])
+                else:
+                    page.set_identity_labels(self._plot_label_options[name])
 
     def manage_groups(self):
         plan = self.result.group_plan if self.result is not None else None
@@ -3070,7 +3075,7 @@ class MatchingWindow(QMainWindow):
         if missing_selection_columns:
             message = ("Data selection columns changed: "
                        + ", ".join(missing_selection_columns)
-                       + " — run Groups → Data selection… to re-select.")
+                       + " — run Data → Data selection… to re-select.")
             warning = True
         elif input_error:
             message = input_error
@@ -3465,6 +3470,8 @@ class MatchingWindow(QMainWindow):
         book = book or self._analysis_workspace_workbook()
         if book is not None and hasattr(workspace, "set_workbook_participation"):
             workspace.set_workbook_participation(book)
+        if kind == 'map' and book is not None and hasattr(workspace,'set_workbook_groups'):
+            workspace.set_workbook_groups(book)
         self._stage_windows.append(workspace)
         if kind is not None:
             self._stage_window_context[workspace] = (
@@ -4120,6 +4127,8 @@ class MatchingWindow(QMainWindow):
                 # Workbook copy. Save must capture its exact editable source.
                 workspace._use_workbook_data = False
                 workspace._independent_data = True
+        if kind == 'map' and book is not None and hasattr(workspace,'set_workbook_groups'):
+            workspace.set_workbook_groups(book)
         if tabs is not None and tab_index is not None and tab_index >= 0:
             # Refreshing data must not move the engineer off the tab they are
             # reading; loading a fresh window still starts at its first tab.
@@ -6180,10 +6189,13 @@ class MatchingWindow(QMainWindow):
             QMessageBox.warning(self, "Cannot save WKB", str(error))
 
     @recovery_decision
-    def load_workbook(self, path, *, analysis_settings=None):
+    def load_workbook(self, path, *, analysis_settings=None, snapshot=None):
         from .workspace_document import document_io, large_spectra_payload
-        snapshot = (document_io(self, lambda: load_workspace(path, expected_type=self.workspace_type), "Opening Workbook…")
-                    if large_spectra_payload(path=path) else load_workspace(path, expected_type=self.workspace_type))
+        if snapshot is None:
+            snapshot = (document_io(self, lambda: load_workspace(path, expected_type=self.workspace_type, defer_spectra=True), "Opening Workbook…")
+                        if large_spectra_payload(path=path) else load_workspace(path, expected_type=self.workspace_type, defer_spectra=True))
+        if snapshot.workspace_type != self.workspace_type:
+            raise ValueError('This WKB is not a Match Workbook.')
         group_state(snapshot.states["match"].get("grouping_state"))
         normalize_plot_layouts(snapshot.states.get("match_ui", {}).get("plot_layouts"))
         _metric_highlighting_limits(snapshot.states.get("match_ui", {}).get("metric_highlighting"))
@@ -6193,8 +6205,9 @@ class MatchingWindow(QMainWindow):
             MatchWorkbook.from_snapshot(snapshot)
         if not self.document.confirm_close():
             return None
-        if snapshot.revision != file_revision(path):
-            snapshot = load_workspace(path, expected_type=self.workspace_type)
+        if (snapshot.source_stamp != file_stamp(path) if snapshot.source_stamp is not None
+                else snapshot.revision != file_revision(path)):
+            snapshot = document_io(self,lambda: load_workspace(path, expected_type=self.workspace_type, defer_spectra=True),'Opening latest Workbook…')
             group_state(snapshot.states["match"].get("grouping_state"))
             normalize_plot_layouts(snapshot.states.get("match_ui", {}).get("plot_layouts"))
             _metric_highlighting_limits(snapshot.states.get("match_ui", {}).get("metric_highlighting"))
@@ -6375,7 +6388,7 @@ class MatchingWindow(QMainWindow):
             if dialog.exec() != dialog.DialogCode.Accepted:
                 return None
             if dialog.path is not None:
-                return self.load_workbook(dialog.path)
+                return self.load_workbook(dialog.path, snapshot=dialog.snapshot)
             settings = dialog.settings()
             if not self.document.confirm_close():
                 return None

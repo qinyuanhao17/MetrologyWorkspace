@@ -1,0 +1,20 @@
+{
+  "excluded_modules": [
+    "test_auto_weighting",
+    "test_auto_weighting_ocr",
+    "test_auto_weighting_window"
+  ],
+  "module_count": 121,
+  "exit_code": 0,
+  "seconds": 541.2943367999978,
+  "summary": [
+    "Ran 1464 tests in 535.853s",
+    "OK"
+  ],
+  "failures": [],
+  "focused_tests": {
+    "tests": 55,
+    "seconds": 9.327,
+    "result": "OK"
+  }
+}

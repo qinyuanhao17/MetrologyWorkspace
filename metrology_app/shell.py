@@ -26,7 +26,7 @@ from .module_registry import create_default_registry
 from .reminder_panel import ReminderPanel
 from .diagnostics import get_logger
 from .settings import apply_theme, get_settings, load_settings, save_settings, recent_wkb_paths
-from .workspace_store import EXTENSIONS, WORKSPACE_FILTER, WORKSPACE_LABELS, load_workspace, is_workspace_path
+from .workspace_store import EXTENSIONS, WORKSPACE_FILTER, WORKSPACE_LABELS, load_workspace, is_workspace_path, workspace_kind
 from .settings_dialog import SettingsDialog
 
 
@@ -338,7 +338,7 @@ class MainWindow(QMainWindow):
                 chosen = dialog.path
                 return self.open_component(
                     "card_matching",
-                    initialize=lambda window: window.load_workbook(chosen),
+                    initialize=lambda window: window.load_workbook(chosen, snapshot=dialog.snapshot),
                 )
             settings = dialog.settings()
             def initialize(window):
@@ -475,7 +475,7 @@ class MainWindow(QMainWindow):
         self.recent_workspace_menu.clear()
         for path in recent_wkb_paths():
             try:
-                kind = load_workspace(path).workspace_type
+                kind = workspace_kind(path, allow_recovery=False)
             except (OSError, ValueError):
                 continue
             action = self.recent_workspace_menu.addAction(f"{WORKSPACE_LABELS[kind]} · {path.name}")
@@ -579,25 +579,24 @@ class MainWindow(QMainWindow):
     def load_path(self, path):
         """Route a typed WKB to its owner; measurement imports use Wafer Map."""
         if is_workspace_path(path):
-            snapshot = load_workspace(path)
+            kind = workspace_kind(path)
             suffix = Path(path).suffix.lower()
-            if suffix != EXTENSIONS[snapshot.workspace_type] and suffix not in (".wkb", ".bak"):
+            if suffix != EXTENSIONS[kind] and suffix not in (".wkb", ".bak"):
                 if QMessageBox.question(self, "Workspace type mismatch",
-                                        f"The {suffix} extension does not match {WORKSPACE_LABELS[snapshot.workspace_type]}.\n"
+                                        f"The {suffix} extension does not match {WORKSPACE_LABELS[kind]}.\n"
                                         "Open using its actual type? Saving will require the correct extension.",
                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                         QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
                     return None
             component_id = {"match_workbook": "card_matching", "wafer_map": "wafer_map",
                             "dynamic": "dynamic_analysis", "correlation_trend": "correlation_analysis",
-                            "auto_weighting": "auto_weighting_writer", "spectra_viewer": "spectra_viewer"}[snapshot.workspace_type]
-            if snapshot.workspace_type == "match_workbook":
+                            "auto_weighting": "auto_weighting_writer", "spectra_viewer": "spectra_viewer"}[kind]
+            if kind == "match_workbook":
                 component = self.launch_match_workbook(path)
                 if component is None:
                     return None
             else:
-                component = self.open_component(component_id)
-                component.load_workspace(path)
+                component = self.open_component(component_id, initialize=lambda window: window.load_workspace(path))
         else:
             component = self.open_component("wafer_map")
             component.load_path(path)

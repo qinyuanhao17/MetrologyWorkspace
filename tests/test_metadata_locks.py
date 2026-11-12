@@ -209,7 +209,7 @@ class MetadataLockTests(unittest.TestCase):
         pd.testing.assert_frame_equal(restored.model.document_frame(), window.model.document_frame())
         self.assertFalse(restored.document.is_dirty())
 
-    def test_only_wafer_map_metadata_has_lock_controls_and_legacy_locks_remain_visible(self):
+    def test_wafer_and_correlation_metadata_have_visible_lock_controls(self):
         from metrology_app.dynamic_window import DynamicWindow
         from metrology_app.matching_window import MatchingWindow
         from metrology_app.metadata_locks import ColumnLockDelegate
@@ -227,8 +227,8 @@ class MetadataLockTests(unittest.TestCase):
             window.set_table(frame, "test")
             if isinstance(window, CorrelationWindow):
                 window.set_reference_table(frame, "test")
-                self.assertFalse(window.reference_sheet.metadata_locks_enabled)
-            enabled = window.workspace_type == "wafer_map"
+                self.assertTrue(window.reference_sheet.metadata_locks_enabled)
+            enabled = window.workspace_type in ("wafer_map","correlation_trend")
             self.assertEqual(window.sheet.metadata_locks_enabled, enabled)
             self.assertEqual(isinstance(window.sheet.itemDelegate(), ColumnLockDelegate), enabled)
             snapshot = window.workspace_snapshot()
@@ -237,6 +237,8 @@ class MetadataLockTests(unittest.TestCase):
             window.restore_workspace(snapshot)
             self.assertEqual(window.model.clipboard_locks, {"Die Seq"} if enabled else set())
             self.assertTrue(window.model.flags(window.model.index(1, 2)) & Qt.ItemFlag.ItemIsEditable)
+            if isinstance(window,CorrelationWindow):
+                self.assertEqual(window.reference_model.clipboard_locks,{'Die Seq'})
             if not enabled:
                 self.assertFalse(window.sheet.toggle_column_lock(window.model.index(0, 1)))
                 self.assertTrue(window.model.flags(window.model.index(1, 1)) & Qt.ItemFlag.ItemIsEditable)

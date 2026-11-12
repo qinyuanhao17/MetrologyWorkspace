@@ -1,7 +1,8 @@
-"""Reference Summary V4.1 - Pandas-first NOVA/PMISH/KLA CSV batch merging.
+"""Reference Summary - Pandas-first NOVA/PMISH/KLA CSV/Excel batch merging.
 
 Public interface:
-    scan_csv(folder)
+    scan_reference_files(folder)
+    scan_csv(folder)  # legacy CSV-only discovery
     parse_file(path, vendor, cancelled=None) -> ParsedFile
     merge(vendor, files, output_parent, cancelled=None, progress=None) -> MergeResult
 
@@ -27,6 +28,7 @@ from typing import Callable
 
 import pandas as pd
 from .file_paths import filesystem_path
+from .reference_input import SOURCE_EXTENSIONS, check_cancel, decode_csv, reference_text
 
 OUTPUT_FOLDER = "Reference_Summary_Output"
 CHANNEL_FIELDS = {
@@ -69,11 +71,6 @@ def row_error(path: Path, line: object, kind: str, detail: str) -> dict:
     return {"File": str(path), "CSV line": line, "Kind": kind, "Detail": detail}
 
 
-def check_cancel(cancelled: Callable[[], bool] | None) -> None:
-    if cancelled and cancelled():
-        raise InterruptedError("Cancelled by user")
-
-
 def normalized_angle(text: str) -> str:
     value = str(text).strip()
     if value.endswith("°"):
@@ -89,21 +86,11 @@ def normalized_angle(text: str) -> str:
     return value
 
 
-def decode_csv(path: Path) -> str:
-    raw = filesystem_path(path.resolve()).read_bytes()
-    encodings = ["utf-16"] if raw.startswith((b"\xff\xfe", b"\xfe\xff")) else ["utf-8-sig", "gb18030"]
-    last_exc = None
-    for codec in encodings:
-        try:
-            return raw.decode(codec)
-        except UnicodeDecodeError as exc:
-            last_exc = exc
-    raise ValueError(f"Cannot decode CSV: {last_exc}")
 
 
-def tokenize_csv(text: str) -> list[tuple[int, list[str]]]:
+def tokenize_csv(text: str, source_lines=None) -> list[tuple[int, list[str]]]:
     reader = csv.reader(io.StringIO(text, newline=""), strict=True)
-    return [(reader.line_num, [cell.strip() for cell in record]) for record in reader]
+    return [((source_lines or {}).get(reader.line_num,reader.line_num), [cell.strip() for cell in record]) for record in reader]
 
 
 def metadata_pairs(cells: list[str]) -> dict[str, str]:
@@ -235,10 +222,10 @@ class BlockCollector:
 def parse_nova(path: Path, cancelled=None) -> ParsedFile:
     result = ParsedFile()
     check_cancel(cancelled)
-    text = decode_csv(path)
+    text, source_lines = reference_text(path,cancelled)
     # Validate physical CSV record widths first: Pandas with index_col=False
     # may otherwise warn and truncate surplus columns in some inputs.
-    tokenized = tokenize_csv(text)
+    tokenized = tokenize_csv(text,source_lines)
     nonempty = [(line, cells) for line, cells in tokenized if any(cells)]
     if not nonempty:
         raise ValueError("Empty NOVA file")
@@ -293,7 +280,8 @@ def collapse_lbh(row):
 
 def parse_sectioned(path: Path, vendor: str, cancelled=None) -> ParsedFile:
     result = ParsedFile()
-    rows = tokenize_csv(decode_csv(path))
+    text, source_lines = reference_text(path,cancelled)
+    rows = tokenize_csv(text,source_lines)
     collector = BlockCollector(path, vendor, result.issues)
     inherited: dict[str, str] = {}
     active_meta: dict[str, str] = {}
@@ -418,15 +406,19 @@ def parse_file(path: str | Path, vendor: str, cancelled=None) -> ParsedFile:
     raise ValueError(f"Unknown vendor: {vendor}")
 
 
-def scan_csv(folder: str | Path) -> list[Path]:
+def scan_reference_files(folder: str | Path, extensions=SOURCE_EXTENSIONS) -> list[Path]:
     folder = Path(folder)
     if not folder.is_dir():
         raise NotADirectoryError(str(folder))
     files = []
     for root, dirs, names in os.walk(folder):
         dirs[:] = sorted(x for x in dirs if x.casefold() != OUTPUT_FOLDER.casefold())
-        files.extend(Path(root) / n for n in names if Path(n).suffix.lower() == ".csv")
+        files.extend(Path(root) / n for n in names if Path(n).suffix.casefold() in extensions and not n.startswith('~$'))
     return sorted(files, key=lambda p: str(p).casefold())
+
+
+def scan_csv(folder: str | Path) -> list[Path]:
+    return scan_reference_files(folder,extensions={'.csv'})
 
 
 def channel_filename(vendor: str, channel: tuple[str, ...]) -> str:
@@ -447,7 +439,7 @@ def merge(vendor: str, files: list[str | Path], output_parent: str | Path,
     if vendor not in CHANNEL_FIELDS:
         raise ValueError(f"Unknown vendor: {vendor}")
     if not files:
-        raise ValueError("No CSV files selected")
+        raise ValueError("No reference source files selected")
     files = sorted(dict.fromkeys(Path(p).resolve() for p in files), key=lambda p: str(p).casefold())
     base = Path(output_parent).resolve() / OUTPUT_FOLDER
     filesystem_path(base).mkdir(parents=True, exist_ok=True)

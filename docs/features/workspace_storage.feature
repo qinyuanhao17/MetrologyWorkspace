@@ -182,3 +182,26 @@ Feature: Durable metrology workspaces
       And the engineer changes its box selection to "SWA" without drawing
       When the engineer saves and reopens the workspace
       Then "SWA" remains selected and waiting for Draw selected
+
+  Rule: Listing documents and opening Match does not materialize unopened Spectra drafts
+
+    Scenario: Open the recent Workbook chooser
+      Given recent documents include a Workbook with embedded spectra
+      When the engineer opens the Workbook chooser or recent-workspace menu
+      Then compatible documents are listed without loading their measurement payloads
+      And recovery drafts are not offered as ordinary recent documents
+
+    Scenario: Carry unopened spectra through an edit, Save As and recovery
+      Given a Match Workbook contains a saved Spectra child that has not been opened
+      When the engineer edits Raw Data and saves or creates a recovery draft
+      Then the embedded spectra and their selections are retained exactly
+      And unrelated table comparisons do not materialize the spectra
+      When the engineer opens the saved Spectra child
+      Then all stored spectra can be decoded with their original arrays
+
+    Scenario: Reuse a selected Workbook without ignoring an external replacement
+      Given a Workbook has been validated by the startup chooser
+      When the selected document is installed into a window
+      Then the validated snapshot is reused
+      But if another window replaced the file before installation
+      Then the latest file is validated and loaded instead

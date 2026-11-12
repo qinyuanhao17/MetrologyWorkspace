@@ -1,5 +1,13 @@
 # Executable scenario map
 
+Group 跨窗口一致性与自动分页：`tests.test_workspace_group_parity` 覆盖 POR 默认词表、替换/叠加真实 Mark、紧凑身份表、WKB 一次性复制及独立恢复、Correlation Ref/Raw 列锁、标题原位更新/Sigma、24 参数时的分页预算；`tests.test_selector_updates` 验证方框选择保留，既有 `tests.test_metadata_locks` 和文档存储测试验证原始字符串、粘贴、撤销及重复表头草稿恢复。实际 89 片、24 参数和首末页绘制见 `docs/validation/workspace-groups-2026-11-12.md`。这些仍属定向验收，不是本轮全量。
+
+Column filter 的 Find values 支持逗号或空格分隔的任一关键词匹配，由 `SelectionScriptTests.test_find_filter_values_matches_comma_separated_terms_without_changing_checks` 与 `test_multiple_found_values_apply_and_transfer_as_a_selection_filter` 验证：中英文逗号、空格/制表符/换行、空项、大小写、单值兼容、All/None 仅影响可见项，以及空格多值筛选的应用和脚本转移。
+
+Workbook 按需读取由 `tests.test_workbook_startup` 和 `tests.test_deferred_workspace_frames` 执行：最近列表只读路由元信息、选择后复用 snapshot、外部替换后重新读取、原生 fetch 保留字符串/类型/行序、未打开光谱经历 Save As/恢复/源替换仍保真，以及 Raw 变更后的恢复去重不物化光谱。真实 1,890 条光谱的保存校验和解码另见 `docs/validation/workbook-loading-2026-11-11.md`。
+
+`correlation_group_options.feature` 由 `tests.test_correlation_group_options` 执行：独立 Head/Mark/顺序配置和总开关、PAD/Lot 原位更新及缩放保留、WKB Group/标签独立跟随、真实 `.mwkb` 保存恢复、只查看设置不改变状态，以及替换源身份时不按行数转移 TestFlag。原有顺序和草稿恢复由 `tests.test_trend_order`、`tests.test_recovery_snapshot_ownership` 继续覆盖。
+
 Die Map 最新显示规则由 `SpectraMapWindowTests.test_single_tile_window_has_regular_titles_and_tight_square_coordinate_extent`、`test_map_uses_equal_aspect_and_infers_common_wafer_diameters` 及 `BiasDieMapTests.test_mapping_button_uses_strict_absolute_bias_and_reuses_the_map_on_limit_changes` 验证：常规字重、单图最小宽度、等边坐标框、贴近的 Die 标签、超限红色、增量更新和 mapping 行高。Draw 首列及原有勾选交互由 `MatchingWindowTests.test_single_wafer_points_link_to_rows_and_checked_rows_have_local_plot_blocks`、`test_single_wafer_draw_cell_click_keyboard_and_uncheck_all` 验证。
 
 `reference_summary.feature` 的多 Vendor 对齐与坐标 Bias 流程由以下测试执行：

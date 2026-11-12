@@ -1,0 +1,31 @@
+{
+  "spectra": 1890,
+  "issues": 0,
+  "same_viewer_stylesheet": true,
+  "device_pixel_ratio": 1.25,
+  "states": [
+    {
+      "name": "wide",
+      "maps": 12,
+      "columns": 4,
+      "visible_points": 252,
+      "all_wafer_extents_and_points_visible": true
+    },
+    {
+      "name": "small",
+      "maps": 12,
+      "columns": 4,
+      "visible_points": 252,
+      "all_wafer_extents_and_points_visible": true
+    },
+    {
+      "name": "last_page",
+      "maps": 6,
+      "columns": 3,
+      "visible_points": 126,
+      "all_wafer_extents_and_points_visible": true
+    }
+  ],
+  "page_count": 8,
+  "total_points": 1890
+}

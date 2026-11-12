@@ -1,8 +1,24 @@
 # Metrology Workspace 开发交接
 
-更新日期：2026 年 11 月 10 日
+更新日期：2026 年 11 月 12 日
 
 ## 当前状态
+
+收尾列锁验证：Correlation 的 WKB Raw 自动刷新现在同样绕过锁定元数据，只更新未锁量测；重现并修复了原先程序加载绕过列锁的问题。最后 45 项分组/列锁/WKB 联动测试通过（16.659 秒），包括父 Raw 暂时为空时保留 Correlation 数据的既有行为；未全量。
+
+Group 功能已补齐 Correlation and Trend 与 Wafer Map，三种窗口共用紧凑 Group settings 明细表；新本地 POR/POR+/POR-，旧 Mark 保留，批量分配支持 Replace/Append 真实叠加 Mark。保留连续跟随并新增一次性 Copy WKB Groups。Wafer Map 不拆片、不动数据参与和插值，只在第二行显示 Group · Wafer · Lot · PAD；第三行新增量测点 Sigma（总体标准差 ddof=0），Native 与 Matplotlib 同公式。Correlation Ref/Raw 均有元数据列锁（点击图标/Ctrl+L）和文档恢复。全选 24 参数的 288 图/页超限改为自动分页，实际 89 片分 18 页，首末页成功，源 WKB SHA 未变。221 项相关回归及收尾 55 项通过，本轮仍不全量、不发布、不测 AutoWeighting。见 [最新验证](validation/workspace-groups-2026-11-12.md)。
+
+Spectra Viewer Group settings 已重新布局：顶部紧凑 Head/Mark 控件、中间身份明细表、底部状态与 Apply/Close，收掉大块留白。Test Flag 最新约定为与 Spectra Info/Die Map 共用，Group Apply 和一次性 Copy WKB Groups 都同步旗标，取代此前“独立 Group TestFlag”的约定。新增本地 Marks 默认 POR（Fallback）/POR+/POR-，保留已有定义；Add Mark 提供 Replace/Append，叠加生成真正的 Old/POR；不同 Mark 的汇总用逗号。树右键 Highlight 使用 #EE3377 粗线前景，空白取消选择不清高亮，隐藏/勾选规则保留，可撤销并随文档保存；主图和放大图按 U 取消勾选所选光谱。123 项相关测试通过，实际 1,890 行 WKB 元数据及 3 个原始 SME UI 验收，源哈希未变。本轮未跑全量、未发布，AutoWeighting 未运行。见 [验证记录](validation/spectra-group-interactions-2026-11-12.md)。
+
+Data selection 的共享列筛选 Find values 已支持空格与中英文逗号分隔的任一关键词匹配，分隔符可混用，保留单值子串搜索、勾选状态及 All/None 的可见值语义，选择脚本无需升级。见 [验证记录](validation/filter-value-search-2026-11-12.md)。
+
+未发布 WKB 加载优化：Match 启动选择界面、Shell 路由与最近菜单只查元信息；对话框将已校验 snapshot 交给窗口，文件被外部替换时仍重新校验。原生 SQLite fetch 取代 read_sql_query；未打开 Spectra 的帧用只读私有磁盘副本承载，恢复比较先查结构，保存按批次复制，保留 `.bak`、锁、fsync 和 revision 保护。v1 文件格式未变，真实 1,890 条保存/解码校验见 [验证记录](validation/workbook-loading-2026-11-11.md)。
+
+该优化最终全量：排除 AutoWeighting，121 模块、1,462 项通过，532.500 秒。首次沙箱内错误来自硬链接测试夹具被拒绝，未跳过测试，沙箱外定向及完整重跑均通过。三次独立进程中位数：实际 8 文件的冷按钮打开选择框 0.346 秒，Shell 打开 409.6 MB WKB 1.470 秒，存储层带备份覆盖 2.053 秒；原始 WKB 和源 SME 保留。
+
+v5.2.0 之后的未发布开发：Correlation and Trend 的 Groups 菜单可开关分组显示、配置本地 Head/Mark/TestFlag/顺序，或可选跟随 WKB；Plot labels 亦支持独立开关 PAD/Lot 和跟随父窗口。不改变 Data selection，标签更新保留曲线与缩放；配置随文档和子窗口草稿保存。源记录身份变化时不沿用旧旗标。见 [验收记录](validation/correlation-group-options-2026-11-11.md)。
+
+该功能最终全量回归：排除仍搁置的三个 AutoWeighting 模块，120 模块、1,453 项全部通过，952.742 秒。另用真实 JC1913 WKB 的 1,890 行 Raw Data 配合人工 Ref 完成实际窗口验收，源 WKB 字节未改变。本次没有更新发布标签或分支。
 
 项目实际目录是 `C:\Users\Yuanhao Qin\OneDrive\Desktop\MyCodes\MetrologyWorkspace`。运行环境为 Anaconda 的 `metrology-workspace`，使用 Python 3.11；依赖由根目录的 `environment.yml` 和 `requirements.txt` 管理。
 

@@ -102,6 +102,7 @@ class CorrelationWindow(DataWorkspaceWindow):
         self._match_groups = None
         self._group_plan = None
         self._group_result_cache = None
+        self.display_options = None
         super().__init__()
         self.setWindowTitle("Correlation and Trend")
         self.raw_model = self.model
@@ -111,16 +112,19 @@ class CorrelationWindow(DataWorkspaceWindow):
         self.tabs.setTabText(0, "2. Raw Data")
 
         self.reference_model = SheetModel()
-        self.reference_sheet = SheetView(self.reference_model)
+        self.reference_sheet = SheetView(self.reference_model, metadata_locks=True)
         self.reference_page = self._build_reference_page()
         self.tabs.insertTab(0, self.reference_page, "1. Ref Data")
         self.reference_model.changed.connect(self.refresh_timer.start)
         self.reference_model.changed.connect(self._refresh_table_sizes)
+        self.reference_model.metadata_locks_changed.connect(self.document.identity_timer.start)
         self.correlation_page = CorrelationPage()
         self.correlation_page.axes_changed.connect(self.document.identity_timer.start)
         self.tabs.addTab(self.correlation_page, "3. Correlation")
         self.sequence_page = SequencePage()
         self.tabs.addTab(self.sequence_page, "4. Trend")
+        from .correlation_options import CorrelationOptions
+        self.display_options = CorrelationOptions(self)
         self.copy_from_wkb_action.setText("Copy Raw Data from WKB")
         self.copy_from_wkb_action.setToolTip(
             "Copy Raw Data from the owning Match Workbook and follow its changes. "
@@ -134,6 +138,8 @@ class CorrelationWindow(DataWorkspaceWindow):
         return {"raw_data": self._copy_from_wkb, "reference_data": False}
 
     def set_workbook_sources(self, raw, mappings, mode="Preview"):
+        if self.raw_model.clipboard_locks:
+            raw = self.raw_model.merge_clipboard_frame(raw)
         prepared = getattr(self.raw_model, '_linked_prepared_load', None)
         if prepared is not None and 'value_changes' in prepared:
             self.raw_model._linked_prepared_load = None
@@ -210,6 +216,13 @@ class CorrelationWindow(DataWorkspaceWindow):
         from .correlation_groups import prepare_group_context
         raw = self.raw_model._analysis_view()
         applies = getattr(self, "_workbook_selection_applies", True)
+        if self.display_options is not None and not self.display_options.follow_groups.isChecked():
+            context = prepare_group_context(book,raw,applies)
+            self.display_options.remember_workbook(context)
+            self._match_groups = self.display_options.context(context)
+            self._refresh_group_results()
+            self.update_plan()
+            return
         prepared = getattr(self, "_prepared_group_result", None)
         if (prepared is not None and prepared["book_state"] is book.grouping_state
                 and prepared["applies"] == applies and self.raw_model.matches_analysis(prepared["raw"])
@@ -218,11 +231,15 @@ class CorrelationWindow(DataWorkspaceWindow):
             self._trend_parts_cache = prepared.get("trend_parts")
             self._group_result_cache = ((self.reference_model.revision, self.raw_model.revision),
                                         prepared["comparison"], self._group_plan)
+            if self.display_options is not None:
+                self.display_options.remember_workbook(self._match_groups)
             if prepared["error"]:
                 self.statusBar().showMessage(f"Group analysis unavailable: {prepared['error']}")
             self.update_plan()
             return
         self._match_groups = prepare_group_context(book, raw, applies)
+        if self.display_options is not None:
+            self.display_options.remember_workbook(self._match_groups)
         if self._match_groups is None:
             self._group_plan = self._group_result_cache = None
             self.update_plan()
@@ -231,6 +248,8 @@ class CorrelationWindow(DataWorkspaceWindow):
         self.update_plan()
 
     def _refresh_group_results(self):
+        if self.display_options is not None:
+            self._match_groups = self.display_options.context(self._match_groups)
         context = self._match_groups
         if not context:
             self._group_plan = None
@@ -263,7 +282,7 @@ class CorrelationWindow(DataWorkspaceWindow):
         installed = (prepared is not None and self._match_groups is prepared["context"]
                      and prepared["book_state"] is book.grouping_state
                      and prepared["applies"] == getattr(self, "_workbook_selection_applies", True))
-        if self._match_groups and not installed:
+        if self._match_groups and not installed and (self.display_options is None or self.display_options.follow_groups.isChecked()):
             from .match_groups import applied_state
             selection = applied_state(book.grouping_state)["data_selection"]
             if not getattr(self, "_workbook_selection_applies", True):
@@ -279,7 +298,12 @@ class CorrelationWindow(DataWorkspaceWindow):
         snapshot = super().workspace_snapshot(include_drafts=include_drafts, readonly=readonly)
         if self._match_groups:
             snapshot.states["match_groups"] = self._match_groups if readonly else deepcopy(self._match_groups)
+        if self.display_options is not None:
+            snapshot.states['correlation_display'] = self.display_options.snapshot()
         return snapshot
+
+    def set_workbook_plot_labels(self, options):
+        self.display_options.set_workbook_labels(options)
 
     def restore_linked_workspace(self, snapshot):
         """Restore plot choices with the already prepared Workbook classification."""
@@ -394,6 +418,8 @@ class CorrelationWindow(DataWorkspaceWindow):
         # between the two table loads is both wasteful and temporarily wrong.
         self._restoring_source_tables = True
         try:
+            if self.display_options is not None:
+                self.display_options.restore(snapshot.states.get('correlation_display',{}))
             super()._restore_workspace_tables(snapshot)
         finally:
             self._restoring_source_tables = False
@@ -426,6 +452,8 @@ class CorrelationWindow(DataWorkspaceWindow):
         return result
 
     def _grouped_trend_selection(self, selection):
+        if self.display_options is not None and not self.display_options.enabled.isChecked():
+            return selection
         if not self._match_groups or self._group_plan is None:
             return selection
         plan = self._group_plan

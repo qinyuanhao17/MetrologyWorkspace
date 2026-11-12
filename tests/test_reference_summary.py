@@ -45,6 +45,23 @@ def synthetic_cdsem(path):
 
 
 class ReferenceSummaryTests(unittest.TestCase):
+    def test_every_vendor_selects_and_scans_csv_and_first_sheet_excel(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            sources=[root/'a.csv',root/'b.xlsx',root/'c.xlsm']
+            for path in sources:
+                path.write_bytes(b'test selection only')
+            (root/'~$lock.xlsx').write_bytes(b'ignore')
+            window=ReferenceSummaryWindow()
+            self.addCleanup(window.close)
+            self.addCleanup(window.deleteLater)
+            for vendor in ('NOVA','PMISH','KLA','CDSEM1'):
+                window.vendor.setCurrentText(vendor)
+                window.set_source_files(sources)
+                self.assertEqual(set(window.files),set(sources),vendor)
+                window.set_source_folders([root])
+                self.assertEqual(set(window.files),set(sources),vendor)
+
     def test_multiple_source_folders_scan_recursively_without_duplicate_files(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

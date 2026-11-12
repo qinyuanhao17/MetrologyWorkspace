@@ -9,6 +9,8 @@ import pandas as pd
 from .data import number
 from .plot import PlotOptions, WaferPlot, infer_geometry, infer_wafer_geometry, prepare_surfaces
 
+MAX_ARRAY_MAPS = 120
+
 
 @dataclass
 class ArrayOptions:
@@ -36,7 +38,7 @@ def prepare_array(frame, selection, options, progress=lambda *_: None, cancelled
     wafers, metrics = selection["wafers"], selection["metrics"]
     if not wafers or not metrics:
         raise ValueError("Select at least one wafer and one parameter in the Data tab.")
-    if len(wafers) * len(metrics) > 120:
+    if len(wafers) * len(metrics) > MAX_ARRAY_MAPS:
         raise ValueError("Select up to 120 maps per array; split larger selections into batches.")
     selected = set(map(tuple, selection.get("cells", [(w, m) for w in wafers for m in metrics])))
     selected &= {(w, m) for w in wafers for m in metrics}

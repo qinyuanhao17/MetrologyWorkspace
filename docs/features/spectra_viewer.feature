@@ -3,6 +3,71 @@ Feature: Review spectral measurements by wafer
   channels, and connect spectra to physical wafer positions without losing
   source identity or blocking the workspace.
 
+  Rule: Local classification reuses Workbook Group and Mark definitions
+
+    Scenario: Copy current Workbook Groups independently of source paths
+      Given loaded spectra and a Workbook have the same Wafer, Lot, PAD and Die identities
+      When the engineer copies WKB Groups
+      Then the accepted Head and Mark classifications are copied by those four fields
+      And later Workbook changes do not replace the Viewer's local classification
+      And conflicting duplicate identities prevent the copy and unmatched spectra remain unassigned
+      And spectrum checks are retained and copied Test Flags also update Spectra Info
+
+    Scenario: Assign a Mark to a selected spectrum branch
+      Given a branch of spectra is selected in the tree
+      When the engineer chooses Set Mark in the tree context menu
+      Then the Wafer caption shows Wafer ID followed by a vertical separator and its Mark
+      And each legend prefixes its caption with the Mark and a vertical separator
+      And multiple Marks on one wafer are shown together
+      And the Die Map card and point tooltips show the matching Group names
+      And existing curves, colors and axes remain unchanged
+      And Undo and Redo restore classification without changing participation
+
+    Scenario: Configure local groups and resize legends
+      Given the Viewer is independent or has copied Workbook classification
+      When the engineer applies local Head and Mark settings
+      Then the classification captions update without altering spectral measurements
+      And Enable Groups can hide and restore those captions
+      When the engineer drags a legend divider
+      Then legend widths and height can be adjusted and a double-click restores default proportions
+      And classification and divider proportions survive Spectra document or Workbook child saving
+
+    Scenario: Append a durable composite Mark instead of replacing it
+      Given a selected spectrum has the Mark Old
+      When the engineer adds POR with Append
+      Then Old/POR is one named Mark available for Group classification
+      And replacing that assignment with POR leaves only POR
+      And a new local Mark list starts with POR as fallback followed by POR+ and POR-
+      And existing Workbook and saved custom Mark definitions remain available
+
+    Scenario: Review identifiable rows with shared Test Flags
+      Given Group settings and Spectra Info refer to the same loaded spectra
+      Then the Group table identifies each row by Wafer, Lot, PAD and Die
+      When the engineer edits a Group TestFlag and applies
+      Then Spectra Info and Die Map use that same flag
+      When the engineer edits a flag in Spectra Info or Die Map
+      Then the open Group table and classification update too
+      And shared Undo and Redo restore the flag values
+
+  Rule: Explicit highlights and plot keyboard actions preserve source data
+
+    Scenario: Highlight a spectrum independently of transient selection
+      Given a spectrum is selected in the tree
+      When the engineer enables Highlight in the context menu
+      Then its visible channels use a thick bright magenta foreground stroke
+      And clicking blank space clears selection without clearing Highlight
+      And hidden or unchecked spectra remain hidden
+      And existing curve objects, samples and axes are retained
+      And the highlight survives Spectra document or Workbook child saving
+
+    Scenario: Uncheck selected spectra from a focused plot
+      Given selected spectra are plotted in the main or enlarged plot window
+      When the engineer presses U while that plot has focus
+      Then those selected spectra are unchecked
+      And typing U in a text editor does not uncheck spectra
+
+  # Executable interaction acceptance: tests.test_spectra_group_interactions.
+
   Rule: The spectrum tree preserves declared wafer identity
 
     Scenario: Sort within the hierarchy and restore the original ordering
@@ -487,6 +552,48 @@ Feature: Review spectral measurements by wafer
       Then an error is reported before replacing the current spectra
 
   Rule: Spectra Info follows the current source values
+
+    Scenario: Remove a report column without changing measurements
+      Given a Spectra Info tab has visible columns
+      When the engineer deletes a column using the header or table context menu
+      Then that tab's remaining columns shift left without an empty placeholder
+      And copying and export omit the deleted column
+      And Workbook and SME source columns remain unchanged
+      And Undo restores the column and Redo removes it again
+      And the report projection survives Spectra document or Workbook child save and reopen
+
+    Scenario: Edit reversible Test Flags in the report
+      Given Spectra Info and Die Map are open for the same spectra
+      When the engineer edits a report Test Flag to an integer
+      Then the exact report row's spectrum flag updates in Die Map and the report
+      And 1 is green, -1 is red and 0 has no flag
+      And malformed noninteger input leaves the flag unchanged
+      And plots, axes and spectrum check states are retained
+      When the engineer uses Ctrl+Z or Ctrl+Shift+Z in the report or Die Map
+      Then the shared flag and report-column edits are undone or redone
+
+    Scenario: Review measured coordinates with Workbook participation
+      Given checked spectra have measured XY coordinates and matching Workbook Raw Data
+      When the engineer opens the Spectra Info XY tab
+      Then Wafer ID, Lot ID, PAD Name, Die Seq, FIELD X, FIELD Y, X(mm) and Y(mm) are shown
+      And measured coordinates come from SME rather than the Workbook or a derived Field grid
+      And missing coordinates stay empty and numeric precision is retained
+      And rows follow the original Raw Data order including after participation changes
+      And copying and CSV export contain only current participating spectra
+
+    Scenario: Review coordinates without Workbook Raw Data
+      Given spectra are loaded independently or the Workbook Raw Data is empty
+      When the engineer opens Spectra Info
+      Then an XY tab is available without a Workbook connection
+      And rows use natural Wafer ID, Lot ID, PAD Name and numeric Die Seq order
+      And repeated Dies are ordered by measurement time with a stable source-path tie break
+      And no Reference row pairing is fabricated
+
+    Scenario: Filter participation using measured coordinates
+      Given Data selection includes the spectra X(mm) and Y(mm) columns
+      When the engineer filters by a coordinate and changes the matching checkboxes then applies
+      Then the XY table and exports follow the updated spectrum participation
+      And the Selection Script and saved Spectra document retain the coordinate filter
 
     Scenario: Keep an open report current while editing its Workbook
       Given Spectra Info is open for checked spectra in a Match Workbook

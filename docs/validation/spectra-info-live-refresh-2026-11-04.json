@@ -1,0 +1,45 @@
+{
+  "focused": {
+    "tests": 33,
+    "seconds": 13.537,
+    "passed": true
+  },
+  "full_initial": {
+    "excluded_modules": [
+      "test_auto_weighting",
+      "test_auto_weighting_ocr",
+      "test_auto_weighting_window"
+    ],
+    "module_count": 115,
+    "exit_code": 1,
+    "seconds": 539.6039062999771,
+    "summary": [
+      "Ran 1424 tests in 533.704s",
+      "FAILED (errors=2)"
+    ],
+    "failures": [
+      "ERROR: test_batch_copy_keeps_working_when_retained_folders_make_target_over_260_chars (tests.test_spectra_export.SpectrumExportTests.test_batch_copy_keeps_working_when_retained_folders_make_target_over_260_chars)",
+      "ERROR: test_copy_cannot_overwrite_owner_or_samefile_alias (tests.test_storage_v2.StorageV2Tests.test_copy_cannot_overwrite_owner_or_samefile_alias)"
+    ]
+  },
+  "environment_recheck": {
+    "tests": 2,
+    "seconds": 0.249,
+    "passed": true,
+    "context": "Outside sandbox, normal Windows TEMP, isolated run_tests.py"
+  },
+  "real_fixture": {
+    "initial_rows": 1890,
+    "after_uncheck_rows": 1889,
+    "reference_value_live": true,
+    "reference_header_live": true,
+    "reloaded_metadata_live": true,
+    "flag_and_checks_live": true,
+    "copy_and_csv_current": true,
+    "source_sha256": "a4f62dc43f469855ad4d74ce763fa728d47a22d15217582dc4223d1ce689ad74",
+    "platform": "windows",
+    "warnings": [],
+    "source_unchanged": true,
+    "production_settings_unchanged": true
+  }
+}

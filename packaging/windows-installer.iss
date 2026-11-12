@@ -8,10 +8,10 @@
   #error ReleaseOutputDir is required
 #endif
 #ifndef ReleaseVersion
-  #define ReleaseVersion "5.2.0"
+  #define ReleaseVersion "5.3.0"
 #endif
 #ifndef ReleaseFileVersion
-  #define ReleaseFileVersion "5.2.0.0"
+  #define ReleaseFileVersion "5.3.0.0"
 #endif
 
 [Setup]

@@ -33,31 +33,32 @@ from PyQt6.QtWidgets import (
 )
 
 from .appearance import fit_window_to_screen, help_title_label
-from .cdsem1 import merge_cdsem1, scan_workbooks
-from .reference_merge import merge, scan_csv
+from .cdsem1 import merge_cdsem1
+from .reference_merge import merge, scan_reference_files
+from .reference_input import SOURCE_EXTENSIONS
 from .file_paths import filesystem_path
 
 
 VENDOR_DETAILS = {
     "NOVA": {
-        "filter": "CSV files (*.csv)",
-        "extensions": {".csv"},
+        "filter": "Reference files (*.csv *.xlsx *.xlsm)",
+        "extensions": SOURCE_EXTENSIONS,
         "description": "Combine NOVA tables, remove repeated headers, consolidate _LBH flags and de-duplicate complete rows.",
     },
     "PMISH": {
-        "filter": "CSV files (*.csv)",
-        "extensions": {".csv"},
+        "filter": "Reference files (*.csv *.xlsx *.xlsm)",
+        "extensions": SOURCE_EXTENSIONS,
         "description": "Split PMISH blocks by Recipe, Metrology unit and AzimuthAngle, preserving source values and units.",
     },
     "KLA": {
-        "filter": "CSV files (*.csv)",
-        "extensions": {".csv"},
+        "filter": "Reference files (*.csv *.xlsx *.xlsm)",
+        "extensions": SOURCE_EXTENSIONS,
         "description": "Split KLA Offline blocks by TestID and TestLabel, retaining Slot as the cross-vendor PadName.",
     },
     "CDSEM1": {
-        "filter": "Excel workbooks (*.xlsx *.xlsm)",
-        "extensions": {".xlsx", ".xlsm"},
-        "description": "Read only the first sheet, keep ACD_No=CD, and export one chip-by-MP workbook per source file.",
+        "filter": "Reference files (*.csv *.xlsx *.xlsm)",
+        "extensions": SOURCE_EXTENSIONS,
+        "description": "Read CSV or only the first sheet of Excel, keep ACD_No=CD, and export one workbook per source. Missing IDs stay blank; sources without Wafer_ID must contain a single wafer.",
     },
 }
 
@@ -387,7 +388,7 @@ class ReferenceSummaryWindow(QMainWindow):
             item = QListWidgetItem(path.name)
             item.setToolTip(str(path))
             self.source_list.addItem(item)
-        noun = "workbook" if self.vendor_name == "CDSEM1" else "CSV file"
+        noun = "source file"
         self.source_summary.setText(
             f"{len(unique)} {noun}{'' if len(unique) == 1 else 's'} selected"
             if unique else "No source files selected"
@@ -423,11 +424,9 @@ class ReferenceSummaryWindow(QMainWindow):
         folders = tuple(dict.fromkeys(Path(folder).resolve() for folder in folders))
         if not folders:
             return
-        scan = scan_workbooks if self.vendor_name == 'CDSEM1' else scan_csv
-        files = [path for folder in folders for path in scan(folder)]
+        files = [path for folder in folders for path in scan_reference_files(folder)]
         if not files:
-            kind = "Excel workbooks" if self.vendor_name == "CDSEM1" else "CSV files"
-            QMessageBox.information(self, "No source files", f"No {kind} were found in the selected folders.")
+            QMessageBox.information(self, "No source files", "No CSV or Excel (.xlsx/.xlsm) files were found in the selected folders.")
             return
         self.output_parent = folders[0]
         self.set_source_files(files)

@@ -26,6 +26,23 @@ from metrology_app.settings import load_settings
 
 
 def main():
+    if '--vendor' in sys.argv:
+        import argparse
+        import json
+        from dataclasses import asdict
+        from metrology_app.reference_summary_window import ReferenceSummaryRequest, run_reference_summary
+        parser = argparse.ArgumentParser(description='Reference Summary batch processing')
+        parser.add_argument('--vendor',type=str.upper,choices=('NOVA','PMISH','KLA','CDSEM1'),required=True)
+        parser.add_argument('--files',type=Path,nargs='+',required=True)
+        parser.add_argument('--output-parent',type=Path)
+        args = parser.parse_args(sys.argv[1:])
+        try:
+            report = run_reference_summary(ReferenceSummaryRequest(
+                args.vendor,tuple(args.files),args.output_parent or args.files[0].resolve().parent))
+        except Exception as error:
+            parser.exit(2,f'Reference Summary failed: {error}\n')
+        print(json.dumps(asdict(report.result),ensure_ascii=False,default=str))
+        return 1 if report.result.error_count else 0
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     configure_fonts(app)

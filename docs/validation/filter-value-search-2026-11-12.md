@@ -1,0 +1,11 @@
+# Column filter value finder: comma/whitespace-separated searches
+
+The shared `ColumnFilterDialog` used by Data selection and Workbook column filters accepts multiple search terms separated by `,`, `，` or whitespace, including mixed separators. Values matching any term are visible, with the original case-insensitive substring behavior. Empty terms are ignored; an empty/only-separators input restores all values.
+
+Searching changes visibility only. Existing checkboxes stay unchanged, and All/None apply only to visible values. Contains, numeric bounds, source cells and selection identities are unchanged. Accepting selected values uses the existing filter specification, so Selection Script and saved filters need no format migration.
+
+Both new workflow tests failed before the change and passed afterward. They cover English/Chinese commas, whitespace/empty terms, case, single-term search, no matches, unchanged hidden checkboxes, and applying/transferring the resulting filter through Selection Script. The affected selection/group test set passed 55 tests in 9.327 s. See `tests.test_selection_script.SelectionScriptTests.test_find_filter_values_matches_comma_separated_terms_without_changing_checks` and `test_multiple_found_values_apply_and_transfer_as_a_selection_filter`.
+
+Full regression passed **1,464 tests in 535.853 s** across 121 modules, exit code 0. It uses scratch settings, excludes the three deferred AutoWeighting modules, and runs outside the sandbox because the existing hard-link protection fixture needs normal Windows access. Log: `.cache/filter-value-search-validation/full.log`; [JSON result](filter-value-search-2026-11-12.json). No source measurements, production settings, version or release tags are changed.
+
+Follow-up: whitespace separators were added at the user's request. The extended tests failed before that change and passed after it, including spaces, tabs, newlines, mixed commas/whitespace and the applied Selection Script workflow. Focused set: 55 tests passed in 9.303 s. The earlier full result above is the comma-only revision. The whitespace revision passed **1,464 tests in 533.982 s**, 121 modules, exit code 0, with the same three deferred AutoWeighting modules excluded. Log: `.cache/filter-space-search-validation/full.log`; [whitespace JSON result](filter-space-search-2026-11-12.json).

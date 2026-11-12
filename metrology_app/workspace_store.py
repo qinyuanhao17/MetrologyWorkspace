@@ -1,6 +1,7 @@
 """One atomic, typed SQLite container for every metrology document.
 
-Only plain tables and JSON cross this interface; no GUI or executable objects.
+Tables, JSON and immutable stored-frame references cross this interface;
+no GUI or executable objects. The on-disk format remains tables and JSON.
 Column identifiers are generated so duplicate headers can be saved as drafts.
 """
 from contextlib import closing
@@ -15,6 +16,7 @@ import re
 import shutil
 import sqlite3
 import tempfile
+from .workspace_frames import StoredFrame, FrameSource, read_frame, check_frame
 
 FORMAT_VERSION = 1
 WORKSPACE_TYPES = {"match_workbook", "wafer_map", "dynamic", "correlation_trend", "auto_weighting", "spectra_viewer"}
@@ -36,6 +38,7 @@ class WorkspaceSnapshot:
     states: dict = field(default_factory=dict)
     revision: str | None = None
     warnings: list = field(default_factory=list)
+    source_stamp: tuple | None = None
 
 
 def is_workspace_path(path):
@@ -43,7 +46,7 @@ def is_workspace_path(path):
     return Path(path).suffix.lower() in {*EXTENSIONS.values(), ".wkb", ".bak"}
 
 
-def workspace_kind(path):
+def workspace_kind(path, *, allow_recovery=True):
     """Read routing metadata only. Opening still validates the whole document."""
     source = Path(path).resolve()
     if not source.is_file():
@@ -51,6 +54,9 @@ def workspace_kind(path):
     try:
         with closing(sqlite3.connect(source.as_uri() + "?mode=ro", uri=True)) as connection:
             tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if (not allow_recovery and 'workspace_state' in tables
+                    and connection.execute("SELECT 1 FROM workspace_state WHERE scope='recovery' LIMIT 1").fetchone()):
+                raise ValueError('Use Recover Workbook Draft to open a recovery file.')
             if "workspace_manifest" in tables:
                 rows = connection.execute("SELECT format_version, workspace_type FROM workspace_manifest").fetchall()
                 if len(rows) == 1 and rows[0][0] == FORMAT_VERSION and rows[0][1] in WORKSPACE_TYPES:
@@ -106,6 +112,15 @@ def file_revision(path):
     return digest.hexdigest()
 
 
+def file_stamp(path):
+    """Cheap identity/change guard around a read; overwrite conflicts still use SHA-256."""
+    try:
+        value = Path(path).stat()
+    except FileNotFoundError:
+        return None
+    return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
+
+
 def _validate(snapshot):
     import pandas as pd
 
@@ -118,7 +133,7 @@ def _validate(snapshot):
         raise ValueError("Invalid WKB document state.")
     if snapshot.workspace_type == "match_workbook" and "match" not in snapshot.states:
         raise ValueError("This WKB is missing its Match settings.")
-    if any(not isinstance(name, str) or not isinstance(frame, pd.DataFrame)
+    if any(not isinstance(name, str) or not isinstance(frame, (pd.DataFrame, StoredFrame))
            for name, frame in snapshot.frames.items()):
         raise ValueError("Invalid WKB measurement table.")
 
@@ -174,7 +189,8 @@ def save_workspace(path, snapshot, *, expected_revision=_UNCHECKED, backup=True)
             raise ValueError("This WKB changed in another window or application. "
                              "Reopen it or use Save As; the existing file was not overwritten.")
         if original_revision is not None:
-            load_workspace(target, expected_type=snapshot.workspace_type)
+            _read_workspace(target, snapshot.workspace_type, defer_spectra=True,
+                            pin_deferred=False, known_revision=original_revision)
         temporary = _temporary(target)
         with closing(sqlite3.connect(temporary, factory=_PayloadConnection)) as connection, connection:
             # This uniquely named DB is not a document yet. Intermediate pages
@@ -200,19 +216,24 @@ def save_workspace(path, snapshot, *, expected_revision=_UNCHECKED, backup=True)
                                "(name TEXT PRIMARY KEY, table_name TEXT, columns_json TEXT, "
                                "dtypes_json TEXT, row_count INTEGER)")
             for position, (name, frame) in enumerate(snapshot.frames.items()):
-                if not isinstance(frame, pd.DataFrame):
+                if not isinstance(frame, (pd.DataFrame, StoredFrame)):
                     raise TypeError(f"{name} must be a DataFrame.")
                 table = f"frame_{position}"
                 columns = list(frame.columns)
                 if not all(isinstance(column, str) for column in columns):
                     raise ValueError("Measurement headers must be strings.")
-                stored = frame.reset_index(drop=True).copy()
-                stored.columns = [f"c{i}" for i in range(len(columns))]
-                stored.insert(0, "row_order", range(len(stored)))
-                stored.to_sql(table, connection, index=False, chunksize=2000)
+                if isinstance(frame,StoredFrame):
+                    frame.write(connection,table)
+                    types = frame.types
+                else:
+                    stored = frame.reset_index(drop=True).copy()
+                    stored.columns = [f"c{i}" for i in range(len(columns))]
+                    stored.insert(0, "row_order", range(len(stored)))
+                    stored.to_sql(table, connection, index=False, chunksize=2000)
+                    types = [str(dtype) for dtype in frame.dtypes]
                 connection.execute("INSERT INTO frame_catalog VALUES (?, ?, ?, ?, ?)",
                                    (name, table, json_text(columns),
-                                    json_text([str(dtype) for dtype in frame.dtypes]), len(frame)))
+                                    json_text(types), len(frame)))
             mappings = snapshot.states.get("match", {}).get("mappings", ())
             if mappings:
                 connection.execute("CREATE TABLE parameter_mappings "
@@ -255,14 +276,24 @@ def save_workspace(path, snapshot, *, expected_revision=_UNCHECKED, backup=True)
     return target
 
 
-def load_workspace(path, expected_type=None):
+def load_workspace(path, expected_type=None, *, defer_spectra=False):
     """Read without creating a missing file or partially loading a wrong type."""
+    return _read_workspace(path,expected_type,defer_spectra=defer_spectra)
+
+
+def validate_workspace(path, expected_type=None):
+    """Validate schemas, row ownership and state without retaining embedded samples."""
+    return _read_workspace(path,expected_type,defer_spectra=True,pin_deferred=False).revision
+
+
+def _read_workspace(path, expected_type, *, defer_spectra, pin_deferred=True, known_revision=None):
     import pandas as pd
 
     source = Path(path).resolve()
     if not source.is_file():
         raise FileNotFoundError(source)
-    revision = file_revision(source)
+    stamp = file_stamp(source)
+    revision = known_revision if known_revision is not None else file_revision(source)
     try:
         with closing(sqlite3.connect(source.as_uri() + "?mode=ro", uri=True)) as connection:
             tables = {row[0] for row in connection.execute(
@@ -289,6 +320,7 @@ def load_workspace(path, expected_type=None):
                     if scope == "recovery" and version == 2 and states[scope].get("payload_version") != 2:
                         raise ValueError("Invalid recovery state version.")
                 frames = {}
+                backing = None
                 used_tables = set()
                 for name, table, headers, dtypes, row_count in connection.execute("SELECT * FROM frame_catalog"):
                     if not isinstance(table, str) or not re.fullmatch(r"frame_[0-9]+", table) or table in used_tables:
@@ -299,21 +331,22 @@ def load_workspace(path, expected_type=None):
                             or not all(isinstance(column, str) for column in columns)
                             or not all(isinstance(dtype, str) for dtype in types)):
                         raise ValueError("Invalid measurement column schema.")
-                    frame = pd.read_sql_query(f'SELECT * FROM "{table}" ORDER BY row_order', connection)
-                    if (len(frame) != row_count or len(types) != len(columns)
-                            or list(frame.columns) != ["row_order", *[f"c{i}" for i in range(len(columns))]]
-                            or frame["row_order"].tolist() != list(range(row_count))):
-                        raise ValueError(f"Incomplete measurement table: {name}")
-                    frame = frame.drop(columns="row_order")
-                    for i, dtype in enumerate(types):
-                        frame[frame.columns[i]] = frame.iloc[:, i].astype(dtype)
-                    frame.columns = columns
+                    if defer_spectra and (name=='spectra' or name.endswith('.spectra')) and 'samples' in columns:
+                        for dtype in types:
+                            pd.api.types.pandas_dtype(dtype)
+                        check_frame(connection,table,columns,types,row_count)
+                        if backing is None:
+                            backing = FrameSource(source,revision,pin=pin_deferred)
+                        frame = StoredFrame(backing,table,columns,types,row_count)
+                    else:
+                        frame = read_frame(connection,table,columns,types,row_count)
                     frames[name] = frame
                 snapshot = WorkspaceSnapshot(kind, frames, states)
             _validate(snapshot)
     except (sqlite3.Error, pd.errors.DatabaseError, KeyError, TypeError, json.JSONDecodeError) as error:
         raise ValueError("This file is not a valid metrology WKB workspace.") from error
-    if file_revision(source) != revision:
+    if file_stamp(source) != stamp:
         raise ValueError("This WKB changed while being loaded. Reopen the latest file.")
     snapshot.revision = revision
+    snapshot.source_stamp = stamp
     return snapshot

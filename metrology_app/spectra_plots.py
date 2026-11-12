@@ -286,6 +286,7 @@ class SpectrumPlotPanel(QWidget):
 
     sigDoubleClicked = pyqtSignal(object)
     spectraSelected = pyqtSignal(object)
+    uncheckRequested = pyqtSignal()
     resizeRequested = pyqtSignal()
 
     def __init__(
@@ -313,6 +314,9 @@ class SpectrumPlotPanel(QWidget):
         self._highlight_items: list[pg.PlotCurveItem] = []
         self._group_items = {}
         self._highlight_groups = {}
+        self._emphasis_groups = {}
+        self._emphasis_items = []
+        self._emphasized_keys = set()
         self._batch_slots = {}
         self._tight_x_range = None
         self._selected_keys: set[str] = set()
@@ -358,6 +362,7 @@ class SpectrumPlotPanel(QWidget):
         layout.addWidget(self.plot, 1)
         self.plot.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
         self.plot.viewport().installEventFilter(self)
+        self.plot.installEventFilter(self)
         if dual:
             self.secondary = pg.ViewBox()
             self.plot.scene().addItem(self.secondary)
@@ -373,6 +378,10 @@ class SpectrumPlotPanel(QWidget):
             self.secondary = None
 
     def eventFilter(self, watched, event):
+        if (watched in (self.plot,self.plot.viewport()) and event.type() == QEvent.Type.KeyPress
+                and event.key() == Qt.Key.Key_U and event.modifiers() == Qt.KeyboardModifier.NoModifier):
+            self.uncheckRequested.emit()
+            return True
         if (watched is self.plot.viewport() and event.type() == QEvent.Type.Resize
                 and any(item.xData is not None and len(item.xData) >= 2000
                         for item in (*self._curve_items, *self._highlight_items))):
@@ -424,10 +433,10 @@ class SpectrumPlotPanel(QWidget):
 
     @property
     def render_pending(self):
-        return any(item.render_pending for item in (*self._curve_items, *self._highlight_items))
+        return any(item.render_pending for item in (*self._curve_items, *self._highlight_items, *self._emphasis_items))
 
     def cancel_rendering(self):
-        for item in (*self._curve_items, *self._highlight_items):
+        for item in (*self._curve_items, *self._highlight_items, *self._emphasis_items):
             if item.screen_cache is not None:
                 item.screen_cache.cancel()
 
@@ -496,6 +505,7 @@ class SpectrumPlotPanel(QWidget):
         self._visible_groups()
         self._curve_items = self._sync_items(self._group_items)
         self._highlight_items = self._sync_items(self._highlight_groups, highlight=True)
+        self._emphasis_items = self._sync_items(self._emphasis_groups, emphasis=True)
         if fit_x:
             self._fit_x_range()
 
@@ -513,16 +523,23 @@ class SpectrumPlotPanel(QWidget):
         self._visible_groups()
         self._curve_items = self._sync_items(self._group_items)
         self._highlight_items = self._sync_items(self._highlight_groups, highlight=True)
+        self._emphasis_items = self._sync_items(self._emphasis_groups, emphasis=True)
         if fit_x:
             self._fit_x_range()
 
-    def _sync_items(self, existing, *, highlight=False):
+    def _sync_items(self, existing, *, highlight=False, emphasis=False):
+        selected_keys = self._emphasized_keys if emphasis else self._selected_keys
+        highlight = highlight or emphasis
         desired = set()
         items = []
         for axis, view, groups in ((0, self.plot.getPlotItem(), self._all_groups),
                                    (1, self.secondary, self._all_secondary_groups)):
             if view is None:
                 continue
+            if emphasis:
+                # Paul Tol's vibrant magenta; foreground stroke also distinguishes
+                # a highlighted spectrum when ordinary channel colours overlap.
+                groups = [CurveGroup(g.key,QColor('#EE3377'),g.segments) for g in groups]
             if groups and (len(groups) > 32 or self._batch_slots.get(axis)):
                 slots = self._batch_slots.get(axis, {})
                 if any(g.key not in slots for g in groups):
@@ -540,7 +557,7 @@ class SpectrumPlotPanel(QWidget):
                         if group.key in self._hidden_keys:
                             continue
                         segments = tuple(s for s in group.segments if not highlight
-                                         or s.spectrum_key in self._selected_keys or s.spectrum_keys & self._selected_keys)
+                                         or s.spectrum_key in selected_keys or s.spectrum_keys & selected_keys)
                         if segments:
                             visible.append(CurveGroup(group.key, group.color, segments))
                     key = axis, ("batch", batch)
@@ -566,7 +583,7 @@ class SpectrumPlotPanel(QWidget):
                         item = previous[1]
                         if previous[0] != signature:
                             item.set_groups(visible)
-                    z = (20 if highlight else 0) + batch / (max(slots.values()) + 1)
+                    z = (30 if emphasis else 20 if highlight else 0) + batch / (max(slots.values()) + 1)
                     item.setZValue(z)
                     item.screen_cache.image_item.setZValue(z)
                     item.screen_cache.set_visible(bool(visible))
@@ -576,8 +593,8 @@ class SpectrumPlotPanel(QWidget):
                 continue
             for index, group in enumerate(groups):
                 segments = tuple(s for s in group.segments
-                                 if not highlight or s.spectrum_key in self._selected_keys
-                                 or s.spectrum_keys & self._selected_keys)
+                                 if not highlight or s.spectrum_key in selected_keys
+                                 or s.spectrum_keys & selected_keys)
                 if not segments:
                     continue
                 key = axis, group.key
@@ -595,7 +612,7 @@ class SpectrumPlotPanel(QWidget):
                     existing[key] = signature, item
                 item = existing[key][1]
                 # Replacing one group must not change which wafer paints on top.
-                z = (20 if highlight else 0) + index / (len(groups) + 1)
+                z = (30 if emphasis else 20 if highlight else 0) + index / (len(groups) + 1)
                 item.setZValue(z)
                 item.screen_cache.image_item.setZValue(z)
                 item.screen_cache.set_visible(group.key not in self._hidden_keys)
@@ -630,6 +647,11 @@ class SpectrumPlotPanel(QWidget):
             return
         self._selected_keys = set(keys)
         self._highlight_items = self._sync_items(self._highlight_groups, highlight=True)
+
+    def set_emphasized_keys(self, keys):
+        if set(keys) != self._emphasized_keys:
+            self._emphasized_keys = set(keys)
+            self._emphasis_items = self._sync_items(self._emphasis_groups, emphasis=True)
 
     def _remove_curve(self, item):
         if item.screen_cache is not None:
@@ -696,6 +718,7 @@ class FloatingPlotWindow(QMainWindow):
             context_menu=source.context_menu,
         )
         self.setCentralWidget(self.panel)
+        self.panel.uncheckRequested.connect(source.uncheckRequested.emit)
         self.panel.apply_theme(source.palette())
         self.sync_from(source)
         from .floating_editor import WindowPin
@@ -715,6 +738,7 @@ class FloatingPlotWindow(QMainWindow):
             selected_keys=source.selected_keys,
             hidden_keys=source._hidden_keys,
         )
+        self.panel.set_emphasized_keys(source._emphasized_keys)
 
     def closeEvent(self, event):
         self.panel.cancel_rendering()

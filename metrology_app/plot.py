@@ -139,6 +139,12 @@ class ValueLabels(Artist):
         self.stale = False
 
 
+def map_statistics_text(values):
+    """Measured points' population statistics (one sigma, ddof=0)."""
+    values = np.asarray(values,dtype=float)
+    return f"Min {values.min():.5g}   Max {values.max():.5g}   Mean {values.mean():.5g}   Sigma {values.std(ddof=0):.5g}"
+
+
 def set_panel_title(ax, metric, classification, stats, font_size=10):
     """Draw a centered three-line panel heading with an emphasized metric name."""
     detail_size = max(6, font_size - 1)
@@ -488,7 +494,7 @@ class WaferPlot:
         ax.set_xlabel(axis_names[0] + (" (view)" if transformed else ""), fontsize=label_size)
         ax.set_ylabel(axis_names[1] + (" (view)" if transformed else ""), fontsize=label_size)
         classification = " · ".join(subtitle.splitlines())
-        stats = f"Min {values.min():.5g}   Max {values.max():.5g}   Mean {values.mean():.5g}"
+        stats = map_statistics_text(values)
         heading = metric + ("  [A - B]" if options.difference else "")
         set_panel_title(ax, heading, classification, stats, font_size)
         ax.tick_params(direction="out", top=True, right=True, labelsize=tick_size, length=3)

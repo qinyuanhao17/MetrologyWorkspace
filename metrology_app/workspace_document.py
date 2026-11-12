@@ -15,8 +15,9 @@ from PyQt6.QtWidgets import (QAbstractItemView, QAbstractSpinBox, QApplication, 
                             QComboBox, QDoubleSpinBox, QFileDialog, QMessageBox, QSpinBox)
 
 from .metadata_locks import is_metadata_column
+from .workspace_frames import StoredFrame, frames_equal
 from .workspace_store import (EXTENSIONS, REQUIRED_FRAMES, WORKSPACE_LABELS, WorkspaceSnapshot, file_revision,
-                              json_text, load_workspace, same_file, save_workspace, workspace_path)
+                              json_text, load_workspace, same_file, save_workspace, workspace_path, validate_workspace)
 
 DOCUMENTS = weakref.WeakSet()
 
@@ -25,7 +26,7 @@ def large_spectra_payload(snapshot=None, path=None):
     if path is not None and Path(path).is_file() and Path(path).stat().st_size > 8_000_000:
         return True
     return snapshot is not None and any(
-        "samples" in frame and frame["samples"].map(lambda value: len(value) if isinstance(value, str) else 0).sum() > 8_000_000
+        isinstance(frame,StoredFrame) or ("samples" in frame and frame["samples"].map(lambda value: len(value) if isinstance(value, str) else 0).sum() > 8_000_000)
         for frame in snapshot.frames.values())
 
 
@@ -120,7 +121,7 @@ def pack_snapshot(container, name, snapshot):
     references = {}
     for key, frame in snapshot.frames.items():
         stored = next((existing for existing, saved in container.frames.items()
-                       if saved.equals(frame)), None)
+                       if frames_equal(saved,frame)), None)
         if stored is None:
             stored = f"__recovery__.{name}.{key}"
             container.frames[stored] = frame.copy(deep=True)
@@ -207,9 +208,10 @@ def analysis_state(window):
              "card": window.card_check.isChecked(), "tab": window.tabs.currentIndex(), "pages": {}}
     if window.workspace_type in ("wafer_map", "correlation_trend"):
         state["copy_from_wkb"] = bool(getattr(window, "_copy_from_wkb", False))
-    if window.workspace_type == "wafer_map":
-        state["metadata_locks"] = {"model": sorted(name for name in window.model.clipboard_locks
-                                                 if is_metadata_column(name))}
+    if window.workspace_type in ("wafer_map","correlation_trend"):
+        state["metadata_locks"] = {key: sorted(name for name in model.clipboard_locks if is_metadata_column(name))
+                                   for key in ("model","reference_model")
+                                   if (model := getattr(window,key,None)) is not None}
     if hasattr(window, "reference_model"):
         state["reference_grouping"] = window._reference_group_columns()
     for name in PAGE_NAMES:
@@ -259,9 +261,9 @@ def restore_analysis_state(window, state):
         raise ValueError("Invalid analysis workspace state.")
     if "copy_from_wkb" in state and hasattr(window, "set_copy_from_wkb"):
         window.set_copy_from_wkb(state["copy_from_wkb"])
-    # Only Wafer Map exposes locks. Ignore legacy locks elsewhere so old files
+    # Only Wafer Map and Correlation expose locks. Ignore legacy locks elsewhere so old files
     # cannot leave invisible, read-only columns with no way to unlock them.
-    locks = state.get("metadata_locks", {}) if window.workspace_type == "wafer_map" else {}
+    locks = state.get("metadata_locks", {}) if window.workspace_type in ("wafer_map","correlation_trend") else {}
     for name in ("model", "reference_model"):
         model = getattr(window, name, None)
         if model is not None and hasattr(model, "set_clipboard_locks"):
@@ -423,7 +425,7 @@ def _same_state(first, second):
 def same_snapshot(first, second):
     return (first.workspace_type == second.workspace_type
             and first.frames.keys() == second.frames.keys()
-            and all(frame.equals(second.frames[name]) for name, frame in first.frames.items())
+            and all(frames_equal(frame,second.frames[name]) for name, frame in first.frames.items())
             and _same_state(first.states, second.states))
 
 
@@ -577,7 +579,7 @@ class WkbDocument:
             path = chosen
         target = workspace_path(path, kind)
         if target.exists() and not same_file(target, self.path):
-            load_workspace(target, expected_type=kind)
+            validate_workspace(target, expected_type=kind)
             if QMessageBox.question(self.window, "Replace workspace", f"Replace {target}?",
                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                     QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
@@ -656,7 +658,7 @@ class WkbDocument:
         target = workspace_path(path, self.window.workspace_type)
         self.protect_target(target, copy=True)
         if target.exists():
-            load_workspace(target, expected_type=self.window.workspace_type)
+            validate_workspace(target, expected_type=self.window.workspace_type)
             if QMessageBox.question(self.window, "Replace standalone copy", f"Replace {target}?",
                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                     QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:

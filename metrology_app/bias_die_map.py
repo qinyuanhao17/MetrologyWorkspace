@@ -90,7 +90,11 @@ def die_map_points(raw, source_rows, metadata=()):
 
 
 def refresh_bias_map(owner, window, parameter):
+    from .match_groups import applied_state, participation_rows
+    from .workspace_frames import StoredFrame
     result = owner.result
+    raw = owner._active_raw_frame()
+    participation = participation_rows(raw, applied_state(owner.group_controls.state)["data_selection"])
     selected_rows = out_of_range_rows(result, parameter)
     signature = (id(owner._active_raw_frame()), id(result), tuple(result.source_rows),
                  tuple((name, id(frame)) for name, frame in owner._workspace_frames.items() if name.endswith(".spectra")),
@@ -98,22 +102,25 @@ def refresh_bias_map(owner, window, parameter):
     if getattr(window, "_bias_points_signature", None) != signature:
         metadata = []
         for name, frame in owner._workspace_frames.items():
-            if name.endswith(".spectra") and name[:-8] not in owner._spectra_windows and "metadata" in frame:
-                metadata.extend(frame["metadata"])
+            if name.endswith(".spectra") and name[:-8] not in owner._spectra_windows and "metadata" in frame.columns:
+                metadata.extend(frame.column_values("metadata") if isinstance(frame, StoredFrame) else frame["metadata"])
         for viewer in owner._spectra_windows.values():
             metadata.extend({"identity": {name: getattr(s.identity, name) for name in ("wafer", "lot", "pad", "die_seq")},
                              "x_mm": s.x_mm, "y_mm": s.y_mm} for s in viewer.catalog.spectra)
-        window._bias_points, window._bias_issues = die_map_points(owner._active_raw_frame(), result.source_rows, metadata)
+        points, window._bias_issues = die_map_points(raw, range(len(raw)), metadata)
+        if points != getattr(window, "_bias_points", None):
+            window._bias_points = points
         window._bias_points_signature = signature
     points = window._bias_points
     selected = {f"source-row:{row}" for row in selected_rows}
     wafers = {(p.identity.wafer, p.identity.lot, p.identity.pad) for p in points if p.key in selected}
     context = tuple(p for p in points if (p.identity.wafer, p.identity.lot, p.identity.pad) in wafers)
+    window.update_participation({f"source-row:{row}" for row in participation})
     window.set_data(context, checked_keys=selected)
     window.setWindowTitle(f"{parameter} — Out-of-range Die Map")
     window.empty.setText("No out-of-range points." if not selected else "No matching XY coordinates in mm. Load spectra or supply X (mm) / Y (mm).")
     missing = len(selected - {p.key for p in points})
-    window.statusBar().showMessage(f"{len(selected_rows)} out-of-range rows · {missing} missing XY · Red: out of range · Gray: other points")
+    window.statusBar().showMessage(f"{len(selected_rows)} out-of-range rows · {missing} missing XY · Gray: excluded · Red: out of range · Blue: normal")
     window.statusBar().setToolTip("\n".join(window._bias_issues))
 
 

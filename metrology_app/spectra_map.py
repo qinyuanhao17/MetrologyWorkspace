@@ -184,6 +184,7 @@ class WaferPointPlot(QWidget):
         self._selected_keys: set[str] = set()
         self._spot_keys: list[tuple[str, ...]] = []
         self._checked_keys = set()
+        self._participating_keys = None
         self._plot_positions: list[tuple[float, float]] = []
 
     def apply_theme(self, palette):
@@ -296,20 +297,37 @@ class WaferPointPlot(QWidget):
         for point, keys in zip(self.scatter.points(), self._spot_keys):
             count = sum(key in self._checked_keys for key in keys)
             state = "Checked" if count == len(keys) else ("Mixed" if count else "Unchecked")
+            color = self._checked_color if count else "#D6D9DE"
+            active = count > 0
+            if self._participating_keys is not None:
+                participating = set(keys) & self._participating_keys
+                active = bool(participating)
+                outlier = bool(participating & self._checked_keys)
+                state = "Out of range" if outlier else "Normal" if active else "Excluded"
+                color = "#dc2626" if outlier else "#3E8BD8" if active else "#D6D9DE"
             data = point.data()
             if data.get("state") == state:
                 continue
             data = {**data, "state": state}
             point.setData(data)
-            point.setBrush(pg.mkBrush(self._checked_color if count else "#D6D9DE"))
-            point.setPen(pg.mkPen("#202020" if count else "#A8ADB5", width=.8))
+            point.setBrush(pg.mkBrush(color))
+            point.setPen(pg.mkPen("#202020" if active else "#A8ADB5", width=.8))
         self._update_summary()
+
+    def set_participating(self, keys):
+        participating = None if keys is None else set(keys)
+        if participating != self._participating_keys:
+            self._participating_keys = participating
+            self.set_checked(self._checked_keys)
 
     def _update_summary(self):
         states = [point.data().get("state") for point in self.scatter.points()]
         selected = sum(bool(self._selected_keys.intersection(keys)) for keys in self._spot_keys)
         mixed = states.count("Mixed")
-        text = f"{len(states)} points · {states.count('Checked')} {self._checked_label}"
+        count = states.count('Checked') if self._participating_keys is None else states.count('Out of range')
+        text = f"{len(states)} points · {count} {self._checked_label}"
+        if self._participating_keys is not None:
+            text += f" · {states.count('Normal')} normal · {states.count('Excluded')} excluded"
         if mixed:
             text += f" · {mixed} mixed"
         self.summary_label.setText(f"{text} · {selected} selected")
@@ -335,6 +353,16 @@ class WaferPointPlot(QWidget):
         for point, keys in zip(self.scatter.points(), self._spot_keys):
             point.setData({**point.data(), "test_flags": sorted({current[key] for key in keys})})
 
+    def set_group_labels(self, labels):
+        groups = list(dict.fromkeys(labels[key]['group'] for keys in self._spot_keys for key in keys
+                                    if key in labels and labels[key]['group']))
+        title = f"{self.wafer} | Group: {' / '.join(groups)}" if groups else self.wafer
+        self.title_label.setText(title)
+        self.title_label.setToolTip(title)
+        for point, keys in zip(self.scatter.points(),self._spot_keys):
+            point.setData({**point.data(), 'groups':list(dict.fromkeys(
+                labels[key]['group'] for key in keys if key in labels and labels[key]['group']))})
+
     def _update_selection(self, selected_keys):
         self._selected_keys = set(selected_keys)
         points = [
@@ -352,7 +380,8 @@ class WaferPointPlot(QWidget):
         keys = tuple(details.get("keys", ()))
         label = details.get("label", "Die ?")
         return (f"{label}\nX: {x:g} mm\nY: {y:g} mm\nSpectra: {len(keys)}\n{details.get('state', '')}"
-                + f"\nTest Flag: {', '.join(str(value) for value in details.get('test_flags', [0]))}")
+                + f"\nTest Flag: {', '.join(str(value) for value in details.get('test_flags', [0]))}"
+                + (f"\nGroup: {' / '.join(details['groups'])}" if details.get('groups') else ''))
 
     def _scene_clicked(self, event):
         if (event.button() == Qt.MouseButton.LeftButton and not event.double()
@@ -420,7 +449,9 @@ class SpectraMapWindow(QMainWindow):
         self._spectra: tuple[SpectrumFile, ...] = ()
         self._read_only = read_only
         self._checked_keys: set[str] = set()
+        self._participating_keys = None
         self._test_flags = {}
+        self._group_labels = {}
         self._flag_values = [0, 1, -1]
         self._selected_keys: set[str] = set()
         self._source_signature = None
@@ -596,6 +627,14 @@ class SpectraMapWindow(QMainWindow):
         if selected_keys is not None:
             self.select_spectrum_keys(selected_keys)
 
+    def update_participation(self, keys):
+        """Optional analysis participation, separate from out-of-range membership."""
+        participating = None if keys is None else set(keys)
+        if participating != self._participating_keys:
+            self._participating_keys = participating
+            for plot in self.wafer_plots.values():
+                plot.set_participating(participating)
+
     def _point_check_requested(self, keys, checked):
         if self._read_only:
             return
@@ -609,6 +648,12 @@ class SpectraMapWindow(QMainWindow):
         self._test_flags = dict(flags)
         for plot in self.wafer_plots.values():
             plot.set_test_flags(flags)
+
+    def update_groups(self, labels):
+        if labels != self._group_labels:
+            self._group_labels = dict(labels)
+            for plot in self.wafer_plots.values():
+                plot.set_group_labels(labels)
 
     def select_spectrum_keys(self, keys):
         self._selected_keys = {str(key) for key in keys}
@@ -768,6 +813,8 @@ class SpectraMapWindow(QMainWindow):
                 checked_keys=self._checked_keys,
             )
             plot.set_test_flags(self._test_flags)
+            plot.set_group_labels(self._group_labels)
+            plot.set_participating(self._participating_keys)
             index = len(self.wafer_plots)
             row, column = divmod(index, self._columns)
             self.grid.addWidget(plot, row, column)

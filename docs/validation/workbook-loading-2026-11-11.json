@@ -1,0 +1,511 @@
+{
+  "hardlink_recheck_outside_sandbox": {
+    "seconds": 0.24,
+    "tests": 1,
+    "result": "OK"
+  },
+  "timings": {
+    "recent": {
+      "before": {
+        "median_seconds": 2.5248579000035534,
+        "samples": [
+          {
+            "mode": "recent",
+            "seconds": 2.554145999994944,
+            "count": 8,
+            "memory": {
+              "rss": 132288512,
+              "private": 739651584,
+              "peak": 589885440
+            },
+            "source": "personal recents"
+          },
+          {
+            "mode": "recent",
+            "seconds": 2.5248579000035534,
+            "count": 8,
+            "memory": {
+              "rss": 133095424,
+              "private": 740528128,
+              "peak": 590204928
+            },
+            "source": "personal recents"
+          },
+          {
+            "mode": "recent",
+            "seconds": 2.494612299997243,
+            "count": 8,
+            "memory": {
+              "rss": 134500352,
+              "private": 741371904,
+              "peak": 590385152
+            },
+            "source": "personal recents"
+          }
+        ]
+      },
+      "after": {
+        "median_seconds": 0.03191259999584872,
+        "samples": [
+          {
+            "mode": "recent",
+            "seconds": 0.032146500001545064,
+            "count": 8,
+            "memory": {
+              "rss": 97083392,
+              "private": 702898176,
+              "peak": 97083392
+            },
+            "source": "personal recents"
+          },
+          {
+            "mode": "recent",
+            "seconds": 0.03183089999947697,
+            "count": 8,
+            "memory": {
+              "rss": 97165312,
+              "private": 703098880,
+              "peak": 97165312
+            },
+            "source": "personal recents"
+          },
+          {
+            "mode": "recent",
+            "seconds": 0.03191259999584872,
+            "count": 8,
+            "memory": {
+              "rss": 97026048,
+              "private": 702783488,
+              "peak": 97026048
+            },
+            "source": "personal recents"
+          }
+        ]
+      }
+    },
+    "open": {
+      "before": {
+        "median_seconds": 4.65889769999194,
+        "samples": [
+          {
+            "mode": "open",
+            "seconds": 4.782339500001399,
+            "memory": {
+              "rss": 599576576,
+              "private": 1196498944,
+              "peak": 1003053056
+            },
+            "raw_rows": 1890
+          },
+          {
+            "mode": "open",
+            "seconds": 4.65889769999194,
+            "memory": {
+              "rss": 596926464,
+              "private": 1194319872,
+              "peak": 1001156608
+            },
+            "raw_rows": 1890
+          },
+          {
+            "mode": "open",
+            "seconds": 4.64605379999557,
+            "memory": {
+              "rss": 600289280,
+              "private": 1197481984,
+              "peak": 1001775104
+            },
+            "raw_rows": 1890
+          }
+        ]
+      },
+      "after": {
+        "median_seconds": 1.4695044999971287,
+        "samples": [
+          {
+            "mode": "open",
+            "seconds": 1.4695044999971287,
+            "memory": {
+              "rss": 180232192,
+              "private": 776822784,
+              "peak": 180232192
+            },
+            "raw_rows": 1890
+          },
+          {
+            "mode": "open",
+            "seconds": 1.4759842999919783,
+            "memory": {
+              "rss": 180527104,
+              "private": 777203712,
+              "peak": 180527104
+            },
+            "raw_rows": 1890
+          },
+          {
+            "mode": "open",
+            "seconds": 1.468756400005077,
+            "memory": {
+              "rss": 180305920,
+              "private": 777019392,
+              "peak": 180305920
+            },
+            "raw_rows": 1890
+          }
+        ]
+      }
+    },
+    "save": {
+      "before": {
+        "median_seconds": 3.411584800007404,
+        "samples": [
+          {
+            "mode": "save",
+            "load_seconds": 1.9775234999979148,
+            "before": {
+              "rss": 30019584,
+              "private": 19140608,
+              "peak": 30019584
+            },
+            "loaded": {
+              "rss": 494764032,
+              "private": 1115643904,
+              "peak": 496869376
+            },
+            "frames": {
+              "reference": 1890,
+              "raw": 1890,
+              "test_flags": 1890,
+              "spectra.preview.spectra": 1890
+            },
+            "save_seconds": 3.4121747000026517,
+            "saved": {
+              "rss": 504086528,
+              "private": 1124618240,
+              "peak": 911450112
+            },
+            "bytes": 409559040
+          },
+          {
+            "mode": "save",
+            "load_seconds": 1.9736839999968652,
+            "before": {
+              "rss": 30105600,
+              "private": 19251200,
+              "peak": 30105600
+            },
+            "loaded": {
+              "rss": 494366720,
+              "private": 1115054080,
+              "peak": 496472064
+            },
+            "frames": {
+              "reference": 1890,
+              "raw": 1890,
+              "test_flags": 1890,
+              "spectra.preview.spectra": 1890
+            },
+            "save_seconds": 3.406354500009911,
+            "saved": {
+              "rss": 504741888,
+              "private": 1126293504,
+              "peak": 911171584
+            },
+            "bytes": 409559040
+          },
+          {
+            "mode": "save",
+            "load_seconds": 1.9762992000032682,
+            "before": {
+              "rss": 29982720,
+              "private": 19099648,
+              "peak": 29982720
+            },
+            "loaded": {
+              "rss": 495038464,
+              "private": 1115639808,
+              "peak": 497143808
+            },
+            "frames": {
+              "reference": 1890,
+              "raw": 1890,
+              "test_flags": 1890,
+              "spectra.preview.spectra": 1890
+            },
+            "save_seconds": 3.411584800007404,
+            "saved": {
+              "rss": 502812672,
+              "private": 1123872768,
+              "peak": 911286272
+            },
+            "bytes": 409559040
+          }
+        ]
+      },
+      "after": {
+        "median_seconds": 2.0526783000095747,
+        "samples": [
+          {
+            "mode": "save",
+            "load_seconds": 0.750445600002422,
+            "before": {
+              "rss": 30126080,
+              "private": 19267584,
+              "peak": 30126080
+            },
+            "loaded": {
+              "rss": 83714048,
+              "private": 702939136,
+              "peak": 87027712
+            },
+            "frames": {
+              "reference": 1890,
+              "raw": 1890,
+              "test_flags": 1890,
+              "spectra.preview.spectra": 1890
+            },
+            "save_seconds": 2.0526783000095747,
+            "saved": {
+              "rss": 90529792,
+              "private": 709881856,
+              "peak": 109895680
+            },
+            "bytes": 409559040
+          },
+          {
+            "mode": "save",
+            "load_seconds": 0.756511200001114,
+            "before": {
+              "rss": 30048256,
+              "private": 19181568,
+              "peak": 30048256
+            },
+            "loaded": {
+              "rss": 83943424,
+              "private": 703868928,
+              "peak": 87080960
+            },
+            "frames": {
+              "reference": 1890,
+              "raw": 1890,
+              "test_flags": 1890,
+              "spectra.preview.spectra": 1890
+            },
+            "save_seconds": 2.115695100001176,
+            "saved": {
+              "rss": 90603520,
+              "private": 709349376,
+              "peak": 110546944
+            },
+            "bytes": 409559040
+          },
+          {
+            "mode": "save",
+            "load_seconds": 0.7500218000059249,
+            "before": {
+              "rss": 29999104,
+              "private": 19111936,
+              "peak": 29999104
+            },
+            "loaded": {
+              "rss": 83968000,
+              "private": 703807488,
+              "peak": 86851584
+            },
+            "frames": {
+              "reference": 1890,
+              "raw": 1890,
+              "test_flags": 1890,
+              "spectra.preview.spectra": 1890
+            },
+            "save_seconds": 2.041367199999513,
+            "saved": {
+              "rss": 90279936,
+              "private": 709595136,
+              "peak": 109813760
+            },
+            "bytes": 409559040
+          }
+        ]
+      }
+    },
+    "baseline_source": "isolated v5.2.0 release source f441c0e; current pre-edit samples retained separately",
+    "chooser": {
+      "before": {
+        "median_seconds": 2.8238567000080366,
+        "samples": [
+          {
+            "mode": "chooser",
+            "seconds": 2.8613229999900796,
+            "count": 8,
+            "memory": {
+              "rss": 140222464,
+              "private": 743518208,
+              "peak": 597311488
+            },
+            "source": "personal recents; cold button-to-dialog"
+          },
+          {
+            "mode": "chooser",
+            "seconds": 2.8238567000080366,
+            "count": 8,
+            "memory": {
+              "rss": 141176832,
+              "private": 744497152,
+              "peak": 596508672
+            },
+            "source": "personal recents; cold button-to-dialog"
+          },
+          {
+            "mode": "chooser",
+            "seconds": 2.802868300001137,
+            "count": 8,
+            "memory": {
+              "rss": 139059200,
+              "private": 741388288,
+              "peak": 597258240
+            },
+            "source": "personal recents; cold button-to-dialog"
+          }
+        ]
+      },
+      "after": {
+        "median_seconds": 0.3456328000029316,
+        "samples": [
+          {
+            "mode": "chooser",
+            "seconds": 0.3490572000009706,
+            "count": 8,
+            "memory": {
+              "rss": 103862272,
+              "private": 707301376,
+              "peak": 103862272
+            },
+            "source": "personal recents; cold button-to-dialog"
+          },
+          {
+            "mode": "chooser",
+            "seconds": 0.3456328000029316,
+            "count": 8,
+            "memory": {
+              "rss": 104067072,
+              "private": 707387392,
+              "peak": 104067072
+            },
+            "source": "personal recents; cold button-to-dialog"
+          },
+          {
+            "mode": "chooser",
+            "seconds": 0.33614799998758826,
+            "count": 8,
+            "memory": {
+              "rss": 103440384,
+              "private": 706666496,
+              "peak": 103440384
+            },
+            "source": "personal recents; cold button-to-dialog"
+          }
+        ]
+      }
+    }
+  },
+  "real_file": {
+    "source_bytes": 409559040,
+    "rows": 1890,
+    "source_sha256": "c002afab609b5b5820263e71abd5cdb677e77df7e464d22266af5e9e61985ab2",
+    "source_unchanged": true,
+    "payload_sha256_before": "c1cd4577ef0d0e88e39eefbd388faac9e2c46d45edb0b2fc976f59f8f573ad91",
+    "payload_sha256_after": "c1cd4577ef0d0e88e39eefbd388faac9e2c46d45edb0b2fc976f59f8f573ad91",
+    "backup_exact_previous_file": true,
+    "all_spectra_decoded": 1890,
+    "first_spectrum_arrays_exact": true,
+    "checked_state_retained": true,
+    "drawing_suppressed_for_decode_probe": true
+  },
+  "first_full_environment_failure": {
+    "excluded_modules": [
+      "test_auto_weighting",
+      "test_auto_weighting_ocr",
+      "test_auto_weighting_window"
+    ],
+    "module_count": 121,
+    "exit_code": 1,
+    "seconds": 549.2039906999998,
+    "summary": [
+      "Ran 1460 tests in 543.232s",
+      "FAILED (errors=1)"
+    ],
+    "failures": [
+      "ERROR: test_copy_cannot_overwrite_owner_or_samefile_alias (tests.test_storage_v2.StorageV2Tests.test_copy_cannot_overwrite_owner_or_samefile_alias)"
+    ]
+  },
+  "focused_final": {
+    "seconds": 16.425,
+    "tests": 77,
+    "result": "OK"
+  },
+  "initial_working_directory_samples": {
+    "store": {
+      "mode": "save",
+      "load_seconds": 1.9727092999964952,
+      "before": {
+        "rss": 30015488,
+        "private": 19079168,
+        "peak": 30015488
+      },
+      "loaded": {
+        "rss": 494829568,
+        "private": 1116000256,
+        "peak": 496934912
+      },
+      "frames": {
+        "reference": 1890,
+        "raw": 1890,
+        "test_flags": 1890,
+        "spectra.preview.spectra": 1890
+      },
+      "save_seconds": 5.328095599994413,
+      "saved": {
+        "rss": 504918016,
+        "private": 1125863424,
+        "peak": 911409152
+      },
+      "bytes": 409559040
+    },
+    "recent": {
+      "mode": "recent",
+      "seconds": 23.89773630000127,
+      "count": 9,
+      "memory": {
+        "rss": 116686848,
+        "private": 722591744,
+        "peak": 936755200
+      }
+    },
+    "open": {
+      "mode": "open",
+      "seconds": 6.320186000004469,
+      "memory": {
+        "rss": 598970368,
+        "private": 1196818432,
+        "peak": 1001586688
+      },
+      "raw_rows": 1890
+    }
+  },
+  "full_regression": {
+    "excluded_modules": [
+      "test_auto_weighting",
+      "test_auto_weighting_ocr",
+      "test_auto_weighting_window"
+    ],
+    "module_count": 121,
+    "exit_code": 0,
+    "seconds": 537.8540371999989,
+    "summary": [
+      "Ran 1462 tests in 532.500s",
+      "OK"
+    ],
+    "failures": []
+  }
+}
