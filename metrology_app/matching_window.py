@@ -1424,6 +1424,8 @@ class MatchingWindow(QMainWindow):
         recover_action = self.file_menu.addAction("Recover Workbook Draft…")
         recover_action.triggered.connect(self.recover_draft)
 
+        self.export_menu = self.menuBar().addMenu("Export")
+        self.export_menu.addAction(self.export_action)
         self.analysis_menu = self.menuBar().addMenu("Analysis")
         self.run_action = QAction("Run analysis", self)
         self.run_action.setShortcut(QKeySequence("Ctrl+Return"))
@@ -1503,6 +1505,12 @@ class MatchingWindow(QMainWindow):
         self.import_wafer_mapping_action.triggered.connect(self.import_wafer_id_mapping)
         self.export_wafer_mapping_action = self.wafer_id_mapping_menu.addAction("Export wafer ID mapping…")
         self.export_wafer_mapping_action.triggered.connect(self.export_wafer_id_mapping)
+        self.export_menu.addAction(self.export_wafer_mapping_action)
+        self.export_mark2_action = self.export_menu.addAction("Export Mark2 Excel…")
+        self.export_mark2_action.triggered.connect(self.group_controls.export_mark2)
+        self.export_ref_action = self.export_menu.addAction("Export REF…")
+        self.export_ref_action.triggered.connect(self.export_ref_dialog)
+        self.export_menu.aboutToShow.connect(self._update_export_menu)
         self.reset_wafer_mapping_action = self.wafer_id_mapping_menu.addAction("Reset wafer ID mapping")
         self.reset_wafer_mapping_action.triggered.connect(self.reset_wafer_id_mapping)
 
@@ -7046,6 +7054,58 @@ class MatchingWindow(QMainWindow):
                 start_export(self, path, None, matching=True, sheet_plan=self.excel_export_sheet_plan)
         except Exception as error:
             QMessageBox.warning(self, "Cannot export Excel", str(error))
+
+    def _update_export_menu(self):
+        type2 = self.workbook_type == "type2"
+        has_raw = not self._active_raw_frame().empty
+        self.export_wafer_mapping_action.setEnabled(type2 and (has_raw or bool(self.wafer_id_mapping["records"])))
+        self.export_mark2_action.setEnabled(type2 and self.group_controls.mark2_export_button.isEnabled())
+        self.export_ref_action.setEnabled(self.analyze_button.isEnabled())
+
+    def export_ref_dialog(self):
+        from .export_sheet_dialog import ExportSheetDialog
+        from .ref_export import ref_mappings, ref_offset_option, write_ref
+
+        try:
+            book = self.current_workbook()
+            raw = self._active_raw_frame()
+            mappings = ref_mappings(book, raw)
+            offset_field, unavailable = ref_offset_option(book)
+            offset_result = None
+            if offset_field is not None:
+                try:
+                    offset_result = self._export_stage_result(book)
+                    offsets = offset_result.mark2_offset_table().to_numpy(float)
+                    if not np.isfinite(offsets).any():
+                        unavailable = "No offsets are available. Check the Card and matched Raw/REF pairs for this field."
+                except ValueError as error:
+                    unavailable = f"Could not calculate Mark2 Offset. {error}"
+            dialog = ExportSheetDialog([mapping.name for mapping in mappings], self,
+                                       title="Export REF",
+                                       prompt="Select parameter columns to export in the active Raw Data order.")
+            try:
+                compensate = QCheckBox("Apply Mark2 Offset to REF", dialog)
+                compensate.setEnabled(not unavailable)
+                layout = dialog.layout()
+                layout.insertWidget(layout.indexOf(dialog.buttons), compensate)
+                if unavailable:
+                    reason = _label(unavailable, "hint")
+                    reason.setTextFormat(Qt.TextFormat.PlainText)
+                    reason.setWordWrap(True)
+                    layout.insertWidget(layout.indexOf(dialog.buttons), reason)
+                if dialog.exec() != QDialog.DialogCode.Accepted:
+                    return
+                selected = set(dialog.selected_sheets())
+                apply_offset = compensate.isChecked()
+            finally:
+                dialog.deleteLater()
+            path, _ = QFileDialog.getSaveFileName(self, "Export REF", "REF.xlsx", "Excel Workbook (*.xlsx)")
+            if path:
+                saved = write_ref(path, book, raw, [mapping for mapping in mappings if mapping.name in selected],
+                                  offset_result=offset_result if apply_offset else None)
+                self.statusBar().showMessage(f"REF exported: {saved}", 10000)
+        except Exception as error:
+            QMessageBox.warning(self, "Cannot export REF", str(error))
 
     def save_plot_images(self, folder):
         """Compatibility entry point for the Matplotlib export route."""

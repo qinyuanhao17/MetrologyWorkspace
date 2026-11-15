@@ -5,12 +5,13 @@ from PyQt6.QtWidgets import (QDialog, QDialogButtonBox, QHBoxLayout, QLabel,
 
 
 class ExportSheetDialog(QDialog):
-    def __init__(self, names, parent=None):
+    def __init__(self, names, parent=None, *, title='Select output sheets',
+                 prompt='Choose visible output sheets. Required formula source sheets are kept hidden.'):
         super().__init__(parent)
-        self.setWindowTitle('Select output sheets')
+        self.setWindowTitle(title)
         self.resize(540, 480)
         layout = QVBoxLayout(self)
-        note = QLabel('Choose visible output sheets. Required formula source sheets are kept hidden.')
+        note = QLabel(prompt)
         note.setWordWrap(True)
         layout.addWidget(note)
         self.sheets = QListWidget()
