@@ -466,6 +466,8 @@ class SpectraViewerWindow(QMainWindow):
         self.color_by_combo = QComboBox()
         self.color_by_combo.addItem("Wafer", "wafer")
         self.color_by_combo.addItem("SME Name", "sme")
+        self.color_by_combo.addItem("Folder", "folder")
+        self.color_by_combo.addItem("TestFlag", "testflag")
         self.color_by_combo.setMinimumWidth(125)
         self.color_by_combo.currentIndexChanged.connect(
             lambda index: self.set_color_mode(self.color_by_combo.itemData(index)))
@@ -1002,7 +1004,7 @@ class SpectraViewerWindow(QMainWindow):
 
         self.refresh_group_labels(emit_state=False)
 
-    def build_tree_menu(self):
+    def build_tree_menu(self, wafer=None):
         menu = QMenu(self)
         menu.setObjectName("spectrumTreeMenu")
         menu.setStyleSheet("QMenu#spectrumTreeMenu::separator { height: 1px; background: palette(mid); margin: 5px 8px; }")
@@ -1017,6 +1019,25 @@ class SpectraViewerWindow(QMainWindow):
         highlight.setEnabled(bool(self._selected_keys))
         highlight.triggered.connect(self.highlight_selected_spectra)
         self.group_options.mark_menu(menu)
+        flags = menu.addMenu("Set Test Flag")
+        flags.setEnabled(bool(self._selected_keys))
+        for value in self.test_flag_values:
+            flags.addAction("0 (Fallback)" if value == 0 else str(value),
+                            lambda _=False, value=value:self.set_test_flags(
+                                {key:value for key in self._selected_keys}))
+        unselected = {s.key for s in self.catalog.spectra
+                      if (wafer is None or (s.identity.wafer,s.identity.lot,s.identity.pad) == wafer)
+                      and (wafer is None or s.has_map_point)
+                      and s.key not in self._selected_keys}
+        for label, checked in (("Check Unselected",True),("Uncheck Unselected",False)):
+            menu.addAction(label, lambda _=False, checked=checked:self.set_spectrum_checks(
+                {key:checked for key in unselected})).setEnabled(bool(unselected))
+        identities = {(s.identity.wafer,s.identity.lot,s.identity.pad) for s in self.catalog.spectra
+                      if s.key in self._selected_keys}
+        identity = wafer if wafer is not None else next(iter(identities)) if len(identities) == 1 else None
+        for label, flags_only in (("Apply Check To Similar Wafer",False),("Apply Flag to Similar Wafer",True)):
+            menu.addAction(label, lambda _=False, flags_only=flags_only:
+                           self.apply_to_similar_wafer(identity,flags_only=flags_only)).setEnabled(identity is not None)
         menu.addSeparator()
         menu.addAction("Set as BSL", self.set_selected_as_baseline).setEnabled(len(self._selected_keys) == 1)
         menu.addAction("Clear BSL", self.clear_baseline).setEnabled(self.baseline_spectrum is not None)
@@ -1029,6 +1050,23 @@ class SpectraViewerWindow(QMainWindow):
         menu.addAction("Export Checked Spectra…", self.choose_spectra_export).setEnabled(
             bool(self._checked_keys) and self._loader is None and self._exporter is None)
         return menu
+
+    def apply_to_similar_wafer(self, wafer, *, flags_only=False):
+        from .die_selection import similar_wafer_flags, similar_wafer_selection
+        try:
+            updates, matched, skipped = (similar_wafer_flags(self.catalog.spectra,wafer,self.test_flags)
+                if flags_only else similar_wafer_selection(self.catalog.spectra,wafer,self._checked_keys))
+        except ValueError as error:
+            self.status.setText(str(error))
+            return
+        if updates:
+            (self.set_test_flags if flags_only else self.set_spectrum_checks)(updates)
+        message = f"Applied {'flags to' if flags_only else 'to'} {len(matched)} similar wafers; skipped {len(skipped)}. X/Y tolerance: < 0.4 mm."
+        self.status.setText(message)
+        self.status.setToolTip('\n'.join(f"{' / '.join(identity)}: {reason}" for identity,reason in skipped))
+        if self.map_window is not None:
+            self.map_window.statusBar().showMessage(message)
+            self.map_window.statusBar().setToolTip(self.status.toolTip())
 
     def choose_spectra_export(self):
         if self._exporter is not None or not self._checked_keys:
@@ -1189,6 +1227,8 @@ class SpectraViewerWindow(QMainWindow):
                 item.setText(0, f'{base} | {mark}' if mark else base)
                 item.setToolTip(0,item.text(0))
         self.tree.blockSignals(blocked)
+        if self.color_mode == 'testflag':
+            self._refresh_plots()
         for legend in self.legends.values():
             self._refresh_legend(legend,[legend.item(i).data(Qt.ItemDataRole.UserRole) for i in range(legend.count())])
         self._sync_map()
@@ -1610,17 +1650,21 @@ class SpectraViewerWindow(QMainWindow):
         return "wafer" if self._analysis_mode == "3sigma" else self._color_mode
 
     def set_color_mode(self, mode):
-        if mode not in ("wafer", "sme"):
+        if mode not in ("wafer", "sme", "folder", "testflag"):
             raise ValueError("Unknown spectrum color mode")
         self._color_mode = mode
         self._refresh_plots()
+
+    def _color_assignments(self):
+        return frozenset(self.test_flags.items()) if self.color_mode == 'testflag' else None
 
     def _color_key(self, spectrum, channel):
         if self._color_key_revision != self._plot_revision:
             self._color_key_revision = self._plot_revision
             self._color_keys.clear()
             self._color_order.clear()
-        cache_key = id(spectrum), id(channel), self.color_mode
+        cache_key = (id(spectrum), id(channel), self.color_mode,
+                     self.test_flags.get(spectrum.key,0) if self.color_mode == 'testflag' else None)
         cached = self._color_keys.get(cache_key)
         if cached is not None:
             return cached
@@ -1628,6 +1672,9 @@ class SpectraViewerWindow(QMainWindow):
         individual = self.color_mode == "sme"
         key = WaferChannelKey(identity.wafer, channel.key, identity.lot, identity.pad,
                               spectrum.key if individual else "", spectrum.path.name if individual else "")
+        if self.color_mode in ('folder','testflag'):
+            value = str(spectrum.path.parent) if self.color_mode == 'folder' else str(self.test_flags.get(spectrum.key,0))
+            key = WaferChannelKey('',channel.key,category=self.color_mode,category_value=value)
         self._color_keys[cache_key] = key
         if key not in self._color_order:
             self._color_order[key] = key.sort_key
@@ -1640,7 +1687,7 @@ class SpectraViewerWindow(QMainWindow):
             self._residual_cache.clear()
             self._sigma_cache.clear()
             self._analysis_segments.clear()
-        signature = revision, self._analysis_mode, self.color_mode, frozenset(self._checked_keys)
+        signature = revision, self._analysis_mode, self.color_mode, self._color_assignments(), frozenset(self._checked_keys)
         cached = self._analysis_segments.get(metric)
         if self._analysis_mode != "original" and cached is not None and cached[0] == signature:
             self._analysis_notes.update(cached[2])
@@ -1815,10 +1862,13 @@ class SpectraViewerWindow(QMainWindow):
         self.color_by_combo.setEnabled(self._analysis_mode != "3sigma")
         self.color_by_combo.setToolTip(
             "3σ summarizes checked files per Wafer/channel; colors remain per Wafer/channel."
-            if self._analysis_mode == "3sigma" else "Color by Wafer ID/Lot/PAD or by individual SME file, with distinct channel colors.")
+            if self._analysis_mode == "3sigma" else "Color by Wafer ID/Lot/PAD, SME file, source Folder or TestFlag, with distinct channel colors.")
         self._legend_angles = {}
-        available = {self._color_key(s, c)
-                     for s in self.catalog.spectra for c in s.channels}
+        self._color_members = {}
+        for source in self.catalog.spectra:
+            for channel in source.channels:
+                self._color_members.setdefault(self._color_key(source,channel),set()).add(source.key)
+        available = set(self._color_members)
         for key in sorted(available, key=lambda key: self._color_order[key]):
             self._color_for(key)
         large = self.isVisible() and sum(channel.numeric.size for spectrum in checked
@@ -1858,7 +1908,7 @@ class SpectraViewerWindow(QMainWindow):
         families = {"N": "NCS", "C": "NCS", "S": "NCS", "psi_delta": "Psi Delta",
                     "mueller": "Mueller", "reflectance": "Reflectance"}
         signatures = {
-            key: (self._plot_revision, frozenset(self._checked_keys), self._analysis_mode, self.color_mode,
+            key: (self._plot_revision, frozenset(self._checked_keys), self._analysis_mode, self.color_mode, self._color_assignments(),
                   self._baseline_key if self._analysis_mode == "residual" else None)
             for key, family in families.items()
         }
@@ -2177,6 +2227,7 @@ class SpectraViewerWindow(QMainWindow):
             self.map_window.activateWindow()
             return self.map_window
         self.map_window = SpectraMapWindow(pin_owner=self)
+        self.map_window.selection_menu_factory = self.build_tree_menu
         self.add_edit_history_actions(self.map_window)
         self.map_window.spectra_selected.connect(self.select_spectrum_keys)
         self.map_window.check_selected_requested.connect(self.check_selected_spectra)

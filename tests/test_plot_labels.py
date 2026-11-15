@@ -114,9 +114,9 @@ class PlotLabelTests(unittest.TestCase):
             self.assertEqual({text for _, _, text in widget._wafer_axis.spans},
                              {"W001\nLOT: L001\nPAD: ARRAY", "W001\nLOT: L002\nPAD: CELL"})
         self.assertEqual([plot.axes._wafer_title_details[0].get_text() for plot, _ in map_page.artists],
-                         ["W001 · PAD: ARRAY · LOT: L001", "W001 · PAD: CELL · LOT: L002"])
+                         ["W001 · L001 · ARRAY", "W001 · L002 · CELL"])
         self.assertEqual([axis._wafer_title_details[0].get_text() for axis in radius.figure.axes if axis.axison],
-                         ["W001 · PAD: ARRAY · LOT: L001", "W001 · PAD: CELL · LOT: L002"])
+                         ["W001 · L001 · ARRAY", "W001 · L002 · CELL"])
         trend.ensure_export_figure()
         self.assertTrue(all("LOT: " in text.get_text() and "PAD: " in text.get_text()
                             for axis in trend.figure.axes if axis.axison
@@ -161,6 +161,39 @@ class PlotLabelTests(unittest.TestCase):
         map_page.scale_bar.click()
         map_page.apply_plot_style()
         self.assertEqual([plot.axes._wafer_title_details[0].get_text() for plot, _ in map_page.artists], ["W001", "W001"])
+
+    def test_map_and_radius_hide_metadata_independently_without_parsing_literal_names(self):
+        self.raw['Wafer ID'] = 'PAD: Wafer · keep'
+        self.raw['Lot ID'] = 'LOT: Literal · lot'
+        self.window.set_raw_frame(self.raw)
+        self.window.group_controls.restore({'mark_enabled':True,
+            'mark_values':[{'id':'mark','name':'PAD: Group · keep'}]})
+        self.window.run_analysis()
+        maps = self.child('map')
+        for index in range(maps.parameter_list.topLevelItemCount()):
+            item = maps.parameter_list.topLevelItem(index)
+            item.setCheckState(0, Qt.CheckState.Checked if item.text(0) == 'Depth' else Qt.CheckState.Unchecked)
+        maps.update_plan()
+        page, radius = maps.plot_page, maps.radius_page
+        for target in (page,radius):
+            target.selector.selectAll()
+        page.draw_maps()
+        deadline = time.monotonic() + 30
+        while page.background_render_pending and time.monotonic() < deadline:
+            APP.processEvents()
+            time.sleep(.01)
+        radius.draw_plot()
+        surfaces = [source['surface'] for source in page.result['scenes']]
+        self.window.set_plot_labels({'map':{'pad':False,'lot':True},
+                                     'radius':{'pad':True,'lot':False}})
+        self.assertEqual([plot.axes._wafer_title_details[0].get_text() for plot,_ in page.artists],
+                         ['PAD: Group · keep · PAD: Wafer · keep · LOT: Literal · lot'] * 2)
+        self.assertEqual([axis._wafer_title_details[0].get_text() for axis in radius.figure.axes if axis.axison],
+                         ['PAD: Group · keep · PAD: Wafer · keep · ARRAY',
+                          'PAD: Group · keep · PAD: Wafer · keep · CELL'])
+        for surface,source in zip(surfaces,page.result['scenes']):
+            self.assertIs(surface,source['surface'])
+        pd.testing.assert_frame_equal(self.window.raw_model.frame(),self.raw)
 
     def test_group_show_wafer_switches_only_wafer_captions_not_group_labels(self):
         window = self.window

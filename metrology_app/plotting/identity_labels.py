@@ -15,8 +15,11 @@ def plot_label_options(saved=None):
     return result
 
 
-def measurement_caption(label, options):
-    """Omit typed metadata lines, retaining the primary identity and run labels."""
+def measurement_caption(label, options, fields=None):
+    """Format structured fields or legacy typed lines without parsing literal names."""
+    if fields is not None:
+        return " · ".join(value for field, value in fields.items()
+                          if value and (field not in ("pad", "lot") or options.get(field, True)))
     lines = str(label).splitlines()
     captions = []
     for index, line in enumerate(lines):

@@ -275,7 +275,7 @@ class MainWindow(QMainWindow):
         frames = self._workspace_source_frames(readonly=readonly)
         states = {"ui": analysis_state(self)}
         if self.workspace_type == 'wafer_map' and getattr(self,'display_options',None) is not None:
-            states['wafer_groups'] = self.display_options.snapshot()
+            states['wafer_groups'] = self.display_options.snapshot(readonly=readonly)
         if getattr(self, "_participation_excluded", None):
             states["workbook_participation"] = sorted(self._participation_excluded)
         states["data_selection"] = {
@@ -1210,7 +1210,9 @@ class MainWindow(QMainWindow):
         if self.model.duplicate_header_count():
             return
         from .correlation_groups import prepare_group_context
-        self.display_options.remember_workbook(prepare_group_context(book,self.model.frame(),False))
+        # Participation is carried separately by set_workbook_participation().
+        context = prepare_group_context(book,self.model._analysis_view(),False,classification_only=True)
+        self.display_options.remember_workbook(context)
         self.display_options.refresh()
 
     def current_cell(self, index, *_args):

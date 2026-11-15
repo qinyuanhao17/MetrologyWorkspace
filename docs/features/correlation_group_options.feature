@@ -51,6 +51,20 @@ Feature: Optional Groups and wafer captions in Correlation and Trend
     Then wafer captions change in place and the curves and view ranges remain
     And Group names, identities and participation remain unchanged
 
+  # Executable checks: tests.test_plot_labels and tests.test_workspace_group_parity.
+  Scenario: Hide map and radius metadata independently
+    Given Wafer Map and Radius plots show Group, Wafer, Lot and PAD captions
+    When the engineer hides PAD in maps and Lot in radius plots
+    Then each view and its export omit only the requested identity fields
+    And literal Group and Wafer names containing metadata prefixes or separators remain intact
+    And prepared surfaces, plotted values, selected boxes and source strings remain unchanged
+
+  Scenario: Keep copied Group settings independent of the clean document
+    Given a Wafer child follows accepted Workbook Groups
+    When a consumer modifies an exported workspace snapshot
+    Then the live Group settings and accepted clean baseline retain their original values
+    And the clean document does not acquire an edit from that external copy
+
   Scenario: Choose whether a child follows Workbook settings
     Given Correlation and Trend belongs to a Match Workbook
     When the engineer disables Use WKB Group settings and applies local names

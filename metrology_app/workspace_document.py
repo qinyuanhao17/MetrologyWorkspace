@@ -495,11 +495,16 @@ class WkbDocument:
         self._cancel_recovery()
         if snapshot is None:
             snapshot = (self.window.workspace_snapshot(readonly=True)
-                        if self.window.workspace_type in ("match_workbook", "correlation_trend")
+                        if self.window.workspace_type in ("match_workbook", "correlation_trend", "wafer_map")
                         else self.window.workspace_snapshot())
         # Detach once, here on the GUI thread. Save/recovery still receive
         # independent snapshots; none of these read-only views escape to workers.
-        self.baseline = deepcopy(snapshot)
+        if self.window.workspace_type == "wafer_map":
+            from .recovery import freeze_snapshot
+            self.baseline = freeze_snapshot(snapshot)
+            self.baseline.warnings = list(snapshot.warnings)
+        else:
+            self.baseline = deepcopy(snapshot)
         self.forced_dirty = False
         try:
             self.refresh_identity()
@@ -520,7 +525,7 @@ class WkbDocument:
                 # a validated MatchWorkbook. Formal Save/recovery captures keep
                 # their full validation; no candidate is accepted on this path.
                 snapshot = self.window.workspace_snapshot(readonly=True, validate=False)
-            elif self.window.workspace_type == "correlation_trend":
+            elif self.window.workspace_type in ("correlation_trend", "wafer_map"):
                 snapshot = self.window.workspace_snapshot(readonly=True)
             else:
                 snapshot = self.window.workspace_snapshot()

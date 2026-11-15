@@ -404,7 +404,8 @@ class WaferPanel(pg.GraphicsObject):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         options = self.source.get("options")
         rect, base = self.axis_rect, self.font_size
-        caption = measurement_caption(self.source["label"], self.identity_labels).replace("\n", " · ")
+        caption = measurement_caption(self.source["label"], self.identity_labels,
+                                      self.source.get("caption_fields")).replace("\n", " · ")
         painter.setPen(QColor("#17202a"))
         detail = max(6, base-1)
         line = detail * 1.45 * 100/72

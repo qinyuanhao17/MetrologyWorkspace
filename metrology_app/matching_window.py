@@ -3429,18 +3429,24 @@ class MatchingWindow(QMainWindow):
         workspace = self._wafer_window_factory()
         workspace._managed_scope = scope
         title = f"{str(stage).title()} · Match Workbook"
-        self._offer_parameter_cards(workspace, raw_columns=frame.attrs.get("raw_parameter_columns", ()))
-        workspace.set_table(frame, title)
-        self._bind_workspace_selection(workspace, "map", stage)
-        if not self._workspace_data_follows_workbook() and scope == f"map.{stage}":
-            # TEM owns this table; KLA/NOVA keep deriving it from Raw Data until
-            # the engineer edits the child window.
-            self._capture_stage_map(stage, frame)
-        # Child edits remain a draft until its Save, or the parent's Save.
-        self._configure_managed_close(workspace, "map", stage)
+        transaction = getattr(workspace, 'input_update', nullcontext)
+        with transaction():
+            self._offer_parameter_cards(workspace, raw_columns=frame.attrs.get("raw_parameter_columns", ()))
+            workspace.set_table(frame, title)
+            self._bind_workspace_selection(workspace, "map", stage)
+            if not self._workspace_data_follows_workbook() and scope == f"map.{stage}":
+                # TEM owns this table; KLA/NOVA keep deriving it from Raw Data until
+                # the engineer edits the child window.
+                self._capture_stage_map(stage, frame)
+            # Child edits remain a draft until its Save, or the parent's Save.
+            self._configure_managed_close(workspace, "map", stage)
+            if book is not None and hasattr(workspace, "set_workbook_participation"):
+                workspace.set_workbook_participation(book)
+            if book is not None and hasattr(workspace, "set_workbook_groups"):
+                workspace.set_workbook_groups(book)
         if hasattr(workspace, "setWindowTitle"):
             workspace.setWindowTitle(f"{str(stage).title()} Wafer Map / Radius")
-        self._register_stage_workspace(workspace, "map", stage, book=book)
+        self._register_stage_workspace(workspace, "map", stage, book=book, source_context_ready=True)
         workspace.show()
         self.remember_stage_inputs()
         return workspace
@@ -3465,13 +3471,16 @@ class MatchingWindow(QMainWindow):
             return
         self._capture_stage_map(stage, frame)
 
-    def _register_stage_workspace(self, workspace, kind=None, stage=None, *, book=None):
+    def _register_stage_workspace(self, workspace, kind=None, stage=None, *, book=None, source_context_ready=False):
         """Track a child window and the WKB snapshot it owns, when applicable."""
         book = book or self._analysis_workspace_workbook()
-        if book is not None and hasattr(workspace, "set_workbook_participation"):
-            workspace.set_workbook_participation(book)
-        if kind == 'map' and book is not None and hasattr(workspace,'set_workbook_groups'):
-            workspace.set_workbook_groups(book)
+        if not source_context_ready:
+            transaction = getattr(workspace, 'input_update', nullcontext) if kind == 'map' else nullcontext
+            with transaction():
+                if book is not None and hasattr(workspace, "set_workbook_participation"):
+                    workspace.set_workbook_participation(book)
+                if kind == 'map' and book is not None and hasattr(workspace,'set_workbook_groups'):
+                    workspace.set_workbook_groups(book)
         self._stage_windows.append(workspace)
         if kind is not None:
             self._stage_window_context[workspace] = (

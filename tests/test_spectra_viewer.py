@@ -1159,7 +1159,7 @@ class SpectraViewerTreeTests(unittest.TestCase):
         self.window.apply_load_result(LoadResult(tuple(spectra), ()), replace=True)
         self.window.check_all_spectra()
         combo = self.window.color_by_combo
-        self.assertEqual([combo.itemText(i) for i in range(combo.count())], ["Wafer", "SME Name"])
+        self.assertEqual([combo.itemText(i) for i in range(combo.count())], ["Wafer", "SME Name", "Folder", "TestFlag"])
         panel = self.window.plot_panels["S"]
         self.assertEqual(len(panel.groups), 6)
         wafer_colors = {g.key: g.color.name() for g in panel.groups}
@@ -1500,6 +1500,11 @@ class SpectraViewerTreeTests(unittest.TestCase):
                 "Uncheck Selected",
                 "Highlight",
                 "Set Mark",
+                "Set Test Flag",
+                "Check Unselected",
+                "Uncheck Unselected",
+                "Apply Check To Similar Wafer",
+                "Apply Flag to Similar Wafer",
                 "Set as BSL",
                 "Clear BSL",
                 "Fold Tree",

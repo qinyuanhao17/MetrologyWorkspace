@@ -8,6 +8,22 @@ APP = QApplication.instance() or QApplication([])
 
 
 class SheetBulkLoadTests(unittest.TestCase):
+    def test_dense_load_retains_general_metadata_fallback_and_owned_values(self):
+        frame = pd.DataFrame({'ID':['001','002'],'Value':['1.23000000000000001','-0']})
+        metadata = {}
+        metadata['self'] = metadata
+        metadata['tags'] = {'one','two'}
+        frame.attrs['source'] = metadata
+        model = SheetModel()
+        self.addCleanup(model.deleteLater)
+        model.load(frame)
+        public = model.document_frame()
+        public.iat[0,1] = 'Changed copy'
+        public.attrs['source']['tags'].add('Changed copy')
+        self.assertEqual(model.document_frame().iloc[:,1].tolist(),['1.23000000000000001','-0'])
+        self.assertEqual(model.document_frame().attrs['source']['tags'],{'one','two'})
+        self.assertEqual(frame.iloc[0,1],'1.23000000000000001')
+
     def test_reset_notification_reads_never_leave_previous_source_cached(self):
         model = SheetModel()
         self.addCleanup(model.deleteLater)

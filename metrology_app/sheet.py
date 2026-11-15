@@ -659,7 +659,9 @@ class SheetModel(QAbstractTableModel):
                      or prepared["document"].equals(frame.fillna("").astype(str).reset_index(drop=True)))):
             self._load_prepared_frame(prepared)
             return
-        document = frame.fillna("").astype(str).reset_index(drop=True)
+        literal_strings = (all(dtype == object for dtype in frame.dtypes)
+            and pd.api.types.infer_dtype(frame.to_numpy(copy=False).ravel(),skipna=False) == 'string')
+        document = (frame if literal_strings else frame.fillna("").astype(str)).reset_index(drop=True)
         document.columns = [str(name) for name in document.columns]
         matrix = [list(document.columns)] + document.values.tolist() if len(document.columns) else []
         self._load_matrix(matrix, report_paste=report_paste,
@@ -767,7 +769,15 @@ class SheetModel(QAbstractTableModel):
             # The dense case needs neither padding nor another Python str()
             # call per cell. Sparse/clipboard matrices keep the general path.
             columns = len(matrix[0])
-            cells = dict(zip(product(range(len(matrix)), range(columns)), chain.from_iterable(matrix)))
+            cells = None
+            if type(self) is SheetModel:
+                try:
+                    version = LiteralTableVersion.from_frame(document)
+                    cells = VersionCells(version, changed=self._direct_cells_changed)
+                except (TypeError, ValueError, RecursionError):
+                    pass  # Unknown frame metadata retains owned dictionary storage.
+            if cells is None:
+                cells = dict(zip(product(range(len(matrix)), range(columns)), chain.from_iterable(matrix)))
             state = cells, max(100, len(matrix) + 20), max(26, columns + 3)
         else:
             state = self.state_from_matrix(matrix)

@@ -3,6 +3,37 @@ Feature: Review spectral measurements by wafer
   channels, and connect spectra to physical wafer positions without losing
   source identity or blocking the workspace.
 
+  Rule: Tree and Die Map share spectrum actions
+
+    # Executable acceptance checks: tests.test_spectra_group_interactions.
+    Scenario: Use the same selected-spectrum actions in either view
+      Given a spectrum is selected in the tree or Die Map
+      When the engineer opens either context menu
+      Then checking, TestFlag, Mark, Highlight, BSL, tree and export actions are available in both
+      And Check Unselected in a map applies within the clicked Wafer, Lot and PAD
+      And similar-wafer actions use the clicked map or the single selected measurement set
+
+    Scenario: Enter only configured TestFlags on map points
+      Given map points are selected and the configured TestFlags include 0, 1 and -1
+      When the engineer types -1 while the map has focus
+      Then the selected spectra receive TestFlag -1 and Undo can restore the previous flags
+      And entering an unconfigured number leaves assignments and configured values unchanged
+      And typing in other controls does not assign flags
+
+  Rule: Spectrum color categories retain measured curves
+
+    # Executable acceptance checks: tests.test_spectra_group_interactions.
+    Scenario: Compare spectra by source Folder or TestFlag
+      Given checked spectra span folders, wafers and configured TestFlags
+      When the engineer chooses Color by Folder or Color by TestFlag
+      Then spectra in the same category and channel share a color and labeled legend entry
+      And full folder paths distinguish folders with the same short name
+      And unassigned spectra belong to TestFlag 0
+      And measured samples, checks and selection are retained
+      And TestFlag edits and Undo update main and floating plots
+      And saving and reopening retains the chosen color mode
+      And 3-sigma analysis retains its existing Wafer and channel grouping
+
   Rule: Local classification reuses Workbook Group and Mark definitions
 
     Scenario: Copy current Workbook Groups independently of source paths

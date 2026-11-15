@@ -100,7 +100,7 @@ class PlotTests(unittest.TestCase):
         self.assertEqual(plot.axes.get_title(loc="center"), "Value  [A - B]")
         self.assertEqual(plot.axes.title.get_fontweight(), "bold")
         self.assertEqual([text.get_text() for text in plot.axes._wafer_title_details],
-                         ["W1", "Min 2   Max 2   Mean 2"])
+                         ["W1", "Min 2   Max 2   Mean 2   Sigma 0"])
         self.assertTrue(all(text.get_ha() == "center" for text in plot.axes._wafer_title_details))
         np.testing.assert_allclose(plot.positions[0], [1, -1], atol=1e-12)
         no_bar = WaferPlot()

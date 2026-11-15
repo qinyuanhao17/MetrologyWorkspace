@@ -2,17 +2,23 @@
 from copy import deepcopy
 from collections import Counter
 import pandas as pd
-from .match_groups import row_ids, participation_source_keys, GroupPlan
+from .match_groups import row_ids, participation_source_keys, GroupPlan, copy_group_state
 
 
-def prepare_group_context(book, raw, applies):
+def prepare_group_context(book, raw, applies, *, classification_only=False):
     from .match_groups import applied_state, participation_rows, wafer_identity_keys
-    effective = applied_state(book.grouping_state)
+    # Replace per-scope selection/flags before detaching their containers.
+    state = dict(book.grouping_state)
+    if 'applied' in state:
+        state['applied'] = dict(state['applied'])
+    if classification_only:
+        for config in (state,state.get('applied',{})):
+            config['data_selection'] = {'records':[],'excluded':[]}
+    effective = applied_state(state)
     if (not (effective["enabled"] or effective["mark_enabled"])
             and effective["trend_order"] == "groups"
             and (effective["data_selection"] is None or not applies)):
         return None
-    state = deepcopy(book.grouping_state)
     identities = list(row_ids(raw))
     flags = (book.test_flags.iloc[:, 0].astype(object).reset_index(drop=True).reindex(range(len(book.raw)))
              if book.test_flags is not None and len(book.test_flags.columns) else pd.Series([""] * len(book.raw)))
@@ -23,7 +29,9 @@ def prepare_group_context(book, raw, applies):
         if raw.equals(source):
             flags = flags.iloc[rows]
     full_selection = None
-    if not applies and (effective["data_selection"] is not None or effective["filters"]):
+    if classification_only:
+        full_selection = {'records':[],'excluded':[]}
+    elif not applies and (effective["data_selection"] is not None or effective["filters"]):
         known_ids = {record["key"]: record["id"] for record in
                      (effective["data_selection"] or {}).get("records", ())}
         full_selection = {"records": [{"id": known_ids.get(key, key), "key": key}
@@ -39,8 +47,8 @@ def prepare_group_context(book, raw, applies):
             # Full data ignores the parent's participation restriction, not
             # its classification. Explicit all-record participation also
             # keeps legacy display filters from excluding plotted rows.
-            config["data_selection"] = deepcopy(full_selection)
-    return {"grouping": state,
+            config["data_selection"] = full_selection
+    return {"grouping": copy_group_state(state),
                           "flags": flags.tolist(),
                           "identities": identities,
                           "provenance": list(participation_source_keys(raw)),

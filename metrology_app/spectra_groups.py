@@ -228,6 +228,8 @@ class SpectraGroupOptions:
     def legend_label(self, key):
         self.labels()
         keys = {key.spectrum_key} if key.spectrum_key else self._cache[2].get((key.wafer,key.lot,key.pad),())
+        if key.category:
+            keys = self.owner._color_members.get(key,())
         prefix = self.mark_caption(keys)
         return f'{prefix} | {key.legend_label}' if prefix else key.legend_label
 

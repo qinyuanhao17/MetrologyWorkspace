@@ -401,6 +401,7 @@ class WaferPointPlot(QWidget):
             )
         }
         if keys:
+            self.plot.setFocus()
             self.pointSelected.emit(keys, event.modifiers())
             if event.double():
                 self.checkRequested.emit(keys, not keys.issubset(self._checked_keys))
@@ -456,6 +457,10 @@ class SpectraMapWindow(QMainWindow):
         self._selected_keys: set[str] = set()
         self._source_signature = None
         self._context_wafer = None
+        self.selection_menu_factory = None
+        self._flag_input = ''
+        self._flag_input_timer = QTimer(self, singleShot=True, interval=700)
+        self._flag_input_timer.timeout.connect(self._commit_flag_input)
         self._wafers: list[tuple[str, str, str]] = []
         self.page_index = 0
         self.page_size = 12
@@ -656,7 +661,11 @@ class SpectraMapWindow(QMainWindow):
                 plot.set_group_labels(labels)
 
     def select_spectrum_keys(self, keys):
-        self._selected_keys = {str(key) for key in keys}
+        selected = {str(key) for key in keys}
+        if selected != self._selected_keys:
+            self._flag_input_timer.stop()
+            self._flag_input = ''
+        self._selected_keys = selected
         for plot in self.wafer_plots.values():
             plot.set_selected(self._selected_keys)
 
@@ -680,17 +689,61 @@ class SpectraMapWindow(QMainWindow):
         super().mousePressEvent(event)
 
     def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.FocusOut and isinstance(watched, pg.PlotWidget):
+            self._flag_input_timer.stop()
+            self._flag_input = ''
+        if (event.type() == QEvent.Type.KeyPress and not self._read_only
+                and self._selected_keys and isinstance(watched, pg.PlotWidget)
+                and not event.modifiers() & (Qt.KeyboardModifier.ControlModifier |
+                    Qt.KeyboardModifier.AltModifier | Qt.KeyboardModifier.MetaModifier)):
+            text = event.text()
+            if text and text in '0123456789-+':
+                self._enter_flag_text(text)
+                return True
+            if event.key() in (Qt.Key.Key_Return,Qt.Key.Key_Enter) and self._flag_input:
+                self._commit_flag_input()
+                return True
+            if event.key() == Qt.Key.Key_Escape:
+                self._flag_input_timer.stop()
+                self._flag_input = ''
         if (event.type() == QEvent.Type.MouseButtonPress
                 and event.button() == Qt.MouseButton.LeftButton
                 and watched.childAt(event.position().toPoint()) is None):
             self._points_selected(set(), Qt.KeyboardModifier.NoModifier)
         return super().eventFilter(watched, event)
 
+    def _enter_flag_text(self, text):
+        self._flag_input_timer.stop()
+        self._flag_input = text if text in '-+' else self._flag_input + text
+        candidate = self._flag_input.lstrip('+')
+        allowed = [str(value) for value in self._flag_values]
+        matches = [value for value in allowed if value.startswith(candidate)]
+        if not matches:
+            self.statusBar().showMessage('Allowed Test Flags: ' + ', '.join(allowed))
+        else:
+            self.statusBar().showMessage('Test Flag: ' + self._flag_input + ' (Enter to apply)')
+        self._flag_input_timer.start()
+
+    def _commit_flag_input(self):
+        self._flag_input_timer.stop()
+        text, self._flag_input = self._flag_input, ''
+        try:
+            value = int(text)
+        except ValueError:
+            return
+        if not self._read_only and value in self._flag_values and self._selected_keys:
+            self.test_flags_changed.emit({key:value for key in self._selected_keys})
+            self.statusBar().showMessage(f'Test Flag: {value}')
+        elif text:
+            self.statusBar().showMessage('Allowed Test Flags: ' + ', '.join(map(str,self._flag_values)))
+
     def build_selection_menu(self, wafer=None):
         menu = QMenu(self)
         if self._read_only:
             menu.addAction("Out-of-range result — read only").setEnabled(False)
             return menu
+        if self.selection_menu_factory is not None:
+            return self.selection_menu_factory(wafer if wafer is not None else self._context_wafer)
         menu.addAction("Check Selected", self.check_selected_requested.emit).setEnabled(bool(self._selected_keys))
         menu.addAction("Uncheck Selected", self.uncheck_selected_requested.emit).setEnabled(bool(self._selected_keys))
         flags = menu.addMenu("Set Test Flag")
@@ -803,6 +856,9 @@ class SpectraMapWindow(QMainWindow):
             plot = WaferPointPlot(title, checked_label="out of range" if self._read_only else "checked",
                                   checked_color="#dc2626" if self._read_only else "#3E8BD8")
             plot.apply_theme(self.palette())
+            plot.plot.installEventFilter(self)
+            if not self._read_only:
+                plot.plot.setToolTip(plot.plot.toolTip() + '\nSelect points and type a configured TestFlag; press Enter or pause to apply.')
             plot.pointSelected.connect(self._points_selected)
             plot.checkRequested.connect(self._point_check_requested)
             plot.selectionMenuRequested.connect(lambda position, identity=wafer: self._selection_menu_requested(position, identity))

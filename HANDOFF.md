@@ -1,6 +1,6 @@
 # Metrology Workspace handoff
 
-更新日期：2026-11-12
+更新日期：2026-11-13
 
 ## 快速开始
 
@@ -15,7 +15,9 @@ $testModules = Get-ChildItem tests/test_*.py | Where-Object { $_.BaseName -notli
 & 'C:\Users\Yuanhao Qin\.conda\envs\metrology-workspace\python.exe' run_tests.py @testModules -v
 ```
 
-## 当前未发布开发
+## v5.3.0 发布及开发记录
+
+- v5.3.0 已发布到 GitHub 并设为最新 Release：[发布页](https://github.com/qinyuanhao17/MetrologyWorkspace/releases/tag/v5.3.0)。源码提交 `b5bc6d55f41e6f4b8a803354b5ddde173b80bd01`，父提交为 v5.2.0。Data selection 已移至 Match WKB 顶层 Data 菜单；当前开发变更已包含在该固定源码快照。Setup、校验清单及 5 份说明/验证附件共 7 项，远端大小和 SHA-256 已核对。113 项相关源码测试通过；按用户要求未全量、未测 AutoWeighting/OCR。冻结程序和安装包在本机被企业签名策略 4551 拦截，沙箱外也相同，安装/运行验收未完成，Release 已明确注明。原工作分支与暂存区未改动。见 [发布核验](docs/validation/v5.3.0-release-2026-11-13.json)。以下条目保留各项开发时的验证范围。
 
 - Correlation 列锁收尾：WKB Raw 自动刷新也保留锁定元数据原字符串，仅更新未锁量测。45 项分组/列锁/WKB 联动测试通过（16.659 秒），临时空父 Raw 的既有保留行为正常；本轮仍不全量。
 

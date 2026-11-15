@@ -12,6 +12,37 @@ APP = QApplication.instance() or QApplication([])
 
 
 class WorkspaceGroupParityTests(unittest.TestCase):
+    def test_wafer_group_snapshot_and_clean_baseline_do_not_alias_workbook_context(self):
+        from metrology_app.matching_window import MatchingWindow
+        owner = self.window(MatchingWindow)
+        raw = pd.DataFrame({'Wafer ID':['W1']*2,'Die Seq':['1','2'],'CD':['1.00','2.00']})
+        owner.set_reference_frame(pd.DataFrame({'CD':['2.00','4.00']}))
+        owner.set_raw_frame(raw)
+        owner.mapping_table.cellWidget(0,3).setCurrentText('CD')
+        owner.mapping_table.item(0,0).setCheckState(Qt.CheckState.Checked)
+        from metrology_app.match_groups import row_ids
+        owner.group_controls.restore({'enabled':True,'data_selection':{
+            'records':[{'key':key,'id':str(i)} for i,key in enumerate(row_ids(raw))],
+            'excluded':[]}},pd.DataFrame({'TestFlag':[0,1]}))
+        owner.group_controls.accept_changes()
+        owner.run_analysis()
+        child = owner.open_stage_workspace('preview')
+        child.document.force_close = True
+        self.assertFalse(child.document.is_dirty())
+        exported = child.workspace_snapshot()
+        context = exported.states['wafer_groups']['workbook_context']
+        context['flags'][0] = '99'
+        context['grouping']['head_names']['0'] = 'Changed copy'
+        context['grouping']['mark_values'][0]['name'] = 'Changed copy'
+        current = child.workspace_snapshot().states['wafer_groups']['workbook_context']
+        self.assertEqual(current['flags'],['0','1'])
+        self.assertEqual(current['grouping']['head_names']['0'],'TestFlag 0')
+        self.assertEqual(current['grouping']['mark_values'][0]['name'],'Old')
+        self.assertEqual(current['grouping']['data_selection'],{'records':[],'excluded':[]})
+        self.assertEqual([record['id'] for record in owner.group_controls.state['data_selection']['records']],['0','1'])
+        self.assertFalse(child.document.is_dirty())
+        pd.testing.assert_frame_equal(owner.raw_model.document_frame(),raw)
+
     def window(self, cls=CorrelationWindow):
         window = cls()
         window.document.force_close = True
@@ -145,6 +176,9 @@ class WorkspaceGroupParityTests(unittest.TestCase):
         details = page._figure.axes[0]._wafer_title_details
         self.assertEqual(details[0].get_text(),'POR · W1 · L1 · P1')
         self.assertIn('Sigma 1.118',details[1].get_text())
+        artists = tuple(page.artists)
+        page.set_input(frame,{**selection,'labels':{'W1':'POR · W1 · L1 · P1'}})
+        self.assertEqual(tuple(page.artists),artists)
 
     def test_wafer_workbook_groups_can_be_copied_once_and_restored_independently(self):
         from metrology_app.matching_window import MatchingWindow

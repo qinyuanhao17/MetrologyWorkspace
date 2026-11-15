@@ -1,0 +1,56 @@
+{
+  "tag": "v5.3.0",
+  "commit": "b5bc6d55f41e6f4b8a803354b5ddde173b80bd01",
+  "url": "https://github.com/qinyuanhao17/MetrologyWorkspace/releases/tag/v5.3.0",
+  "draft": false,
+  "latest": true,
+  "tag_object": "79e17b019113cbcd4e408cf0388ca364e9b1fe2b",
+  "setup_delivery_http_status": 302,
+  "checkout_head_and_index_unchanged": true,
+  "assets": [
+    {
+      "name": "BUILD-INFO.json",
+      "bytes": 1852,
+      "url": "https://github.com/qinyuanhao17/MetrologyWorkspace/releases/download/v5.3.0/BUILD-INFO.json",
+      "digest": "sha256:fef2fceb1e8dcafc2e7e9a8fb1fb8022c10e0ce23ac8737a627bbf5311a24cc7"
+    },
+    {
+      "name": "BUILD-VALIDATION.json",
+      "bytes": 2612,
+      "url": "https://github.com/qinyuanhao17/MetrologyWorkspace/releases/download/v5.3.0/BUILD-VALIDATION.json",
+      "digest": "sha256:1e666bce95f5af3531779aa1af3458da3c860814a9832a2d601a93d24881e783"
+    },
+    {
+      "name": "CHECKSUMS.txt",
+      "bytes": 537,
+      "url": "https://github.com/qinyuanhao17/MetrologyWorkspace/releases/download/v5.3.0/CHECKSUMS.txt",
+      "digest": "sha256:4c1dcf804e526b58d61ec90c918019fa18c901760a21d3285c2f4cc7d055d645"
+    },
+    {
+      "name": "DOWNLOADS.md",
+      "bytes": 471,
+      "url": "https://github.com/qinyuanhao17/MetrologyWorkspace/releases/download/v5.3.0/DOWNLOADS.md",
+      "digest": "sha256:9f36c6dc0887f4a172acb1d054da0dcffb5790245f70b1cab6f21c5e2317fb12"
+    },
+    {
+      "name": "MetrologyWorkspace-v5.3.0-Windows-x64-Setup.exe",
+      "bytes": 146364342,
+      "url": "https://github.com/qinyuanhao17/MetrologyWorkspace/releases/download/v5.3.0/MetrologyWorkspace-v5.3.0-Windows-x64-Setup.exe",
+      "digest": "sha256:1caf11b48f2ba1e22e26bdead1d6a4ba4777d395601e201ca2d12408d33748f5"
+    },
+    {
+      "name": "PAYLOAD-SHA256.json",
+      "bytes": 185528,
+      "url": "https://github.com/qinyuanhao17/MetrologyWorkspace/releases/download/v5.3.0/PAYLOAD-SHA256.json",
+      "digest": "sha256:e26682accef6da639cbea1414fab4b9fa6a40738018b4262f1c5de2aa0b2a5b5"
+    },
+    {
+      "name": "REGRESSION.json",
+      "bytes": 1048,
+      "url": "https://github.com/qinyuanhao17/MetrologyWorkspace/releases/download/v5.3.0/REGRESSION.json",
+      "digest": "sha256:fe9035f8c540cb2429c86044a1965afc8842df95adcc1eafb81c9b7e5a7153f3"
+    }
+  ],
+  "source_tests": "113 focused tests passed; full suite deferred",
+  "runtime_validation": "Windows enterprise policy 4551 blocked executable and Setup, including outside-sandbox retries"
+}

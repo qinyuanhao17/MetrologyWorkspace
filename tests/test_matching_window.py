@@ -2884,7 +2884,7 @@ class MatchingWindowTests(unittest.TestCase):
         ))
         self.assertEqual(
             [action.text() for action in self.window.menuBar().actions()],
-            ["File", "Analysis", "Groups"],
+            ["File", "Data", "Analysis", "Groups"],
         )
         self.assertEqual(
             [action.text() for action in self.window.file_menu.actions()],
@@ -3956,6 +3956,7 @@ class MatchingWindowTests(unittest.TestCase):
 
     def test_kla_refresh_keeps_each_windows_plot_view(self):
         """A data refresh repaints plots in place: zoom, scroll and page stay."""
+        from tests.test_wafer_static import finish_graphics
         parameters = [f"P{i}" for i in range(6)]
         xs = [-2.0, -1.0, 0.0, 1.0, 2.0, 0.0]
         ys = [0.0, 1.0, 2.0, 0.0, -1.0, -2.0]
@@ -3999,7 +4000,7 @@ class MatchingWindowTests(unittest.TestCase):
             map_window.check_all(map_window.parameter_list, True)
             map_page.selector.selectAll()
             map_page.draw_maps()
-            QTest.qWait(600)
+            finish_graphics(map_page)
             APP.processEvents()
             self.assertIsNotNone(map_page.result)
             map_page.zoom.setCurrentText("150%")

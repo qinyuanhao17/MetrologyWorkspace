@@ -63,7 +63,8 @@ class RadiusTests(unittest.TestCase):
             first_axis = page.figure.axes[0]
             self.assertEqual(first_axis.get_title(loc="center"), "OCD_H1")
             self.assertEqual(first_axis.title.get_fontweight(), "bold")
-            self.assertIn("PAD:", first_axis._wafer_title_details[0].get_text())
+            self.assertEqual(first_axis._wafer_title_details[0].get_text(),
+                             "AIT0137.00-19 · AIT0137.16 · 2026-7-20-14-46-21")
             self.assertIn("Min", first_axis._wafer_title_details[1].get_text())
             self.assertTrue(all(text.get_ha() == "center" for text in first_axis._wafer_title_details))
             offsets = page.figure.axes[0].collections[0].get_offsets()

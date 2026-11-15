@@ -461,6 +461,9 @@ class GroupControls(QWidget):
         form.addRow(self.mark_enabled, self.new_button)
         form.addRow("Trend order", self.order)
         form.addRow("Group sequence", self.group_order_button)
+        self.script_button = QPushButton("Group Script…", objectName="groupScript")
+        self.script_button.clicked.connect(self.open_group_script)
+        form.addRow(self.script_button)
         layout.addLayout(form)
         self.card.hide()  # Reparented onto Group plots by the Workbook.
         self.status = QLabel(objectName="hint")
@@ -479,6 +482,22 @@ class GroupControls(QWidget):
         current = {key: value for key, value in self.state.items() if key != "applied"}
         applied = {key: value for key, value in self.state.get("applied", {}).items() if key != "flags"}
         return current != applied
+
+    def group_script(self):
+        from .group_script import export_group_script
+        return export_group_script(self.raw, self.flags_frame(), self.state)
+
+    def apply_group_script(self, text):
+        from .group_script import import_group_script
+        state, flags = import_group_script(text, self.raw, self.state)
+        if not flags.equals(self.flags_frame()):
+            state['flag_revision'] = state.get('flag_revision',0) + 1
+        self.restore(state, flags)
+        self.changed.emit()
+
+    def open_group_script(self):
+        from .group_script import open_group_script
+        return open_group_script(self)
 
     def change(self, key, value):
         if self._loading:

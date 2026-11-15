@@ -215,7 +215,7 @@ class RadiusPage(QWidget):
             set_panel_title(ax, source["metric"], source["label"].replace("\n", " · "), source["stats"], base)
             ax._identity_classification = source["label"]
             ax._wafer_title_details[0].set_text(
-                measurement_caption(source["label"], self.identity_labels).replace("\n", " · "))
+                measurement_caption(source["label"], self.identity_labels, source.get("caption_fields")).replace("\n", " · "))
             ax.set_xlabel(f'Signed radius ({source["unit"]})', fontsize=max(6, base-1))
             ax.set_ylabel(source["metric"], fontsize=max(6, base-1))
             ax.tick_params(direction="out", top=True, right=True, labelsize=max(5, base-2))
@@ -270,16 +270,20 @@ class RadiusPage(QWidget):
                      tuple((key, tuple(selection["groups"].get(key, ()))) for key in selection["wafers"])
                      if "groups" in selection else None)
         if signature == self.signature:
-            if selection.get('labels') != self.selection.get('labels'):
+            if (selection.get('labels') != self.selection.get('labels')
+                    or selection.get('caption_fields',{}) != self.selection.get('caption_fields',{})):
                 labels = selection.get('labels',{})
                 self.selection['labels'] = dict(labels)
+                self.selection['caption_fields'] = dict(selection.get('caption_fields',{}))
                 self.selector.set_labels(labels)
                 for source in self.plot_sources:
                     if not source.get('skip'):
                         source['label'] = labels.get(source.get('wafer'),source['label'])
+                        source['caption_fields'] = self.selection.get('caption_fields',{}).get(source.get('wafer'))
                 for panel in self.radius_grid.panels:
                     if not panel.source.get('skip'):
                         panel.source['label'] = labels.get(panel.source.get('wafer'),panel.source['label'])
+                        panel.source['caption_fields'] = self.selection.get('caption_fields',{}).get(panel.source.get('wafer'))
                     panel.update()
                 self._export_dirty = True
             return
@@ -429,6 +433,7 @@ class RadiusPage(QWidget):
                         limit = 1
                     stats = f"Min {data.value.min():.5g}   Max {data.value.max():.5g}   Mean {data.value.mean():.5g}"
                     sources.append({"wafer":wafer,"metric": metric, "label": labels.get(wafer, wafer),
+                                    "caption_fields": self.selection.get("caption_fields",{}).get(wafer),
                                     "radius": radius, "value": data.value.to_numpy(float),
                                     "die": data["die"].tolist() if "die" in data else [""] * len(data),
                                     "limit": limit, "unit": unit, "color": color, "stats": stats})

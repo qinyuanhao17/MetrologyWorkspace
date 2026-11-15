@@ -118,7 +118,7 @@ def _validate_ui(viewer, draft):
             or len(set(grouping)) != len(grouping)):
         raise ValueError("Invalid Spectra Info or Test Flag settings.")
     if (ui.get("version") != 1 or ui.get("analysis") not in {"original", "residual", "3sigma"}
-            or ui.get("color_by") not in {"wafer", "sme"}
+            or ui.get("color_by") not in {"wafer", "sme", "folder", "testflag"}
             or ui.get("group_by") not in {"wafer", "lot", "pad", "die"}
             or list(draft.frames["spectra"].columns) != ["source", "metadata", "samples"]):
         raise ValueError("Invalid or unsupported Spectra file settings.")

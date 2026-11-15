@@ -9,6 +9,101 @@ from tests.test_spectra_viewer import APP, make_spectrum
 
 
 class SpectraGroupInteractionTests(unittest.TestCase):
+    def test_click_point_then_enter_multi_digit_flag_and_reject_invalid_prefix(self):
+        from PyQt6.QtCore import QPointF
+        viewer, sources = self.viewer()
+        viewer.apply_load_result(LoadResult(sources[:1],()),replace=True)
+        viewer.test_flag_values = [0,1,-1,12,-12]
+        window = viewer.open_wafer_map()
+        APP.processEvents()
+        plot = next(iter(window.wafer_plots.values())).plot
+        scene = plot.getViewBox().mapViewToScene(QPointF(sources[0].x_mm,sources[0].y_mm))
+        QTest.mouseClick(plot.viewport(),Qt.MouseButton.LeftButton,pos=plot.mapFromScene(scene))
+        self.assertEqual(viewer._selected_keys,{sources[0].key})
+        QTest.keyClicks(plot,'12')
+        QTest.keyClick(plot,Qt.Key.Key_Return)
+        self.assertEqual(viewer.test_flags,{sources[0].key:12})
+        QTest.keyClicks(plot,'191')
+        QTest.keyClick(plot,Qt.Key.Key_Return)
+        self.assertEqual(viewer.test_flags,{sources[0].key:12})
+        QTest.keyClicks(plot,'-12')
+        QTest.keyClick(plot,Qt.Key.Key_Return)
+        self.assertEqual(viewer.test_flags,{sources[0].key:-12})
+        QTest.keyClicks(plot,'0')
+        QTest.qWait(750)
+        self.assertEqual(viewer.test_flags,{})
+        QTest.keyClicks(plot,'1')
+        viewer.select_spectrum_keys(set())
+        QTest.qWait(750)
+        self.assertEqual(viewer.test_flags,{})
+        self.assertEqual(viewer.test_flag_values,[0,1,-1,12,-12])
+
+    def test_color_by_folder_and_flag_groups_sources_and_survives_save_restore(self):
+        from dataclasses import replace
+        from pathlib import Path
+        import numpy as np
+        viewer, _ = self.viewer()
+        sources = (make_spectrum(1), make_spectrum(2,wafer='W2'),
+                   replace(make_spectrum(3),path=Path('C:/other/fixtures/W1.sme'),key='other'))
+        viewer.apply_load_result(LoadResult(sources,()),replace=True)
+        viewer.check_all_spectra()
+        self.assertGreaterEqual(viewer.color_by_combo.findData('folder'),0)
+        self.assertGreaterEqual(viewer.color_by_combo.findData('testflag'),0)
+        viewer.set_color_mode('folder')
+        panel = viewer.plot_panels['S']
+        self.assertEqual(sorted(len(g.segments) for g in panel.groups),[1,2])
+        self.assertTrue(all('Folder:' in g.key.legend_label for g in panel.groups))
+        viewer.set_test_flags({sources[0].key:1,sources[1].key:1})
+        viewer.set_color_mode('testflag')
+        self.assertEqual(sorted(len(g.segments) for g in panel.groups),[1,2])
+        self.assertTrue(any('TestFlag: 0' in g.key.legend_label for g in panel.groups))
+        window = viewer.open_plot_window(panel)
+        viewer.set_test_flags({sources[1].key:-1})
+        self.assertEqual(len(panel.groups),3)
+        self.assertEqual(len(window.panel.groups),3)
+        for group in panel.groups:
+            for segment in group.segments:
+                np.testing.assert_array_equal(segment.y,[.7,.8,.9])
+        viewer.undo_action.trigger()
+        self.assertEqual(len(panel.groups),2)
+        draft = viewer.workspace_snapshot()
+        viewer.set_color_mode('wafer')
+        viewer.restore_workspace(draft)
+        self.assertEqual(viewer.color_mode,'testflag')
+        self.assertEqual(len(panel.groups),2)
+        viewer.set_analysis_mode('3sigma')
+        self.assertEqual(viewer.color_mode,'wafer')
+        viewer.set_analysis_mode('original')
+        self.assertEqual(viewer.color_mode,'testflag')
+
+    def test_tree_and_map_share_actions_and_flag_entry_obeys_configured_values(self):
+        viewer, sources = self.viewer()
+        viewer.select_spectrum_keys({sources[0].key})
+        window = viewer.open_wafer_map()
+        APP.processEvents()
+        tree = viewer.build_tree_menu()
+        menu = window.build_selection_menu(('W1','L1','P1'))
+        labels = lambda m:{a.text() for a in m.actions() if not a.isSeparator()}
+        self.assertEqual(labels(tree), labels(menu))
+        self.assertTrue({'Set Test Flag','Set Mark','Highlight','Set as BSL',
+                         'Check Unselected','Apply Flag to Similar Wafer'} <= labels(menu))
+        next(a for a in menu.actions() if a.text() == 'Highlight').trigger()
+        self.assertEqual(viewer.highlighted_keys, {sources[0].key})
+        plot = next(iter(window.wafer_plots.values())).plot
+        QTest.keyClicks(plot, '1')
+        QTest.keyClick(plot, Qt.Key.Key_Return)
+        self.assertEqual(viewer.test_flags, {sources[0].key:1})
+        QTest.keyClicks(plot, '9')
+        QTest.keyClick(plot, Qt.Key.Key_Return)
+        self.assertEqual(viewer.test_flags, {sources[0].key:1})
+        QTest.keyClicks(plot, '-1')
+        QTest.keyClick(plot, Qt.Key.Key_Return)
+        self.assertEqual(viewer.test_flags, {sources[0].key:-1})
+        viewer.undo_action.trigger()
+        self.assertEqual(viewer.test_flags, {sources[0].key:1})
+        QTest.keyClicks(window.page_size_spin, '2')
+        self.assertEqual(viewer.test_flags, {sources[0].key:1})
+
     def viewer(self):
         from metrology_app.spectra_viewer import SpectraViewerWindow
         viewer = SpectraViewerWindow()

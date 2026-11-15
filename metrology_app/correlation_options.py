@@ -4,7 +4,7 @@ from copy import deepcopy
 import pandas as pd
 from PyQt6.QtCore import QObject, QSignalBlocker
 from .match_group_ui import GroupControls
-from .match_groups import row_ids, participation_source_keys
+from .match_groups import row_ids, participation_source_keys, copy_group_state
 from .group_settings_ui import GroupSettingsDialog
 
 
@@ -76,7 +76,7 @@ class CorrelationOptions(QObject):
 
     def frames(self):
         reference = getattr(self.owner,'reference_model',None)
-        return self.owner.model.frame(),reference.frame() if reference is not None else pd.DataFrame()
+        return self.owner.model._analysis_view(),reference._analysis_view() if reference is not None else pd.DataFrame()
 
     def remember_workbook(self, context):
         self.workbook_context = context
@@ -233,7 +233,7 @@ class CorrelationOptions(QObject):
                 values if self.labels_enabled.isChecked() else {'pad':False,'lot':False})
         self.owner.document.refresh_identity()
 
-    def snapshot(self):
+    def snapshot(self, *, readonly=False):
         configured = self.local_applied or self.controls.pending
         saved = {'enabled':self.enabled.isChecked(),'follow_groups':self.follow_groups.isChecked(),
                 'labels_enabled':self.labels_enabled.isChecked(),'follow_labels':self.follow_labels.isChecked(),
@@ -243,7 +243,8 @@ class CorrelationOptions(QObject):
                 'grouping':deepcopy(self.controls.state) if configured else None,
                 'flags':self.controls.flags_frame().iloc[:,0].tolist() if configured else []}
         if self.is_wafer:
-            saved['workbook_context'] = deepcopy(self.workbook_context)
+            saved['workbook_context'] = (self.workbook_context if readonly else
+                copy_group_state(self.workbook_context) if self.workbook_context is not None else None)
         return saved
 
     def restore(self, saved):
@@ -286,19 +287,24 @@ class CorrelationOptions(QObject):
                 if alias is not None:
                     names[target] = names[alias]
         options = self.workbook_labels if self.follow_labels.isChecked() else {k:a.isChecked() for k,a in self.label_checks.items()}
-        labels = {}
+        columns = {field:raw[names[field]].astype(str).str.strip().tolist()
+                   for field in ('waferid','lotid','padname') if field in names}
+        labels, caption_fields = {}, {}
         for key,rows in selection['groups'].items():
             if not rows:
                 continue
             groups = list(dict.fromkeys(plan.labels[i] for i in rows if plan.enabled and plan.labels[i])) if plan else []
-            parts = [', '.join(groups)] if groups else []
+            fields = {'group':', '.join(groups)} if groups else {}
             for field in ('waferid','lotid','padname'):
                 if field != 'waferid' and (not self.labels_enabled.isChecked() or not options.get('lot' if field=='lotid' else 'pad',True)):
                     continue
                 if field in names:
-                    parts.append(', '.join(dict.fromkeys(str(v).strip() for v in raw.iloc[list(rows)][names[field]] if str(v).strip())))
-            labels[key] = ' · '.join(p for p in parts if p) or selection['labels'].get(key,key)
+                    fields[{'waferid':'wafer','lotid':'lot','padname':'pad'}[field]] = ', '.join(dict.fromkeys(
+                        columns[field][row] for row in rows if columns[field][row]))
+            labels[key] = ' · '.join(p for p in fields.values() if p) or selection['labels'].get(key,key)
+            caption_fields[key] = fields if any(fields.values()) else {'wafer':labels[key]}
         selection['labels'] = labels
+        selection['caption_fields'] = caption_fields
         from PyQt6.QtCore import Qt
         with QSignalBlocker(self.owner.wafer_list):
             for i in range(self.owner.wafer_list.topLevelItemCount()):

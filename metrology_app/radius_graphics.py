@@ -158,7 +158,8 @@ class RadiusPanel(pg.GraphicsObject):
         painter.setFont(self.font(base, True))
         self.text(painter, self.source["metric"], QRectF(box.left()-30, bottom-3*line, box.width()+60, line))
         painter.setFont(self.font(detail))
-        caption = measurement_caption(self.source["label"], self.identity_labels).replace("\n", " · ")
+        caption = measurement_caption(self.source["label"], self.identity_labels,
+                                      self.source.get("caption_fields")).replace("\n", " · ")
         self.text(painter, caption, QRectF(box.left()-30, bottom-2*line, box.width()+60, line))
         self.text(painter, self.source["stats"], QRectF(box.left()-30, bottom-line, box.width()+60, line))
         self._paint_ticks(painter, (-self.source["limit"], self.source["limit"]), horizontal=True)

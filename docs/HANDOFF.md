@@ -1,8 +1,10 @@
 # Metrology Workspace 开发交接
 
-更新日期：2026 年 11 月 12 日
+更新日期：2026 年 11 月 13 日
 
 ## 当前状态
+
+**v5.3.0 已发布并为最新 Release**：[GitHub](https://github.com/qinyuanhao17/MetrologyWorkspace/releases/tag/v5.3.0)，提交 `b5bc6d55f41e6f4b8a803354b5ddde173b80bd01`。Match WKB 的 Data selection 移至独立 Data 菜单；以下开发内容已进入该隔离源码快照。113 项相关测试通过，未全量、未运行 AutoWeighting/OCR。Setup 146,364,342 字节及 6 个说明/校验附件远端 SHA-256、大小均已核对，源码标签与构建提交一致；原分支/暂存区保留。冻结程序和 Setup 在本机被企业签名策略 4551 阻止启动，沙箱外复测相同，因此未完成安装/运行验收，发布说明与附件已注明。见 [核验记录](validation/v5.3.0-release-2026-11-13.json)。以下历史“未发布”表述指各功能开发当时的状态。
 
 收尾列锁验证：Correlation 的 WKB Raw 自动刷新现在同样绕过锁定元数据，只更新未锁量测；重现并修复了原先程序加载绕过列锁的问题。最后 45 项分组/列锁/WKB 联动测试通过（16.659 秒），包括父 Raw 暂时为空时保留 Correlation 数据的既有行为；未全量。
 

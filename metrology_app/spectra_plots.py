@@ -38,15 +38,20 @@ class WaferChannelKey:
     pad: str = ""
     spectrum_key: str = ""
     sme_name: str = ""
+    category: str = ""
+    category_value: str = ""
 
     @property
     def sort_key(self):
-        return (natural_key(self.wafer), natural_key(self.lot), natural_key(self.pad),
+        return (natural_key(self.category), natural_key(self.category_value),
+                natural_key(self.wafer), natural_key(self.lot), natural_key(self.pad),
                 natural_key(self.sme_name), self.spectrum_key, *self.channel.sort_key)
 
     @property
     def legend_label(self):
         identity = self.sme_name or " · ".join(part for part in (self.wafer, self.lot, self.pad) if part)
+        if self.category:
+            identity = f"{'Folder' if self.category == 'folder' else 'TestFlag'}: {self.category_value}"
         return f"{identity} · {self.channel.legend_label}"
 
 

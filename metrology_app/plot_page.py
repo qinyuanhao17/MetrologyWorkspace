@@ -387,7 +387,7 @@ class PlotPage(QWidget):
         for ax, scene in zip(self._figure.axes[:len(self.result["scenes"])], self.result["scenes"]):
             if scene.get("skip"):
                 continue
-            caption = measurement_caption(scene["label"], self.identity_labels)
+            caption = measurement_caption(scene["label"], self.identity_labels, scene.get("caption_fields"))
             if scene["error"]:
                 ax.set_title(f'{scene["metric"]}\n{caption}')
             else:
@@ -438,8 +438,10 @@ class PlotPage(QWidget):
                      tuple((key, tuple(selection["groups"].get(key, ()))) for key in selection["wafers"])
                      if "groups" in selection else None)
         if signature == self.signature:
-            if selection.get('labels') != self.selection.get('labels'):
+            if (selection.get('labels') != self.selection.get('labels')
+                    or selection.get('caption_fields',{}) != self.selection.get('caption_fields',{})):
                 self.selection['labels'] = dict(selection.get('labels',{}))
+                self.selection['caption_fields'] = dict(selection.get('caption_fields',{}))
                 self.selector.set_labels(selection.get('labels'))
                 self._update_captions()
             return
@@ -478,9 +480,11 @@ class PlotPage(QWidget):
             for source in self.result['scenes']:
                 if not source.get('skip'):
                     source['label'] = labels.get(source['wafer'],source['label'])
+                    source['caption_fields'] = self.selection.get('caption_fields',{}).get(source['wafer'])
         for panel in self.map_grid.panels:
             if not panel.source.get('skip'):
                 panel.source['label'] = labels.get(panel.source['wafer'],panel.source['label'])
+                panel.source['caption_fields'] = self.selection.get('caption_fields',{}).get(panel.source['wafer'])
                 panel.update()
         self._export_dirty = True
 
@@ -828,6 +832,7 @@ class PlotPage(QWidget):
         for source in result['scenes']:
             if not source.get('skip'):
                 source['label'] = self.selection.get('labels',{}).get(source['wafer'],source['label'])
+                source['caption_fields'] = self.selection.get('caption_fields',{}).get(source['wafer'])
         try:
             self._cancel_background_draw()
             # A worker may finish after this presentation-only control changed.

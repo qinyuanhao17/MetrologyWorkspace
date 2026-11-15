@@ -100,6 +100,7 @@ def prepare_array(frame, selection, options, progress=lambda *_: None, cancelled
                                        point_decimals=options.point_decimals,
                                        cmap=options.cmap, show_colorbar=options.show_colorbar)
             scene = {"wafer": wafer, "label": selection.get("labels", {}).get(wafer, wafer),
+                     "caption_fields": selection.get("caption_fields", {}).get(wafer),
                      "metric": metric, "layer": layer, "options": plot_options, "error": "",
                      "standard_mm": standard, "size_note": f"≈{standard} mm" if standard else ""}
             try:

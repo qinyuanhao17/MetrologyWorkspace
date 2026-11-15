@@ -354,7 +354,7 @@ def participation_source_keys(frame):
 
 
 def participation_rows(raw, selection):
-    if selection is None:
+    if selection is None or not selection.get('excluded', []):
         return tuple(range(len(raw)))
     excluded = set((selection or {}).get("excluded", []))
     return tuple(i for i, key in enumerate(participation_ids(raw, selection)) if key not in excluded)

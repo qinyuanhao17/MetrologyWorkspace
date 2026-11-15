@@ -36,6 +36,8 @@ def isolate_settings(directory=None):
 
 
 def main(argv):
+    # Windows TEMP may use an 8.3 alias; keep fixture and saved paths identical.
+    tempfile.tempdir = str(Path(tempfile.gettempdir()).resolve())
     with tempfile.TemporaryDirectory(prefix="metrology-workspace-tests-") as directory:
         isolate_settings(directory)
         return isolated_suite(argv)
