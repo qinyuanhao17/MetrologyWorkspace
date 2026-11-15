@@ -160,6 +160,32 @@ Feature: Build a card matching workbook
       And Bias reports nanometres and percentage points without scale multipliers
       And no parameter selector is required
 
+    Scenario: Review Type2 Bias on the source scale
+      Given a Type2 parameter maps to a Reference column whose name includes a unit
+      When the engineer runs the match and exports the charts to Excel
+      Then absolute Bias and its limits are displayed without a unit
+      And Bias percent is labeled with a percent sign
+      And the calculations use the original Reference and Raw numeric values without unit conversion
+
+    Scenario: Fit the overall Card from one Group or Mark2 label value
+      Given the engineer selects Group / label under Card source
+      When the engineer selects a Group or a Mark2 field and value and runs analysis
+      Then the overall Card uses valid pairs from the selected scope
+      And Preview can evaluate all participating rows using that Card
+
+    Scenario: Use a manual Card and retain the other stage's source
+      Given the engineer enters Slope and Intercept for a parameter under Manual Card source
+      When the engineer runs analysis and saves the workbook
+      Then the entered coefficients are used for that stage
+      And the other stage retains its own Card source
+
+    Scenario: Open a Bias Die Map only when measurement points can be located
+      Given the engineer has analyzed data with neither usable Raw millimetre coordinates nor matching spectra
+      Then Show Die Map is disabled
+      When matching spectra with millimetre coordinates are loaded in that stage
+      Then Show Die Map becomes available
+      And a Raw row with usable millimetre coordinates can also enable the map when earlier rows lack coordinates
+
     Scenario: Inspect a smaller region of a result plot
       Given a completed Match Workbook analysis has visible result plots
       When the engineer drags a selection box inside one plot

@@ -225,6 +225,7 @@ class SelectionDialog(QDialog):
         layout.addWidget(self.table, 1)
         self.status = QLabel(objectName="hint")
         layout.addWidget(self.status)
+        self.footer = QHBoxLayout()
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
         apply = buttons.addButton("Apply", QDialogButtonBox.ButtonRole.AcceptRole)
         apply.setObjectName("primary")
@@ -233,11 +234,10 @@ class SelectionDialog(QDialog):
         self.hide_excluded = QCheckBox("Hide excluded rows in tables", objectName="hideExcludedRows")
         self.hide_excluded.setChecked(hide_excluded)
         self.hide_excluded.setToolTip("Hide unchecked records in this window's tables. Source data is retained.")
-        footer = QHBoxLayout()
-        footer.addWidget(self.hide_excluded)
-        footer.addStretch(1)
-        footer.addWidget(buttons)
-        layout.addLayout(footer)
+        self.footer.addWidget(self.hide_excluded)
+        self.footer.addStretch(1)
+        self.footer.addWidget(buttons)
+        layout.addLayout(self.footer)
         clear.clicked.connect(self.clear_filters)
         self.search.textChanged.connect(self.refresh_rows)
         self.show_rows.currentIndexChanged.connect(self.refresh_rows)
@@ -683,7 +683,7 @@ def selection_frame(plan):
 class DataSelectionDialog(SelectionDialog):
     """The Match Workbook's Order / Reference / Raw participation dialog."""
 
-    def __init__(self, plan, parent=None):
+    def __init__(self, plan, parent=None, *, apply_selection=None):
         self.plan = plan
         self.selection = deepcopy(plan.state["data_selection"])
         frame = selection_frame(plan)
@@ -694,8 +694,21 @@ class DataSelectionDialog(SelectionDialog):
                          row_bools=view["row_bools"], group_bools=view["group_bools"],
                          show=view["show"], search=view["search"], hide_excluded=view["hide_excluded"])
         self.hide_excluded.setToolTip("Apply hides unchecked records in Order, Reference, Raw Data and linked Match-selection views. Uncheck and Apply to restore them; source data is never deleted.")
+        self.apply_selection = apply_selection
+        self._applying = False
+        if apply_selection is not None:
+            from .workbook_progress import InlineProgress, WorkbookProgress
+            indicator = InlineProgress(self)
+            self.footer.insertWidget(2, indicator)
+            self._apply_progress = WorkbookProgress(indicator)
+
+    def reject(self):
+        if not self._applying:
+            super().reject()
 
     def accept(self):
+        if self._applying:
+            return
         self.selection = {"records": [{"key": key, "id": identifier} for key, identifier in zip(row_ids(self.plan.raw), self.model.ids)],
                           "excluded": [key for key in self.model.ids if key not in self.model.checked],
                           "view_filter_groups": deepcopy([list(row) for row in self.filter_groups]),
@@ -704,6 +717,17 @@ class DataSelectionDialog(SelectionDialog):
                           "view_show": self.show_rows.currentData(),
                           "view_search": self.search.text(),
                           "hide_excluded": self.hide_excluded.isChecked()}
+        if self.apply_selection is not None:
+            self._applying = True
+            try:
+                with self._apply_progress.display("Applying selection and recalculating…") as progress:
+                    self.apply_selection(self.selection, progress)
+            except ValueError as error:
+                from PyQt6.QtWidgets import QMessageBox
+                QMessageBox.warning(self, "Cannot select analysis data", str(error))
+                return
+            finally:
+                self._applying = False
         super().accept()
 
 

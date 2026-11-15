@@ -1,5 +1,5 @@
 """Portable Spectra child drafts inside an existing Match Workbook container."""
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from copy import deepcopy
 from io import BytesIO
 from pathlib import Path
@@ -10,7 +10,10 @@ import zlib
 import numpy as np
 import pandas as pd
 
-from .sme_spectra import ChannelKey, LoadIssue, LoadResult, SpectrumChannel, SpectrumFile, SpectrumIdentity
+from .sme_spectra import (
+    ChannelKey, LoadIssue, LoadResult, SpectrumChannel, SpectrumFile, SpectrumIdentity,
+    parse_spectrum_filename,
+)
 from .spectra_plots import WaferChannelKey
 from .workspace_store import WorkspaceSnapshot, json_text
 
@@ -173,12 +176,24 @@ def decode_sources(draft):
             else:
                 spectra.append(source)
             continue
+        identity = SpectrumIdentity(**values["identity"])
+        if "poi_seq" not in values["identity"] and identity.parse_status in ("partial", "unrecognized"):
+            name = parse_spectrum_filename(values["embedded_filename"])
+            if name.poi_seq is None and name.die_seq is None:
+                name = parse_spectrum_filename(Path(values["path"]).name)
+            if name.poi_seq is not None and identity.die_seq is None:
+                identity = replace(identity, poi_seq=name.poi_seq,
+                                   wafer=identity.wafer or name.wafer_id, lot=identity.lot or name.lot_id,
+                                   pad=identity.pad or name.pad_name, tool_sn=identity.tool_sn or name.tool_sn,
+                                   timestamp=identity.timestamp or name.time, parse_status=name.parse_status)
+                values["identity"] = asdict(identity)
+                metadata = json_text(values)
         with np.load(BytesIO(zlib.decompress(base64.b64decode(payload, validate=True))), allow_pickle=False) as arrays:
             channels = tuple(SpectrumChannel(c["metadata"], arrays[f"{i}_wavelength"].copy(),
                                              arrays[f"{i}_numeric"].copy(), c["spectrum_type"])
                              for i, c in enumerate(values.pop("channels")))
         values["path"] = Path(values["path"])
-        values["identity"] = SpectrumIdentity(**values["identity"])
+        values["identity"] = identity
         source = SpectrumFile(**values, channels=channels)
         if source.key != _source or source.key in seen:
             raise ValueError("Invalid or duplicate embedded spectrum identity.")
@@ -291,13 +306,24 @@ def open_child(owner, scope):
     ))
     child._analysis_window_name = window_metadata(scope, saved)["name"]
     child.document.refresh_identity()
+    last_sources = child.catalog.spectra
+
+    def sources_changed():
+        nonlocal last_sources
+        sources = child.catalog.spectra
+        if sources is not last_sources:
+            last_sources = sources
+            owner._refresh_bias_maps()
+
     def closed(viewer):
         capture(owner, scope, viewer)
         owner._spectra_windows.pop(scope, None)
+        owner._refresh_bias_maps()
         owner.document.refresh_identity()
     child._workbook_on_close = closed
     child._workbook_embedded = True
     child.stateChanged.connect(owner.document.identity_timer.start)
+    child.stateChanged.connect(sources_changed)
     for panel in (*child.plot_panels.values(), *child.mueller_panel.mij_plots.values()):
         panel.plot.getViewBox().sigRangeChanged.connect(lambda *_: owner.document.identity_timer.start())
         if panel.secondary is not None:
@@ -316,6 +342,7 @@ def open_child(owner, scope):
     save_as.setShortcut("Ctrl+Shift+S")
     save_as.triggered.connect(lambda: owner.save_wkb_dialog())
     owner._spectra_windows[scope] = child
+    owner._refresh_bias_maps()
     child.show()
     return child
 

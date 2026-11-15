@@ -57,6 +57,15 @@ Feature: Review spectral measurements by wafer
       Then its Tool SN is "A03-090"
       And its PAD is "2026-8-21-10-53-55"
 
+    Scenario: Review Poi spectra alongside Die spectra
+      Given the engineer has loaded only Die spectra
+      When the engineer adds a spectrum named "LP300003.01_SPC_A03-075_NPW_Poi2_X0.0000_Y95.0000_20261110140107056.sme"
+      Then the spectrum appears under Wafer "LP300003.01", Lot "SPC" and PAD "NPW"
+      And its Die Seq shows "Poi2"
+      And the tree shows "X (mm)" and "Y (mm)" with values 0 and 95 for the Poi
+      And the Poi has no FIELD X or FIELD Y
+      And the metric coordinate columns are hidden once no Poi spectra are loaded
+
     Scenario: Keep spectrum rows concise
       Given the engineer has loaded spectra with measurement times
       When the engineer expands a Pad
@@ -115,7 +124,30 @@ Feature: Review spectral measurements by wafer
       When the engineer unfolds the tree
       Then the Wafer, Lot and Pad branches are visible again
 
-  Rule: An individual plot can be inspected closely
+  Rule: Axis ranges can be set together or adjusted for individual plots
+
+    Scenario: Apply one wavelength range to all spectrum plots
+      Given the engineer enters a minimum and maximum wavelength and leaves both Y fields empty
+      When the engineer clicks Apply
+      Then all spectrum plots, Mueller elements and open floating plots use that X range
+      And the Y ranges stay unchanged
+      And spectra checked afterward are displayed within that X range
+
+    Scenario: Apply X and Y together
+      Given the engineer enters valid X and Y limits in the top bar
+      When the engineer clicks the shared Apply button
+      Then all spectrum plots and open floating plots use those ranges
+      And the Y range applies to both axes in Psi Delta
+
+    Scenario: Leave X empty to apply only Y
+      Given the engineer enters valid Y limits and leaves both X fields empty
+      When the engineer clicks Apply
+      Then all spectrum plots use that Y range and retain their X ranges
+
+    Scenario: Open axis controls in a narrow viewer
+      Given the viewer is too narrow for the axis fields beside Spectra Info
+      When the engineer clicks Axes in the top bar
+      Then the axis fields and shared Apply button appear in a popup over the viewer
 
     Scenario: Edit axes from the native plot menu
       Given spectra are plotted in the main window or a floating copy

@@ -418,6 +418,13 @@ class SpectrumPlotPanel(QWidget):
             self._tight_x_range = [min(low for low, _ in bounds), max(high for _, high in bounds)]
             self.plot.getViewBox().setXRange(*self._tight_x_range, padding=0)
 
+    def set_axis_ranges(self, *, x_range=None, y_range=None):
+        if x_range is not None:
+            self._tight_x_range = None
+        self.plot.getViewBox().setRange(xRange=x_range, yRange=y_range, padding=0)
+        if y_range is not None and self.secondary is not None:
+            self.secondary.setYRange(*y_range, padding=0)
+
     @property
     def selected_keys(self) -> set[str]:
         return set(self._selected_keys)
@@ -487,8 +494,7 @@ class SpectrumPlotPanel(QWidget):
         hidden_keys=None,
     ):
         view = self.plot.getViewBox()
-        fit_x = (self._tight_x_range is None or view.autoRangeEnabled()[0]
-                 or view.viewRange()[0] == self._tight_x_range)
+        fit_x = view.autoRangeEnabled()[0] or view.viewRange()[0] == self._tight_x_range
         self._selected_keys = set(selected_keys or ())
         self._all_groups = list(primary)
         self._all_secondary_groups = list(secondary or ())

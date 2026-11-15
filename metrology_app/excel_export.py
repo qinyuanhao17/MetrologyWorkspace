@@ -35,7 +35,8 @@ from openpyxl.chart.trendline import Trendline, TrendlineLabel
 from openpyxl.drawing.text import CharacterProperties, Font as DrawingFont, Paragraph, ParagraphProperties
 
 from .appearance import TREND_LINE_WIDTH, TREND_MARKER_SIZE
-from .wafer_metrics import METRIC_PLOTS, METRICS_SHEET_TITLE
+from .matching import bias_unit
+from .wafer_metrics import MEAN_BIAS_AUTO_RANGE, METRIC_PLOTS, METRICS_SHEET_TITLE
 
 MAX_TITLE = 31
 _INVALID_TITLE = set('[]:*?/\\')
@@ -812,7 +813,7 @@ def _original_value(original, column, source_row):
 
 
 def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
-                           card_source, scope, stage, *, native=True, images=None, show_percent=False, reference_label="REF", original=None, wafer_only=False, axis_mode=None, panel_widths=None,
+                           card_source, scope, stage, *, workbook_type, native=True, images=None, show_percent=False, reference_label="REF", original=None, wafer_only=False, axis_mode=None, panel_widths=None,
                            start_column=1, chart_row=None, chart_column=None,
                            chart_index=0, chart_top_cm=None):
     """Compact visible measurements; chart labels/fit provenance stay internal."""
@@ -820,6 +821,7 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
     reference = data["Reference"].to_numpy(float)
     raw = data["Raw"].to_numpy(float)
     count = len(data)
+    unit = "" if mapping is None else bias_unit(mapping.reference_column, workbook_type)
     slope = float(card.slope) if card is not None and np.isfinite(card.slope) else None
     intercept = (float(card.intercept)
                  if card is not None and np.isfinite(card.intercept) else None)
@@ -838,7 +840,7 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
         None if card is None or not np.isfinite(card.r_squared) else float(card.r_squared),
         None if card is None else int(card.valid_pairs),
         "" if mapping is None or mapping.bias_limit is None else float(mapping.bias_limit),
-        "" if mapping is None else _unit(mapping.reference_column),
+        unit,
         card_source,
         stage,
         scope,
@@ -847,8 +849,10 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
     )
     helper = worksheet.parent["_Plot data"]
     helper_row = helper.max_row + 3
-    for column, text in enumerate(("Source row", "Axis label", "Plot X", "Fit Y"), 1):
-        helper.cell(row=helper_row - 1, column=column, value=text)
+    keep_legacy_helpers = workbook_type != "type2"
+    if keep_legacy_helpers:
+        for column, text in enumerate(("Source row", "Axis label", "Plot X", "Fit Y"), 1):
+            helper.cell(row=helper_row - 1, column=column, value=text)
     for offset, (label, value) in enumerate(zip(INFO_LABELS, facts)):
         helper.cell(row=helper_row + offset, column=10, value=label)
         helper.cell(row=helper_row + offset, column=11, value=_value(value))
@@ -885,8 +889,13 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
         worksheet.column_dimensions[letter].width = max(worksheet.column_dimensions[letter].width,
                                                         30 if text == "Wafer" else 16 if text == "Group" else 14)
     first_row = header_row + 1
+    offsets = data["Mark2 Offset"].to_numpy(float) if not final and "Mark2 Offset" in data else None
     primary_labels = data["Wafer"] if wafer_only else data.get("Group label", data.get("Wafer", data.get("Label", pd.Series([""] * count))))
-    axis_labels = {(start + end) // 2: label for start, end, label in _label_spans(primary_labels, limit=None)}
+    if keep_legacy_helpers:
+        axis_labels = {
+            (start + end) // 2: label
+            for start, end, label in _label_spans(primary_labels, limit=None)
+        }
     source_column = (next(cell.column_letter for cell in original[1]
                          if cell.column >= getattr(original, '_source_start_column', 1) and cell.value == mapping.raw_column)
                      if original is not None and mapping is not None else None)
@@ -935,8 +944,10 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
         # Final Raw Data is already the accepted post-Card source. Applying
         # the fitted Card here a second time would disagree with the software.
         if not final:
+            adjustment = f"+({offsets[index]:.17g})" if offsets is not None and offsets[index] else ""
             worksheet.cell(row=target, column=columns["PMISH+Card"],
-                           value=f'=IF(ISNUMBER({raw_cell}),{slope_cell}*{raw_cell}+{intercept_cell},NA())' if fit else None)
+                           value=(f'=IF(ISNUMBER({raw_cell}),{slope_cell}*{raw_cell}+{intercept_cell}'
+                                  f'{adjustment},NA())' if fit else None))
         evaluated_cell = f"{get_column_letter(columns['PMISH' if final else 'PMISH+Card'])}{target}"
         ref_cell = f"{get_column_letter(columns[reference_label])}{target}"
         reference_value = _value(reference[index])
@@ -957,10 +968,10 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
                               f'IF({ref_cell}=0,NA(),({evaluated_cell}-{ref_cell})/{ref_cell}*100),NA())'))
         for column in range(start_column + len(identities), start_column + len(headers)):
             worksheet.cell(row=target, column=column)._style = copy(value_style)
-        source_row = source_rows[index]
-        helper.cell(row=helper_row + index, column=1, value=int(source_row) + 1)
-        cell = helper.cell(row=helper_row + index, column=2, value=axis_labels.get(index, ""))
-        cell.data_type = "s"
+        if keep_legacy_helpers:
+            helper.cell(row=helper_row + index, column=1, value=int(source_rows[index]) + 1)
+            cell = helper.cell(row=helper_row + index, column=2, value=axis_labels.get(index, ""))
+            cell.data_type = "s"
     # Merge only the derived presentation column. A hidden Lot/PAD caption must
     # never merge different measurement identities, or cross a Group boundary.
     for start, end, _key in wafer_spans:
@@ -982,6 +993,8 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
             horizontal='center', vertical='center', wrap_text=True)
     last_row = first_row + count - 1
     evaluated_values = raw if stage.lower() == "final" else (slope * raw + intercept if fit else np.full(count, np.nan))
+    if offsets is not None:
+        evaluated_values += offsets
     percentages = np.full(count, np.nan)
     np.divide((evaluated_values - reference) * 100, reference, out=percentages,
               where=np.isfinite(reference) & (reference != 0))
@@ -1048,11 +1061,13 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
     for layout in layouts:
         if axis_mode in ('group', 'wafer') and count:
             layout['native_die_axis'] = native and _native_die_axis_eligible(data, layout, axis_mode)
-            # Keep source/helper cells identical across native and Matplotlib
-            # reports, even if the native chart no longer needs numeric X.
-            categories = _native_identity_categories(helper, helper_row, layout)
-            if native and not layout['native_die_axis']:
-                layout['categories'] = categories
+            uses_numeric_axis = native and not layout['native_die_axis']
+            if keep_legacy_helpers or uses_numeric_axis:
+                categories = _native_identity_categories(helper, helper_row, layout)
+                if uses_numeric_axis:
+                    layout['categories'] = categories
+                    if not keep_legacy_helpers:
+                        helper.cell(row=helper_row - 1, column=3, value="Plot X")
     if native:
         for index, layout in enumerate(layouts):
             categories = (
@@ -1083,7 +1098,7 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
             if chart_top_cm is None else chart_top_cm)
         _add_charts(worksheet, row if chart_row is None else chart_row, first_row, last_row, parameter, fit, show_percent=show_percent,
                     raw=raw, reference=reference, evaluated=evaluated_values, equation=equation,
-                    reference_label=reference_label, unit="" if mapping is None else _unit(mapping.reference_column),
+                    reference_label=reference_label, unit=unit,
                     columns=columns, helper=helper, helper_row=helper_row, final=final,
                     layouts=layouts, anchor_column=chart_column,
                     chart_left_cm=chart_left, chart_top_cm=chart_top,
@@ -1116,7 +1131,7 @@ def _write_parameter_block(worksheet, row, parameter, mapping, data, card,
             embed_parameter(worksheet, f"{get_column_letter(anchor)}{row if chart_row is None else chart_row}",
                 f"{parameter} {panel} {layout['name'] if layout else ''} {scope} {stage}{stage_suffix(stage)}",
                 images, parameter, data, card, stage, scope, panel=panel, reference_label=reference_label,
-                unit="" if mapping is None else _unit(mapping.reference_column), sequence=layout,
+                unit=unit, sequence=layout,
                 page_label="",
                 bias_limit=None if mapping is None or mapping.bias_limit is None
                 else float(mapping.bias_limit),
@@ -1139,7 +1154,7 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
     right_row = 0
 
     def add(chart, left, top):
-        chart.visible_cells_only = False  # Keep every charted range visible for Excel's source outlines.
+        chart.visible_cells_only = True
         worksheet.add_chart(chart, f"{get_column_letter(anchor)}{row}")
         worksheet._charts[-1]._export_position_cm = (left, top)
     match = ScatterChart()
@@ -1293,11 +1308,6 @@ def _add_charts(worksheet, row, first_row, last_row, parameter, fit, *, show_per
             right_row += 1
 
 
-def _unit(reference_column):
-    from .trend import parse_unit
-    return parse_unit(reference_column)
-
-
 def _parameter_data(result, parameter, key="all", labels=None, *, order="group"):
     from .match_groups import normalized, wafer_identity_keys
     labels = labels or {"pad": True, "lot": True}
@@ -1400,7 +1410,8 @@ def write_parameter_sheets(book, used_titles, result, workbook, *, native=True, 
         mapping = next((item for item in workbook.mappings if item.name == parameter), None)
         _write_parameter_block(
             sheet, row, parameter, mapping, _parameter_data(result, parameter, labels=plot_labels, order='original'),
-            result.card(parameter), "Overall", "All", stage, native=native, images=images,
+            result.card(parameter), "Overall", "All", stage, workbook_type=workbook.workbook_type,
+            native=native, images=images,
             show_percent="percent" in workbook.bias_views, reference_label=workbook.match_type, original=original,
             axis_mode='die', panel_widths=shared_widths.get(parameter),
             start_column=table_start + index * (block_width + 1),
@@ -1434,7 +1445,7 @@ def write_parameter_sheets(book, used_titles, result, workbook, *, native=True, 
                 _write_parameter_block(
                     grouped, group_row, parameter, mapping,
                     view_data[parameter], result.card(parameter),
-                    'Overall', view_scope, stage, native=native, images=images,
+                    'Overall', view_scope, stage, workbook_type=workbook.workbook_type, native=native, images=images,
                     show_percent='percent' in workbook.bias_views,
                     reference_label=workbook.match_type,
                     original=original, axis_mode='group',
@@ -1453,7 +1464,8 @@ def write_parameter_sheets(book, used_titles, result, workbook, *, native=True, 
         mapping = next((item for item in workbook.mappings if item.name == parameter), None)
         page_count = _write_parameter_block(
             wafer, row, parameter, mapping, wafer_data[parameter],
-            result.card(parameter), "Overall", "Wafer", stage, native=native, images=images,
+            result.card(parameter), "Overall", "Wafer", stage, workbook_type=workbook.workbook_type,
+            native=native, images=images,
             show_percent="percent" in workbook.bias_views, reference_label=workbook.match_type,
             original=original, wafer_only=True, axis_mode='wafer',
             start_column=table_start + index * (block_width + 1),
@@ -1492,6 +1504,7 @@ def write_parameter_sheets(book, used_titles, result, workbook, *, native=True, 
                 group_data[parameter],
                 card if card is not None else result.card(parameter),
                 "Group" if card is not None else "Overall", label, stage,
+                workbook_type=workbook.workbook_type,
                 native=native, images=images, show_percent="percent" in workbook.bias_views,
                 reference_label=workbook.match_type, original=original, axis_mode='group',
                 start_column=1 + index * (block_width + 1),
@@ -1649,7 +1662,10 @@ def write_metrics_sheet(sheet, result, settings):
                     series.tx = SeriesLabel(v=(value_label, "REF")[series_index])
                 style_native_series(series, series_index, marker_size=TREND_MARKER_SIZE,
                                     line_width=int(TREND_LINE_WIDTH * 12700))
-            chart_limits(chart, summary[list(columns)].to_numpy(float).ravel())
+            bounds_values = summary[list(columns)].to_numpy(float).ravel()
+            if columns == ("Mean Bias",):
+                bounds_values = np.r_[bounds_values, MEAN_BIAS_AUTO_RANGE]
+            chart_limits(chart, bounds_values)
             sheet.add_chart(chart, f"{get_column_letter(anchor_column)}{first_row + index * chart_row_step}")
 
 
@@ -1809,7 +1825,10 @@ def _write_workbook(book, path, *, reference, stages, native, images, reports, e
             frames.append(("FullMap", fullmap_report["frames"]["Data"]))
         for name, frame in frames:
             if name == "FullMap":
-                sheet = book.create_sheet(sheet_title(name, used, suffix))
+                title = sheet_title(name, used, suffix)
+                if selected_sheets is not None and title not in selected_sheets:
+                    continue
+                sheet = book.create_sheet(title)
                 _fill_title(sheet)
                 write_fullmap(sheet, fullmap_report["frames"]["Data"] if fullmap_report else frame,
                               [mapping.name for mapping in workbook.mappings], native=native, images=images,
@@ -1822,6 +1841,9 @@ def _write_workbook(book, path, *, reference, stages, native, images, reports, e
         result = next(result for _, result, _, _ in stages if result.result_mode == metrics["stage"])
         write_metrics_sheet(book.create_sheet(metrics_title), result, metrics)
     for name, frame in extra_frames:
+        if frame is None:
+            sheet_title(name, used)
+            continue
         if name.startswith("FullMap"):
             write_fullmap(book.create_sheet(sheet_title(name, used)), frame, fullmap_parameters,
                           native=native, images=images, plot_labels=plot_labels)
@@ -2135,7 +2157,7 @@ def write_fullmap(sheet, frame, parameters, *, native=True, images=None, plot_la
             chart.x_axis.title = 'Die Seq'
             chart.width, chart.height = layout['width'], PANEL_HEIGHT_CM
             chart.x_axis.tickLblSkip = max(1, int(np.ceil(len(frame) / 18)))
-            chart.visible_cells_only = False
+            chart.visible_cells_only = True
             chart.add_data(Reference(sheet, min_col=slot, min_row=1, max_row=len(frame) + 1), titles_from_data=True)
             chart.series[0].cat = categories
             style_native_series(
@@ -2196,6 +2218,8 @@ def parameter_figure(parameter, data, card, stage, scope, *, panel="Match", refe
     raw, reference = data["Raw"].to_numpy(float), data["Reference"].to_numpy(float)
     values = (raw if stage.lower() == "final" else
               card.slope * raw + card.intercept if card is not None else np.full(len(raw), np.nan))
+    if stage.lower() == "preview" and "Mark2 Offset" in data:
+        values += data["Mark2 Offset"].to_numpy(float)
     valid = np.isfinite(raw) & np.isfinite(reference)
     if panel == "Match":
         title = f"{parameter} ({page_label})" if page_label else parameter

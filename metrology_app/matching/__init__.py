@@ -8,10 +8,11 @@ from .analysis import (
     MatchWorkbook,
     ParameterMapping,
     SCHEMA_VERSION,
+    bias_unit,
 )
 from .visualization import extrema_sample_indices
 
 __all__ = [
     "Card", "extrema_sample_indices", "MAX_PARAMETERS", "MAX_ROWS", "MatchAnalysisResult",
-    "MatchWorkbook", "ParameterMapping", "SCHEMA_VERSION",
+    "MatchWorkbook", "ParameterMapping", "SCHEMA_VERSION", "bias_unit",
 ]

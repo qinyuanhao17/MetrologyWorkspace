@@ -1,10 +1,27 @@
 """Record-level Wafer ID aliases; source tables are never edited in place."""
 from collections import Counter
-from copy import deepcopy
+from dataclasses import dataclass
 
 from .id_matching import _coordinate, _value
 
 _ATTR = "metrology_wafer_id_mapping"
+
+
+@dataclass(frozen=True, slots=True)
+class _MappingProvenance:
+    """Immutable identity data shared by pandas slices and derived tables."""
+
+    columns: tuple[str, ...]
+    records: tuple[tuple[tuple[str, ...], str], ...]
+
+    @classmethod
+    def from_state(cls, state):
+        return cls(tuple(state["identity_columns"]), tuple(
+            (tuple(record["identity"]), record["wafer_id"]) for record in state["records"]
+        ))
+
+    def __deepcopy__(self, memo):
+        return self
 
 
 def _name(value):
@@ -16,8 +33,8 @@ def _text(value):
     return "" if value is None or pd.isna(value) else str(value).strip()
 
 
-def _key(values, columns):
-    return tuple(_value(value, _coordinate(column)) for value, column in zip(values, columns))
+def _key(values, numeric):
+    return tuple(_value(value, use_number) for value, use_number in zip(values, numeric))
 
 
 def config(state=None):
@@ -34,6 +51,8 @@ def config(state=None):
         raise ValueError("Wafer ID mapping requires eight distinct Raw identity fields, including Wafer ID.")
     seen, targets = set(), set()
     wafer = next((i for i, c in enumerate(columns) if _name(c) == "waferid"), None)
+    numeric = tuple(map(_coordinate, columns))
+    pairs = []
     for record in records:
         if (not isinstance(record, dict) or set(record) != {"identity", "wafer_id"}
                 or not isinstance(record["identity"], list) or len(record["identity"]) != 8
@@ -41,21 +60,20 @@ def config(state=None):
                 or not isinstance(record["wafer_id"], str) or not record["wafer_id"].strip()
                 or not record["identity"][wafer].strip()):
             raise ValueError("Each Wafer ID mapping record needs its original eight fields and a non-empty new Wafer ID.")
-        key = _key(record["identity"], columns)
+        key = _key(record["identity"], numeric)
         target = list(record["identity"])
         target[wafer] = record["wafer_id"]
-        target = _key(target, columns)
+        target = _key(target, numeric)
         if key in seen:
             raise ValueError("Duplicate or conflicting eight-column identities in Wafer ID mapping.")
         if target in targets:
             raise ValueError("Wafer ID mapping merges distinct records into the same identity.")
         seen.add(key)
         targets.add(target)
+        pairs.append((key, target))
     # A canonical row must not also name a different original record.
-    for record in records:
-        target = list(record["identity"])
-        target[wafer] = record["wafer_id"]
-        if _key(target, columns) in seen and _key(target, columns) != _key(record["identity"], columns):
+    for key, target in pairs:
+        if target in seen and target != key:
             raise ValueError("A new Wafer ID conflicts with another original record in the mapping.")
     return {"identity_columns": list(columns), "records": records}
 
@@ -95,20 +113,25 @@ def export_excel(path, state=None, raw=None):
         if raw is None or raw.empty:
             raise ValueError("Paste Raw Data before exporting a Wafer ID mapping template.")
         raw = original_raw(raw)
-        columns = list(raw.columns[:8])
-        if (len(columns) != 8 or any(not str(c).strip() for c in columns)
-                or len({_name(c) for c in columns}) != 8
-                or sum(_name(c) == "waferid" for c in columns) != 1):
-            raise ValueError("Wafer ID mapping export needs the first eight Raw identity columns, including Wafer ID.")
+        columns = _raw_identity_columns(raw)
         wafer = next(i for i, column in enumerate(columns) if _name(column) == "waferid")
         rows = ([*values, None, values[wafer]] for values in
                 ([_text(value) for value in row] for row in raw[columns].itertuples(index=False, name=None)))
     return write_identity_table(path, "Wafer ID mapping", [*columns, None, "Wafer ID"], rows)
 
 
-def _columns(frame, state):
+def _raw_identity_columns(raw):
+    columns = list(raw.columns[:8])
+    if (len(columns) != 8 or any(not isinstance(c, str) or not c.strip() for c in columns)
+            or len({_name(c) for c in columns}) != 8
+            or sum(_name(c) == "waferid" for c in columns) != 1):
+        raise ValueError("Wafer ID mapping needs the first eight Raw identity columns, including Wafer ID.")
+    return columns
+
+
+def _columns(frame, identity_columns):
     resolved = []
-    for column in state["identity_columns"]:
+    for column in identity_columns:
         matches = [c for c in frame if _name(c) == _name(column)]
         if column in frame:
             resolved.append(column)
@@ -119,20 +142,71 @@ def _columns(frame, state):
     return resolved
 
 
+def parse_wafer_id_list(rows):
+    """Validate two columns of text and report errors using visible row numbers."""
+    aliases, first_rows = {}, {}
+    for number, (old, new) in enumerate(rows, 1):
+        old, new = old.strip(), new.strip()
+        if not old and not new:
+            continue
+        if not old or not new:
+            raise ValueError(f"Row {number}: enter both the original and new Wafer ID.")
+        if old in first_rows:
+            raise ValueError(f"Duplicate original Wafer ID {old!r} in rows {first_rows[old]} and {number}.")
+        first_rows[old] = number
+        aliases[old] = new
+    return aliases
+
+
+def list_source_wafer_ids(sources):
+    ids = set()
+    for source in sources:
+        if not source.empty:
+            source = original_raw(source)
+            column, = _columns(source, ["Wafer ID"])
+            ids.update(map(_text, source[column]))
+    ids.discard("")
+    return ids
+
+
+def mapping_from_wafer_id_list(aliases, sources):
+    """Expand wafer aliases into the existing record-level mapping format."""
+    frames = [original_raw(source) for source in sources if not source.empty]
+    if not frames:
+        raise ValueError("Paste Raw Data before applying a Wafer ID list.")
+    columns = _raw_identity_columns(frames[0])
+    wafer = next(i for i, column in enumerate(columns) if _name(column) == "waferid")
+    numeric = tuple(map(_coordinate, columns))
+    records = {}
+    changed = False
+    for frame in frames:
+        for values in frame[_columns(frame, columns)].itertuples(index=False, name=None):
+            identity = [_text(value) for value in values]
+            original = identity[wafer]
+            target = aliases.get(original, original)
+            changed |= target != original
+            if target == original and isinstance(values[wafer], str):
+                identity[wafer] = target = values[wafer]
+            # Preview and Final may contain the same measurement record.
+            records.setdefault(_key(identity, numeric), {"identity": identity, "wafer_id": target})
+    return {"identity_columns": columns, "records": list(records.values())} if changed else config()
+
+
 def original_raw(frame):
     """Recover literal identities for Mark2 and participation, even after slicing."""
-    state = frame.attrs.get(_ATTR)
-    if not state or not state["records"] or frame.empty:
+    mapping = frame.attrs.get(_ATTR)
+    if mapping is None or frame.empty:
         return frame
-    columns = _columns(frame, state)
-    wafer = next(i for i, c in enumerate(state["identity_columns"]) if _name(c) == "waferid")
+    columns = _columns(frame, mapping.columns)
+    wafer = next(i for i, c in enumerate(mapping.columns) if _name(c) == "waferid")
+    numeric = tuple(map(_coordinate, columns))
     reverse = {}
-    for record in state["records"]:
-        values = list(record["identity"])
-        values[wafer] = record["wafer_id"]
-        reverse[_key(values, columns)] = record["identity"][wafer]
+    for identity, wafer_id in mapping.records:
+        values = list(identity)
+        values[wafer] = wafer_id
+        reverse[_key(values, numeric)] = identity[wafer]
     result = frame.copy()
-    result[columns[wafer]] = [reverse.get(_key(values, columns), values[wafer])
+    result[columns[wafer]] = [reverse.get(_key(values, numeric), values[wafer])
                               for values in frame[columns].itertuples(index=False, name=None)]
     result.attrs.pop(_ATTR, None)
     return result
@@ -142,18 +216,20 @@ def apply(frame, state, *, source_only=False):
     """Return canonical processing rows; reject incomplete or ambiguous coverage."""
     if frame is None or frame.empty or not state or not state["records"]:
         return frame
-    if frame.attrs.get(_ATTR) == state:
+    mapping = _MappingProvenance.from_state(state)
+    if frame.attrs.get(_ATTR) == mapping:
         return frame
     frame = original_raw(frame)
-    columns = _columns(frame, state)
-    wafer = next(i for i, c in enumerate(state["identity_columns"]) if _name(c) == "waferid")
+    columns = _columns(frame, mapping.columns)
+    wafer = next(i for i, c in enumerate(mapping.columns) if _name(c) == "waferid")
+    numeric = tuple(map(_coordinate, columns))
     lookup, canonical = {}, {}
-    for record in state["records"]:
-        lookup[_key(record["identity"], columns)] = record["wafer_id"]
-        values = list(record["identity"])
-        values[wafer] = record["wafer_id"]
-        canonical[_key(values, columns)] = record["wafer_id"]
-    keys = [_key(values, columns) for values in frame[columns].itertuples(index=False, name=None)]
+    for identity, wafer_id in mapping.records:
+        lookup[_key(identity, numeric)] = wafer_id
+        values = list(identity)
+        values[wafer] = wafer_id
+        canonical[_key(values, numeric)] = wafer_id
+    keys = [_key(values, numeric) for values in frame[columns].itertuples(index=False, name=None)]
     duplicates = sum(count - 1 for count in Counter(keys).values() if count > 1)
     if duplicates:
         raise ValueError(f"Raw Data contains {duplicates} duplicate eight-column identities; Wafer ID mapping is ambiguous.")
@@ -163,7 +239,7 @@ def apply(frame, state, *, source_only=False):
         raise ValueError(f"Wafer ID mapping has no entry for {len(missing)} Raw rows (first data rows: {', '.join(map(str, missing[:8]))}). Check all eight fields, including Lot ID, or reset the mapping.")
     result = frame.copy()
     result[columns[wafer]] = [lookup.get(key, canonical.get(key)) for key in keys]
-    result.attrs[_ATTR] = deepcopy(state)
+    result.attrs[_ATTR] = mapping
     return result
 
 

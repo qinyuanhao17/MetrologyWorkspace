@@ -50,10 +50,11 @@ class NativeDieCategoryTests(unittest.TestCase):
         for parameter_index in range(2):
             start = parameter_index * 4
             self.assertIsInstance(sheet._charts[start], ScatterChart)
+            self.assertTrue(sheet._charts[start].visible_cells_only)
             for chart in sheet._charts[start + 1:start + 4]:
                 self.assertTrue(isinstance(chart, LineChart), type(chart).__name__)
                 self.assertEqual(chart.y_axis.crossBetween, 'between')
-                self.assertFalse(chart.visible_cells_only)
+                self.assertTrue(chart.visible_cells_only)
                 self.assertTrue(chart.x_axis.delete)
                 for series in chart.series:
                     reference = series.cat.strRef

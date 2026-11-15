@@ -2033,6 +2033,24 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(die_map.point_count, 0)
         self.assertEqual(die_map.empty.text(), "No out-of-range points.")
 
+    def test_bias_map_uses_valid_millimetre_coordinates_after_the_first_row(self):
+        window = self.window
+        window.result_mode.setCurrentText("Final")
+        window.set_reference_frame(pd.DataFrame({"CD Reference": [10., 20., 30.]}))
+        window.set_raw_frame(pd.DataFrame({
+            "Wafer ID": ["W1"] * 3, "Die Seq": [1, 2, 3], "CD": [10., 20., 29.],
+            "X (mm)": ["", "inf", "12.5"], "Y (mm)": ["1", "2", "-3.5"],
+        }))
+        window.run_analysis()
+        button = window.mapping_table.cellWidget(0, 12)
+        self.assertTrue(button.isEnabled())
+        button.click()
+        die_map = window._bias_die_maps["CD"]
+        QTest.qWait(40)
+        self.assertEqual(die_map.point_count, 1)
+        self.assertEqual(die_map._checked_keys, {"source-row:2"})
+        self.assertEqual(die_map.wafer_plots[("W1", "", "")]._plot_positions, [(12.5, -3.5)])
+
     def test_bias_limit_updates_mapping_count_without_redrawing_and_reopens(self):
         window = self.window
         window.match_type.setCurrentText("TEM")

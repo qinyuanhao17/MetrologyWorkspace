@@ -123,6 +123,8 @@ def _validate(snapshot):
         raise ValueError("This WKB is missing its Match settings.")
     if snapshot.workspace_type == "match_workbook":
         normalize_workbook_type(snapshot.states["match"].get("workbook_type", "type1"))
+        from .card_source import card_sources
+        card_sources(snapshot.states["match"].get("card_sources"))
         if WORKBOOK_NOTES_SCOPE in snapshot.states:
             workbook_note_records(snapshot.states[WORKBOOK_NOTES_SCOPE])
         from .id_matching import matching_keys

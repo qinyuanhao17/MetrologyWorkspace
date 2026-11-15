@@ -140,9 +140,13 @@ class Mark2IntegrationTests(unittest.TestCase):
     def test_mark2_table_paste_is_a_draft_until_confirmed(self):
         from unittest.mock import patch
         from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QLabel
         window = self.window
         controls = window.group_controls
         self.assertIs(window.order_stack.currentWidget(), window.mark2_card)
+        title = next(label for label in window.mark2_card.findChildren(QLabel) if label.text() == "Mark2")
+        self.assertIn("Confirm binding", title.toolTip())
+        self.assertIn("Manage groups Mark2", title.toolTip())
         self.app.clipboard().setText("Product\tTool\nX\t01\nY\t0\nZ\t")
         window.mark2_view.paste(replace=True)
         self.assertEqual(controls.state["mark2"]["records"], self.state["records"])
@@ -165,6 +169,41 @@ class Mark2IntegrationTests(unittest.TestCase):
         self.assertEqual(window.mark2_model.document_frame()["Tool"].tolist(), ["01", "0", "02"])
         controls.mark2_enabled.setChecked(False)
         self.assertIs(window.order_stack.currentWidget(), window.order_card)
+        title = next(label for label in window.order_card.findChildren(QLabel) if label.text() == "Order")
+        self.assertIn("-1 = Unknown", title.toolTip())
+
+    def test_group_settings_applies_mark2_before_any_labels_are_imported(self):
+        from unittest.mock import patch
+        from metrology_app.mark2 import config
+
+        window = self.window
+        controls = window.group_controls
+        controls.mark2_enabled.setChecked(False)
+        controls.change("mark2", config())
+        window.run_analysis()
+        window.open_group_settings()
+        controls.mark2_enabled.setChecked(True)
+        self.assertTrue(controls.apply_button.isEnabled())
+        with patch("metrology_app.matching_window.QMessageBox.warning") as warning:
+            controls.apply_button.click()
+            warning.assert_not_called()
+        self.assertFalse(window.group_settings_dialog.isVisible())
+        self.assertTrue(controls.state["applied"]["mark2_enabled"])
+        self.assertIs(window.order_stack.currentWidget(), window.mark2_card)
+        self.assertIsNone(window.result)
+        self.assertIn("Confirm binding", window.status.text())
+
+        with tempfile.TemporaryDirectory() as directory:
+            saved = window.save_workbook(Path(directory) / "unbound-mark2.mwkb")
+            window.load_workbook(saved)
+        self.assertTrue(controls.state["applied"]["mark2_enabled"])
+        self.assertIs(window.order_stack.currentWidget(), window.mark2_card)
+
+        self.app.clipboard().setText("Product\tTool\nX\t01\nY\t02\nZ\t03")
+        window.mark2_view.paste(replace=True)
+        window.confirm_mark2_button.click()
+        self.assertEqual(window.result.group_plan.mark2_labels,
+                         (("X", "01"), ("Y", "02"), ("Z", "03")))
 
     def test_import_excel_replaces_mark2_draft_and_displays_all_labels_in_raw_order(self):
         from unittest.mock import patch
@@ -523,6 +562,7 @@ class Mark2IntegrationTests(unittest.TestCase):
                 report.close()
 
     def test_multiple_parameter_export_keeps_label_blocks_and_literal_source_separate(self):
+        import re
         from metrology_app.matching import MatchWorkbook, ParameterMapping
         from metrology_app.excel_export import write_workbook
         from openpyxl import load_workbook
@@ -538,20 +578,67 @@ class Mark2IntegrationTests(unittest.TestCase):
                                   stages=[(domain, domain.analyze(), raw, ())])
             report = load_workbook(path)
             try:
+                helper = report["_Plot data"]
+                self.assertEqual(helper.sheet_state, "hidden")
+                ref_rows = list(helper.iter_rows(max_row=len(ref) + 1, max_col=len(ref.columns), values_only=True))
+                self.assertEqual(ref_rows, [tuple(ref.columns), *ref.itertuples(index=False, name=None)])
+                self.assertTrue(all(value is None for row in helper.iter_rows(
+                    min_row=len(ref) + 2, max_col=4, values_only=True) for value in row))
                 sheet = next(s for s in report if s.title.startswith("Match Original"))
                 self.assertEqual(sheet.cell(1, 6).value, "CD")
                 self.assertEqual(sheet.cell(1, 17).value, "CD2")
-                import re
                 first_source = re.search(r"!\$(\w+)\$(\d+)", sheet.cell(3, 11).value)
                 second_source = re.search(r"!\$(\w+)\$(\d+)", sheet.cell(3, 22).value)
                 self.assertEqual(sheet[f"{first_source[1]}{first_source[2]}"].value, "3.000")
                 self.assertEqual(sheet[f"{second_source[1]}{second_source[2]}"].value, "30.000")
+                for column, expected in ((12, [2.0, 1.0]), (23, [2.0, 10.0])):
+                    rows = re.findall(r"'_Plot data'!\$K\$(\d+)", sheet.cell(3, column).value)
+                    np.testing.assert_allclose([helper.cell(int(row), 11).value for row in rows], expected)
                 self.assertEqual(sheet.cell(3, 8).value, "A")
                 self.assertEqual(sheet.cell(3, 19).value, "A")
                 category_refs = {series.cat.multiLvlStrRef.f
                                  for chart in sheet._charts for series in chart.series
                                  if series.cat is not None}
                 self.assertEqual(category_refs, {f"'{sheet.title}'!$A$3:$D$5"})
+            finally:
+                report.close()
+
+    def test_type2_without_mark2_keeps_numeric_x_for_native_wafer_charts(self):
+        from openpyxl import load_workbook
+        from openpyxl.chart import ScatterChart
+
+        window = self.window
+        window.group_controls.mark2_enabled.setChecked(False)
+        # Give the two-point wafer more width than its point count would allocate.
+        wafer_ids = {"03": "Long wafer ID " * 10}
+        raw = window.raw_model.document_frame().replace({"Wafer ID": wafer_ids})
+        reference = window.reference_model.document_frame().replace({"Wafer ID": wafer_ids})
+        window.set_reference_frame(reference)
+        window.set_raw_frame(raw)
+        window.run_analysis()
+        with tempfile.TemporaryDirectory() as folder:
+            path = window.export_excel(Path(folder) / "wafer.xlsx")
+            report = load_workbook(path)
+            try:
+                sheet = report["Match Wafer (WO Card)"]
+                trend = sheet._charts[1]
+                self.assertIsInstance(trend, ScatterChart)
+                x = trend.series[0].xVal.numRef
+                sheet_name, cells = x.f.split("!", 1)
+                self.assertEqual(sheet_name, "'_Plot data'")
+                helper = report["_Plot data"]
+                x_cells = [cell for (cell,) in helper[cells.replace("$", "")]]
+                self.assertTrue(all(cell.column == 3 for cell in x_cells))
+                self.assertEqual([cell.value for cell in x_cells], [point.v for point in x.numCache.pt])
+                self.assertTrue(all(value is None for row in helper.iter_rows(
+                    min_row=len(reference) + 2, max_col=2, values_only=True) for value in row))
+            finally:
+                report.close()
+            path = window.export_excel(Path(folder) / "wafer-images.xlsx", native=False)
+            report = load_workbook(path)
+            try:
+                self.assertTrue(all(value is None for row in report["_Plot data"].iter_rows(
+                    min_row=len(reference) + 2, max_col=4, values_only=True) for value in row))
             finally:
                 report.close()
 

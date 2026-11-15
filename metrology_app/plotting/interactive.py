@@ -85,6 +85,7 @@ class _PlotViewBox(pg.ViewBox):
     def __init__(self, auto_x_range=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._fixed_auto_x_range = None
+        self.minimum_auto_y_range = None
         self.set_auto_x_range(auto_x_range)
 
     def set_auto_x_range(self, x_range):
@@ -105,6 +106,15 @@ class _PlotViewBox(pg.ViewBox):
         super().autoRange(padding=padding, items=items, item=item)
         if self._fixed_auto_x_range is not None:
             self.setXRange(*self._fixed_auto_x_range, padding=0)
+
+    def childrenBounds(self, *args, **kwargs):
+        bounds = super().childrenBounds(*args, **kwargs)
+        if self.minimum_auto_y_range is not None:
+            low, high = self.minimum_auto_y_range
+            if bounds[1] is not None:
+                low, high = min(low, bounds[1][0]), max(high, bounds[1][1])
+            bounds[1] = [low, high]
+        return bounds
 
     def enableAutoRange(self, *args, **kwargs):
         super().enableAutoRange(*args, **kwargs)

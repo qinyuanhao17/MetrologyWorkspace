@@ -25,6 +25,21 @@ def _series(name, x, y, *, line=True, markers=True, **metadata):
     return {"name": str(name), "line": line, "markers": markers, "data": pd.DataFrame({"X": x, "Y": y, **metadata})}
 
 
+def window_report_outline(window):
+    """Sheet inputs visible from an open child without copying tables or plots."""
+    kind = window.workspace_type
+    report = {"kind": kind, "frames": {"Data": None}, "plots": [], "pictures": []}
+    if kind == "correlation_trend":
+        report["frames"] = {"Ref Data": None, "Raw Data": None}
+        correlation = window.correlation_page
+        if correlation.ready and correlation.display_fits():
+            report["plots"].append({"sheet": "Correlation"})
+        trend = window.sequence_page
+        if trend.ready and trend.display_panel_specs():
+            report["plots"].append({"sheet": "Trend"})
+    return report
+
+
 def capture_window(window):
     """Detach source tables and successful plot choices without changing the UI."""
     owner = getattr(window, "_managed_owner", None)
@@ -119,6 +134,19 @@ def capture_saved_window(kind, frame, *, scope, saved, selection, workbook, para
     from time import monotonic
     from PyQt6.QtCore import QEventLoop
     from PyQt6.QtWidgets import QApplication
+    ui = saved.get("ui")
+    # Explicit saved empty selections need only the literal Data sheet.
+    # Older snapshots without selection state still use normal tool defaults.
+    if ui is not None and "selection" in ui and len(frame.columns) and str(frame.columns[-1]):
+        chosen = ui["selection"]
+        if ((kind == "dynamic" and chosen.get("metrics") in ([], ()))
+                or (kind == "map" and not any(chosen.get(field, {}).get("enabled")
+                                              for field in ("map_draw", "radius_draw")))):
+            document = frame.fillna("").astype(str).reset_index(drop=True)
+            document.columns = list(map(str, document.columns))
+            return {"kind": "dynamic" if kind == "dynamic" else "wafer_map",
+                    "frames": {"Data": document}, "plots": [], "pictures": [],
+                    "suffix": stage_suffix(scope.rsplit(".", 1)[-1]), "title": ""}
     if kind == 'dynamic':
         from .dynamic_window import DynamicWindow
         window = DynamicWindow()
@@ -292,6 +320,11 @@ def append_report(book, used, report, *, native=True, images=None, prefix=""):
         sheet = book.create_sheet(sheet_title(prefix + title, used, suffix))
         sheet.freeze_panes = "A2"
         return sheet
+    if report.get("omitted"):
+        from .export_sheets import report_sheet_bases
+        for title in report_sheet_bases(report):
+            sheet_title(prefix + title, used, suffix)
+        return
     if report.get('kind') == 'dynamic' or any(name.startswith('Pivot ') for name in report['frames']):
         write_dynamic_report(create('Dynamic'), report, native=native, images=images)
         return

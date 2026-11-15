@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from math import isfinite
 from pathlib import Path
 from time import monotonic
 
@@ -15,9 +16,11 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QAbstractItemView,
     QFrame,
+    QGridLayout,
     QHeaderView,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
@@ -31,6 +34,7 @@ from PyQt6.QtWidgets import (
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
+    QWidgetAction,
 )
 
 from .appearance import fit_window_to_screen, style_titlebar
@@ -66,6 +70,7 @@ ROLE_SPECTRA = Qt.ItemDataRole.UserRole + 2
 ROLE_LEAF_GROUP = Qt.ItemDataRole.UserRole + 3
 GROUP_KINDS = {"wafer", "lot", "pad", "die"}
 GROUP_LABELS = (("wafer", "Wafer ID"), ("lot", "Lot"), ("pad", "PAD Name"), ("die", "Die"))
+TREE_COORDINATE_COLUMNS = ("X (mm)", "Y (mm)")
 TREE_COLUMNS = (
     "Wafer / Spectrum",
     "SME Name",
@@ -76,6 +81,7 @@ TREE_COLUMNS = (
     "Die Seq",
     "FIELD X",
     "FIELD Y",
+    *TREE_COORDINATE_COLUMNS,
     "Time",
     "Folder",
     "Instrument",
@@ -285,6 +291,11 @@ class SpectraViewerWindow(QMainWindow):
         from .spectra_workbook import snapshot
         return snapshot(self)
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.centralWidget() is not None:
+            self._place_axis_controls(event.size().width())
+
     def showEvent(self, event):
         super().showEvent(event)
         style_titlebar(self, get_settings()["theme"])
@@ -434,34 +445,58 @@ class SpectraViewerWindow(QMainWindow):
         outer.setContentsMargins(16, 12, 16, 12)
         outer.setSpacing(10)
 
-        heading = QHBoxLayout()
+        heading = QGridLayout()
+        heading.setHorizontalSpacing(8)
+        heading.setVerticalSpacing(6)
+        filters = QHBoxLayout()
+        filters.setSpacing(6)
         title = QLabel("Filter By", objectName="navigationLabel")
-        heading.addWidget(title)
+        filters.addWidget(title)
         self.group_by_combo = QComboBox()
         for key, label in GROUP_LABELS:
             self.group_by_combo.addItem(label, key)
         self.group_by_combo.setMinimumWidth(150)
         self.group_by_combo.currentIndexChanged.connect(self._grouping_changed)
-        heading.addWidget(self.group_by_combo)
-        heading.addWidget(QLabel("Color By", objectName="navigationLabel"))
+        filters.addWidget(self.group_by_combo)
+        filters.addWidget(QLabel("Color By", objectName="navigationLabel"))
         self.color_by_combo = QComboBox()
         self.color_by_combo.addItem("Wafer", "wafer")
         self.color_by_combo.addItem("SME Name", "sme")
         self.color_by_combo.setMinimumWidth(125)
         self.color_by_combo.currentIndexChanged.connect(
             lambda index: self.set_color_mode(self.color_by_combo.itemData(index)))
-        heading.addWidget(self.color_by_combo)
+        filters.addWidget(self.color_by_combo)
+        heading.addLayout(filters, 0, 0)
         self.baseline_label = QLabel("BSL: —", objectName="hint")
         self.baseline_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        heading.addWidget(self.baseline_label, 1)
+        heading.addWidget(self.baseline_label, 0, 1)
+        heading.setColumnStretch(1, 1)
+        self._axis_controls = self._build_axis_controls()
+        heading.addWidget(self._axis_controls, 0, 2)
+        self._axis_ranges_menu = QMenu(self)
+        axis_menu_action = QWidgetAction(self._axis_ranges_menu)
+        axis_menu_content = QWidget()
+        self._axis_popup_layout = QHBoxLayout(axis_menu_content)
+        self._axis_popup_layout.setContentsMargins(8, 6, 8, 6)
+        axis_menu_action.setDefaultWidget(axis_menu_content)
+        self._axis_ranges_menu.addAction(axis_menu_action)
+        self.axis_ranges_button = QPushButton("Axes…")
+        self.axis_ranges_button.setToolTip("Set the X and Y ranges for all spectrum plots.")
+        self.axis_ranges_button.clicked.connect(self._open_axis_ranges_menu)
+        heading.addWidget(self.axis_ranges_button, 0, 2)
+        self.axis_ranges_button.hide()
+        actions = QHBoxLayout()
+        actions.setSpacing(6)
         self.open_map_button = QPushButton("Open Die Map", objectName="primary")
         self.open_map_button.setEnabled(False)
         self.open_map_button.clicked.connect(self.open_wafer_map)
         self.spectra_info_button = QPushButton("Spectra Info", objectName="primary")
         self.spectra_info_button.setEnabled(False)
         self.spectra_info_button.clicked.connect(self.open_spectra_info)
-        heading.addWidget(self.spectra_info_button)
-        heading.addWidget(self.open_map_button)
+        actions.addWidget(self.spectra_info_button)
+        actions.addWidget(self.open_map_button)
+        heading.addLayout(actions, 0, 3)
+        self._heading_layout = heading
         outer.addLayout(heading)
 
         main = ResizablePlotSplitter(Qt.Orientation.Horizontal, default_sizes=(1, 3))
@@ -490,9 +525,91 @@ class SpectraViewerWindow(QMainWindow):
         footer.addWidget(self.cancel_load)
         outer.addWidget(footer_widget)
         self.setCentralWidget(root)
+        self._place_axis_controls(self.width())
         self.cancel_load.ensurePolished()
         self.progress.ensurePolished()
         footer_widget.setMinimumHeight(max(self.cancel_load.sizeHint().height(), self.progress.sizeHint().height()))
+
+    def _build_axis_controls(self):
+        controls = QWidget()
+        row = QHBoxLayout(controls)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(5)
+        self.wavelength_min = QLineEdit()
+        self.wavelength_max = QLineEdit()
+        self.y_min = QLineEdit()
+        self.y_max = QLineEdit()
+        for label, description, minimum, maximum in (
+            ("X (nm)", "X range (nm)", self.wavelength_min, self.wavelength_max),
+            ("Y", "Y range", self.y_min, self.y_max),
+        ):
+            axis_label = QLabel(label, objectName="navigationLabel")
+            axis_label.setToolTip(description)
+            row.addWidget(axis_label)
+            for field, bound in ((minimum, "Min"), (maximum, "Max")):
+                field.setPlaceholderText(bound)
+                field.setAccessibleName(f"{description} {bound}")
+                field.setFixedWidth(64)
+                row.addWidget(field)
+        self.apply_axis_range_button = QPushButton("Apply")
+        self.apply_axis_range_button.setToolTip("Apply ranges to all spectrum plots. Leave an axis blank to keep its range.")
+        self.apply_axis_range_button.clicked.connect(self._apply_axis_ranges)
+        row.addWidget(self.apply_axis_range_button)
+        return controls
+
+    def _place_axis_controls(self, window_width):
+        heading = self._heading_layout
+        margins = self.centralWidget().layout().contentsMargins()
+        available = window_width - margins.left() - margins.right()
+        required = (heading.itemAtPosition(0, 0).minimumSize().width()
+                    + heading.itemAtPosition(0, 3).minimumSize().width()
+                    + self._axis_controls.minimumSizeHint().width() + 3 * heading.horizontalSpacing())
+        inline = available >= required
+        if inline == (heading.indexOf(self._axis_controls) >= 0):
+            return
+        if inline:
+            self._axis_ranges_menu.close()
+            self._axis_popup_layout.removeWidget(self._axis_controls)
+            heading.addWidget(self._axis_controls, 0, 2)
+        else:
+            heading.removeWidget(self._axis_controls)
+            self._axis_popup_layout.addWidget(self._axis_controls)
+        self.axis_ranges_button.setVisible(not inline)
+        self._axis_controls.show()
+
+    def _open_axis_ranges_menu(self):
+        button = self.axis_ranges_button
+        position = button.rect().bottomRight()
+        position.setX(position.x() + 1 - self._axis_ranges_menu.sizeHint().width())
+        self._axis_ranges_menu.popup(button.mapToGlobal(position))
+        self.wavelength_min.setFocus()
+
+    def _apply_axis_ranges(self):
+        ranges = {}
+        for axis, minimum_field, maximum_field in (("X", self.wavelength_min, self.wavelength_max),
+                                                    ("Y", self.y_min, self.y_max)):
+            low = minimum_field.text().strip()
+            high = maximum_field.text().strip()
+            if not (low or high):
+                continue
+            try:
+                minimum, maximum = float(low), float(high)
+                if not (minimum < maximum and isfinite(maximum - minimum) and isfinite(minimum + maximum)):
+                    raise ValueError
+            except ValueError:
+                QMessageBox.warning(self, "Invalid axis range", f"Enter finite {axis} limits with Min less than Max.")
+                return
+            ranges[f"{axis.lower()}_range"] = (minimum, maximum)
+        if not ranges:
+            QMessageBox.warning(self, "Missing axis range", "Enter both limits for X, Y, or both.")
+            return
+
+        for panel in (*self.plot_panels.values(), *self.mueller_panel.mij_plots.values()):
+            panel.set_axis_ranges(**ranges)
+        for window in self.floating_plot_windows.values():
+            if not sip.isdeleted(window):
+                window.panel.set_axis_ranges(**ranges)
+        self._axis_ranges_menu.close()
 
     def _build_tree_panel(self):
         panel = QFrame(objectName="panel")
@@ -518,9 +635,11 @@ class SpectraViewerWindow(QMainWindow):
         )
         self.tree.setTextElideMode(Qt.TextElideMode.ElideNone)
         for index, width in enumerate((
-            230, 310, 145, 150, 110, 120, 85, 90, 90, 190, 320, 120, 90, 110, 150, 115, 100,
+            230, 310, 145, 150, 110, 120, 85, 90, 90, 100, 100, 190, 320, 120, 90, 110, 150, 115, 100,
         )):
             self.tree.setColumnWidth(index, width)
+        for label in TREE_COORDINATE_COLUMNS:
+            self.tree.setColumnHidden(TREE_COLUMNS.index(label), True)
         self.tree.setAlternatingRowColors(False)
         self.tree.setUniformRowHeights(True)
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -906,6 +1025,8 @@ class SpectraViewerWindow(QMainWindow):
         try:
             if label in TREE_NUMERIC_COLUMNS:
                 return (0, int(text))
+            if label in TREE_COORDINATE_COLUMNS:
+                return (0, float(text))
             if label == "Time":
                 timestamp = datetime.fromisoformat(text)
                 if timestamp.tzinfo is not None:
@@ -981,14 +1102,19 @@ class SpectraViewerWindow(QMainWindow):
         self._all_group_items = []
         group_by = self.group_by_combo.currentData()
         fields = SPECTRUM_GROUP_FIELDS[group_by]
+        has_poi = any(spectrum.identity.poi_seq is not None for spectrum in self.catalog.spectra)
+        for label in TREE_COORDINATE_COLUMNS:
+            self.tree.setColumnHidden(TREE_COLUMNS.index(label), not has_poi)
         self._update_tree_sort_headers()
 
         def add_groups(parent, groups, depth=0):
             kind = fields[depth]
             leaf = depth == len(fields) - 1
             for value, members in groups.items():
-                text = (f"Die {value}" if value is not None else "Unknown die") if kind == "die" else (
-                    value or {"wafer": "Unknown wafer", "lot": "Unknown lot", "pad": "(No PAD)"}[kind])
+                if kind == "die":
+                    text = f"Die {value}" if isinstance(value, int) else value or "Unknown die"
+                else:
+                    text = value or {"wafer": "Unknown wafer", "lot": "Unknown lot", "pad": "(No PAD)"}[kind]
                 item = self._new_group_item(text, kind, leaf=leaf)
                 item.setText(TREE_COLUMNS.index(TREE_GROUP_COLUMNS[kind]), "" if value is None else str(value))
                 parent.addChild(item)
@@ -1400,9 +1526,11 @@ class SpectraViewerWindow(QMainWindow):
                     identity.lot,
                     identity.tool_sn,
                     identity.pad,
-                    "" if identity.die_seq is None else str(identity.die_seq),
+                    "" if identity.point_id is None else str(identity.point_id),
                     "" if identity.field_x is None else str(identity.field_x),
                     "" if identity.field_y is None else str(identity.field_y),
+                    "" if spectrum.x_mm is None else str(spectrum.x_mm),
+                    "" if spectrum.y_mm is None else str(spectrum.y_mm),
                     identity.timestamp,
                     str(spectrum.path.parent),
                     self._unique_text(channel.instrument for channel in spectrum.channels),

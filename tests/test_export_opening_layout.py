@@ -46,7 +46,7 @@ class ExportOpeningLayoutTests(unittest.TestCase):
                     def paintEvent(self, event):
                         painted.append(time.perf_counter())
                         super().paintEvent(event)
-                def prepare():
+                def prepare(*_args, **_kwargs):
                     dialogs = self.window.findChildren(QProgressDialog)
                     observed.append((any(d.isVisible() for d in dialogs), bool(painted),
                                      QThread.currentThread() == APP.thread()))
@@ -54,6 +54,7 @@ class ExportOpeningLayoutTests(unittest.TestCase):
                 target = Path(folder) / 'existing.xlsx'
                 target.write_bytes(b'preserve previous export')
                 with patch.object(export_job, 'QProgressDialog', PaintedProgress), \
+                        patch.object(export_job, 'choose_export_sheets', side_effect=lambda owner, names: names), \
                         patch.object(self.window, 'excel_export_snapshot', side_effect=prepare), \
                         patch.object(QFileDialog, 'getSaveFileName', return_value=(str(target), '')), \
                         patch.object(QMessageBox, 'warning') as warning:

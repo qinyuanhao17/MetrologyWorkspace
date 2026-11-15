@@ -53,6 +53,9 @@ METADATA_COLUMNS = (
 )
 
 _DIE_PATTERN = re.compile(r"_Die(\d+)_(?:C(-?\d+)_R(-?\d+)|R(-?\d+)_C(-?\d+))", flags=re.I)
+_POI_PATTERN = re.compile(
+    r"_Poi(\d+)_(?:NA_NA_)?X-?\d+(?:\.\d+)?_Y-?\d+(?:\.\d+)?(?=_|\.sme$|$)", flags=re.I
+)
 _FILENAME_TIMESTAMP_PATTERN = re.compile(r"(?<!\d)(\d{17})(?!\d)")
 
 
@@ -77,6 +80,7 @@ class FilenameMetadata:
     time: str
     timestamp_raw: str
     parse_status: str
+    poi_seq: int | None = None
 
 
 def _display_timestamp(raw: Any) -> str:
@@ -102,9 +106,11 @@ def parse_spectrum_filename(filename: str) -> FilenameMetadata:
     raw = str(filename or "").strip()
     name = Path(raw).name
     die_match = _DIE_PATTERN.search(name)
+    poi_match = _POI_PATTERN.search(name) if die_match is None else None
+    point_match = die_match or poi_match
     timestamp_matches = _FILENAME_TIMESTAMP_PATTERN.findall(name)
     timestamp_raw = timestamp_matches[-1] if timestamp_matches else ""
-    if die_match is None:
+    if point_match is None:
         return FilenameMetadata(
             raw_filename=raw,
             wafer_id="",
@@ -119,8 +125,9 @@ def parse_spectrum_filename(filename: str) -> FilenameMetadata:
             parse_status="unrecognized",
         )
 
-    prefix = name[:die_match.start()].strip("_")
-    die, field_x, field_y = _die_fields(die_match)
+    prefix = name[:point_match.start()].strip("_")
+    die, field_x, field_y = _die_fields(die_match) if die_match else (None, None, None)
+    poi = int(poi_match[1]) if poi_match else None
     tokens = [token for token in prefix.split("_") if token]
     if len(tokens) < 3:
         return FilenameMetadata(
@@ -135,6 +142,7 @@ def parse_spectrum_filename(filename: str) -> FilenameMetadata:
             time=_display_timestamp(timestamp_raw),
             timestamp_raw=timestamp_raw,
             parse_status="partial",
+            poi_seq=poi,
         )
 
     candidate_pad = tokens[3] if len(tokens) >= 4 else ""
@@ -150,6 +158,7 @@ def parse_spectrum_filename(filename: str) -> FilenameMetadata:
         time=_display_timestamp(timestamp_raw),
         timestamp_raw=timestamp_raw,
         parse_status="ok" if timestamp_raw else "partial",
+        poi_seq=poi,
     )
 
 
@@ -242,6 +251,7 @@ def base_metadata(
     tags: dict[str, Any] = {}
     embedded = parse_spectrum_filename(filename)
     external = parse_spectrum_filename(path.name)
+    point = embedded if embedded.die_seq is not None or embedded.poi_seq is not None else external
 
     def business_value(field: str) -> Any:
         value = getattr(embedded, field)
@@ -253,13 +263,6 @@ def base_metadata(
             return _display_timestamp(value)
         return value
 
-    match = _DIE_PATTERN.search(filename) or _DIE_PATTERN.search(path.name)
-    if match:
-        die, col, row = _die_fields(match)
-        tags.update(die=die, die_col=col, die_row=row)
-    else:
-        tags.update(die=None, die_col=None, die_row=None)
-
     for field, regex in (
         ("X_filename", r"_X(-?\d+(?:\.\d+)?)"),
         ("Y_filename", r"_Y(-?\d+(?:\.\d+)?)"),
@@ -268,7 +271,10 @@ def base_metadata(
         ("D_tag", r"_D(\d+)(?:_|\.)"),
         ("S_tag", r"_S(\d+)(?:_|\.)"),
     ):
-        found = re.search(regex, filename, flags=re.I)
+        coordinate_name = filename
+        if point.poi_seq is not None and field in ("X_filename", "Y_filename"):
+            coordinate_name = point.raw_filename
+        found = re.search(regex, coordinate_name, flags=re.I)
         tags[field] = found.group(1) if found else None
 
     embedded_hex = re.search(r"_([0-9a-fA-F]{32})(?:\.[^.]+)?$", filename)
@@ -285,16 +291,15 @@ def base_metadata(
             "lot_id",
             "tool_sn",
             "pad_name",
-            "die_seq",
-            "field_x",
-            "field_y",
             "timestamp_raw",
         )
     }
+    merged_fields.update(die_seq=point.die_seq, poi_seq=point.poi_seq,
+                         field_x=point.field_x, field_y=point.field_y)
     if all(
         merged_fields[field] not in (None, "")
-        for field in ("wafer_id", "lot_id", "tool_sn", "die_seq", "timestamp_raw")
-    ):
+        for field in ("wafer_id", "lot_id", "tool_sn", "timestamp_raw")
+    ) and (point.die_seq is not None or point.poi_seq is not None):
         metadata_status = "ok"
     elif any(value not in (None, "") for value in merged_fields.values()):
         metadata_status = "partial"
@@ -312,8 +317,12 @@ def base_metadata(
         "lot_id_filename": business_value("lot_id"),
         "tool_sn_filename": business_value("tool_sn"),
         "pad_name_filename": business_value("pad_name"),
-        "field_x_filename": business_value("field_x"),
-        "field_y_filename": business_value("field_y"),
+        "die": point.die_seq,
+        "die_col": point.field_x,
+        "die_row": point.field_y,
+        "poi_seq_filename": point.poi_seq,
+        "field_x_filename": point.field_x,
+        "field_y_filename": point.field_y,
         "filename_time": parse_value("time"),
         "metadata_parse_status": metadata_status,
         "metadata_source": (
@@ -568,9 +577,16 @@ class SpectrumIdentity:
     field_x: int | None = None
     field_y: int | None = None
     parse_status: str = "ok"
+    poi_seq: int | None = None
+
+    @property
+    def point_id(self) -> int | str | None:
+        return f"Poi{self.poi_seq}" if self.poi_seq is not None else self.die_seq
 
     @property
     def display_name(self) -> str:
+        if self.poi_seq is not None:
+            return f"Poi{self.poi_seq}"
         return f"Die {self.die_seq}" if self.die_seq is not None else "Die ?"
 
 
@@ -598,15 +614,16 @@ def spectrum_identity(metadata: dict[str, Any]) -> SpectrumIdentity:
     lot = str(metadata.get("lot_id_filename") or parsed.lot_id or "").strip()
     tool_sn = str(metadata.get("tool_sn_filename") or parsed.tool_sn or "").strip()
     pad = str(metadata.get("pad_name_filename") or parsed.pad_name or "").strip()
-    die_seq = _die_number(metadata.get("die"))
-    if die_seq is None:
+    poi_seq = _die_number(metadata.get("poi_seq_filename", parsed.poi_seq))
+    die_seq = None if poi_seq is not None else _die_number(metadata.get("die"))
+    if die_seq is None and poi_seq is None:
         die_seq = parsed.die_seq
     timestamp = _display_timestamp(metadata.get("filename_timestamp_raw"))
     if not timestamp:
         timestamp = parsed.time
     status = str(metadata.get("metadata_parse_status") or "").strip()
     if not status:
-        status = "ok" if wafer and lot and tool_sn and die_seq is not None else "partial"
+        status = "ok" if wafer and lot and tool_sn and (die_seq is not None or poi_seq is not None) else "partial"
     return SpectrumIdentity(
         wafer=wafer,
         lot=lot,
@@ -614,13 +631,14 @@ def spectrum_identity(metadata: dict[str, Any]) -> SpectrumIdentity:
         die_seq=die_seq,
         timestamp=timestamp,
         tool_sn=tool_sn,
-        field_x=_die_number(metadata.get("field_x_filename"))
-        if metadata.get("field_x_filename") is not None
-        else parsed.field_x,
-        field_y=_die_number(metadata.get("field_y_filename"))
-        if metadata.get("field_y_filename") is not None
-        else parsed.field_y,
+        field_x=None if poi_seq is not None else (
+            _die_number(metadata["field_x_filename"]) if metadata.get("field_x_filename") is not None else parsed.field_x
+        ),
+        field_y=None if poi_seq is not None else (
+            _die_number(metadata["field_y_filename"]) if metadata.get("field_y_filename") is not None else parsed.field_y
+        ),
         parse_status=status,
+        poi_seq=poi_seq,
     )
 
 
@@ -745,11 +763,14 @@ class SpectrumFile:
 
     @property
     def sort_key(self) -> tuple:
+        sequence = self.identity.poi_seq if self.identity.poi_seq is not None else self.identity.die_seq
         return (
             natural_key(self.identity.wafer),
             natural_key(self.identity.lot),
             natural_key(self.identity.pad),
-            math.inf if self.identity.die_seq is None else self.identity.die_seq,
+            sequence is None,
+            self.identity.poi_seq is not None,
+            sequence if sequence is not None else 0,
             natural_key(self.identity.timestamp),
             os.path.normcase(str(self.path)),
         )
@@ -773,7 +794,7 @@ def file_metadata_dataframe(spectra) -> Any:
     return pd.DataFrame.from_records([
         {"Cur SME File Path": str(s.path), "Wafer ID": s.identity.wafer,
          "Lot ID": s.identity.lot, "PAD Name": s.identity.pad,
-         "Die Seq": s.identity.die_seq, "SME Name": s.path.name,
+         "Die Seq": s.identity.point_id, "SME Name": s.path.name,
          "Tool SN": s.identity.tool_sn, "FIELD X": s.identity.field_x,
          "FIELD Y": s.identity.field_y, "Time": s.identity.timestamp,
          "Folder": str(s.path.parent), "Instrument": ", ".join(dict.fromkeys(c.instrument for c in s.channels)),
@@ -797,7 +818,7 @@ def metadata_dataframe(spectra) -> Any:
                 "Lot ID": identity.lot,
                 "Tool SN": identity.tool_sn,
                 "PAD Name": identity.pad,
-                "Die Seq": identity.die_seq,
+                "Die Seq": identity.point_id,
                 "FIELD X": identity.field_x,
                 "FIELD Y": identity.field_y,
                 "Time": identity.timestamp,
@@ -986,7 +1007,7 @@ class SpectrumCatalog:
 
         def values(spectrum):
             identity = spectrum.identity
-            return tuple(identity.die_seq if field == "die" else getattr(identity, field)
+            return tuple(identity.point_id if field == "die" else getattr(identity, field)
                          for field in fields)
 
         groups = {}
@@ -999,8 +1020,10 @@ class SpectrumCatalog:
                 branch = branch.setdefault(value, {})
             branch.setdefault(path[-1], []).append(spectrum)
         def order(branch, depth):
+            is_point_level = fields[depth] == "die"
             return {key: order(branch[key], depth + 1) if depth < len(fields) - 1 else branch[key]
-                    for key in sorted(branch, key=lambda value: (value is None, natural_key(value)))}
+                    for key in sorted(branch, key=lambda value: (value is None, is_point_level and isinstance(value, str),
+                                                                  natural_key(value)))}
         return order(groups, 0)
 
     @property

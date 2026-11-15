@@ -23,7 +23,7 @@ def qstring(value):
     return struct.pack(">I", len(encoded)) + encoded
 
 
-def reflectance_payload(*, expanded, global_word, points=3):
+def reflectance_payload(*, expanded, global_word, points=3, embedded_name="W_L_T_P_Die1_C0_R0.sme"):
     def array(values=()):
         return struct.pack(">I", len(values)) + np.asarray(values, dtype=">f8").tobytes()
     header = (struct.pack(">I", 2) + qstring("sample") + qstring("Unlisted head") + qstring("UVSE")
@@ -31,11 +31,30 @@ def reflectance_payload(*, expanded, global_word, points=3):
     channel = (header + array() + (struct.pack(">5I", 0, 100, 3500, 1078198272, 0) if expanded else b"")
                + array(11000. + np.arange(points)) + array() * 6
                + array(np.resize((0.1, 0.4, 0.2), points)) + array() * 3 + bytes(40))
-    return (qstring("SE9.1") + struct.pack(">I", 2) + qstring("W_L_T_P_Die1_C0_R0.sme")
+    return (qstring("SE9.1") + struct.pack(">I", 2) + qstring(embedded_name)
             + (struct.pack(">I", 0) if global_word else b"") + channel * 2)
 
 
 class SMECompatibilityTests(unittest.TestCase):
+    def test_poi_spectra_recover_identity_from_embedded_or_external_names(self):
+        embedded = "LP300003.01_SPC_A03-075_NPW_Poi2_NA_NA_X0.0000_Y95.0000_Rz359.5700_L1_D1_S1_20261110140107056.sme"
+        external = "LP300003.01_SPC_A03-075_NPW_Poi2_X0.0000_Y95.0000_20261110140107056.sme"
+        for source_name, embedded_name in (("renamed.sme", embedded), (external, "unknown.sme")):
+            with self.subTest(source=source_name), tempfile.TemporaryDirectory() as folder:
+                path = Path(folder) / source_name
+                payload = reflectance_payload(expanded=True, global_word=True, embedded_name=embedded_name)
+                path.write_bytes(b"SE3" + base64.b64encode(payload))
+                spectrum = parse_sme_file(path)
+                identity = spectrum.identity
+                self.assertEqual((identity.wafer, identity.lot, identity.tool_sn, identity.pad),
+                                 ("LP300003.01", "SPC", "A03-075", "NPW"))
+                self.assertEqual((identity.die_seq, identity.poi_seq, identity.display_name), (None, 2, "Poi2"))
+                self.assertEqual((identity.field_x, identity.field_y), (None, None))
+                self.assertEqual((spectrum.x_mm, spectrum.y_mm), (0.0, 95.0))
+                self.assertEqual(identity.timestamp, "2026-11-10 14:01:07.056")
+                self.assertEqual(identity.parse_status, "ok")
+                self.assertEqual(len(spectrum.channels), 2)
+
     def test_unknown_metadata_and_short_infrared_series_accept_only_complete_layouts(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "source.sme"

@@ -183,6 +183,8 @@ Mueller 横轴只显示自动生成的等间隔主刻度文字，保留次网格
 
 在 Reference、Raw Data 中粘贴完整原表，再使用 Parameter mapping 上方并排的两个 **matching fields** 列表勾选身份字段。列表可上下拖动；选中的字段按各自显示顺序一一对应。例如左侧 `WaferID / Col/X / Row/Y` 对应右侧 `Wafer ID / FIELD X / FIELD Y`。两侧必须选择相同的非零字段数；字段不存在时会提示，不能按位置回退配对。Parameter mapping 仍用于指定量测值之间的对应，不是 ID 条件；Type2 可按相同字段名建议量测参数映射。
 
+Type2 按源表数值计算，界面和 Excel 导出的绝对 **Bias** 及超限阈值均省略单位。**Bias %** 仍显示百分比。
+
 设置区域顶部的 **Expand matching settings** 默认勾选。取消勾选可一起收起左右 ID 字段和 Parameter mapping，释放空间并避免误编辑；**Run analysis** 保持可用，继续使用当前配置。再次勾选可展开编辑。折叠状态随 Workbook 保存和草稿恢复，旧文件默认展开；折叠和展开不触发重新拟合。
 
 两张表可以行数不同、顺序不同。分析以 Raw 原始行空间为基准查找 Reference：未匹配的 Raw 记录保留，Reference 值为空；多余的 Reference 记录只保留在源表中。散点拟合及关联窗口的 Correlation 使用成功配对且数值有效的记录，Trend 保留完整 Raw 行空间和对应 Ref 空缺。Reference 筛选使用按 ID 对齐后的参考值。原始源表、字符串及行顺序不被改写。

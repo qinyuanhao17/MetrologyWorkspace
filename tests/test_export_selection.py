@@ -13,6 +13,7 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QDialogButtonBox, QFileDialog
 
+from metrology_app.analysis_export import capture_saved_window
 from metrology_app.excel_export import report_sequence_layout, write_fullmap, write_workbook
 from metrology_app.export_sheet_dialog import ExportSheetDialog
 from metrology_app.export_sheets import export_sheet_names, select_export_sheets
@@ -124,6 +125,49 @@ class ExportSelectionTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'at least one available'):
                     write_workbook(path, **snapshot, selected_sheets=choice)
                 self.assertEqual(path.read_bytes(), b'previous export')
+
+    def test_export_reuses_current_result_and_refits_a_changed_card(self):
+        window = self.window
+        with patch.object(window.workbook.__class__, "analyze", side_effect=AssertionError("Unnecessary refit")):
+            snapshot = window.excel_export_snapshot()
+        result = snapshot["stages"][0][1]
+        self.assertIsNot(result, window.result)
+        self.assertEqual(result.card("CD"), window.result.card("CD"))
+
+        window._card_source_changed({
+            "mode": "manual", "scope": None, "manual": [["CD", "CD Reference", "CD", 3.0, 1.0]],
+        })
+        refreshed = window.excel_export_snapshot()["stages"][0][1].card("CD")
+        self.assertEqual((refreshed.slope, refreshed.intercept), (3.0, 1.0))
+
+    def test_sheet_choice_skips_unselected_saved_reports_and_preserves_duplicate_titles(self):
+        window = self.window
+        frame = window.raw_frame.assign(Cycle="1")
+        for number in (1, 2):
+            scope = f"dynamic.{number:032x}.preview"
+            window._workspace_states[scope] = {
+                "window": {"name": "Same", "checked": True}, "ui": {"selection": {"metrics": []}},
+            }
+            window._workspace_frames[f"{scope}.input_data"] = frame
+        with patch("metrology_app.analysis_export.capture_saved_window",
+                   wraps=capture_saved_window) as capture:
+            names, prepare = window.excel_export_sheet_plan(native=True)
+            capture.assert_not_called()
+            self.assertIn("Same Dynamic (WO Card)", names)
+            chosen = ["Same Dynamic_2 (WO Card)"]
+            self.assertIn(chosen[0], names)
+            snapshot = prepare(chosen, lambda: False)
+            capture.assert_called_once()
+            self.assertEqual(capture.call_args.kwargs["scope"], f"dynamic.{2:032x}.preview")
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "dynamic.xlsx"
+            write_workbook(path, **snapshot, selected_sheets=chosen)
+            book = load_workbook(path)
+            try:
+                self.assertEqual(book.sheetnames, chosen)
+                self.assertEqual(book.active["C2"].value, "1.000")
+            finally:
+                book.close()
 
     def test_cancel_sheet_choice_preserves_existing_target_and_starts_no_writer(self):
         for action in (self.window.export_action, self.window.images_action):

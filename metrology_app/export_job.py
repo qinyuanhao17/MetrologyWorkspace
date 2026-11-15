@@ -148,7 +148,7 @@ class ExportJob(QThread):
             sender.close()
 
 
-def start_export(window, path, snapshot, *, matching=False, native=True):
+def start_export(window, path, snapshot, *, matching=False, native=True, sheet_plan=None):
     """Paint progress before preparing a detached snapshot on the GUI thread."""
     if getattr(window, "_excel_export_job", None) is not None:
         return
@@ -200,16 +200,26 @@ def start_export(window, path, snapshot, *, matching=False, native=True):
             progress.repaint()
             if job.cancelled.is_set() or progress.wasCanceled():
                 raise InterruptedError("Export cancelled")
-            job.snapshot = snapshot() if callable(snapshot) else snapshot
+            from .export_sheets import export_sheet_names
+            if sheet_plan is None:
+                job.snapshot = snapshot() if callable(snapshot) else snapshot
+                names = export_sheet_names(job.snapshot, matching=matching, native=native)
+            else:
+                names, capture = sheet_plan(native=native)
             if job.cancelled.is_set() or progress.wasCanceled():
                 raise InterruptedError("Export cancelled")
-            from .export_sheets import export_sheet_names
             progress.hide()
-            selected = choose_export_sheets(window, export_sheet_names(job.snapshot, matching=matching, native=native))
+            selected = choose_export_sheets(window, names)
             if selected is None or job.cancelled.is_set():
                 raise InterruptedError("Export cancelled")
-            job.snapshot = dict(job.snapshot, selected_sheets=selected)
             progress.show()
+            if sheet_plan is not None:
+                update("Preparing selected reports…")
+                progress.repaint()
+                job.snapshot = capture(selected, job.cancelled.is_set)
+            if job.cancelled.is_set() or progress.wasCanceled():
+                raise InterruptedError("Export cancelled")
+            job.snapshot = dict(job.snapshot, selected_sheets=selected)
             update("Exporting Excel charts…" if native else "Exporting Matplotlib…")
         except InterruptedError:
             failure("Export cancelled")

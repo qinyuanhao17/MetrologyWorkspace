@@ -1,6 +1,7 @@
 """Shared series definitions for single-wafer statistics and Excel reports."""
 
 METRICS_SHEET_TITLE = "Mean&STD"
+MEAN_BIAS_AUTO_RANGE = (-0.001, 0.001)
 METRIC_PLOTS = {
     "wafer_r2": ("R²", ("R²",), ("#4f8bd6",)),
     "wafer_slope": ("Slope", ("Slope",), ("#e09f3e",)),

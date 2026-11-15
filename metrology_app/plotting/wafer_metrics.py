@@ -8,7 +8,7 @@ from PyQt6.QtCore import QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QFontMetrics
 
 from ..mark2_plotting import set_hierarchy_axis
-from ..wafer_metrics import METRIC_PLOTS
+from ..wafer_metrics import MEAN_BIAS_AUTO_RANGE, METRIC_PLOTS
 from .interactive import InteractivePlotWidget, place_legend_above_frame
 
 
@@ -78,6 +78,10 @@ class WaferMetricPlot(InteractivePlotWidget):
 
     def set_summary(self, key, summary, category, value_label, *, hierarchy_columns=()):
         title, columns, colors = METRIC_PLOTS[key]
+        mean_bias = key == "wafer_mean_bias"
+        self.view_box.minimum_auto_y_range = MEAN_BIAS_AUTO_RANGE if mean_bias else None
+        if mean_bias:
+            self.getAxis("left").enableAutoSIPrefix(False)
         self.setTitle(title)
         if len(hierarchy_columns) > 1:
             set_hierarchy_axis(self, hierarchy_columns, summary["Metrics Labels"], origin=0)

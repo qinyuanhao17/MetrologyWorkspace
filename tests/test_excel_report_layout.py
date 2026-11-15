@@ -822,7 +822,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
                                     "'_Plot data'!"))
                             self.assertIsNotNone(series.yVal.numRef)
                         for chart in (group_panels[1], shown_panels[1]):
-                            self.assertFalse(chart.visible_cells_only)
+                            self.assertTrue(chart.visible_cells_only)
                             self.assertIsNone(chart.x_axis.title)
                             self.assertIsNone(
                                 chart.x_axis.tickLblPos)
@@ -1142,6 +1142,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
                 self.assertEqual(objects[0].anchor._from.row, 4)
                 self.assertEqual(objects[0].anchor._from.col, 0)
                 if native:
+                    self.assertTrue(objects[0].visible_cells_only)
                     series = objects[0].series[0]
                     source = series.val.numRef.f
                     self.assertIn("'FullMap (WO Card)'", source)

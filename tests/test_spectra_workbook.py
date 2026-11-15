@@ -1,6 +1,7 @@
 """Portable Match Workbook Spectra workflows, independent of source SME paths."""
 from pathlib import Path
 from dataclasses import replace
+import json
 import tempfile
 import time
 import unittest
@@ -14,13 +15,39 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from metrology_app.matching_window import MatchingWindow
 from metrology_app.sme_spectra import LoadResult
-from metrology_app.spectra_workbook import snapshot, restore
+from metrology_app.spectra_workbook import decode_sources, encode_sources, snapshot, restore
 from metrology_app.spectra_viewer import SpectraViewerWindow
 from tests.test_spectra_viewer import APP, make_spectrum
 from tests.test_sme_spectra import SAMPLE_ROOT, copy_verified_samples
 
 
 class SpectraWorkbookTests(unittest.TestCase):
+    def test_older_embedded_poi_restores_identity_without_source_file(self):
+        original = make_spectrum(1)
+        embedded_name = "LP300003.01_SPC_A03-075_NPW_Poi1_NA_NA_X0.0000_Y0.0000_20261110140105658.sme"
+        source = replace(original, embedded_filename=embedded_name, x_mm=0.0, y_mm=0.0,
+                         identity=replace(original.identity, wafer="", lot="", pad="", tool_sn="", die_seq=None,
+                                          field_x=None, field_y=None, parse_status="partial"))
+        viewer = SpectraViewerWindow()
+        self.addCleanup(viewer.close)
+        viewer.apply_load_result(LoadResult((source,), ()), replace=True)
+        draft = snapshot(viewer)
+        frame = draft.frames["spectra"]
+        saved = json.loads(frame.at[0, "metadata"])
+        del saved["identity"]["poi_seq"]
+        frame.at[0, "metadata"] = json.dumps(saved)
+
+        sources, cache, unavailable, issues = decode_sources(draft)
+        self.assertFalse(unavailable or issues)
+        restored = sources[0]
+        self.assertEqual(restored.identity.point_id, "Poi1")
+        self.assertEqual((restored.identity.wafer, restored.identity.lot, restored.identity.pad),
+                         ("LP300003.01", "SPC", "NPW"))
+        self.assertEqual(restored.key, source.key)
+        np.testing.assert_array_equal(restored.channels[0].numeric, source.channels[0].numeric)
+        [(_, metadata, _)] = encode_sources(sources, cache).values()
+        self.assertEqual(json.loads(metadata)["identity"]["poi_seq"], 1)
+
     def test_workbook_path_mode_and_missing_references_survive_save_without_embedding(self):
         from metrology_app.sme_spectra import load_folder
         from metrology_app.workspace_store import load_workspace

@@ -212,12 +212,16 @@ class WaferPointPlot(QWidget):
             )
             keys = tuple(spectrum.key for spectrum in members)
             self._spot_keys.append(keys)
-            dies = [
-                str(spectrum.identity.die_seq)
+            point_ids = [
+                spectrum.identity.point_id
                 for spectrum in members
-                if spectrum.identity.die_seq is not None
+                if spectrum.identity.point_id is not None
             ]
-            label = f"Die {', '.join(dies)}" if dies else "Die ?"
+            point_labels = [str(point_id) for point_id in point_ids]
+            if any(isinstance(point_id, str) for point_id in point_ids):
+                label = ", ".join(f"Die {point_id}" if isinstance(point_id, int) else point_id for point_id in point_ids)
+            else:
+                label = f"Die {', '.join(point_labels)}" if point_labels else "Die ?"
             if len(members) > 1:
                 label += f" ({len(members)})"
             spots.append({
@@ -226,7 +230,7 @@ class WaferPointPlot(QWidget):
                 "brush": pg.mkBrush("#3E8BD8"),
             })
             text = _DieLabel(
-                text=", ".join(dict.fromkeys(dies)) if dies else "?",
+                text=", ".join(dict.fromkeys(point_labels)) if point_labels else "?",
                 color=self._foreground,
                 anchor=(0.5, 0.0),
             )

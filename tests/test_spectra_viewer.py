@@ -402,6 +402,36 @@ class SpectraViewerTreeTests(unittest.TestCase):
         self.assertEqual(pad.childCount(), 2)
         self.assertEqual(len(self.window.spectrum_items), 2)
 
+    def test_poi_shows_metric_coordinates_and_keeps_die_group_separate(self):
+        tree = self.window.tree
+        columns = {tree.headerItem().text(i): i for i in range(tree.columnCount())}
+        x_col, y_col = columns["X (mm)"], columns["Y (mm)"]
+        self.assertTrue(tree.isColumnHidden(x_col))
+        self.assertTrue(tree.isColumnHidden(y_col))
+
+        die = make_spectrum(1)
+        poi = replace(die, key="poi1", x_mm=-47.5, y_mm=95.0,
+                      identity=replace(die.identity, die_seq=None, poi_seq=1, field_x=None, field_y=None))
+        self.window.apply_load_result(LoadResult((die, poi), ()), replace=True)
+        self.assertFalse(tree.isColumnHidden(x_col))
+        self.assertFalse(tree.isColumnHidden(y_col))
+        pad = tree.topLevelItem(0).child(0).child(0)
+        pad.setExpanded(True)
+        self.assertEqual(self.window.spectrum_items[die.key].text(columns["Die Seq"]), "1")
+        row = self.window.spectrum_items[poi.key]
+        self.assertEqual(row.text(columns["Die Seq"]), "Poi1")
+        self.assertEqual((row.text(x_col), row.text(y_col)), ("-47.5", "95.0"))
+        self.assertEqual((row.text(columns["FIELD X"]), row.text(columns["FIELD Y"])), ("", ""))
+
+        group_by = self.window.group_by_combo
+        group_by.setCurrentIndex(group_by.findData("die"))
+        self.assertEqual([tree.topLevelItem(i).text(0) for i in range(tree.topLevelItemCount())],
+                         ["Die 1", "Poi1"])
+        self.window.select_spectrum_keys({poi.key})
+        self.window.delete_selected_tree()
+        self.assertTrue(tree.isColumnHidden(x_col))
+        self.assertTrue(tree.isColumnHidden(y_col))
+
     def test_pad_arrow_opens_lazy_spectra_with_a_mouse_click(self):
         self.window.show()
         tree = self.window.tree
@@ -772,6 +802,128 @@ class SpectraViewerTreeTests(unittest.TestCase):
         APP.processEvents()
         self.assertEqual(panel.plot.getPlotItem().vb.viewRange()[0], [200.0, 400.0])
         self.assertEqual(floating.panel.plot.backgroundBrush().color().name(), "#ffffff")
+
+    def test_apply_wavelength_range_updates_all_plots_and_keeps_it_when_curves_load(self):
+        self.window.resize(1480, 800)
+        self.window.show()
+        main = self.window.plot_panels["N"]
+        floating = self.window.open_plot_window(main)
+        panels = (*self.window.plot_panels.values(), *self.window.mueller_panel.mij_plots.values(), floating.panel)
+        main.plot.setYRange(-0.1, 0.5, padding=0)
+        dual = self.window.plot_panels["psi_delta"]
+        dual.secondary.setYRange(10, 40, padding=0)
+        APP.processEvents()
+
+        self.window.wavelength_min.setText("240.5")
+        self.window.wavelength_max.setText("360.25")
+        self.assertNotEqual(main.plot.getViewBox().viewRange()[0], [240.5, 360.25])
+        QTest.mouseClick(self.window.apply_axis_range_button, Qt.MouseButton.LeftButton)
+        self.assertEqual(main.plot.getViewBox().viewRange()[1], [-0.1, 0.5])
+        self.assertEqual(dual.secondary.viewRange()[1], [10, 40])
+        self.window.check_all_spectra()
+        APP.processEvents()
+        for panel in panels:
+            with self.subTest(panel=panel.title):
+                self.assertEqual(panel.plot.getViewBox().viewRange()[0], [240.5, 360.25])
+        self.assertEqual(dual.secondary.viewRange()[0], [240.5, 360.25])
+
+        main.plot.getPlotItem().autoBtn.clicked.emit(None)
+        self.assertEqual(main.plot.getViewBox().viewRange()[0], [200, 400])
+        self.assertEqual(floating.panel.plot.getViewBox().viewRange()[0], [240.5, 360.25])
+
+    def test_apply_wavelength_range_rejects_invalid_bounds_without_changing_axes(self):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+
+        self.window.check_all_spectra()
+        view = self.window.plot_panels["N"].plot.getViewBox()
+        original = view.viewRange()
+        for lower, upper in (("", "350"), ("nan", "350"), ("300", "300"), ("350", "250")):
+            with self.subTest(lower=lower, upper=upper), patch.object(QMessageBox, "warning") as warning:
+                self.window.wavelength_min.setText(lower)
+                self.window.wavelength_max.setText(upper)
+                self.window.apply_axis_range_button.click()
+                warning.assert_called_once()
+                self.assertEqual(view.viewRange(), original)
+
+    def test_apply_axis_ranges_supports_y_only_and_both_axes_with_one_button(self):
+        self.window.show()
+        self.window.check_all_spectra()
+        dual = self.window.plot_panels["psi_delta"]
+        floating = self.window.open_plot_window(dual)
+        APP.processEvents()
+        panels = (*self.window.plot_panels.values(), *self.window.mueller_panel.mij_plots.values(), floating.panel)
+        views = [panel.plot.getViewBox() for panel in panels] + [dual.secondary, floating.panel.secondary]
+        original_x = [tuple(view.viewRange()[0]) for view in views]
+
+        self.window.y_min.setText("-0.5")
+        self.window.y_max.setText("1.5")
+        self.window.apply_axis_range_button.click()
+        self.assertEqual([tuple(view.viewRange()[0]) for view in views], original_x)
+        self.assertTrue(all(view.viewRange()[1] == [-0.5, 1.5] for view in views))
+
+        self.window.wavelength_min.setText("230")
+        self.window.wavelength_max.setText("380")
+        self.window.y_min.setText("-2")
+        self.window.y_max.setText("4")
+        self.assertTrue(all(view.viewRange()[1] == [-0.5, 1.5] for view in views))
+        self.window.apply_axis_range_button.click()
+        self.window.uncheck_all_spectra()
+        self.window.check_all_spectra()
+        APP.processEvents()
+        self.assertTrue(all(view.viewRange() == [[230, 380], [-2, 4]] for view in views))
+
+    def test_axis_controls_share_the_action_row_when_the_window_has_room(self):
+        self.window.resize(1480, 800)
+        self.window.show()
+        APP.processEvents()
+        root = self.window.centralWidget()
+        controls = (self.window.wavelength_min, self.window.wavelength_max, self.window.y_min,
+                    self.window.y_max, self.window.apply_axis_range_button, self.window.spectra_info_button,
+                    self.window.open_map_button)
+        centers = [widget.mapTo(root, widget.rect().center()).y() for widget in controls]
+        self.assertLessEqual(max(centers) - min(centers), 1)
+        wide_plot_top = self.window.main_splitter.geometry().top()
+
+        self.window.wavelength_min.setText("190")
+        button = self.window.axis_ranges_button
+        self.window.setMinimumWidth(1)
+        for width in range(1200, 599, -100):
+            self.window.resize(width, 680)
+            APP.processEvents()
+            if button.isVisible():
+                break
+        self.assertTrue(button.isVisible())
+        self.assertFalse(self.window.wavelength_min.isVisible())
+        self.assertLessEqual(self.window.main_splitter.geometry().top(), wide_plot_top)
+        for widget in (button, self.window.spectra_info_button, self.window.open_map_button):
+            self.assertTrue(root.rect().contains(widget.mapTo(root, widget.rect().topLeft())))
+            self.assertTrue(root.rect().contains(widget.mapTo(root, widget.rect().bottomRight())))
+
+        QTest.mouseClick(button, Qt.MouseButton.LeftButton)
+        APP.processEvents()
+        self.assertTrue(self.window.wavelength_min.isVisible())
+        self.assertEqual(self.window.wavelength_min.text(), "190")
+        self.window.wavelength_max.setText("880")
+        QTest.mouseClick(self.window.apply_axis_range_button, Qt.MouseButton.LeftButton)
+        APP.processEvents()
+        self.assertFalse(self.window.wavelength_min.isVisible())
+        self.assertEqual(self.window.plot_panels["N"].plot.getViewBox().viewRange()[0], [190, 880])
+
+    def test_invalid_y_range_prevents_pending_x_range_from_being_applied(self):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+
+        self.window.check_all_spectra()
+        view = self.window.plot_panels["N"].plot.getViewBox()
+        original = [tuple(limits) for limits in view.viewRange()]
+        self.window.wavelength_min.setText("230")
+        self.window.wavelength_max.setText("380")
+        self.window.y_min.setText("1")
+        with patch.object(QMessageBox, "warning") as warning:
+            self.window.apply_axis_range_button.click()
+        warning.assert_called_once()
+        self.assertEqual([tuple(limits) for limits in view.viewRange()], original)
 
     def test_unchanged_selection_and_added_duplicates_keep_existing_plot_zoom(self):
         self.window.check_all_spectra()
@@ -1773,7 +1925,9 @@ class SpectraViewerTreeTests(unittest.TestCase):
         errors = self.window.tree.topLevelItem(self.window.tree.topLevelItemCount() - 1)
         row = errors.child(0)
         self.assertEqual(row.text(1), "encrypted")
-        self.assertEqual(row.text(9), str(path.parent))
+        folder_column = next(i for i in range(self.window.tree.columnCount())
+                             if self.window.tree.headerItem().text(i) == "Folder")
+        self.assertEqual(row.text(folder_column), str(path.parent))
         self.assertIn(str(path), row.toolTip(0))
         self.assertIn(message, row.toolTip(0))
         self.assertEqual(len(self.window.catalog.spectra), len(self.spectra))

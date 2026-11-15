@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from contextlib import closing
 from dataclasses import asdict, dataclass
-from copy import copy
+from copy import copy, deepcopy
 import json
 from pathlib import Path
 import sqlite3
@@ -12,6 +12,8 @@ import sqlite3
 import numpy as np
 import pandas as pd
 
+from ..card_source import (card_sources as normalize_card_sources, fit_rows, manual_cards,
+                           mapping_key, mark2_field_labels, mark2_values)
 from ..measurements import default_identity_columns, detect_measurements, wafer_identity_labels
 from ..trend import parse_unit
 from ..workbook_type import normalize_workbook_type
@@ -285,17 +287,25 @@ def _validated_bias_limit(value):
     return limit
 
 
+def bias_unit(reference_column, workbook_type):
+    """Return the display unit for absolute Bias in a Match Workbook."""
+    return "" if workbook_type == "type2" else parse_unit(reference_column)
+
+
 class MatchAnalysisResult:
     """Compact result; materialize derived rows for only the selected parameter."""
 
-    def __init__(self, reference, raw, mappings, cards, result_mode, bias_mode, match_type, bias_limit=.5):
+    def __init__(self, reference, raw, mappings, cards, result_mode, bias_mode, match_type, bias_limit=.5,
+                 *, workbook_type="type1", offset_labels=()):
         self._reference = reference
         self._raw = raw
         self._mappings = mappings
         self._cards = cards
+        self.card_issues = {}
         self.result_mode = result_mode
         self.bias_mode = bias_mode
         self.match_type = match_type
+        self.workbook_type = workbook_type
         self.mapping_columns = tuple(
             (mapping.name, mapping.reference_column, mapping.raw_column)
             for mapping in mappings
@@ -303,6 +313,8 @@ class MatchAnalysisResult:
         self._mapping_by_name = {mapping.name: mapping for mapping in mappings}
         self._measurements = {}
         self._measurement_spans = {}
+        self._offset_labels = offset_labels
+        self._mark2_offsets = {}
         self.summary = pd.DataFrame([
             {
                 "Parameter": mapping.name,
@@ -338,7 +350,7 @@ class MatchAnalysisResult:
             bias = self.series(mapping.name)["Bias"].to_numpy(float)
             counts.append(int(np.count_nonzero(np.isfinite(bias) & (np.abs(bias) > self.bias_limits[mapping.name]))))
         self.summary["Bias limit"] = [self.bias_limits[m.name] for m in self._mappings]
-        self.summary["Bias unit"] = [parse_unit(mapping.reference_column) for mapping in self._mappings]
+        self.summary["Bias unit"] = [bias_unit(mapping.reference_column, self.workbook_type) for mapping in self._mappings]
         self.summary["Bias out of range"] = counts
 
     @property
@@ -358,6 +370,17 @@ class MatchAnalysisResult:
         except KeyError as error:
             raise ValueError(f"Unknown parameter: {parameter}") from error
 
+    def mark2_offset_table(self):
+        """One row per imported label; missing paired data stays blank."""
+        settings = getattr(self, "_card_source", {}).get("mark2_offset", {})
+        labels = mark2_values(self.group_plan, settings["field"]) if settings.get("enabled") else ()
+        return pd.DataFrame({parameter: pd.Series(self._mark2_offsets.get(parameter, {}), dtype=float)
+                             for parameter in self.parameter_names}, index=list(labels))
+
+    def _offset_values(self, parameter, labels):
+        offsets = self._mark2_offsets[parameter]
+        return np.fromiter((offsets.get(label, 0.) for label in labels), dtype=float, count=len(labels))
+
     def series(self, parameter):
         """Return plot/export rows for one parameter without expanding all parameters."""
         try:
@@ -368,13 +391,23 @@ class MatchAnalysisResult:
         reference = pd.to_numeric(self._reference[mapping.reference_column], errors="coerce").to_numpy(float)
         raw = pd.to_numeric(self._raw[mapping.raw_column], errors="coerce").to_numpy(float)
         card_value = card.slope * raw + card.intercept
+        offset = None
+        if self._offset_labels and self.result_mode == "preview":
+            if parameter not in self._mark2_offsets:
+                labels = np.asarray(self._offset_labels, dtype=object)
+                residual = reference - card_value
+                valid = np.isfinite(raw) & np.isfinite(residual) & (labels != "")
+                self._mark2_offsets[parameter] = pd.Series(residual[valid]).groupby(
+                    labels[valid], sort=False).mean().to_dict()
+            offset = self._offset_values(parameter, self._offset_labels)
+            card_value += offset
         evaluated = card_value if self.result_mode == "preview" else raw.copy()
         bias = evaluated - reference
         bias_percent = np.full(len(reference), np.nan, dtype=float)
         np.divide(bias * 100.0, reference, out=bias_percent,
                   where=np.isfinite(reference) & (reference != 0))
         selected = bias_percent if self.bias_mode == "percent" else bias
-        return pd.DataFrame({
+        values = {
             "Reference": reference,
             "Raw": raw,
             "Card Value": card_value,
@@ -382,7 +415,10 @@ class MatchAnalysisResult:
             "Bias": bias,
             "Bias %": bias_percent,
             "Selected Bias": selected,
-        }, index=self._reference.index.copy())
+        }
+        if offset is not None:
+            values["Mark2 Offset"] = offset
+        return pd.DataFrame(values, index=self._reference.index.copy())
 
     def _metrics_groups(self, wafer_column=None, *, mark2_column=None, wafer_only=False, custom_fields=()):
         """Measurement rows for the metrics tab, separate from Raw identities."""
@@ -474,6 +510,8 @@ class MatchAnalysisResult:
         if value_mode == "card":
             overall_card = self.card(parameter)
             measured = overall_card.slope * raw + overall_card.intercept
+            if self._offset_labels:
+                measured += self._offset_values(parameter, self._offset_labels)
         statistic_columns = ["Mean", "Reference Mean", "Mean Bias", "STD", "Reference STD"] if value_mode else []
         rows = []
         for measurement in measurements:
@@ -548,7 +586,13 @@ class MatchAnalysisResult:
                 fits[mapping.name] = Card(np.nan, np.nan, np.nan, int((np.isfinite(x) & np.isfinite(y)).sum()))
         result = MatchAnalysisResult(reference, raw, self._mappings,
                                      fits if local_card else self._cards,
-                                     self.result_mode, self.bias_mode, self.match_type, self.bias_limit)
+                                     self.result_mode, self.bias_mode, self.match_type, self.bias_limit,
+                                     workbook_type=self.workbook_type)
+        if not local_card:
+            result.card_issues = self.card_issues
+            if self._offset_labels:
+                result._offset_labels = tuple(self._offset_labels[i] for i in positions)
+                result._mark2_offsets = self._mark2_offsets.copy()
         result.source_rows = tuple(self.source_rows[i] for i in positions)
         result.group_plan = copy(self.group_plan)
         result.group_plan.included_rows = result.source_rows
@@ -682,10 +726,11 @@ class MatchWorkbook:
                  workspace_selections=None, correlation_selections=None,
                  trend_axis_settings=None, workspace_states=None,
                  workspace_frames=None, test_flags=None, grouping_state=None, bias_limit=.5,
-                 workbook_type="type1", matching_keys=None, wafer_id_mapping=None):
+                 workbook_type="type1", matching_keys=None, wafer_id_mapping=None, card_sources=None):
         self.reference = reference
         self.raw = raw
         self.workbook_type = normalize_workbook_type(workbook_type)
+        self.card_sources = normalize_card_sources(card_sources)
         self.matching_keys = normalized_matching_keys(matching_keys)
         from ..wafer_id_mapping import config
         self.wafer_id_mapping = config(wafer_id_mapping) if self.workbook_type == "type2" else config()
@@ -739,7 +784,8 @@ class MatchWorkbook:
         from ..match_groups import applied_state
         grouping = applied_state(self.grouping_state)
         if grouping["mark2_enabled"] and (not grouping["mark2"]["records"] or not grouping["mark2"]["selected"]):
-            raise ValueError("Import Mark2 labels and select at least one field in Groups → Manage groups Mark2.")
+            raise ValueError("Paste labels into the Mark2 table and click Confirm binding, or import Excel. "
+                             "Select at least one field in Groups → Manage groups Mark2.")
         if not isinstance(self.reference, pd.DataFrame) or not isinstance(self.raw, pd.DataFrame):
             raise TypeError("Reference and Raw Data must be pandas DataFrames.")
         if self.workbook_type == "type1" and len(self.reference) > len(self.raw):
@@ -910,7 +956,7 @@ class MatchWorkbook:
             raise ValueError("No paired records pass the current filters.")
         return plan, analysis_raw
 
-    def reuses(self, result, plan):
+    def reuses(self, result, plan, source, source_rows):
         """True while a previous result still fits this workbook's paired rows.
 
         Group names, order and axes live on the plan, so renaming or reordering
@@ -923,6 +969,7 @@ class MatchWorkbook:
             and result.result_mode == self.result_mode
             and result.bias_mode == self.bias_mode
             and result.mapping_columns == self.mapping_columns
+            and result._card_source == source and result._card_fit_rows == source_rows
             and result.group_plan.raw.attrs.get("metrology_wafer_id_mapping") == plan.raw.attrs.get("metrology_wafer_id_mapping")
             and result.group_plan.ids == plan.ids
             and result.source_rows == plan.included_rows
@@ -937,13 +984,24 @@ class MatchWorkbook:
         source dependency is compared and fitted Cards are still recomputed.
         """
         plan, analysis_raw = self.plan_inputs(prepared_plan)
-        if self.reuses(reuse, plan):
+        source = self.card_sources[self.result_mode]
+        source_rows = fit_rows(source, plan, self.workbook_type)
+        offset_labels = ()
+        offset = source.get("mark2_offset")
+        if self.workbook_type == "type2" and self.result_mode == "preview" and offset and offset["enabled"]:
+            labels = mark2_field_labels(plan, offset["field"])
+            if labels is not None:
+                offset_labels = tuple(labels[row] for row in plan.included_rows)
+        if self.reuses(reuse, plan, source, source_rows):
             reuse._measurement_spans.clear()
             reuse.group_plan = plan
             reuse.source_rows = plan.included_rows
             reuse._group_cards = {}
             reuse._mappings = self.mappings
             reuse._mapping_by_name = {mapping.name: mapping for mapping in self.mappings}
+            if reuse._offset_labels != offset_labels:
+                reuse._offset_labels = offset_labels
+                reuse._mark2_offsets = {}
             # Bias limits are workbook inputs, not fit results.
             reuse.set_bias_limit(self.bias_limit)
             return reuse
@@ -955,20 +1013,40 @@ class MatchWorkbook:
             reference_frame = reference_frame.reset_index(drop=True).reindex(range(len(analysis_raw)))
         reference_frame = reference_frame.iloc[list(plan.included_rows)]
         analysis_raw = analysis_raw.iloc[list(plan.included_rows)]
-        cards = {}
+        fit_reference, fit_raw = reference_frame, analysis_raw
+        if source["mode"] == "group" and source_rows != plan.included_rows:
+            included = set(source_rows)
+            positions = [index for index, row in enumerate(plan.included_rows) if row in included]
+            fit_reference, fit_raw = reference_frame.iloc[positions], analysis_raw.iloc[positions]
+        cards, issues = {}, {}
+        manual = manual_cards(source) if source["mode"] == "manual" else None
         for mapping in self.mappings:
-            reference = pd.to_numeric(reference_frame[mapping.reference_column], errors="coerce").to_numpy(float)
-            raw = pd.to_numeric(analysis_raw[mapping.raw_column], errors="coerce").to_numpy(float)
+            if manual is not None:
+                coefficients = manual.get(mapping_key(mapping))
+                if coefficients is None:
+                    issues[mapping.name] = "Enter this parameter's Slope and Intercept in Edit coefficients."
+                    coefficients = (np.nan, np.nan)
+                cards[mapping.name] = Card(*coefficients, np.nan, 0)
+                continue
+            reference = pd.to_numeric(fit_reference[mapping.reference_column], errors="coerce").to_numpy(float)
+            raw = pd.to_numeric(fit_raw[mapping.raw_column], errors="coerce").to_numpy(float)
             try:
                 cards[mapping.name] = _fit_card(raw, reference, mapping.name)
-            except ValueError:
-                if self.workbook_type == "type1" and plan.state["data_selection"] is None:
+            except ValueError as error:
+                if source["mode"] == "all" and self.workbook_type == "type1" and plan.state["data_selection"] is None:
                     raise
+                if source["mode"] == "group":
+                    issues[mapping.name] = (str(error) if source_rows else
+                                            "Choose a group or Mark2 label with participating rows.")
                 cards[mapping.name] = Card(np.nan, np.nan, np.nan, int((np.isfinite(raw) & np.isfinite(reference)).sum()))
         result = MatchAnalysisResult(
             reference_frame, analysis_raw, self.mappings, cards,
             self.result_mode, self.bias_mode, self.match_type, self.bias_limit,
+            workbook_type=self.workbook_type, offset_labels=offset_labels,
         )
+        result.card_issues = issues
+        result._card_source = deepcopy(source)
+        result._card_fit_rows = source_rows
         result.group_plan = plan
         result.id_alignment = getattr(plan, "id_alignment", None)
         result.source_rows = plan.included_rows
@@ -1030,7 +1108,8 @@ class MatchWorkbook:
             return frame.reset_index(drop=True).copy()
         return frame.iloc[[i for i, key in enumerate(participation_source_keys(frame)) if key not in excluded]].reset_index(drop=True).copy()
 
-    def stage_frame(self, stage, *, apply_card=None, apply_selection=True, use_snapshot=True):
+    def stage_frame(self, stage, *, apply_card=None, apply_selection=True, use_snapshot=True,
+                    analysis_result=None):
         """Build map-ready Preview or Final rows while preserving wafer metadata.
 
         ``apply_card`` defaults to the stage's historical behaviour: Preview
@@ -1059,7 +1138,21 @@ class MatchWorkbook:
             )
         source = self.effective_raw(source)
         frame = source.reset_index(drop=True).copy()
-        result = self.analyze() if apply_card else None
+        result = (analysis_result or self._analyze_stage(stage)) if apply_card else None
+        offset_labels = None
+        if stage == "preview" and result is not None and result._offset_labels:
+            field = result._card_source["mark2_offset"]["field"]
+            plan = result.group_plan
+            if source is plan.raw:
+                offset_labels = mark2_field_labels(plan, field)
+            else:
+                from ..mark2 import labels_for_raw
+                mark2 = plan.state["mark2"]
+                try:
+                    offset_labels = tuple(label for (label,) in labels_for_raw(source, {**mark2, "selected": [field]}))
+                except ValueError:
+                    # An independent source may lack the identity fields used by Mark2.
+                    pass
         targets = {mapping.name for mapping in self.mappings}
         for mapping in self.mappings:
             if mapping.raw_column not in source.columns:
@@ -1076,7 +1169,10 @@ class MatchWorkbook:
                 continue
             values = pd.to_numeric(source[mapping.raw_column], errors="coerce").to_numpy(float)
             card = result.card(mapping.name)
-            frame[mapping.name] = card.slope * values + card.intercept
+            corrected = card.slope * values + card.intercept
+            if offset_labels is not None:
+                corrected += result._offset_values(mapping.name, offset_labels)
+            frame[mapping.name] = corrected
             if (mapping.name != mapping.raw_column and mapping.raw_column not in targets
                     and mapping.raw_column in frame):
                 frame.drop(columns=[mapping.raw_column], inplace=True)
@@ -1088,9 +1184,19 @@ class MatchWorkbook:
             apply_selection=apply_selection,
         )
 
-    def parameter_cards(self):
+    def _analyze_stage(self, stage):
+        stage = str(stage).lower()
+        if stage not in _ALLOWED_RESULT_MODES:
+            raise ValueError("Stage must be preview or final.")
+        if stage == self.result_mode:
+            return self.analyze()
+        book = copy(self)
+        book.result_mode = stage
+        return book.analyze()
+
+    def parameter_cards(self, *, stage=None):
         """Return the fitted Card of every mapping as {(name): (slope, intercept)}."""
-        result = self.analyze()
+        result = self._analyze_stage(stage or self.result_mode)
         return {
             mapping.name: (
                 result.card(mapping.name).slope,
@@ -1125,7 +1231,7 @@ class MatchWorkbook:
         state = {name: getattr(self, name) for name in (
             "workbook_type", "matching_keys", "wafer_id_mapping", "match_type", "result_mode", "bias_mode", "bias_views",
             "setup_splitter_sizes", "parameter_order", "workspace_selections",
-            "correlation_selections", "trend_axis_settings", "grouping_state", "bias_limit")}
+            "correlation_selections", "trend_axis_settings", "grouping_state", "bias_limit", "card_sources")}
         state["mappings"] = [
             asdict(m)
             for m in self.mappings

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 import pandas as pd
 from openpyxl import Workbook, load_workbook
@@ -15,7 +16,9 @@ from metrology_app.matching import ParameterMapping
 from metrology_app.matching_window import MatchingWindow
 from metrology_app.mark2 import labels_for_raw
 from metrology_app.match_groups import row_ids
-from metrology_app.wafer_id_mapping import apply, config, import_excel, original_raw
+from metrology_app.wafer_id_mapping import (apply, config, import_excel, mapping_from_wafer_id_list,
+                                            original_raw, parse_wafer_id_list)
+from metrology_app.wafer_id_mapping_ui import WaferIdListDialog
 from metrology_app.workspace_store import load_workspace
 from metrology_app.sme_spectra import LoadResult
 from tests.test_type2_v51_integration import IDENTITY, sources
@@ -36,6 +39,16 @@ def fixtures():
 
 
 class WaferMappingTests(unittest.TestCase):
+    def test_two_column_list_allows_shared_targets_and_preserves_unlisted_wafers_in_both_stages(self):
+        raw, _, _, _, _ = fixtures()
+        final = raw.iloc[[0, 3]].copy()
+        final.loc[final.index[1], "Wafer ID"] = "FINAL-ONLY"
+        aliases = parse_wafer_id_list([(" OLD-W1 ", "001"), ("", ""), ("FINAL-ONLY", "001")])
+        mapping = config(mapping_from_wafer_id_list(aliases, (raw, final)))
+        self.assertEqual(apply(raw, mapping)["Wafer ID"].tolist(), ["001"] * 3 + ["OLD-W2"] * 3)
+        self.assertEqual(apply(final, mapping)["Wafer ID"].tolist(), ["001", "001"])
+        self.assertEqual(len(mapping["records"]), len(raw) + 1)
+
     def test_import_reorder_numeric_coordinates_and_preserve_strings(self):
         raw, _, _, _, mapping = fixtures()
         with TemporaryDirectory() as directory:
@@ -53,6 +66,9 @@ class WaferMappingTests(unittest.TestCase):
         self.assertEqual(raw["Wafer ID"].iloc[0], "OLD-W1")
         pd.testing.assert_frame_equal(original_raw(result), raw.iloc[::-1])
         pd.testing.assert_frame_equal(original_raw(result.iloc[[1, 4]]), raw.iloc[::-1].iloc[[1, 4]])
+        provenance = result.attrs["metrology_wafer_id_mapping"]
+        self.assertIs(result.copy(deep=True).attrs["metrology_wafer_id_mapping"], provenance)
+        self.assertIs(result.iloc[[1, 4]].attrs["metrology_wafer_id_mapping"], provenance)
 
     def test_missing_duplicate_and_conflicting_records_are_rejected(self):
         raw, _, _, _, mapping = fixtures()
@@ -99,6 +115,34 @@ class WaferMappingWindowTests(unittest.TestCase):
         self.window.close()
         self.window.deleteLater()
         APP.processEvents()
+
+    def test_paste_wafer_id_list_menu_rejects_duplicate_original_ids_before_apply(self):
+        window = self.window
+
+        def use_dialog(dialog):
+            APP.clipboard().setText("OLD-W1\tW1\n OLD-W1 \tW1")
+            QTest.keyClick(dialog.table, Qt.Key.Key_V, Qt.KeyboardModifier.ControlModifier)
+            self.assertIn("rows 1 and 2", dialog.status.text())
+            self.assertFalse(dialog.apply_button.isEnabled())
+            self.assertEqual(window.wafer_id_mapping, config())
+
+            APP.clipboard().setText("Original Wafer ID\tNew Wafer ID\nOLD-W1\tW1\nunknown\tW9")
+            QTest.keyClick(dialog.table, Qt.Key.Key_V, Qt.KeyboardModifier.ControlModifier)
+            self.assertIn("1 wafers will be renamed", dialog.status.text())
+            self.assertIn("1 will keep their original ID", dialog.status.text())
+            self.assertIn("1 list entries were not found", dialog.status.text())
+            self.assertTrue(dialog.apply_button.isEnabled())
+            dialog.apply_button.click()
+            return dialog.result()
+
+        clipboard_text = APP.clipboard().text()
+        self.addCleanup(APP.clipboard().setText, clipboard_text)
+        with patch.object(WaferIdListDialog, "exec", use_dialog):
+            window.paste_wafer_id_list_action.trigger()
+        self.assertEqual(window.result.group_plan.raw["Wafer ID"].tolist(), ["W1"] * 3 + ["OLD-W2"] * 3)
+        pd.testing.assert_frame_equal(window.raw_model.document_frame(), self.raw)
+        window.reset_wafer_id_mapping()
+        self.assertEqual(window.result.group_plan.raw["Wafer ID"].tolist(), self.raw["Wafer ID"].tolist())
 
     def test_import_refreshes_match_metrics_mark2_child_and_reset(self):
         ids = row_ids(self.raw)
@@ -300,6 +344,9 @@ class WaferMappingWindowTests(unittest.TestCase):
         self.assertEqual(len(viewer.checked_spectra()), len(self.spectra))
 
     def test_bias_map_finds_mapped_sme_coordinates_after_raw_row_exclusion(self):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+
         self.window.set_wafer_id_mapping(self.mapping)
         self.window.result_mode.setCurrentText("Final")
         self.window.set_raw_frame(self.raw)
@@ -307,12 +354,14 @@ class WaferMappingWindowTests(unittest.TestCase):
                      "excluded": ["4"], "hide_excluded": True}
         for state in (self.window.group_controls.state, self.window.group_controls.state["applied"]):
             state["data_selection"] = deepcopy(selection)
-        viewer = self.window.open_spectra_workspace(scope="spectra.final")
-        viewer.apply_load_result(LoadResult(self.spectra, ()), replace=True)
         self.window.mapping_table.cellWidget(0, 10).findChild(QDoubleSpinBox).setValue(4.5)
         self.window.run_analysis()
         self.assertEqual(self.window.result.source_rows, (0, 1, 2, 3, 5))
         button = self.window.mapping_table.cellWidget(0, 12)
+        self.assertFalse(button.isEnabled())
+        self.assertIn("No usable XY coordinates in mm", button.toolTip())
+        viewer = self.window.open_spectra_workspace(scope="spectra.final")
+        viewer.apply_load_result(LoadResult(self.spectra, ()), replace=True)
         self.assertTrue(button.isEnabled())
         button.click()
         map_window = self.window._bias_die_maps["CD"]
@@ -328,6 +377,12 @@ class WaferMappingWindowTests(unittest.TestCase):
         group = self.window.plot_groups["CD"]
         draw = group["wafer_model"].frame.columns.get_loc("Draw")
         self.assertEqual(group["wafer_view"].horizontalHeader().visualIndex(draw), draw)
+        viewer.close()
+        self.assertTrue(button.isEnabled())
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes):
+            self.window._delete_analysis_window("spectra.final")
+        self.assertFalse(button.isEnabled())
+        self.assertEqual(map_window.point_count, 0)
 
 
 if __name__ == "__main__":

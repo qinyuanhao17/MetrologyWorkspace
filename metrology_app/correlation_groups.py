@@ -50,7 +50,7 @@ def prepare_group_context(book, raw, applies):
                           "result_mode": book.result_mode, "match_type": book.match_type}
 
 
-def prepare_group_result(book, raw, reference, applies):
+def prepare_group_result(book, raw, reference, applies, *, installed_raw=None):
     raw = book.effective_raw(raw)
     context = prepare_group_context(book, raw, applies)
     plan, error = None, None
@@ -61,7 +61,8 @@ def prepare_group_result(book, raw, reference, applies):
         except ValueError as failure:
             error = str(failure)
     return {"context": context, "comparison": deepcopy(context), "plan": plan, "error": error,
-            "raw": raw, "reference": reference, "applies": applies, "book_state": book.grouping_state}
+            "raw": raw if installed_raw is None else installed_raw, "reference": reference,
+            "applies": applies, "book_state": book.grouping_state}
 
 
 def prepare_trend_parts(plan, split, groups):

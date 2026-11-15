@@ -415,7 +415,7 @@ class ColumnFilterDialog(QDialog):
 class GroupControls(QWidget):
     changed = pyqtSignal()
     apply_requested = pyqtSignal()
-    mark2_apply_requested = pyqtSignal()
+    mark2_apply_requested = pyqtSignal(dict)
     combined_imported = pyqtSignal(object, object, object)
 
     def __init__(self, parent=None):
@@ -578,11 +578,11 @@ class GroupControls(QWidget):
         self.group_order_button.setEnabled(not mark2)
         if mark2:
             matched = (sum(any(values) for values in self.plan.mark2_labels) if self.plan is not None else 0)
+            guidance = ("Paste labels into the Mark2 table and click Confirm binding, or import Excel."
+                        if not self.state["mark2"]["records"]
+                        else "Set fields and order in Groups → Manage groups Mark2.")
             self.status.setText(self.status.text() + f"\nMark2: {len(self.state['mark2']['records']):,} label records · "
-                                f"{matched:,}/{len(self.raw):,} Raw rows with selected labels. "
-                                "Set fields and order in Groups → Manage groups Mark2.")
-            if not self.state["mark2"]["records"] or not self.state["mark2"]["selected"]:
-                self.apply_button.setEnabled(False)
+                                f"{matched:,}/{len(self.raw):,} Raw rows with selected labels. " + guidance)
 
     def import_mark2(self):
         from .mark2 import import_excel
@@ -624,8 +624,7 @@ class GroupControls(QWidget):
             return
         dialog = Mark2Dialog(self.state["mark2"], self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.change("mark2", dialog.settings())
-            self.mark2_apply_requested.emit()
+            self.mark2_apply_requested.emit(dialog.settings())
 
     def _refresh_order_choices(self):
         classified = self.state["enabled"] or self.state["mark_enabled"]
@@ -1790,8 +1789,9 @@ class GroupPlotPage(QWidget):
             owner = self.workbook_window
             card_key = (self.result.result_mode, f"group-plots:{key}:{parameter}")
             trend_card = owner._trend_card_state.get(card_key, self.card.isChecked() or self.use_group_card.isChecked())
+            card_issue = scoped.card_issues.get(parameter)
             signature = (label, mode, trend_card, show_wafers, scoped.group_plan.state["trend_order"], scoped.group_plan.trend_spans(),
-                         owner._selected_bias_views(), owner.workbook.mappings, self.result.result_mode, self.result.match_type,
+                         owner._selected_bias_views(), owner.workbook.mappings, self.result.result_mode, self.result.match_type, card_issue,
                          tuple(owner._plot_label_options["trend"].items()) if show_wafers else ())
             previous = self._panels.get((key, parameter))
             if previous is not None and previous[1].equals(data) and previous[2] == signature:
@@ -1833,7 +1833,9 @@ class GroupPlotPage(QWidget):
             block["note"].setText(f"{len(data):,} rows · {len(wafers)} Wafers · {mode} Card")
             if not np.isfinite(block["fit_card"].slope):
                 block["note"].setText(block["note"].text() + " · Fit unavailable")
-            block["note"].setToolTip("\n".join(wafers))
+            if card_issue:
+                block["note"].setText(block["note"].text() + " · Card unavailable")
+            block["note"].setToolTip("\n".join(([card_issue] if card_issue else []) + wafers))
             panel.setFixedHeight(54 + block["plot_scroll"].height())
             section_layout.insertWidget(position, panel)
             self._panels[(key, parameter)] = (panel, data.copy(), deepcopy(signature))

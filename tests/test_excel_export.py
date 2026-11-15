@@ -174,7 +174,7 @@ class ExcelExportTests(unittest.TestCase):
             category_range = charts[1].series[0].cat.strRef.f
             self.assertEqual(category_range, "'Match Original (WO Card)'!$B$3:$B$5")
             self.assertEqual(charts[2].series[0].cat.strRef.f, category_range)
-            self.assertTrue(all(chart.visible_cells_only is False for chart in charts))
+            self.assertTrue(all(chart.visible_cells_only is True for chart in charts))
             from zipfile import ZipFile
             from xml.etree import ElementTree as ET
             with ZipFile(Path(folder) / "export.xlsx") as archive:

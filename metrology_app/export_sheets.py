@@ -4,7 +4,16 @@ from openpyxl.formula import Tokenizer
 from .wafer_metrics import METRICS_SHEET_TITLE
 
 
-def export_sheet_names(snapshot, *, matching, native=True):
+def report_sheet_bases(report):
+    if report.get('kind') == 'dynamic' or any(name.startswith('Pivot ') for name in report['frames']):
+        return ('Dynamic',)
+    if 'fullmap_parameters' in report:
+        return ('FullMap',)
+    return (*report['frames'], *dict.fromkeys(plot['sheet'] for plot in report['plots']),
+            *(name for name, _contents, _note in report['pictures']))
+
+
+def export_sheet_names(snapshot, *, matching, native=True, report_outputs=None, frame_outputs=None):
     """Plan the writer's visible names without rendering charts or writing cells."""
     from .excel_export import (
         group_show_wafer_sheet_title, sheet_title, stage_suffix)
@@ -12,18 +21,8 @@ def export_sheet_names(snapshot, *, matching, native=True):
     def add(title, suffix=''):
         names.append(sheet_title(title, used, suffix))
     def report_names(report, prefix=''):
-        suffix = report['suffix']
-        if report.get('kind') == 'dynamic' or any(name.startswith('Pivot ') for name in report['frames']):
-            add(prefix + 'Dynamic', suffix)
-        elif 'fullmap_parameters' in report:
-            add(prefix + 'FullMap', suffix)
-        else:
-            for name in report['frames']:
-                add(prefix + name, suffix)
-            for name in dict.fromkeys(plot['sheet'] for plot in report['plots']):
-                add(prefix + name, suffix)
-            for name, _contents, _note in report['pictures']:
-                add(prefix + name, suffix)
+        for name in report_sheet_bases(report):
+            add(prefix + name, report['suffix'])
     if not matching:
         report_names(snapshot)
         return names
@@ -38,7 +37,7 @@ def export_sheet_names(snapshot, *, matching, native=True):
             add('Match Group', suffix)
             shown = set(result.group_plan.state.get(
                 'show_wafer_groups', ()))
-            if shown.intersection(result.group_plan.group_keys):
+            if shown.intersection(result.group_plan.row_groups[row] for row in result.source_rows):
                 names.append(
                     group_show_wafer_sheet_title(used, suffix))
         add('Match Wafer', suffix)
@@ -57,17 +56,28 @@ def export_sheet_names(snapshot, *, matching, native=True):
         scope = f'map.{workbook.result_mode}'
         scopes.add(scope)
         frames = [name for name, _frame in stage_frames]
-        if any(report.get('scope') == scope for _prefix, report in reports) and 'FullMap' not in frames:
+        map_index = next((index for index, (_prefix, report) in enumerate(reports)
+                          if report.get('scope') == scope), None)
+        if map_index is not None and 'FullMap' not in frames:
             frames.append('FullMap')
-        for name in frames:
+        for index, name in enumerate(frames):
             add(sheet_title(name, set(), suffix))
+            if index < len(stage_frames) and frame_outputs is not None:
+                frame_outputs[workbook.result_mode, index] = names[-1]
+            if name == 'FullMap' and map_index is not None and report_outputs is not None:
+                report_outputs[map_index] = (names[-1],)
     if metrics_title:
         names.append(metrics_title)
-    for name, _frame in snapshot.get('extra_frames', ()):
+    for index, (name, _frame) in enumerate(snapshot.get('extra_frames', ())):
         add(name)
-    for prefix, report in reports:
+        if frame_outputs is not None:
+            frame_outputs[None, index] = names[-1]
+    for index, (prefix, report) in enumerate(reports):
         if report.get('scope') not in scopes:
+            start = len(names)
             report_names(report, prefix)
+            if report_outputs is not None:
+                report_outputs[index] = tuple(names[start:])
     return names
 
 

@@ -15,6 +15,32 @@ from tests.legacy_wkb import save_legacy
 
 
 class MatchWorkbookTests(unittest.TestCase):
+    def test_overall_card_can_fit_a_type1_group_and_evaluate_other_groups(self):
+        reference = pd.DataFrame({"CD Reference": [3., 5., 25., 30.]})
+        raw = pd.DataFrame({"CD": [1., 2., 3., 4.]})
+        book = MatchWorkbook(reference, raw, [ParameterMapping("CD", "CD Reference", "CD")],
+                             test_flags=pd.DataFrame({"TestFlag": ["1", "1", "0", "0"]}),
+                             grouping_state={"enabled": True},
+                             card_sources={"preview": {"mode": "group", "scope": ["group", "All:1"]}})
+        result = book.analyze()
+        self.assertAlmostEqual(result.card("CD").slope, 2.)
+        self.assertAlmostEqual(result.card("CD").intercept, 1.)
+        self.assertEqual(result.card("CD").valid_pairs, 2)
+        self.assertEqual(result.source_rows, (0, 1, 2, 3))
+        np.testing.assert_allclose(result.series("CD")["Bias"], [0, 0, -18, -21], atol=1e-12)
+        self.assertAlmostEqual(result.group_card("CD", "All:0").slope, 5.)
+        book.card_sources["preview"]["scope"] = ["group", "All:0"]
+        self.assertAlmostEqual(book.analyze(reuse=result).card("CD").slope, 5.)
+        book.card_sources["preview"]["scope"] = ["group", "removed-group"]
+        unavailable = book.analyze(reuse=result)
+        self.assertTrue(np.isnan(unavailable.card("CD").slope))
+        self.assertIn("CD", unavailable.card_issues)
+
+        book.card_sources["preview"].update(mode="manual", manual=[["CD", "CD Reference", "CD", 1.25, -2.]])
+        manual = book.analyze(reuse=result)
+        np.testing.assert_allclose(manual.series("CD")["Evaluated Value"], [-.75, .5, 1.75, 3.])
+        self.assertTrue(np.isnan(manual.card("CD").r_squared))
+
     def test_linked_stage_frames_bypass_map_snapshots_without_mutating_them(self):
         preview = self.raw().assign(CD_Bot=[40., 50., 60.])
         final = self.raw().assign(CD_Bot=[140., 150., 160.])

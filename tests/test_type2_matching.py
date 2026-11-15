@@ -26,6 +26,25 @@ def sources():
 
 
 class Type2MatchingTests(unittest.TestCase):
+    def test_type2_bias_uses_source_values_without_parameter_units(self):
+        ref, raw = sources()
+        ref = ref.rename(columns={"CD": "CD (um)"}).assign(SWA=ref["CD"])
+        mappings = [ParameterMapping("CD", "CD (um)", "CD"), ParameterMapping("SWA", "SWA", "CD")]
+        for stage, expected_bias in (("preview", [0, np.nan, 0, 0]), ("final", [-2, np.nan, -3, -4])):
+            with self.subTest(stage=stage):
+                book = MatchWorkbook(ref, raw, mappings, workbook_type="type2", matching_keys=KEYS,
+                                     result_mode=stage, final_match_raw=raw)
+                result = book.analyze()
+                self.assertEqual(result.summary["Bias unit"].tolist(), ["", ""])
+                self.assertEqual(result.plot_scope((0, 2, 3)).summary["Bias unit"].tolist(), ["", ""])
+                series = result.series("CD")
+                np.testing.assert_allclose(series["Reference"], [3, np.nan, 5, 7])
+                np.testing.assert_array_equal(series["Raw"], [1, 4, 2, 3])
+                np.testing.assert_allclose(series["Bias"], expected_bias, atol=1e-12)
+                np.testing.assert_allclose(series["Bias %"], 100 * series["Bias"] / series["Reference"])
+                pd.testing.assert_frame_equal(book.reference, ref)
+                pd.testing.assert_frame_equal(book.raw, raw)
+
     def test_matching_settings_collapse_frees_space_without_changing_analysis(self):
         from PyQt6.QtTest import QTest
         ref, raw = sources()
