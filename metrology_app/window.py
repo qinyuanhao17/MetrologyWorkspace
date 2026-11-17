@@ -2,6 +2,7 @@
 from copy import deepcopy
 from contextlib import contextmanager
 from pathlib import Path
+from math import isfinite
 
 import pandas as pd
 from PyQt6.QtCore import QEvent, QSignalBlocker, Qt, QTimer, QSize, pyqtSignal
@@ -277,7 +278,7 @@ class MainWindow(QMainWindow):
         if self.workspace_type == 'wafer_map' and getattr(self,'display_options',None) is not None:
             states['wafer_groups'] = self.display_options.snapshot(readonly=readonly)
         if getattr(self, "_participation_excluded", None):
-            states["workbook_participation"] = sorted(self._participation_excluded)
+            states["workbook_participation"] = {"excluded": sorted(self._participation_excluded)}
         states["data_selection"] = {
             "excluded": sorted(getattr(self, "_local_selection_excluded", set())),
             "follow_workbook": bool(getattr(self, "_workbook_selection_applies", True)),
@@ -291,6 +292,8 @@ class MainWindow(QMainWindow):
         if snapshot.workspace_type != self.workspace_type:
             raise ValueError("This WKB belongs to a different tool.")
         excluded = snapshot.states.get("workbook_participation", [])
+        if isinstance(excluded, dict):
+            excluded = excluded.get("excluded", [])
         if not isinstance(excluded, list) or any(not isinstance(key, str) for key in excluded):
             raise ValueError("Invalid Workbook participation state.")
         self._participation_excluded = set(excluded)
@@ -578,7 +581,10 @@ class MainWindow(QMainWindow):
 
     def set_parameter_cards(self, cards):
         """Offer the Match Workbook's parameter Cards as a Data-tab option."""
-        self.parameter_cards = dict(cards or {})
+        # An insufficient selected subset has no fitted Card. Keep its source
+        # measurements available without applying or persisting NaN coefficients.
+        self.parameter_cards = {name: card for name, card in (cards or {}).items()
+                                if all(isfinite(value) for value in card)}
         check = getattr(self, "card_check", None)
         if check is None:
             return

@@ -117,6 +117,7 @@ class CorrelationWindow(DataWorkspaceWindow):
         self.tabs.insertTab(0, self.reference_page, "1. Ref Data")
         self.reference_model.changed.connect(self.refresh_timer.start)
         self.reference_model.changed.connect(self._refresh_table_sizes)
+        self.reference_model.modelReset.connect(self._refresh_table_sizes)
         self.reference_model.metadata_locks_changed.connect(self.document.identity_timer.start)
         self.correlation_page = CorrelationPage()
         self.correlation_page.axes_changed.connect(self.document.identity_timer.start)
@@ -555,7 +556,9 @@ class CorrelationWindow(DataWorkspaceWindow):
             heading.addWidget(control)
         card_layout.addLayout(heading)
         card_layout.addWidget(self.reference_sheet, 1)
-        self.reference_footer = QLabel("Ref Data", objectName="hint")
+        self.reference_footer = QLabel("0 rows × 0 columns", objectName="hint")
+        self.reference_footer.setAccessibleName('Reference table dimensions')
+        self.reference_footer.setMinimumHeight(22)
         card_layout.addWidget(self.reference_footer)
         return card
 
@@ -712,7 +715,8 @@ class CorrelationWindow(DataWorkspaceWindow):
     def _populate_reference_choices(self):
         """Recognize Ref Data without borrowing Raw Data's selector widgets."""
         try:
-            frame = self.reference_model.frame()
+            frame = _reference_with_default_identity(
+                self.reference_model.frame(), _available_source_frame(self.raw_model))
         except ValueError:
             self.reference_measurements = []
             self.reference_wafer_list.clear()
@@ -723,6 +727,8 @@ class CorrelationWindow(DataWorkspaceWindow):
         reset = self._reset_reference_selection
         select_new_identity = reset or not self.reference_measurements
         previous_wafers = set(self.selected(self.reference_wafer_list))
+        previous_selected_rows = {row for measurement in self.reference_measurements
+                                  if measurement.key in previous_wafers for row in measurement.rows}
         previous_metrics = set(self.selected(self.reference_parameter_list))
         previous_numeric = {self.reference_parameter_list.topLevelItem(index).data(0, Qt.ItemDataRole.UserRole)
                             for index in range(self.reference_parameter_list.topLevelItemCount())
@@ -803,7 +809,8 @@ class CorrelationWindow(DataWorkspaceWindow):
             item.setCheckState(
                 0,
                 Qt.CheckState.Checked
-                if select_new_identity or measurement.key in previous_wafers
+                if (select_new_identity or measurement.key in previous_wafers
+                    or (measurement.rows and set(measurement.rows) <= previous_selected_rows))
                 else Qt.CheckState.Unchecked,
             )
             self.reference_wafer_list.addTopLevelItem(item)
@@ -1075,13 +1082,17 @@ class CorrelationWindow(DataWorkspaceWindow):
             self.sequence_page.compare_timer.stop()
 
     def _rebuild_source_analysis(self):
-        reference = _available_source_frame(self.reference_model)
+        raw_analysis = _available_source_frame(self.raw_model)
+        # A value-only Ref may become row-aligned after ordinary grid edits.
+        # Derive its default identity from the current Raw for analysis only;
+        # recognizing must not reload the literal table or clear its Undo.
+        reference = _reference_with_default_identity(
+            _available_source_frame(self.reference_model), raw_analysis)
         # Recognition and selector changes are read-only. Reloading this model
         # here used to overwrite edited identities and clear the undo history.
         if self.reference_model.literal_version is None:
             reference = reference.reset_index(drop=True).copy()
         # Parameter identity comes from its source tab, not the match alias.
-        raw_analysis = _available_source_frame(self.raw_model)
         if self.raw_model.literal_version is None:
             raw_analysis = raw_analysis.reset_index(drop=True).copy()
         source_column = SOURCE_COLUMN
@@ -1104,9 +1115,13 @@ class CorrelationWindow(DataWorkspaceWindow):
         self._workbook_sources = tuple(source for source in (
             {"name": "Reference", "color": REFERENCE_COLOR,
              "die_column": _first_column(reference, IDENTITY_COLUMNS[-1][1]),
+             "identity_columns": {aliases[0]: _first_column(reference, aliases)
+                                  for _target, aliases in IDENTITY_COLUMNS[:3]},
              "rows": tuple(range(split)), "keys": reference_keys},
             {"name": "Raw Data", "color": RAW_COLOR,
              "die_column": _first_column(raw_analysis, IDENTITY_COLUMNS[-1][1]),
+             "identity_columns": {aliases[0]: _first_column(raw_analysis, aliases)
+                                  for _target, aliases in IDENTITY_COLUMNS[:3]},
              "rows": tuple(range(split, len(self._analysis_frame))),
              "keys": raw_keys},
         ) if source["rows"])

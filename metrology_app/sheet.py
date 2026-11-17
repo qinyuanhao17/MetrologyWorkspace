@@ -146,10 +146,11 @@ class PasteReport:
 
 
 class CellEdit(QUndoCommand):
-    def __init__(self, model, changes, *, document_rows=None):
+    def __init__(self, model, changes, *, document_rows=None, before=None):
         super().__init__("Edit cells")
         self.model = model
-        self._before_cells = {cell: model.cells.get(cell, "") for cell in changes}
+        self._before_cells = ({cell: model.cells.get(cell, "") for cell in changes}
+                              if before is None else before)
         self._after_cells = changes
         self.before = MappingProxyType(self._before_cells)
         self.after = MappingProxyType(changes)
@@ -400,10 +401,16 @@ class SheetModel(QAbstractTableModel):
         if self.clipboard_locks:
             changes = {key: value for key, value in changes.items()
                        if self.cells.get((0, key[1]), "") not in self.clipboard_locks}
-        changes = {key: value for key, value in changes.items()
-                   if self.cells.get(key, "") != value}
+        # Capture each original value once; dense version-backed cells must
+        # otherwise traverse the same source columns again for the Undo step.
+        before, edited = {}, {}
+        for key, value in changes.items():
+            original = self.cells.get(key, "")
+            if original != value:
+                before[key], edited[key] = original, value
+        changes = edited
         if changes:
-            command = CellEdit(self, changes, document_rows=document_rows)
+            command = CellEdit(self, changes, document_rows=document_rows, before=before)
             before = MappingProxyType(command.before)
             self.undo.push(command)
             return before

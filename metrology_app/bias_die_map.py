@@ -116,7 +116,8 @@ def refresh_bias_map(owner, window, parameter):
     wafers = {(p.identity.wafer, p.identity.lot, p.identity.pad) for p in points if p.key in selected}
     context = tuple(p for p in points if (p.identity.wafer, p.identity.lot, p.identity.pad) in wafers)
     window.update_participation({f"source-row:{row}" for row in participation})
-    window.set_data(context, checked_keys=selected)
+    window.set_data(context, checked_keys=selected,
+                    selected_keys=window._selected_keys & {point.key for point in context})
     window.setWindowTitle(f"{parameter} — Out-of-range Die Map")
     window.empty.setText("No out-of-range points." if not selected else "No matching XY coordinates in mm. Load spectra or supply X (mm) / Y (mm).")
     missing = len(selected - {p.key for p in points})

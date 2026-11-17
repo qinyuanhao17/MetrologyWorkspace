@@ -1,7 +1,25 @@
 """Pure, positional Trend preparation shared by GUI and worker paths."""
 import numpy as np
 import pandas as pd
+import json
 from .data import number
+
+
+def _source_span_key(key, source, identity_values, positions):
+    """Match current physical identities across vendor headers; keep UI keys stable."""
+    original = key[1]
+    values = identity_values.get(source['name'])
+    if values is None:
+        return original
+    try:
+        columns, _values, run = json.loads(original)
+    except (TypeError, ValueError):
+        return original  # Classified Group spans keep their explicit order/identity.
+    aliases = {'waferid', 'wafer', 'waferno', 'lotid', 'lot', 'lotno', 'padname', 'pad'}
+    if any(''.join(c.lower() for c in str(column) if c.isalnum()) not in aliases for column in columns):
+        return original
+    identities = tuple(sorted({tuple(field[row] for field in values) for row in positions}))
+    return ('current-source-identity', identities, run)
 
 def prepare_sequence_groups(frame, selection, cells, wafer_column, die_column):
     """Append every measurement set to one axis; nothing is split off."""
@@ -24,6 +42,7 @@ def prepare_sequence_groups(frame, selection, cells, wafer_column, die_column):
     # Die Seq cells keep their existing missing-value semantics.
     die = np.arange(len(frame), dtype=float) + 2
     coordinate_labels = {}
+    identity_values = {}
     if sources:
         for source in sources:
             rows = np.asarray(source["rows"], dtype=int)
@@ -33,6 +52,12 @@ def prepare_sequence_groups(frame, selection, cells, wafer_column, die_column):
             else:
                 die[rows] = number(frame[column].iloc[rows]).to_numpy()
             coordinate_labels[source["name"]] = "Die Seq" if column is not None else "Row Number"
+            if source.get('identity_columns'):
+                identity_columns = source['identity_columns']
+                identity_values[source['name']] = tuple(
+                    frame[column].fillna('').astype(str).str.strip().to_numpy()
+                    if column is not None else np.full(len(frame), '', dtype=object)
+                    for column in (identity_columns.get(field) for field in ('waferid', 'lotid', 'padname')))
     elif die_column is not None:
         die = number(frame[die_column]).to_numpy()
     if sources and not selection.get("preserve_group_order"):
@@ -67,13 +92,16 @@ def prepare_sequence_groups(frame, selection, cells, wafer_column, die_column):
         source = source_by_key.get(key)
         # Ref and Raw are row-aligned tables. The same measurement must
         # occupy the same span in both sources, not overlap other wafers.
-        span_key = key[1] if source is not None else key
+        span_key = (_source_span_key(key, source, identity_values, source_positions)
+                    if source is not None and not selection.get('preserve_group_order') else
+                    key[1] if source is not None else key)
         if span_key not in spans:
             spans[span_key] = cursor
             cursor += len(ordered)
         start = spans[span_key]
         positions = np.arange(start, start + len(ordered), dtype=float)
-        wafer_id = next((wafer_values[row] for row in source_positions if wafer_values[row]), "")
+        current_wafer = identity_values[source['name']][0] if source and source['name'] in identity_values else wafer_values
+        wafer_id = next((current_wafer[row] for row in source_positions if current_wafer[row]), "")
         if not wafer_id:
             wafer_id = str(labels.get(key, key)).splitlines()[0]
         groups.append({"key": key, "wafer": wafer_id, "frame": ordered,

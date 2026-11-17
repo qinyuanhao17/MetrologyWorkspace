@@ -18,6 +18,51 @@ APP = QApplication.instance() or QApplication([])
 
 
 class CorrelationSourceIdentityTests(unittest.TestCase):
+    def test_corrected_vendor_identity_uses_current_three_wafer_spans(self):
+        from metrology_app.sequence_data import prepare_sequence_groups
+        raw = pd.DataFrame({'Wafer ID': ['W1'] * 3 + ['W2'] * 3 + ['W3'] * 3,
+                            'Lot ID': ['L'] * 9, 'Die Seq': [1, 2, 3] * 3,
+                            'CD': list(range(9))})
+        reference = raw.rename(columns={'Wafer ID': 'Wafer', 'Lot ID': 'Lot'}).copy()
+        reference['Wafer'] = ['Vendor1'] * 3 + ['Vendor2'] * 3 + ['Vendor3'] * 3
+        reference['Lot'] = ['Old1'] * 3 + ['Old2'] * 3 + ['Old3'] * 3
+        window = self.window
+        window.set_table(raw, 'Raw')
+        window.set_reference_table(reference)
+        window.reference_model.edit({(row + 1, column): str(raw.iloc[row, column])
+                                     for row in range(9) for column in (0, 1)})
+        window.recognize()
+        selection = window.sequence_page.selection
+        groups, extent = prepare_sequence_groups(window.sequence_page.frame, selection,
+            selection['available_cells'], window.sequence_page.wafer_column, window.sequence_page.die_column)
+        self.assertEqual(len({(g['start'], g['stop']) for g in groups}), 3)
+        self.assertEqual(extent, 9)
+        self.assertEqual({g['wafer'] for g in groups}, {'W1', 'W2', 'W3'})
+        window.reference_model.undo.undo()
+        window.recognize()
+        selection = window.sequence_page.selection
+        groups, _ = prepare_sequence_groups(window.sequence_page.frame, selection,
+            selection['available_cells'], window.sequence_page.wafer_column, window.sequence_page.die_column)
+        self.assertEqual(len({(g['start'], g['stop']) for g in groups}), 6)
+        window.reference_model.undo.redo()
+        window.recognize()
+        selection = window.sequence_page.selection
+        groups, _ = prepare_sequence_groups(window.sequence_page.frame, selection,
+            selection['available_cells'], window.sequence_page.wafer_column, window.sequence_page.die_column)
+        self.assertEqual(len({(g['start'], g['stop']) for g in groups}), 3)
+
+    def test_reference_dimensions_are_visible_and_follow_actual_pasted_extent(self):
+        window = self.window
+        window.set_reference_table(pd.DataFrame({'Wafer ID': ['W1'] * 3, 'CD': ['1', '2', '3']}))
+        window.show()
+        APP.processEvents()
+        self.assertTrue(window.reference_footer.isVisible())
+        self.assertEqual(window.reference_footer.text(), '3 rows × 2 columns')
+        window.reference_model.edit({(0, 2): 'Depth', (5, 2): '8.250000'})
+        self.assertEqual(window.reference_footer.text(), '5 rows × 3 columns')
+        window.reference_model.undo.undo()
+        self.assertEqual(window.reference_footer.text(), '3 rows × 2 columns')
+
     def setUp(self):
         self.window = CorrelationWindow()
         self.raw = pd.DataFrame({

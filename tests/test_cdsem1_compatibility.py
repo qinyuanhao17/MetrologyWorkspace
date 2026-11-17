@@ -14,6 +14,29 @@ def workbook(path, rows):
 
 
 class CDSEMCompatibilityTests(unittest.TestCase):
+    def test_results_and_pivot_preserve_absolute_xy_and_extra_source_fields_without_ids(self):
+        from metrology_app.reference_alignment import load_alignment_output
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = root / 'coordinates.xlsx'
+            workbook(source, [['ACD_No', 'MP_Name', 'Chip_X', 'Chip_Y', 'Result',
+                               'Wafer_X', 'Wafer_Y', 'Field_X', 'EdgeCenterPosX'],
+                              ['CD', 'MP1', '1', '0', '30.1000', '14379953.125',
+                               '-11037740', '11184953', '0.0012300'],
+                              ['CD', 'MP2', '1', '0', '31.2000', '14379954.125',
+                               '-11037741', '11184954', '0.0045600']])
+            result = merge_cdsem1([source], root)
+            flat = pd.read_csv(next(result.output_dir.glob('*_Results.csv')),
+                               dtype=str, keep_default_na=False)
+            wide = load_alignment_output(next(result.output_dir.glob('*.xlsx')))
+            for frame in (flat, wide):
+                self.assertEqual(frame['Wafer_ID'].tolist(), [''])
+                self.assertEqual(frame['MP1 / Wafer_X'].tolist(), ['14379953.125'])
+                self.assertEqual(frame['MP2 / Wafer_Y'].tolist(), ['-11037741'])
+                self.assertEqual(frame['MP1 / Field_X'].tolist(), ['11184953'])
+                self.assertEqual(frame['MP2 / EdgeCenterPosX'].tolist(), ['0.0045600'])
+            self.assertEqual(flat[['MP1', 'MP2']].values.tolist(), [['30.1000', '31.2000']])
+
     def test_optional_ids_are_independent_and_blank_coordinates_fail_in_both_formats(self):
         with TemporaryDirectory() as folder:
             root=Path(folder)
@@ -69,7 +92,9 @@ class CDSEMCompatibilityTests(unittest.TestCase):
             result=merge_cdsem1([source],root)
             output=next(result.output_dir.glob('*_Results.csv'))
             frame=pd.read_csv(output,dtype=str,keep_default_na=False,encoding='utf-8-sig')
-            self.assertEqual(list(frame.columns),COMMON+['mp-A','MP-b'])
+            self.assertEqual(list(frame.columns), COMMON + ['mp-A', 'MP-b'] +
+                [f'{mp} / {field}' for mp in ('mp-A', 'MP-b')
+                 for field in ('SourceRow', 'No', 'Wafer_X', 'Wafer_Y')])
             self.assertEqual(frame[['Lot_ID','Wafer_ID']].values.tolist(),[['','']])
             self.assertEqual(frame[['mp-A','MP-b']].values.tolist(),[['30.10','31.20']])
             from metrology_app.reference_alignment import load_alignment_output

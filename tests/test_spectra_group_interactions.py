@@ -9,6 +9,21 @@ from tests.test_spectra_viewer import APP, make_spectrum
 
 
 class SpectraGroupInteractionTests(unittest.TestCase):
+    def test_group_settings_flag_button_and_script_share_assignments(self):
+        from unittest.mock import patch
+        viewer, sources = self.viewer()
+        with patch.object(viewer, 'open_test_flags') as open_flags:
+            dialog = viewer.group_options.open_settings()
+            dialog.set_flags_button.click()
+            open_flags.assert_called_once()
+        viewer.set_test_flags({sources[0].key: 12, sources[1].key: -12})
+        controls = viewer.group_options.controls
+        script = controls.group_script()
+        viewer.set_test_flags({source.key: 0 for source in sources})
+        controls.apply_group_script(script)
+        controls.apply_button.click()
+        self.assertEqual(viewer.test_flags, {sources[0].key: 12, sources[1].key: -12})
+
     def test_click_point_then_enter_multi_digit_flag_and_reject_invalid_prefix(self):
         from PyQt6.QtCore import QPointF
         viewer, sources = self.viewer()
@@ -159,7 +174,7 @@ class SpectraGroupInteractionTests(unittest.TestCase):
         viewer.select_spectrum_keys(set())
         self.assertEqual(viewer.highlighted_keys, {sources[0].key})
         self.assertTrue(panel._emphasis_items)
-        self.assertEqual(panel._emphasis_items[0].opts['pen'].color().name(), '#ee3377')
+        self.assertEqual(panel._emphasis_items[0].core_pen.color().name(), '#ff3d00')
         self.assertEqual(tuple(panel._curve_items), items)
         self.assertEqual(panel.plot.getViewBox().viewRange(), bounds)
         draft = viewer.workspace_snapshot()

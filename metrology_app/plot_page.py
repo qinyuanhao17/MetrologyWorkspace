@@ -157,7 +157,7 @@ class PlotPage(QWidget):
         toolbar.insertWidget(toolbar.indexOf(self.copy_button) + 2, self.zoom)
         appearance.addWidget(QLabel("Font", objectName="muted"))
         self.font_size = QComboBox()
-        self.font_size.addItems(["8", "9", "10", "11", "12", "14", "16"])
+        self.font_size.addItems(["4", "5", "6", "7", "8", "9", "10", "11", "12", "14", "16"])
         self.font_size.setCurrentText(str(prefs.get("font_size", 10)))
         self.font_size.setFixedWidth(58)
         self.font_size.setToolTip("Base plot font size; tick labels stay two points smaller.")

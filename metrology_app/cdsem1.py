@@ -156,6 +156,7 @@ def pivot_cd_rows(rows: list[dict], sheet_name: str, source_name: str, *, source
             "source_rows": original if source_rows is None else source_rows,
             "input_rows": original, "unique_cd_rows": len(frame), "duplicates": duplicate_count,
             "sites": sites, "mps": mps, "mp_counts": counts,
+            "fields": tuple(frame.columns),
             "missing": missing}
 
 
@@ -274,7 +275,13 @@ def _write_workbook(path: Path, sheets):
 def export_cdsem1(book: dict, output_xlsx: Path, output_csv: Path, *, cancelled=None):
     check_cancel(cancelled)
     sites, mps = book['sites'], book['mps']
-    width = len(COMMON) + len(LOCAL) * len(mps)
+    fields = book['fields']
+    local = LOCAL + [field for field in fields if field not in COMMON + LOCAL + ['MP_Name']]
+    # MP coordinates can differ on the same chip. Keep their identities and
+    # literal values rather than choosing one MP's XY for every measurement.
+    details = [field for field in local if field in fields and field != 'Result']
+    compact_columns = COMMON + mps + [f'{mp} / {field}' for mp in mps for field in details]
+    width = len(COMMON) + len(local) * len(mps)
     if width > 16384:
         raise ValueError(f'Too many MP parameters for one XLSX: {width} columns')
     # Always preserve the requested two-level header: MP_Name over No and measurements.
@@ -282,10 +289,10 @@ def export_cdsem1(book: dict, output_xlsx: Path, output_csv: Path, *, cancelled=
     top[0] = 'COMMON'
     merges = [f'A1:{excel_column(len(COMMON))}1']
     for i, mp in enumerate(mps):
-        first = len(COMMON) + i*len(LOCAL)
+        first = len(COMMON) + i*len(local)
         top[first] = mp
-        merges.append(f'{excel_column(first+1)}1:{excel_column(first+len(LOCAL))}1')
-    secondary = COMMON + LOCAL*len(mps)
+        merges.append(f'{excel_column(first+1)}1:{excel_column(first+len(local))}1')
+    secondary = COMMON + local*len(mps)
 
     def wide_rows():
         yield top, ['']*width
@@ -296,18 +303,19 @@ def export_cdsem1(book: dict, output_xlsx: Path, output_csv: Path, *, cancelled=
             values = [first.get(col,'') for col in COMMON]
             for mp in mps:
                 rec = mp_rows.get(mp)
-                values.extend((rec.get(col,'') for col in LOCAL) if rec else ['']*len(LOCAL))
+                values.extend((rec.get(col,'') for col in local) if rec else ['']*len(local))
             yield values, secondary
 
     def compact_rows():
-        headers = COMMON + mps
+        headers = compact_columns
         yield headers, ['']*len(headers)
         for mp_rows in sites.values():
             check_cancel(cancelled)
             first = next(iter(mp_rows.values()))
             values = [first.get(col,'') for col in COMMON]
             values.extend(mp_rows.get(mp,{}).get('Result','') for mp in mps)
-            yield values, COMMON + ['Result']*len(mps)
+            values.extend(mp_rows.get(mp,{}).get(field,'') for mp in mps for field in details)
+            yield values, COMMON + ['Result']*len(mps) + details*len(mps)
 
     checks = [
         ['Check', 'Value', 'Notes'],
@@ -335,18 +343,19 @@ def export_cdsem1(book: dict, output_xlsx: Path, output_csv: Path, *, cancelled=
 
     _write_workbook(output_xlsx, [
         ('CD Pivot', wide_rows(), 2, width, merges, len(COMMON)),
-        ('CD Results', compact_rows(), 1, len(COMMON)+len(mps), [], 0),
+        ('CD Results', compact_rows(), 1, len(compact_columns), [], 0),
         ('Checks', checks_rows(), 1, 3, [], 0),
     ])
-    # Flat analysis CSV: a single header row, common fields + MP Result values.
-    columns = COMMON + mps
+    # Flat analysis CSV retains the same MP Result columns plus source details.
+    columns = compact_columns
     with output_csv.open('w', newline='', encoding='utf-8-sig') as stream:
         writer = csv.writer(stream)
         writer.writerow(columns)
         for mp_rows in sites.values():
             first = next(iter(mp_rows.values()))
             writer.writerow([first.get(c,'') for c in COMMON] +
-                            [mp_rows.get(mp,{}).get('Result','') for mp in mps])
+                            [mp_rows.get(mp,{}).get('Result','') for mp in mps] +
+                            [mp_rows.get(mp,{}).get(field,'') for mp in mps for field in details])
 
 
 def merge_cdsem1(files: list[str | Path], output_parent: str | Path,

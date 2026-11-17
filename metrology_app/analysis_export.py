@@ -143,7 +143,7 @@ def capture_saved_window(kind, frame, *, scope, saved, selection, workbook, para
                 window.set_table(frame.copy(deep=True), 'Saved analysis export')
                 ui['selection']['wafers'] = list(window.selection_state()['wafers'])
         window.set_workbook_participation(workbook)
-        snapshot.states['workbook_participation'] = sorted(window._participation_excluded)
+        snapshot.states['workbook_participation'] = {'excluded': sorted(window._participation_excluded)}
         snapshot.states.setdefault('data_selection', {})['hide_workbook_excluded'] = window._hide_workbook_excluded
         window.restore_workspace(snapshot)
         if kind == 'map':

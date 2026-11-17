@@ -293,13 +293,38 @@ def parse_sectioned(path: Path, vendor: str, cancelled=None) -> ParsedFile:
         nonlocal captured
         captured.extend(collector.finish(cancelled))
 
-    for line, cells in rows:
+    for row_index, (line, cells) in enumerate(rows):
         check_cancel(cancelled)
         if not any(cells):
             flush()
             continue
         header_found = is_kla_header(cells) if vendor == "KLA" else is_pmish_header(cells)
         if header_found:
+            if vendor == 'KLA':
+                end = len(cells)
+                while end and not cells[end - 1]:
+                    end -= 1
+                candidate = [column_name(cell, vendor) for cell in cells[:end]]
+                malformed = not all(candidate) or len(candidate) != len(set(candidate))
+                data_follows = False
+                if malformed:
+                    for i in range(row_index + 1, len(rows)):
+                        following = rows[i][1]
+                        if not any(following):
+                            continue
+                        if (is_kla_header(following) or metadata_pairs(following)
+                                or re.match(r'^\s*HEAD(?:ER)?(?:\s*\d+)?\s*$', following[0], re.I)):
+                            break
+                        if number_like(following[0]):
+                            data_follows = True
+                            break
+                # Offline settings can contain a Site # display/pass heading.
+                # A malformed candidate without following numeric site data is
+                # preamble, not a data block. Actual malformed tables still go
+                # through begin() and retain their HEADER issue.
+                if malformed and not data_follows:
+                    flush()
+                    continue
             flush()
             result.blocks += 1
             if vendor == "KLA":

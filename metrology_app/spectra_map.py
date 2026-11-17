@@ -3,14 +3,16 @@ from __future__ import annotations
 
 from collections import defaultdict
 import math
+from weakref import ref
 
 import numpy as np
 import pyqtgraph as pg
 from PyQt6.QtCore import QEvent, QTimer, Qt, pyqtSignal
 from PyQt6.QtCore import QRectF
-from PyQt6.QtGui import QColor, QPalette, QPainter, QPainterPath, QTransform
+from PyQt6.QtGui import QAction, QColor, QIcon, QKeySequence, QPalette, QPainter, QPainterPath, QPixmap, QTransform, QUndoCommand, QUndoStack
 from PyQt6.QtWidgets import (
     QAbstractScrollArea,
+    QApplication,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -29,9 +31,49 @@ from PyQt6.QtWidgets import (
 from .appearance import fit_window_to_screen, style_titlebar
 from .settings import apply_theme as apply_window_theme, get_settings, theme_stylesheet
 from .sme_spectra import SpectrumFile, natural_key
+from .spectra_plots import HIGHLIGHT_COLOR
 
 TILE_WIDTH, TILE_HEIGHT = 420, 496
 GRID_MARGIN, GRID_SPACING = 12, 12
+
+
+def _selection_history_icon(forward):
+    pixmap = QPixmap(40, 40)
+    pixmap.setDevicePixelRatio(2)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    if forward:
+        painter.translate(20, 0)
+        painter.scale(-1, 1)
+    painter.setPen(pg.mkPen('#737880', width=1.8))
+    path = QPainterPath()
+    path.moveTo(4, 8)
+    path.cubicTo(9, 3, 17, 5, 17, 11)
+    path.cubicTo(17, 15, 13, 17, 10, 16)
+    path.moveTo(4, 3)
+    path.lineTo(4, 8)
+    path.lineTo(9, 8)
+    painter.drawPath(path)
+    painter.end()
+    return QIcon(pixmap)
+
+
+class _DieSelectionEdit(QUndoCommand):
+    def __init__(self, window, before, after):
+        super().__init__('Select dies')
+        self.window, self.before, self.after = ref(window), frozenset(before), frozenset(after)
+
+    def _apply(self, keys):
+        window = self.window()
+        if window is not None:
+            window._apply_map_selection(keys)
+
+    def undo(self):
+        self._apply(self.before)
+
+    def redo(self):
+        self._apply(self.after)
 
 
 class _PointSelectionViewBox(pg.ViewBox):
@@ -182,6 +224,7 @@ class WaferPointPlot(QWidget):
         self._label_records: list[tuple[pg.TextItem, float, float, tuple[str, ...], str]] = []
         self.wafer_diameter = 300
         self._selected_keys: set[str] = set()
+        self._highlighted_keys: set[str] = set()
         self._spot_keys: list[tuple[str, ...]] = []
         self._checked_keys = set()
         self._participating_keys = None
@@ -306,13 +349,20 @@ class WaferPointPlot(QWidget):
                 state = "Out of range" if outlier else "Normal" if active else "Excluded"
                 color = "#dc2626" if outlier else "#3E8BD8" if active else "#D6D9DE"
             data = point.data()
-            if data.get("state") == state:
+            highlighted = bool(self._highlighted_keys.intersection(keys))
+            if data.get("state") == state and data.get('highlighted', False) == highlighted:
                 continue
-            data = {**data, "state": state}
+            data = {**data, "state": state, 'highlighted': highlighted}
             point.setData(data)
-            point.setBrush(pg.mkBrush(color))
-            point.setPen(pg.mkPen("#202020" if active else "#A8ADB5", width=.8))
+            point.setBrush(pg.mkBrush(HIGHLIGHT_COLOR if highlighted else color))
+            point.setPen(pg.mkPen('#202020' if active else '#A8ADB5', width=.8))
         self._update_summary()
+
+    def set_highlighted(self, keys):
+        keys = set(keys)
+        if keys != self._highlighted_keys:
+            self._highlighted_keys = keys
+            self.set_checked(self._checked_keys)
 
     def set_participating(self, keys):
         participating = None if keys is None else set(keys)
@@ -453,9 +503,12 @@ class SpectraMapWindow(QMainWindow):
         self._participating_keys = None
         self._test_flags = {}
         self._group_labels = {}
+        self._highlighted_keys = set()
         self._flag_values = [0, 1, -1]
         self._selected_keys: set[str] = set()
         self._source_signature = None
+        self.selection_history = QUndoStack(self)
+        self._edit_history_actions = {}
         self._context_wafer = None
         self.selection_menu_factory = None
         self._flag_input = ''
@@ -473,7 +526,7 @@ class SpectraMapWindow(QMainWindow):
         self._build_ui()
         self.apply_theme(self.palette())
         from .floating_editor import WindowPin
-        self.window_pin = WindowPin(self, pin_owner or parent)
+        self.window_pin = WindowPin(self, pin_owner or parent, raise_above_owner=False)
 
     def nativeEvent(self, event_type, message):
         result = self.window_pin.native_event(event_type, message) if hasattr(self, "window_pin") else None
@@ -494,6 +547,41 @@ class SpectraMapWindow(QMainWindow):
         controls.addWidget(title)
         self.summary_label = QLabel("0 wafers · 0 points", objectName="muted")
         controls.addWidget(self.summary_label)
+        controls.addStretch(1)
+        layout.addLayout(controls)
+        controls = QHBoxLayout()
+        for name, shortcut, create in (
+                ('undo', 'Ctrl+Z', self.selection_history.createUndoAction),
+                ('redo', 'Ctrl+Shift+Z', self.selection_history.createRedoAction)):
+            action = create(self, f'{name.title()} Selection')
+            self.addAction(action)
+            setattr(self, f'{name}_selection_action', action)
+            key_action = QAction(f'{name.title()} Selection', self)
+            key_action.setShortcut(QKeySequence(shortcut))
+            key_action.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            key_action.triggered.connect(lambda _=False, operation=name: self._selection_shortcut(operation))
+            self.addAction(key_action)
+            setattr(self, f'{name}_selection_shortcut_action', key_action)
+            button = QPushButton(objectName='subtle')
+            button.setIcon(_selection_history_icon(name == 'redo'))
+            button.setFixedSize(32, 32)
+            button.setAccessibleName(f'{name.title()} Selection')
+            button.setToolTip(f'{name.title()} Selection ({shortcut})')
+            button.setEnabled(action.isEnabled())
+            action.changed.connect(lambda a=action, b=button: b.setEnabled(a.isEnabled()))
+            button.clicked.connect(action.trigger)
+            setattr(self, f'{name}_selection_button', button)
+            controls.addWidget(button)
+        self.copy_select_button = QPushButton('Copy Select')
+        self.copy_select_button.clicked.connect(self.copy_selected_dies)
+        controls.addWidget(self.copy_select_button)
+        self.paste_select_button = QPushButton('Paste Select')
+        self.paste_select_button.clicked.connect(self.paste_selected_dies)
+        controls.addWidget(self.paste_select_button)
+        self.select_out_of_range_button = QPushButton('Select Out of Range')
+        self.select_out_of_range_button.setVisible(self._read_only)
+        self.select_out_of_range_button.clicked.connect(self.select_out_of_range)
+        controls.addWidget(self.select_out_of_range_button)
         controls.addStretch(1)
         layout.addLayout(controls)
         controls = QHBoxLayout()
@@ -608,6 +696,7 @@ class SpectraMapWindow(QMainWindow):
             self.update_checks(checked_keys, selected_keys=selected_keys)
             return
         self._source_signature = signature
+        self.selection_history.clear()
         self._spectra = spectra
         self._checked_keys = set(checked_keys)
         self._selected_keys = set(selected_keys)
@@ -660,6 +749,11 @@ class SpectraMapWindow(QMainWindow):
             for plot in self.wafer_plots.values():
                 plot.set_group_labels(labels)
 
+    def update_highlights(self, keys):
+        self._highlighted_keys = set(keys)
+        for plot in self.wafer_plots.values():
+            plot.set_highlighted(self._highlighted_keys)
+
     def select_spectrum_keys(self, keys):
         selected = {str(key) for key in keys}
         if selected != self._selected_keys:
@@ -675,8 +769,50 @@ class SpectraMapWindow(QMainWindow):
             keys = self._selected_keys ^ keys
         elif modifiers & Qt.KeyboardModifier.ShiftModifier:
             keys |= self._selected_keys
+        self._commit_map_selection(keys)
+
+    def _commit_map_selection(self, keys):
+        keys = set(keys) & {s.key for s in self._spectra if s.has_map_point}
+        if keys != self._selected_keys:
+            self.selection_history.push(_DieSelectionEdit(self, self._selected_keys, keys))
+
+    def set_edit_history_actions(self, undo, redo):
+        """Keep legacy report/flag actions; selection owns keys once it has history."""
+        self._edit_history_actions = {'undo': undo, 'redo': redo}
+        for action in self._edit_history_actions.values():
+            action.setShortcuts([])
+
+    def _selection_shortcut(self, operation):
+        if self.selection_history.count() or operation not in self._edit_history_actions:
+            getattr(self.selection_history, operation)()
+        else:
+            self._edit_history_actions[operation].trigger()
+
+    def _apply_map_selection(self, keys):
         self.select_spectrum_keys(keys)
-        self.spectra_selected.emit(keys)
+        self.spectra_selected.emit(set(keys))
+
+    def copy_selected_dies(self):
+        from .die_map_selection import export_selected_dies
+        QApplication.clipboard().setText(export_selected_dies(self._spectra, self._selected_keys))
+        self.statusBar().showMessage('Die selection copied (Wafer / Lot / PAD / Die).')
+
+    def paste_selected_dies(self):
+        from .die_map_selection import import_selected_dies
+        try:
+            keys, missing = import_selected_dies(self._spectra, QApplication.clipboard().text())
+        except ValueError as error:
+            self.statusBar().showMessage(str(error))
+            return
+        self._commit_map_selection(keys)
+        self.statusBar().showMessage(f'Selected {len(keys)} records; {missing} unmatched dies.')
+
+    def select_out_of_range(self):
+        if self._read_only:
+            keys = self._checked_keys
+            if self._participating_keys is not None:
+                keys = keys & self._participating_keys
+            self._commit_map_selection(keys)
 
     def mousePressEvent(self, event):
         child = self.childAt(event.position().toPoint())
@@ -869,6 +1005,7 @@ class SpectraMapWindow(QMainWindow):
                 checked_keys=self._checked_keys,
             )
             plot.set_test_flags(self._test_flags)
+            plot.set_highlighted(self._highlighted_keys)
             plot.set_group_labels(self._group_labels)
             plot.set_participating(self._participating_keys)
             index = len(self.wafer_plots)

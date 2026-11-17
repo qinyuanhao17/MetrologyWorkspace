@@ -1,0 +1,1781 @@
+wafer_map close seconds: 0.453697
+test_closing_changed_analysis_state_is_responsive_and_keeps_source (test_analysis_close_performance.AnalysisCloseTests) ... FAIL
+test_closing_during_noninterruptible_surface_work_does_not_wait_or_publish_late_results (test_analysis_close_performance.AnalysisCloseTests) ... ok
+wafer_map close seconds: 0.012035
+correlation_trend close seconds: 0.033103
+dynamic close seconds: 0.011352
+test_closing_unchanged_managed_analyses_is_responsive_and_keeps_source (test_analysis_close_performance.AnalysisCloseTests) ... ok
+test_dense_100k_by_33_presence_check_is_prompt_on_first_call (test_analysis_input_frame_fast.AnalysisInputPresenceTests) ... ok
+test_high_precision_strings_whitespace_and_internal_blank_rows (test_analysis_input_frame_fast.AnalysisInputPresenceTests) ... ok
+test_object_scalars_and_typed_missing_values_keep_original_presence_rules (test_analysis_input_frame_fast.AnalysisInputPresenceTests) ... ok
+test_random_literal_and_scalar_frames_match_original_mask_exactly (test_analysis_input_frame_fast.AnalysisInputPresenceTests) ... ok
+test_ref_and_raw_correlation_pair_colors_survive_swapping_axes (test_analysis_plot_style.AnalysisPlotStyleTests) ... ok
+test_standalone_correlation_has_workbook_blue_points_and_orange_fit_in_export_too (test_analysis_plot_style.AnalysisPlotStyleTests) ... ok
+test_standalone_trend_and_comparison_share_workbook_point_and_line_style (test_analysis_plot_style.AnalysisPlotStyleTests) ... ok
+test_trend_sources_and_comparisons_use_only_colors_not_shapes_or_dashes (test_analysis_plot_style.AnalysisPlotStyleTests) ... ok
+test_contour_lines_and_point_outline (test_array.ArrayTests) ... ok
+test_duplicates_rejected_without_averaging (test_array.ArrayTests) ... ok
+test_geometry_mask_validation_and_cancellation (test_array.ArrayTests) ... ok
+test_independent_scale_is_default (test_array.ArrayTests) ... ok
+test_large_font_keeps_outer_labels_inside_the_canvas (test_array.ArrayTests) ... ok
+test_manual_colour_scale_limits (test_array.ArrayTests) ... ok
+test_map_array_omits_interpolation_footer (test_array.ArrayTests) ... ok
+test_map_opacity_option (test_array.ArrayTests) ... ok
+test_missing_metric_keeps_array_cell (test_array.ArrayTests) ... ok
+test_only_selected_cells_are_computed (test_array.ArrayTests) ... ok
+test_order_and_shared_scale (test_array.ArrayTests) ... ok
+test_palette_range_bar_changes_the_colours (test_array.ArrayTests) ... ok
+test_adding_a_parameter_waits_for_a_fresh_map_selection (test_array.PlotWorkspaceTests) ... ok
+test_canvas_shrinks_to_the_drawn_boxes (test_array.PlotWorkspaceTests)
+A sub-block selection must not leave the rest of the array as blank canvas. ... ok
+test_changed_selection_discards_first_stale_job_then_refreshes_last_draw (test_array.PlotWorkspaceTests) ... ok
+test_changing_map_boxes_waits_for_the_draw_click (test_array.PlotWorkspaceTests) ... ok
+test_checkbox_toggles_repaint_without_a_full_draw (test_array.PlotWorkspaceTests)
+Qt overlays and colour changes reuse surfaces, without a Matplotlib draw. ... ok
+test_compact_layout_and_simple_column_names (test_array.PlotWorkspaceTests) ... ok
+test_explicit_view_restore_wins_over_deferred_canvas_resize (test_array.PlotWorkspaceTests)
+A late canvas settling pass cannot recenter a restored user view. ... ok
+test_map_array_click_drag_and_ctrl_selection (test_array.PlotWorkspaceTests) ... ok
+test_option_redraw_keeps_the_view (test_array.PlotWorkspaceTests)
+Toggling Fill edge must not resize, rescale or scroll the canvas. ... ok
+test_real_csv_auto_groups_all_measurements (test_array.PlotWorkspaceTests) ... ok
+test_render_selected_and_full_export (test_array.PlotWorkspaceTests) ... ok
+test_replacing_data_after_first_draw_refreshes_maps_without_selector (test_array.PlotWorkspaceTests) ... ok
+test_restored_map_draw_state_redraws_without_draw_click (test_array.PlotWorkspaceTests) ... ok
+test_row_titles_do_not_collide_at_large_fonts (test_array.PlotWorkspaceTests)
+A row's three-line title must stay clear of the row above's axis label. ... ok
+test_saved_color_range_is_restored (test_array.PlotWorkspaceTests) ... ok
+test_selector_guidance_uses_control_tooltips_not_inline_hint_rows (test_array.PlotWorkspaceTests) ... ok
+test_toolbar_rows_fit_the_smallest_window (test_array.PlotWorkspaceTests)
+No toolbar label may be squeezed, overlapped or clipped at 1180 x 760. ... ok
+test_correlation_background_matches_full_lmfit_arrays_and_precision (test_async_analysis_refresh.BackgroundPlotTests) ... ok
+test_deferred_draw_can_be_finished_or_cancelled_before_submission (test_async_analysis_refresh.BackgroundPlotTests) ... ok
+test_edit_during_trend_batch_rejects_partial_old_grid (test_async_analysis_refresh.BackgroundPlotTests) ... ok
+test_input_invalidation_discards_partial_widget_references (test_async_analysis_refresh.BackgroundPlotTests) ... ok
+test_refreshed_correlation_reuses_qualified_panels_and_swaps_the_current_fit (test_async_analysis_refresh.BackgroundPlotTests) ... ok
+test_trend_yields_between_panels_and_preserves_full_arrays_and_nan (test_async_analysis_refresh.BackgroundPlotTests) ... ok
+test_two_source_background_keeps_source_pairs_order_and_nan_filtering (test_async_analysis_refresh.BackgroundPlotTests) ... ok
+test_blocked_old_work_does_not_block_gui_and_only_latest_publishes (test_async_analysis_refresh.LatestTaskTests) ... ok
+test_cancel_rejects_even_a_completed_queued_result (test_async_analysis_refresh.LatestTaskTests) ... ok
+test_close_does_not_wait_for_library_call_or_publish_later (test_async_analysis_refresh.LatestTaskTests) ... ok
+test_capture_before_first_queued_refresh_uses_current_workbook_input (test_async_analysis_refresh.LinkedSourceRefreshTests) ... ok
+test_child_manual_edit_is_never_overwritten_by_a_prepared_result (test_async_analysis_refresh.LinkedSourceRefreshTests) ... ok
+test_closed_child_cannot_receive_prepared_sources (test_async_analysis_refresh.LinkedSourceRefreshTests) ... ok
+test_edit_then_immediate_undo_releases_the_current_source_and_plots (test_async_analysis_refresh.LinkedSourceRefreshTests) ... ok
+test_group_change_supersedes_inflight_original_order (test_async_analysis_refresh.LinkedSourceRefreshTests) ... ok
+test_invalid_stage_cancels_the_previous_generation_without_publishing (test_async_analysis_refresh.LinkedSourceRefreshTests) ... ok
+test_latest_edit_and_undo_redo_win_while_gui_keeps_processing (test_async_analysis_refresh.LinkedSourceRefreshTests) ... ok
+test_linked_update_does_not_flash_the_data_tab (test_async_analysis_refresh.LinkedSourceRefreshTests) ... ok
+test_recovery_during_pending_refresh_keeps_independent_raw_draft (test_async_analysis_refresh.LinkedSourceRefreshTests) ... ok
+test_recovery_during_pending_refresh_keeps_latest_link_and_manual_reference (test_async_analysis_refresh.LinkedSourceRefreshTests) ... ok
+test_save_during_pending_preparation_captures_current_source (test_async_analysis_refresh.LinkedSourceRefreshTests) ... ok
+test_stage_change_supersedes_inflight_preview_preparation (test_async_analysis_refresh.LinkedSourceRefreshTests) ... ok
+test_background_cells_match_normal_load_including_precision_and_blanks (test_async_analysis_refresh.PreparedSheetTests) ... ok
+test_mismatched_prepared_frame_cannot_replace_current_load_or_undo (test_async_analysis_refresh.PreparedSheetTests) ... ok
+test_worker_metadata_caches_cannot_reorder_or_retain_gui_entries (test_async_analysis_refresh.PreparedSheetTests) ... ok
+test_missing_to_populated_source_rebuilds_the_required_graphics (test_async_analysis_refresh.RadiusRefreshTests) ... ok
+test_reused_input_container_cannot_hide_a_changed_coordinate_or_value (test_async_analysis_refresh.RadiusRefreshTests) ... ok
+test_same_roles_reuse_graphics_with_exactly_the_fresh_render (test_async_analysis_refresh.RadiusRefreshTests) ... ok
+test_pending_source_cannot_publish_old_map_or_export_after_style_change (test_async_analysis_refresh.SourcePauseTests) ... ok
+test_bounds_and_modes_report_errors_without_changing_source (test_auto_weighting.WriterDataTests) ... ok
+test_duplicate_in_single_screenshot_is_rejected_atomically (test_auto_weighting.WriterDataTests) ... ok
+test_empty_value_does_not_erase_existing_value (test_auto_weighting.WriterDataTests) ... ok
+test_excel_preserves_literal_formula_and_marks_missing_collection (test_auto_weighting.WriterDataTests) ... ok
+test_merge_overlapping_rows_and_keep_conflicting_candidates (test_auto_weighting.WriterDataTests) ... ok
+test_overlap_anchors_keep_name_ocr_disagreement_as_conflict_not_duplicate_row (test_auto_weighting.WriterDataTests) ... ok
+test_preserves_precision_minus_and_visible_blank (test_auto_weighting.WriterDataTests) ... ok
+test_resolving_conflict_uses_chosen_source_and_keeps_history (test_auto_weighting.WriterDataTests) ... ok
+test_reverse_order_overlap_is_not_silently_merged (test_auto_weighting.WriterDataTests) ... ok
+test_roundtrip_keeps_sources_edits_evidence_and_conflicts (test_auto_weighting.WriterDataTests) ... ok
+test_validation_never_executes_or_repairs_expression (test_auto_weighting.WriterDataTests) ... ok
+test_blank_is_not_ocr_hallucination_and_zero_is_not_blank (test_auto_weighting_ocr.GridTests) ... ok
+test_gray_headers_do_not_merge_with_first_parameter_row (test_auto_weighting_ocr.GridTests) ... ok
+test_missing_model_does_not_try_download (test_auto_weighting_ocr.GridTests) ... ok
+test_non_table_and_invalid_image_fail_actionably (test_auto_weighting_ocr.GridTests) ... ok
+test_only_closed_mode_vocabulary_is_normalized (test_auto_weighting_ocr.GridTests) ... ok
+test_real_bundled_recognizer_works_with_network_and_downloads_forbidden (test_auto_weighting_ocr.GridTests) ... [INFO] 2026-11-17 01:36:45,374 [RapidOCR] base.py:23: Using engine_name: onnxruntime
+[INFO] 2026-11-17 01:36:45,472 [RapidOCR] main.py:63: Using D:\WaferMap\.venv\lib\site-packages\rapidocr\models\PP-OCRv6_rec_small.onnx
+ok
+test_background_ocr_applies_only_after_review_dialog_acceptance (test_auto_weighting_window.WriterWindowTests) ... ok
+test_cancel_close_keeps_edited_table (test_auto_weighting_window.WriterWindowTests) ... ok
+test_cancelling_background_ocr_preserves_sources_and_existing_table (test_auto_weighting_window.WriterWindowTests) ... ok
+test_clipboard_paste_keeps_image_as_source_without_recognizing_manually (test_auto_weighting_window.WriterWindowTests) ... ok
+test_close_during_ocr_waits_for_cooperative_cancellation (test_auto_weighting_window.WriterWindowTests) ... ok
+test_conflict_resolution_is_explicit_and_undoable (test_auto_weighting_window.WriterWindowTests) ... ok
+test_edit_copy_undo_and_review_preserve_decimal_text (test_auto_weighting_window.WriterWindowTests) ... ok
+test_failed_batch_merge_does_not_partially_apply (test_auto_weighting_window.WriterWindowTests) ... ok
+test_guidance_does_not_take_the_table_height (test_auto_weighting_window.WriterWindowTests) ... ok
+test_inspecting_during_a_model_reset_tolerates_a_stale_index (test_auto_weighting_window.WriterWindowTests) ... ok
+test_registered_as_independent_tool (test_auto_weighting_window.WriterWindowTests) ... ok
+test_workspace_roundtrip_keeps_screenshot_and_literal_strings (test_auto_weighting_window.WriterWindowTests) ... ok
+test_closed_deferred_spectra_supply_metadata_coordinates_without_opening_viewer (test_bias_die_map.BiasDieMapTests) ... ok
+test_coordinate_join_uses_identity_not_filename_and_rejects_missing_or_ambiguous_xy (test_bias_die_map.BiasDieMapTests) ... ok
+test_data_selection_excluded_gray_outlier_red_normal_blue_and_incremental_refresh (test_bias_die_map.BiasDieMapTests) ... ok
+test_mapping_button_uses_strict_absolute_bias_and_reuses_the_map_on_limit_changes (test_bias_die_map.BiasDieMapTests) ... ok
+test_tree_headers_sort_numeric_fields_and_double_click_restores_default (test_bias_die_map.BiasDieMapTests) ... ok
+test_calibrated_stage_reads_original_columns_for_swapped_aliases_and_shared_inputs (test_case_switching.CaseSwitchingTests) ... ok
+test_cut_after_offset_paste_restores_extent_on_undo_and_keeps_original_blank_rows (test_case_switching.CaseSwitchingTests) ... ok
+test_duplicate_ref_headers_do_not_prevent_valid_raw_only_plots (test_case_switching.CaseSwitchingTests) ... ok
+test_failed_child_refresh_is_not_remembered_as_success (test_case_switching.CaseSwitchingTests) ... Could not refresh the preview map window: Synthetic transient failure
+ok
+test_floating_raw_has_no_native_transient_owner_and_closes_with_workbook (test_case_switching.CaseSwitchingTests) ... ok
+test_linked_map_retains_mapped_raw_column_and_literal_values (test_case_switching.CaseSwitchingTests) ... ok
+test_manual_ref_wafer_selection_draws_mixed_numeric_values_after_identity_paste (test_case_switching.CaseSwitchingTests) ... ok
+test_match_fit_equation_and_r_squared_support_selection_and_copy (test_case_switching.CaseSwitchingTests) ... ok
+test_ordinary_paste_of_different_cases_keeps_open_linked_sources_complete (test_case_switching.CaseSwitchingTests) ... ok
+test_original_raw_column_uses_its_mapping_card_and_restores_without_changing_literals (test_case_switching.CaseSwitchingTests) ... ok
+test_pasting_raw_identity_into_incomplete_ref_enables_ref_plots (test_case_switching.CaseSwitchingTests) ... ok
+test_reference_identity_auto_detection_does_not_reset_an_explicit_empty_group_choice (test_case_switching.CaseSwitchingTests) ... ok
+test_same_named_ref_raw_can_analyze_after_an_intermediate_incompatible_case (test_case_switching.CaseSwitchingTests) ... ok
+test_shorter_ref_with_explicit_identity_can_draw_without_a_row_count_gate (test_case_switching.CaseSwitchingTests) ... ok
+test_single_column_numeric_clipboard_does_not_run_delimiter_inference (test_case_switching.CaseSwitchingTests) ... ok
+test_user_source_column_does_not_block_reference_and_raw_plots (test_case_switching.CaseSwitchingTests) ... ok
+test_wrong_offset_paste_cut_and_correct_paste_does_not_leave_phantom_rows (test_case_switching.CaseSwitchingTests) ... ok
+test_conflicts_multi_wafer_and_per_file_isolation (test_cdsem1_compatibility.CDSEMCompatibilityTests) ... ok
+test_main_vendor_command_uses_the_existing_summary_engine (test_cdsem1_compatibility.CDSEMCompatibilityTests) ... ok
+test_optional_ids_are_independent_and_blank_coordinates_fail_in_both_formats (test_cdsem1_compatibility.CDSEMCompatibilityTests) ... ok
+test_pivot_requires_coordinates_but_not_wafer_or_lot (test_cdsem1_compatibility.CDSEMCompatibilityTests) ... ok
+test_results_and_pivot_preserve_absolute_xy_and_extra_source_fields_without_ids (test_cdsem1_compatibility.CDSEMCompatibilityTests) ... ok
+test_single_wafer_without_ids_preserves_names_and_output_shape (test_cdsem1_compatibility.CDSEMCompatibilityTests) ... ok
+test_clipboard_and_xlsx (test_core.DataTests) ... ok
+test_difference_matches_coordinates_not_row_order (test_core.DataTests) ... ok
+test_invalid_values_and_duplicates (test_core.DataTests) ... ok
+test_real_csv_layers (test_core.DataTests) ... ok
+test_axes_colorbar_constant_and_rotation (test_core.PlotTests) ... ok
+test_circle_mask_and_optional_edge_fill (test_core.PlotTests) ... ok
+test_collinear_coordinates_rejected (test_core.PlotTests) ... ok
+test_common_mm_wafer_sizes_are_inferred (test_core.PlotTests) ... ok
+test_dense_value_labels_are_thinned_without_overlap (test_core.PlotTests) ... ok
+test_edge_continuation_does_not_saturate_to_extreme (test_core.PlotTests) ... ok
+test_mirrored_edge_keeps_the_radial_trend (test_core.PlotTests) ... ok
+test_multi_parameter_interpolation_matches_individual_results (test_core.PlotTests) ... ok
+test_shared_solve_keeps_smoothing_per_parameter (test_core.PlotTests) ... ok
+test_add_compare_creates_multiple_combo_rows_without_hiding_base_panels (test_correlation.CorrelationTests) ... ok
+test_all_passing_correlation_pages_can_be_exported (test_correlation.CorrelationTests) ... ok
+test_box_changes_wait_for_draw_but_only_data_edits_refresh_on_all_pages (test_correlation.CorrelationTests) ... ok
+test_box_selection_narrows_the_fits (test_correlation.CorrelationTests)
+Boxes choose which columns and measurement sets a fit is built from. ... ok
+test_compare_combo_wheel_switch_is_debounced_and_keeps_row (test_correlation.CorrelationTests) ... ok
+test_copy_png_leaves_the_overlay_control_out_of_the_image (test_correlation.CorrelationTests) ... ok
+test_correlation_copy_uses_the_interactive_grid_and_cache (test_correlation.CorrelationTests) ... ok
+test_die_seq_plot_uses_real_missing_sequence_numbers (test_correlation.CorrelationTests)
+The curve is continuous; wafers are appended and labelled below the axis. ... ok
+test_export_figure_mirrors_the_overlay_and_keeps_wafer_labels (test_correlation.CorrelationTests) ... ok
+test_first_cell_paste_auto_selects_numeric_columns (test_correlation.CorrelationTests) ... ok
+test_fit_report_bookkeeping_columns_are_not_parameters (test_correlation.CorrelationTests)
+A SME fit report carries OCD model parameters among its bookkeeping. ... ok
+test_forced_single_axis_labels_mixed_units_on_screen_and_export (test_correlation.CorrelationTests) ... ok
+test_interactive_grid_zooms_one_plot_and_resets (test_correlation.CorrelationTests)
+Page scrolling wins unless Ctrl explicitly requests plot zoom. ... ok
+test_interactive_grids_fit_their_selected_columns (test_correlation.CorrelationTests)
+Configured plot columns stay fully visible and keep readable light panel chrome. ... ok
+test_invalid_pairs_are_skipped (test_correlation.CorrelationTests) ... ok
+test_large_parameter_lists_draw_only_the_selected_boxes (test_correlation.CorrelationTests) ... ok
+test_large_ref_raw_parameter_lists_keep_cross_correlations_and_trend_sources (test_correlation.CorrelationTests) ... ok
+test_large_trend_export_fonts_keep_titles_and_wafer_metadata_in_separate_rows (test_correlation.CorrelationTests) ... ok
+test_legacy_single_compare_setting_is_normalised_to_a_list (test_correlation.CorrelationTests) ... ok
+test_legacy_workbook_raw_draw_aliases_restore_as_source_column_names (test_correlation.CorrelationTests) ... ok
+test_lmfit_pair_and_rsq_sorting (test_correlation.CorrelationTests) ... ok
+test_loading_a_regular_table_leaves_workbook_source_mode (test_correlation.CorrelationTests) ... ok
+test_mapping_refresh_keeps_unchanged_raw_selection_and_original_reference_names (test_correlation.CorrelationTests) ... ok
+test_missing_die_sequence_numbers_stay_real (test_correlation.CorrelationTests) ... ok
+test_module_specific_defaults_for_new_table (test_correlation.CorrelationTests) ... ok
+test_more_than_forty_correlation_columns_keep_every_fit_and_paginate (test_correlation.CorrelationTests) ... ok
+test_more_than_sixteen_selected_columns_can_be_drawn (test_correlation.CorrelationTests) ... ok
+test_more_than_thirty_trend_parameters_keep_every_curve_and_source_value (test_correlation.CorrelationTests) ... ok
+test_multiple_different_units_receive_multiple_linked_y_axes (test_correlation.CorrelationTests) ... ok
+test_multiple_parameter_overlay_uses_additional_axes_and_new_colours (test_correlation.CorrelationTests) ... ok
+test_overlay_keeps_all_panels_and_adds_two_axes_to_primary (test_correlation.CorrelationTests) ... ok
+test_overlay_uses_the_same_measurement_sets_for_both_parameters (test_correlation.CorrelationTests) ... ok
+test_panel_borders_are_draggable_and_drag_zooms (test_correlation.CorrelationTests)
+Dragging a panel boundary resizes it; dragging inside a plot box-zooms. ... ok
+test_panel_heading_owns_its_space_above_the_plot (test_correlation.CorrelationTests)
+The two-line heading must not print over the plotting area. ... ok
+test_parameter_changes_select_every_box_and_wait_for_draw_on_all_pages (test_correlation.CorrelationTests) ... ok
+test_partial_correlation_page_keeps_the_full_page_panel_size (test_correlation.CorrelationTests)
+A short final page leaves empty cells instead of stretching its plots. ... ok
+test_passing_correlation_fits_are_paginated_without_truncation (test_correlation.CorrelationTests) ... ok
+test_plot_guidance_uses_control_tooltips_not_inline_hint_rows (test_correlation.CorrelationTests) ... ok
+test_ref_and_raw_tabs_have_independent_real_wafer_choices (test_correlation.CorrelationTests) ... ok
+test_ref_data_table_offers_auto_rename_for_duplicate_headers (test_correlation.CorrelationTests) ... ok
+test_remove_compare_keeps_one_panel_per_parameter (test_correlation.CorrelationTests) ... ok
+test_same_unit_distant_scales_use_auto_second_axis (test_correlation.CorrelationTests)
+The automatic ratio threshold can split distant same-unit curves. ... ok
+test_separate_panel_mode_still_renders_one_widget_per_parameter (test_correlation.CorrelationTests) ... ok
+test_single_trend_stays_compact_when_the_window_is_taller (test_correlation.CorrelationTests)
+A lone Trend leaves space below instead of filling the whole page. ... ok
+test_source_compare_setting_restores_table_and_parameter_pairs (test_correlation.CorrelationTests) ... ok
+test_standalone_ref_and_raw_tabs_build_row_aligned_source_plots (test_correlation.CorrelationTests) ... ok
+test_toolbars_fit_the_smallest_window (test_correlation.CorrelationTests)
+No toolbar control may be overlapped or clipped at the 1180 x 760 minimum. ... ok
+test_trend_auto_range_keeps_tight_x_extent_and_visible_right_frame (test_correlation.CorrelationTests)
+Auto Range must not restore side gaps or collapse the right plot border. ... ok
+test_trend_axis_mode_and_decimal_ratio_are_saved (test_correlation.CorrelationTests)
+Both the mode and decimal threshold follow saved selections. ... ok
+test_trend_box_selection_limits_the_curve (test_correlation.CorrelationTests)
+Boxes choose which parameters and measurement sets a curve is drawn from. ... ok
+test_trend_copy_stays_pasteable_for_a_tall_array (test_correlation.CorrelationTests)
+Copying fifteen curves must not build a 160 megapixel image. ... ok
+test_trend_filter_and_columns_keep_compact_rows_without_replacing_curves (test_correlation.CorrelationTests)
+Fewer visible Trends leave spare space; more Trends scroll below. ... ok
+test_trend_overlay_control_is_disabled_without_a_second_parameter (test_correlation.CorrelationTests) ... ok
+test_trend_overlay_control_sits_beside_the_plot (test_correlation.CorrelationTests) ... ok
+test_trend_page_keeps_its_scroll_position_when_a_comparison_is_added (test_correlation.CorrelationTests)
+Adding a comparison must not throw the panel list back to the top. ... ok
+test_trend_right_click_keeps_native_plot_options_only (test_correlation.CorrelationTests) ... ok
+test_trend_wafer_labels_fit_visible_spans_and_restore_metadata_on_zoom (test_correlation.CorrelationTests) ... ok
+test_window_reuses_data_tab_and_draws_ranked_array (test_correlation.CorrelationTests) ... ok
+test_workbook_compare_keeps_source_parameter_labels_and_base_colours (test_correlation.CorrelationTests) ... ok
+test_workbook_raw_parameter_keeps_its_tab_name_in_select_and_compare (test_correlation.CorrelationTests) ... ok
+test_workbook_selection_state_restores_and_redraws_both_pages (test_correlation.CorrelationTests) ... ok
+test_workbook_sources_use_distinct_correlation_pair_colours (test_correlation.CorrelationTests) ... ok
+test_workbook_trend_appends_wafers_with_real_die_labels_and_tight_limits (test_correlation.CorrelationTests) ... ok
+test_workbook_trend_compacts_drawn_spans_and_aligns_partial_source_compare (test_correlation.CorrelationTests) ... ok
+test_copy_png_does_not_include_axis_controls_and_restores_them (test_correlation_axes.CorrelationAxisTests) ... ok
+test_direction_survives_parameter_filter_reordering_and_new_measurements (test_correlation_axes.CorrelationAxisTests) ... ok
+test_one_plot_switches_axes_and_export_without_replacing_other_plots_or_source (test_correlation_axes.CorrelationAxisTests) ... ok
+test_reference_direction_is_independent_and_survives_formal_save_and_open (test_correlation_axes.CorrelationAxisTests) ... ok
+test_reversed_direction_refits_same_paired_points_not_reciprocal_slope (test_correlation_axes.CorrelationAxisTests) ... ok
+test_saved_direction_does_not_force_drawing_a_pending_selection (test_correlation_axes.CorrelationAxisTests) ... ok
+test_batch_matches_lmfit_for_noisy_scaled_nan_and_outlier_data (test_correlation_batch_ols.CorrelationBatchOlsTests) ... ok
+test_ill_conditioned_offset_keeps_the_existing_solver (test_correlation_batch_ols.CorrelationBatchOlsTests) ... ok
+test_large_source_selections_keep_pairing_and_do_not_reuse_stale_moments (test_correlation_batch_ols.CorrelationBatchOlsTests) ... ok
+test_many_well_scaled_pairs_do_not_restart_an_iterative_solver (test_correlation_batch_ols.CorrelationBatchOlsTests) ... ok
+test_repeated_batch_pairs_share_only_immutable_owned_vectors (test_correlation_batch_ols.CorrelationBatchOlsTests) ... ok
+test_single_pair_public_api_still_uses_lmfit (test_correlation_batch_ols.CorrelationBatchOlsTests) ... ok
+test_small_batch_retains_exact_legacy_results (test_correlation_batch_ols.CorrelationBatchOlsTests) ... ok
+test_complete_scaled_population_matches_independent_centered_svd (test_correlation_common_population.CommonPopulationFitTests) ... ok
+test_constant_and_badly_conditioned_columns_keep_legacy_solver_results (test_correlation_common_population.CommonPopulationFitTests) ... ok
+test_nan_and_different_parameter_selections_keep_paired_cleanup (test_correlation_common_population.CommonPopulationFitTests) ... ok
+test_shared_selected_rows_keep_duplicates_and_source_order (test_correlation_common_population.CommonPopulationFitTests) ... ok
+test_source_populations_and_cross_source_row_alignment_stay_independent (test_correlation_common_population.CommonPopulationFitTests) ... ok
+test_groups_and_flags_survive_standalone_round_trip_with_the_master_disabled (test_correlation_group_options.CorrelationGroupOptionsTests) ... ok
+test_local_heads_apply_and_master_switch_restores_normal_order_without_changing_sources (test_correlation_group_options.CorrelationGroupOptionsTests) ... ok
+test_opening_settings_without_edits_is_view_only_and_replacement_does_not_reuse_flags_by_count (test_correlation_group_options.CorrelationGroupOptionsTests) ... ok
+test_plot_labels_change_in_place_and_restore_with_the_independent_workspace (test_correlation_group_options.CorrelationGroupOptionsTests) ... ok
+test_workbook_child_can_detach_groups_and_labels_without_changing_its_parent (test_correlation_group_options.CorrelationGroupOptionsTests) ... ok
+test_dense_paste_borrowed_snapshots_and_both_draws_stay_current_on_data_tab (test_correlation_linked_values.LinkedCorrelationValueTests) ... ok
+test_explicit_disabled_draw_clears_both_pages_and_stays_disabled_on_edit (test_correlation_linked_values.LinkedCorrelationValueTests) ... ok
+test_local_draft_is_not_overwritten_by_parent_numeric_update (test_correlation_linked_values.LinkedCorrelationValueTests) ... ok
+test_parent_cut_preserves_selection_then_large_replacement_resumes_link (test_correlation_linked_values.LinkedCorrelationValueTests) ... ok
+test_parent_edit_undo_redo_refreshes_both_pages_without_focus_or_raw_reset (test_correlation_linked_values.LinkedCorrelationValueTests) ... ok
+test_rapid_parent_edit_undo_redo_undo_keeps_the_last_source (test_correlation_linked_values.LinkedCorrelationValueTests) ... ok
+test_cancelled_preparation_does_not_publish_a_partial_table (test_correlation_linked_values.PreparedLinkedValueTests) ... ok
+test_changed_live_child_is_rejected_without_touching_its_draft (test_correlation_linked_values.PreparedLinkedValueTests) ... ok
+test_metadata_nonfinite_schema_and_row_changes_reject_qualification (test_correlation_linked_values.PreparedLinkedValueTests) ... ok
+test_no_reset_current_frames_and_no_shared_mutable_state (test_correlation_linked_values.PreparedLinkedValueTests) ... ok
+test_keyboard_pair_selection_keeps_three_and_restore_and_removal_keep_pair_mode (test_correlation_multi_pair.CorrelationMultiPairTests) ... ok
+test_source_qualified_multi_pair_selection_saves_and_reopens_without_reverse_duplicates (test_correlation_multi_pair.CorrelationMultiPairTests) ... ok
+test_three_of_four_parameters_draw_three_pairs_not_the_union_or_reverse_duplicates (test_correlation_multi_pair.CorrelationMultiPairTests) ... ok
+test_close_stops_construction_callbacks (test_correlation_render_batches.CorrelationRenderBatchTests) ... ok
+test_deletion_during_construction_does_not_touch_deleted_qobjects (test_correlation_render_batches.CorrelationRenderBatchTests) ... ok
+test_large_page_yields_between_small_batches_and_publishes_all_panels (test_correlation_render_batches.CorrelationRenderBatchTests) ... ok
+test_newest_input_wins_and_cancelled_staging_grid_is_destroyed (test_correlation_render_batches.CorrelationRenderBatchTests) ... ok
+test_pagination_filter_and_threshold_changes_replace_pending_page (test_correlation_render_batches.CorrelationRenderBatchTests) ... ok
+test_pending_page_copy_and_all_page_export_finish_complete_current_data (test_correlation_render_batches.CorrelationRenderBatchTests) ... ok
+test_rebuild_keeps_complete_old_canvas_until_full_publication (test_correlation_render_batches.CorrelationRenderBatchTests) ... ok
+test_retained_grid_reuses_widgets_and_keeps_custom_zoom (test_correlation_render_batches.CorrelationRenderBatchTests) ... ok
+test_source_pair_colours_legends_and_nan_cleanup_remain_exact (test_correlation_render_batches.CorrelationRenderBatchTests) ... ok
+test_swap_and_explicit_export_completion_use_current_full_page (test_correlation_render_batches.CorrelationRenderBatchTests) ... ok
+test_workbook_dense_paste_undo_redo_while_many_panels_are_pending (test_correlation_render_batches.CorrelationRenderBatchTests) ... ok
+test_corrected_vendor_identity_uses_current_three_wafer_spans (test_correlation_source_identity.CorrelationSourceIdentityTests) ... ok
+test_imported_ref_identity_is_not_replaced_by_existing_or_later_raw (test_correlation_source_identity.CorrelationSourceIdentityTests) ... ok
+test_linked_raw_refresh_and_reopen_preserve_manual_ref_identity (test_correlation_source_identity.CorrelationSourceIdentityTests) ... ok
+test_pasting_cells_into_initially_blank_ref_enables_wafer_menu (test_correlation_source_identity.CorrelationSourceIdentityTests) ... ok
+test_raw_identity_edits_survive_recognition_and_wafer_check_changes (test_correlation_source_identity.CorrelationSourceIdentityTests) ... ok
+test_ref_and_raw_grouping_menus_remain_open_after_repeated_check_changes (test_correlation_source_identity.CorrelationSourceIdentityTests) ... ok
+test_ref_header_and_literal_edits_can_be_undone_after_grouping_changes (test_correlation_source_identity.CorrelationSourceIdentityTests) ... ok
+test_ref_identity_edits_survive_recognition_and_wafer_check_changes (test_correlation_source_identity.CorrelationSourceIdentityTests) ... ok
+test_ref_only_edits_refresh_wafer_recognition_and_grouping_menu (test_correlation_source_identity.CorrelationSourceIdentityTests) ... ok
+test_ref_only_measurements_can_draw_both_analysis_pages (test_correlation_source_identity.CorrelationSourceIdentityTests) ... ok
+test_reference_dimensions_are_visible_and_follow_actual_pasted_extent (test_correlation_source_identity.CorrelationSourceIdentityTests) ... ok
+test_backing_bytes_live_through_shared_snapshots_then_release_without_resource_warnings (test_deferred_workspace_frames.DeferredWorkspaceFramesTests) ... ok
+test_metadata_listing_excludes_recovery_and_deferred_loading_rejects_incomplete_rows (test_deferred_workspace_frames.DeferredWorkspaceFramesTests) ... ok
+test_native_fetch_keeps_literal_cells_dtypes_and_catalog_row_order (test_deferred_workspace_frames.DeferredWorkspaceFramesTests) ... ok
+test_recovery_of_changed_raw_does_not_materialize_unopened_spectra (test_deferred_workspace_frames.DeferredWorkspaceFramesTests) ... ok
+test_unopened_spectra_survive_source_replacement_save_as_and_recovery (test_deferred_workspace_frames.DeferredWorkspaceFramesTests) ... ok
+test_buttons_and_shortcuts_undo_redo_point_selection_without_document_edits (test_die_map_selection.DieMapSelectionTests) ... ok
+test_history_survives_pagination_but_new_source_data_resets_it (test_die_map_selection.DieMapSelectionTests) ... ok
+test_invalid_or_unmatched_paste_does_not_clear_selection_and_empty_script_can_clear (test_die_map_selection.DieMapSelectionTests) ... ok
+test_read_only_outlier_map_copies_identity_selection_to_all_sme_members (test_die_map_selection.DieMapSelectionTests) ... ok
+test_conflicting_duplicate_die_coordinates_or_checks_are_not_copied (test_die_selection.SimilarWaferSelectionTests) ... ok
+test_matching_requires_same_die_ids_and_every_xy_difference_below_tolerance (test_die_selection.SimilarWaferSelectionTests) ... ok
+test_background_recovery_failed_publication_keeps_the_last_valid_draft_and_retries (test_document_storage.DocumentStorageTests) ... ok
+test_background_recovery_keeps_the_interface_responsive_and_the_latest_requested_edit (test_document_storage.DocumentStorageTests) ... ok
+test_cached_recovery_recreates_missing_or_replaced_files_and_cleans_after_undo (test_document_storage.DocumentStorageTests) ... ok
+test_cancelled_save_as_keeps_unsaved_match_child_open (test_document_storage.DocumentStorageTests) ... ok
+test_cancelled_save_as_suspends_recovery_publication_and_then_resumes_the_draft (test_document_storage.DocumentStorageTests) ... ok
+test_cancelled_tool_open_keeps_current_document_and_unsaved_edits (test_document_storage.DocumentStorageTests) ... ok
+test_dirty_checks_follow_card_filter_and_plot_values_and_clean_on_exact_reversion (test_document_storage.DocumentStorageTests) ... ok
+test_discard_and_close_cancel_a_disk_waiting_recovery_without_recreating_the_draft (test_document_storage.DocumentStorageTests) ... ok
+test_document_overlay_save_restore_and_discard_do_not_change_global_defaults (test_document_storage.DocumentStorageTests) ... ok
+test_dynamic_die_picker_and_plot_settings_reopen_on_the_saved_die (test_document_storage.DocumentStorageTests) ... ok
+test_failed_recovery_commit_keeps_the_previous_draft_and_retries_new_edits (test_document_storage.DocumentStorageTests) ... ok
+test_first_show_does_not_mark_empty_match_dirty_or_accept_measurement_edits (test_document_storage.DocumentStorageTests) ... ok
+test_independent_tool_file_open_restores_document_for_all_three_tools (test_document_storage.DocumentStorageTests) ... ok
+test_independent_tool_recent_menu_filters_by_type_and_reopens_the_selected_document (test_document_storage.DocumentStorageTests) ... ok
+test_independent_tools_save_data_and_plot_configuration_to_wkb (test_document_storage.DocumentStorageTests) ... ok
+test_invalid_analysis_drafts_reopen_without_rewriting_measurements (test_document_storage.DocumentStorageTests) ... ok
+test_match_child_discard_leaves_accepted_data_unchanged (test_document_storage.DocumentStorageTests) ... ok
+test_match_child_duplicate_header_draft_does_not_block_parent_reopen (test_document_storage.DocumentStorageTests) ... ok
+test_match_correlation_child_saves_its_own_ref_raw_data_and_overlay (test_document_storage.DocumentStorageTests) ... ok
+test_match_draft_with_duplicate_headers_can_save_without_analysis (test_document_storage.DocumentStorageTests) ... ok
+test_match_recovery_saves_to_original_not_the_previously_open_file (test_document_storage.DocumentStorageTests) ... ok
+test_match_reopen_current_document_after_save_uses_the_new_saved_data (test_document_storage.DocumentStorageTests) ... ok
+test_match_saves_mismatched_row_draft_after_an_earlier_analysis (test_document_storage.DocumentStorageTests) ... ok
+test_opening_formal_file_after_old_recovery_replaces_the_recovery_restriction (test_document_storage.DocumentStorageTests) ... ok
+test_point_precision_failure_restores_the_active_global_value (test_document_storage.DocumentStorageTests) ... ok
+test_recent_file_removed_after_menu_opens_reports_error_without_replacing_data (test_document_storage.DocumentStorageTests) ... Unable to open workspace
+Traceback (most recent call last):
+  File "D:\WaferMap\metrology_app\window.py", line 1322, in load_path
+    return self.load_workspace(path)
+  File "D:\WaferMap\metrology_app\workspace_document.py", line 72, in guarded
+    return method(target, *args, **kwargs)
+  File "D:\WaferMap\metrology_app\window.py", line 340, in load_workspace
+    snapshot = load_workspace(path, expected_type=self.workspace_type)
+  File "D:\WaferMap\metrology_app\workspace_store.py", line 281, in load_workspace
+    return _read_workspace(path,expected_type,defer_spectra=defer_spectra)
+  File "D:\WaferMap\metrology_app\workspace_store.py", line 294, in _read_workspace
+    raise FileNotFoundError(source)
+FileNotFoundError: C:\Users\qinyu\AppData\Local\Temp\tmp3fm8v1hp\removed.wmap
+ok
+test_recent_reopen_current_document_after_save_loads_the_just_saved_measurements (test_document_storage.DocumentStorageTests) ... ok
+test_recovery_cleanup_error_does_not_block_a_clean_window_close (test_document_storage.DocumentStorageTests) ... ok
+test_recovery_preserves_draft_without_overwriting_accepted_wkb (test_document_storage.DocumentStorageTests) ... ok
+test_saving_one_child_does_not_accept_another_child_draft (test_document_storage.DocumentStorageTests) ... ok
+test_settings_dialog_reloads_conflicting_values_before_explicit_retry (test_document_storage.DocumentStorageTests) ... ok
+test_settings_dialog_reports_failed_save_without_accepting_or_applying (test_document_storage.DocumentStorageTests) ... ok
+test_settings_save_updates_open_recovery_intervals_and_cancel_keeps_the_saved_interval (test_document_storage.DocumentStorageTests) ... ok
+test_shell_opens_each_wkb_in_its_own_tool (test_document_storage.DocumentStorageTests) ... ok
+test_unchanged_recovery_is_not_rewritten_and_new_edits_remain_recoverable (test_document_storage.DocumentStorageTests) ... ok
+test_unconfirmed_radius_box_changes_reopen_waiting_for_draw (test_document_storage.DocumentStorageTests) ... ok
+test_cycle_fallback_handles_variable_die_and_cycle_counts (test_dynamic.DynamicDataTests) ... ok
+test_cycle_is_inferred_from_dynamic_run_folder_and_report_tail_is_removed (test_dynamic.DynamicDataTests) ... ok
+test_cycle_trend_keeps_measurements_without_the_derived_row (test_dynamic.DynamicDataTests) ... ok
+test_duplicate_cycle_and_die_is_rejected_instead_of_silently_averaged (test_dynamic.DynamicDataTests) ... ok
+test_empty_new_table_stays_editable_until_dynamic_rows_are_pasted (test_dynamic.DynamicDataTests) ... ok
+test_pivot_has_cycles_by_die_and_sample_three_sigma_bottom_row (test_dynamic.DynamicDataTests) ... ok
+test_selected_measurement_rows_keep_their_data_positions (test_dynamic.DynamicDataTests) ... ok
+test_compare_parameter_switch_and_remove_rebuild_safely (test_dynamic.DynamicWindowTests)
+Compare controls stay usable while their deferred redraw replaces them. ... ok
+test_ctrl_z_undoes_one_step_at_a_time (test_dynamic.DynamicWindowTests)
+Ctrl+Z is single-step; Restore is the whole-table reset. ... ok
+test_data_sheet_range_edit_updates_each_affected_parameter_and_undo (test_dynamic.DynamicWindowTests) ... ok
+test_deleting_a_pivot_cell_edits_the_data_sheet_and_recomputes_sigma (test_dynamic.DynamicWindowTests)
+Delete on a pivot cell drops that measurement point for good. ... ok
+test_edit_after_parameter_removal_keeps_trend_export_on_current_parameters (test_dynamic.DynamicWindowTests) ... ok
+test_more_than_three_parameter_charts_wrap_to_the_next_row (test_dynamic.DynamicWindowTests) ... ok
+test_new_table_does_not_require_die_seq_before_data_is_pasted (test_dynamic.DynamicWindowTests) ... ok
+test_partial_dynamic_update_preserves_sparse_die_positions (test_dynamic.DynamicWindowTests) ... ok
+test_pivot_paste_writes_the_value_into_the_data_sheet (test_dynamic.DynamicWindowTests) ... ok
+test_replacing_dynamic_data_keeps_available_parameters_and_refreshes_plots (test_dynamic.DynamicWindowTests) ... ok
+test_restore_returns_the_pivot_to_the_loaded_values (test_dynamic.DynamicWindowTests) ... ok
+test_selected_parameters_render_separate_vertical_table_and_plot_sections (test_dynamic.DynamicWindowTests) ... ok
+test_trend_die_picker_switches_one_panel_only (test_dynamic.DynamicWindowTests)
+Wheel-switching a Die redraws its panel without scrolling the page. ... ok
+test_trend_has_no_view_mode_selector (test_dynamic.DynamicWindowTests)
+The redundant Single Die selector was removed with All Dies. ... ok
+test_trend_tab_draws_many_dies_without_a_symbol_error (test_dynamic.DynamicWindowTests)
+A ten-plus Die run used to hit a pyqtgraph symbol it does not know. ... ok
+test_trend_tab_draws_one_cycle_panel_per_parameter_and_one_die (test_dynamic.DynamicWindowTests)
+Cycle is the x-axis; each panel draws the Die its picker selects. ... ok
+test_trend_tab_export_mirror_and_copy_use_the_cycle_axis (test_dynamic.DynamicWindowTests) ... ok
+test_trend_tab_has_a_die_picker_and_a_compare_control (test_dynamic.DynamicWindowTests) ... ok
+test_trend_tab_reports_a_parameter_without_dynamic_values (test_dynamic.DynamicWindowTests) ... ok
+test_value_edit_and_undo_keep_dynamic_views_and_unrelated_curves (test_dynamic.DynamicWindowTests) ... ok
+test_compare_parameters_have_independent_y_axes_and_export_mirror (test_dynamic_compare_export.DynamicCompareExportTests) ... ok
+test_dynamic_report_exports_sigma_but_not_per_die_cycle_trends (test_dynamic_compare_export.DynamicCompareExportTests) ... ok
+test_font_change_keeps_cycle_curves_gaps_comparisons_and_views (test_dynamic_compare_export.DynamicCompareExportTests) ... ok
+test_measurement_editor_is_owned_only_by_dynamic_and_docks_without_copying (test_dynamic_compare_export.DynamicCompareExportTests) ... ok
+test_native_dynamic_sigma_charts_link_editable_pivots_and_summary_is_top_aligned (test_dynamic_compare_export.DynamicCompareExportTests) ... ok
+test_both_stages_have_card_suffixes_and_english_times_font (test_excel_export.ExcelExportTests) ... ok
+test_cancel_at_parameter_progress_stops_both_renderers_before_publishing (test_excel_export.ExcelExportTests) ... ok
+test_cancel_during_excel_write_preserves_the_previous_export (test_excel_export.ExcelExportTests) ... ok
+test_cancel_during_large_sheet_serialization_keeps_previous_report (test_excel_export.ExcelExportTests) ... ok
+test_correlation_and_trend_export_independent_sources_and_draw_choices (test_excel_export.ExcelExportTests) ... ok
+test_dynamic_exports_own_cycle_values_and_software_three_sigma (test_excel_export.ExcelExportTests) ... ok
+test_excel_menu_exports_in_background_and_reports_completion (test_excel_export.ExcelExportTests) ... ok
+test_export_failure_preserves_existing_file_and_cleans_partial_output (test_excel_export.ExcelExportTests) ... ok
+test_export_writes_native_match_charts_bound_to_cells (test_excel_export.ExcelExportTests) ... ok
+test_export_writes_one_match_sheet_per_group (test_excel_export.ExcelExportTests) ... ok
+test_failed_export_cleans_partial_file_and_keeps_previous_workbook (test_excel_export.ExcelExportTests) ... ok
+test_invalid_xml_text_in_large_export_never_replaces_previous_report (test_excel_export.ExcelExportTests) ... ok
+test_large_export_preserves_literal_xml_text_precision_and_typed_values (test_excel_export.ExcelExportTests) ... ok
+test_large_export_publish_failure_preserves_previous_file_and_cleans_private_output (test_excel_export.ExcelExportTests) ... ok
+test_large_matplotlib_report_keeps_all_panels_and_matches_serial_pixels (test_excel_export.ExcelExportTests) ... ok
+test_large_menu_export_keeps_the_gui_ticking_and_all_sources_unchanged (test_excel_export.ExcelExportTests) ... ok
+test_matplotlib_export_keeps_excel_data_and_embeds_real_pngs (test_excel_export.ExcelExportTests) ... ok
+test_matplotlib_menu_exports_one_workbook_without_png_sidecars (test_excel_export.ExcelExportTests) ... ok
+test_missing_values_stay_blank_and_source_text_is_not_a_formula (test_excel_export.ExcelExportTests) ... ok
+test_native_charts_match_the_report_palette_labels_and_ranges (test_excel_export.ExcelExportTests) ... ok
+test_native_trend_keeps_different_secondary_units_in_separate_charts (test_excel_export.ExcelExportTests) ... ok
+test_native_trendline_uses_the_measurement_series_with_missing_reference_gaps (test_excel_export.ExcelExportTests) ... ok
+test_partial_reference_export_keeps_raw_rows_and_missing_pair_gaps (test_excel_export.ExcelExportTests) ... ok
+test_radius_export_reuses_the_existing_png_in_both_modes (test_excel_export.ExcelExportTests) ... ok
+test_wafer_map_export_reuses_the_current_png_without_interpolation (test_excel_export.ExcelExportTests) ... ok
+test_all_match_sheets_stack_right_panels_with_uniform_gaps (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_both_renderers_use_physical_panel_sizes_and_full_width_parameter_heading (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_child_trend_reference_stays_orange_and_above_raw_independent_of_selection_order (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_compact_match_table_in_both_renderers (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_continuous_x_limits_follow_only_drawable_pairs_without_outer_tick_rounding (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_expanded_axis_keeps_the_true_boundary_between_unequal_wafer_spans (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_export_opens_at_match_original_plots (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_final_table_omits_second_card_column (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_fullmap_matplotlib_trend_keeps_tight_ordinal_limits (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_fullmap_reuses_only_mapped_drawn_panels_without_changing_child (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_fullmap_trend_uses_own_data_and_only_mapped_parameters (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_group_and_wafer_trend_widths_match_between_export_renderers (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_group_export_uses_independent_group_and_wafer_width_rules (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_group_overview_and_complete_wafer_detail_export_side_by_side_in_both_modes (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_group_reference_curves_overlay_later_raw_groups_without_losing_group_colours (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_group_x_axis_uses_single_line_captions_without_leader_lines (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_grouped_exports_reference_original_rows_instead_of_copying_reordered_values (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_long_identity_charts_use_tight_physical_side_margins (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_match_and_trend_use_readable_strokes_and_reference_is_solid_on_top (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_match_group_splits_group_only_and_selective_show_wafer_sheets (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_merged_wafer_captions_keep_distinct_hidden_identities_and_isolated_styles (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_native_charts_have_four_sided_frame_and_readable_solid_reference (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_native_group_captions_are_merged_and_match_series_share_the_visible_sheet (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_native_trend_uses_editable_local_ranges_square_excel_style_and_merged_wafer (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_report_axes_keep_decimal_ticks_and_signed_bias_inside_fixed_size (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_report_trend_keeps_die_sequence_and_once_per_span_identity_captions (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_show_wafer_captions_stay_centred_over_their_own_spans (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_wafer_export_keeps_every_visible_label_and_has_no_width_cap (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_wafer_sheet_references_original_in_first_appearance_order_in_both_modes (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_wide_match_wafer_is_one_complete_untitled_chart (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_wide_wafer_layout_has_dense_die_seq_ticks (test_excel_report_layout.ExcelReportLayoutTests) ... ok
+test_dynamic_plot_title_uses_cycles_and_parameter (test_export_hover_fixes.ExportHoverFixTests) ... ok
+test_export_bias_figure_has_limits_and_thicker_curves (test_export_hover_fixes.ExportHoverFixTests) ... ok
+test_export_trend_uses_the_shared_line_and_marker_style (test_export_hover_fixes.ExportHoverFixTests) ... ok
+test_map_and_radius_hover_report_die_and_value (test_export_hover_fixes.ExportHoverFixTests) ... ok
+test_map_and_radius_pictures_share_row_height (test_export_hover_fixes.ExportHoverFixTests) ... ok
+test_native_bias_chart_contains_limit_series (test_export_hover_fixes.ExportHoverFixTests) ... ok
+test_paginated_parameter_figures_show_their_page_label (test_export_hover_fixes.ExportHoverFixTests) ... ok
+test_trend_and_bias_axes_leave_marker_headroom (test_export_hover_fixes.ExportHoverFixTests) ... ok
+test_all_expanded_uses_die_but_mixed_uses_existing_xy (test_export_native_die_categories.NativeDieCategoryTests) ... ok
+test_category_conversion_preserves_all_identity_drawing_bytes_and_sizes (test_export_native_die_categories.NativeDieCategoryTests) ... ok
+test_eligibility_rejects_nonuniform_and_mixed_even_with_uniform_points (test_export_native_die_categories.NativeDieCategoryTests) ... ok
+test_long_labels_and_unequal_missing_pairs_keep_numeric_geometry (test_export_native_die_categories.NativeDieCategoryTests) ... ok
+test_single_observation_and_invalid_positions (test_export_native_die_categories.NativeDieCategoryTests) ... ok
+test_uniform_reports_bind_each_parameter_own_die_range_in_both_stages (test_export_native_die_categories.NativeDieCategoryTests) ... ok
+test_all_match_sheets_open_with_tables_at_a1_and_plots_at_row_five (test_export_opening_layout.ExportOpeningLayoutTests) ... ok
+test_both_export_menus_paint_progress_before_gui_snapshot_preparation (test_export_opening_layout.ExportOpeningLayoutTests) ... ok
+test_cancel_before_preparation_does_not_capture_or_replace_target (test_export_opening_layout.ExportOpeningLayoutTests) ... ok
+test_close_before_preparation_cancels_without_starting_a_writer (test_export_opening_layout.ExportOpeningLayoutTests) ... ok
+test_dense_original_remains_a_complete_scatter_and_two_point_line_panels (test_export_opening_layout.ExportOpeningLayoutTests) ... ok
+test_recent_menu_fallback_keeps_twenty_without_writing_settings (test_export_opening_layout.ExportOpeningLayoutTests) ... Recent WKB list could not be saved: owned failure
+ok
+test_standalone_export_also_shows_progress_before_capture (test_export_opening_layout.ExportOpeningLayoutTests) ... ok
+test_dense_fm_keeps_standard_width_and_all_source_rows (test_export_opening_layout.ReportAndPreferenceTests) ... ok
+test_fm_report_starts_a1_and_three_plot_columns_overlay_from_row_five (test_export_opening_layout.ReportAndPreferenceTests) ... ok
+test_grouped_legacy_wafer_order_migrates_draft_and_applied_separately (test_export_opening_layout.ReportAndPreferenceTests) ... ok
+test_nova_fm_still_has_prepared_data_at_a1_without_extra_trends (test_export_opening_layout.ReportAndPreferenceTests) ... ok
+test_recent_settings_keep_twenty_unique_paths_newest_first (test_export_opening_layout.ReportAndPreferenceTests) ... ok
+test_two_level_footer_uses_unique_shape_ids_even_for_crowded_neighbors (test_export_opening_layout.ReportAndPreferenceTests) ... ok
+test_dependency_names_with_apostrophes_and_unused_sheets_are_safe (test_export_selection.ExportLayoutChoiceTests) ... ok
+test_footer_text_is_painted_after_all_structural_lines (test_export_selection.ExportLayoutChoiceTests) ... ok
+test_long_or_close_labels_expand_width_without_padding_or_dropping_points (test_export_selection.ExportLayoutChoiceTests) ... ok
+test_sheet_checkboxes_default_all_and_prevent_empty_acceptance (test_export_selection.ExportLayoutChoiceTests) ... ok
+test_whole_grid_map_scales_to_eight_cm_per_row_without_changing_png_bytes (test_export_selection.ExportLayoutChoiceTests) ... ok
+test_cancel_sheet_choice_preserves_existing_target_and_starts_no_writer (test_export_selection.ExportSelectionTests) ... ok
+test_invalid_or_empty_selection_never_replaces_previous_file (test_export_selection.ExportSelectionTests) ... ok
+test_manifest_matches_actual_visible_outputs_with_group_names_and_suffixes (test_export_selection.ExportSelectionTests) ... ok
+test_owner_close_rejects_sheet_choice_without_waiting_or_writing (test_export_selection.ExportSelectionTests) ... ok
+test_rsq_only_has_no_unnecessary_hidden_outputs (test_export_selection.ExportSelectionTests) ... ok
+test_select_all_ungrouped_sheets_accepts_original_without_footer_captions (test_export_selection.ExportSelectionTests) ... ok
+test_selected_wafer_keeps_required_original_and_card_sources_hidden (test_export_selection.ExportSelectionTests) ... ok
+test_fm_organized_report_precedes_literal_source_and_keeps_native_curve_editable (test_export_source_layout.ExportSourceLayoutTests) ... ok
+test_match_reference_is_in_parameter_table_not_a_second_source_area (test_export_source_layout.ExportSourceLayoutTests) ... ok
+test_matplotlib_match_header_and_trend_semantics_match_wkb (test_export_source_layout.ExportSourceLayoutTests) ... ok
+test_all_parameter_tables_are_horizontal_sources_right_and_charts_below (test_export_template_layout.TemplateLayoutTests) ... ok
+test_fullmap_overlays_software_pngs_and_trends_on_editable_data_in_both_modes (test_export_template_layout.TemplateLayoutTests) ... ok
+test_group_and_wafer_match_sheets_follow_the_same_horizontal_template (test_export_template_layout.TemplateLayoutTests) ... ok
+test_legacy_saved_map_selection_rebuilds_both_pngs_without_empty_ui_overrides (test_export_template_layout.TemplateLayoutTests) ... ok
+test_saved_closed_dynamic_is_exported_without_opening_or_accepting_windows (test_export_template_layout.TemplateLayoutTests) ... ok
+test_dynamic_native_and_matplotlib_charts_are_18_cm_wide (test_export_wkb_axes.ExportWkbAxesTests) ... ok
+test_first_pyqtgraph_map_is_exported_without_a_matplotlib_cache (test_export_wkb_axes.ExportWkbAxesTests) ... ok
+test_fm_three_visual_columns_share_eight_cm_row_height (test_export_wkb_axes.ExportWkbAxesTests) ... ok
+test_group_and_wafer_have_full_height_separate_footer_levels (test_export_wkb_axes.ExportWkbAxesTests) ... ok
+test_matplotlib_footer_keeps_wafer_then_group_and_truthful_divider_styles (test_export_wkb_axes.ExportWkbAxesTests) ... ok
+test_native_match_uses_excel_linear_trendline_without_fit_support_rows (test_export_wkb_axes.ExportWkbAxesTests) ... ok
+test_delayed_raise_is_cancelled_when_another_application_is_active (test_float_pin.FloatingPinTests) ... ok
+test_native_title_icon_toggles_pin_without_docking (test_float_pin.FloatingPinTests) ... ok
+test_pin_changes_scope_without_replacing_editor_and_dock_retains_choice (test_float_pin.FloatingPinTests) ... ok
+test_pinned_covers_other_workspace_windows_but_not_system_topmost_or_modal (test_float_pin.FloatingPinTests) ... ok
+test_unpinned_is_parent_only_and_pin_is_an_accessible_top_left_control (test_float_pin.FloatingPinTests) ... ok
+test_empty_draft_and_applied_selections_receive_the_same_identifiers (test_group_control_source_reuse.GroupControlSourceReuseTests) ... ok
+test_no_unused_participation_ids_without_an_empty_selection (test_group_control_source_reuse.GroupControlSourceReuseTests) ... ok
+test_reference_undo_rebinds_exact_plan_without_mutating_prior_sources_promptly (test_group_control_source_reuse.GroupControlSourceReuseTests) ... ok
+test_replayed_and_changed_sources_keep_exact_current_plan (test_group_plan_snapshot_reuse.GroupPlanSnapshotReuseTests) ... ok
+test_clipboard_recipe_maps_classification_by_identity_and_keeps_selection (test_group_script.GroupScriptTests) ... ok
+test_flag_only_script_is_pending_until_group_apply (test_group_script.GroupScriptTests) ... ok
+test_invalid_or_unmatched_recipes_leave_the_group_draft_unchanged (test_group_script.GroupScriptTests) ... ok
+test_script_replaces_existing_mark_definitions_without_changing_live_spectra_until_apply (test_group_script.GroupScriptTests) ... ok
+test_boundary_and_header_marks_render_in_both_themes_and_unhide_removes_them (test_hidden_row_markers.HiddenRowMarkerTests) ... ok
+test_boundary_hover_explains_the_gap_and_paste_still_targets_visible_source_rows (test_hidden_row_markers.HiddenRowMarkerTests) ... ok
+test_gaps_report_original_row_numbers_and_counts_without_adding_rows (test_hidden_row_markers.HiddenRowMarkerTests) ... ok
+test_leading_and_reversed_gaps_are_truthful_and_sort_alone_is_not_hidden_data (test_hidden_row_markers.HiddenRowMarkerTests) ... ok
+test_literal_identity_keys_match_original_row_encoding (test_identity_key_normalization.IdentityKeyNormalizationTests) ... ok
+test_cleared_edge_columns_and_named_empty_fields_are_not_analysis_data (test_incomplete_workbook_workspaces.IncompleteWorkbookWorkspaceTests) ... ok
+test_empty_final_workbook_allows_manual_child_data_and_saves_it_as_a_draft (test_incomplete_workbook_workspaces.IncompleteWorkbookWorkspaceTests) ... ok
+test_nonempty_duplicate_columns_still_reject_replacement_without_touching_source (test_incomplete_workbook_workspaces.IncompleteWorkbookWorkspaceTests) ... ok
+test_pasted_empty_columns_do_not_become_mapping_candidates_or_duplicate_names (test_incomplete_workbook_workspaces.IncompleteWorkbookWorkspaceTests) ... ok
+test_raw_only_workbook_buttons_open_all_three_editable_workspaces_without_matching (test_incomplete_workbook_workspaces.IncompleteWorkbookWorkspaceTests) ... ok
+test_shorter_reference_runs_matching_and_keeps_child_reference_manual (test_incomplete_workbook_workspaces.IncompleteWorkbookWorkspaceTests) ... ok
+test_mismatched_hash_version_and_user_data_are_rejected_before_compilation (test_installer_packaging.InstallerPackagingTests) ... ok
+test_verified_new_version_is_forwarded_to_nsis_with_exact_uninstall_manifest (test_installer_packaging.InstallerPackagingTests) ... ok
+test_independent_heavy_child_keeps_its_owned_input (test_linked_heavy_plot_refresh.SmallSourceGraphicsTests) ... ok
+test_light_correlation_retains_small_source_shortcut (test_linked_heavy_plot_refresh.SmallSourceGraphicsTests) ... ok
+test_many_correlation_panels_use_existing_async_source_commit (test_linked_heavy_plot_refresh.SmallSourceGraphicsTests) ... ok
+test_many_maps_defer_without_changing_source_selection (test_linked_heavy_plot_refresh.SmallSourceGraphicsTests) ... ok
+test_rapid_edit_undo_redo_on_heavy_page_commits_latest_literal_version (test_linked_heavy_plot_refresh.SmallSourceGraphicsTests) ... ok
+test_unchanged_source_commit_resumes_an_interrupted_latest_map_job (test_linked_heavy_plot_refresh.SmallSourceGraphicsTests) ... ok
+test_undo_redo_to_published_map_version_releases_pending_without_false_dirty (test_linked_heavy_plot_refresh.SmallSourceGraphicsTests) ... ok
+test_clearing_input_discards_retained_widgets_and_filter_state (test_linked_plot_refresh.LinkedPlotRefreshTests) ... ok
+test_comparisons_use_complete_renderer_after_value_refresh (test_linked_plot_refresh.LinkedPlotRefreshTests) ... ok
+test_coordinate_change_rebuilds_axes_and_retains_exact_dies (test_linked_plot_refresh.LinkedPlotRefreshTests) ... ok
+test_expanded_wafer_spacing_uses_complete_renderer (test_linked_plot_refresh.LinkedPlotRefreshTests) ... ok
+test_group_membership_change_rebuilds_the_geometry (test_linked_plot_refresh.LinkedPlotRefreshTests) ... ok
+test_pending_manual_selection_does_not_show_or_export_old_curves (test_linked_plot_refresh.LinkedPlotRefreshTests) ... ok
+test_value_refresh_reuses_widgets_and_curves_with_full_nan_data (test_linked_plot_refresh.LinkedPlotRefreshTests) ... ok
+test_parent_edit_undo_redo_keep_trend_widgets_and_literal_sources (test_linked_plot_refresh.LinkedWorkbookRefreshTests) ... ok
+test_many_pairs_share_one_source_row_walk_without_changing_fits (test_linked_plot_refresh.PairSelectionReuseTests) ... ok
+test_linked_load_shares_only_the_immutable_version (test_linked_table_versions.LinkedTableVersionTests) ... ok
+test_linked_workbook_copy_detaches_records_and_preserves_shared_references (test_linked_table_versions.LinkedTableVersionTests) ... ok
+test_prepared_map_keeps_the_exact_stage_source_and_header_provenance (test_linked_table_versions.LinkedTableVersionTests) ... ok
+test_prepared_version_is_readonly_while_loaded_sheet_and_public_reads_are_editable (test_linked_table_versions.LinkedTableVersionTests) ... ok
+test_reentrant_child_edit_is_not_overwritten_after_source_load (test_linked_table_versions.LinkedTableVersionTests) ... ok
+test_unproved_values_rows_headers_and_attributes_keep_full_preparation (test_linked_table_versions.LinkedTableVersionTests) ... ok
+test_worker_prepares_detached_participation_for_duplicate_source_identities (test_linked_table_versions.LinkedTableVersionTests) ... ok
+test_both_pandas_copy_modes_preserve_old_source_through_value_and_ordinary_edits (test_literal_frame_source.LiteralFrameSourceTests) ... ok
+test_dense_paste_undo_redo_keeps_versions_and_old_sources_isolated (test_literal_frame_source.LiteralFrameSourceTests) ... ok
+test_detached_equal_or_mutated_sources_keep_full_value_validation (test_literal_frame_source.LiteralFrameSourceTests) ... ok
+test_metadata_row_order_and_array_region_changes_reject_the_proof (test_literal_frame_source.LiteralFrameSourceTests) ... ok
+test_ordinary_nonversioned_models_keep_existing_preparation (test_literal_frame_source.LiteralFrameSourceTests) ... ok
+test_proved_source_retains_all_literals_without_rescanning_values (test_literal_frame_source.LiteralFrameSourceTests) ... ok
+test_unchanged_normalization_keeps_proved_region_but_general_cases_fall_back (test_literal_frame_source.LiteralFrameSourceTests) ... ok
+test_unknown_cached_metadata_does_not_raise_or_issue_a_proof (test_literal_frame_source.LiteralFrameSourceTests) ... ok
+test_unknown_cell_write_drops_current_proof_but_not_old_readonly_source (test_literal_frame_source.LiteralFrameSourceTests) ... ok
+test_worker_proof_keeps_child_editor_and_parent_values_independent (test_literal_frame_source.LiteralFrameSourceTests) ... ok
+test_ctrl_wheel_changes_whole_grid_scale_without_calculation_or_export (test_map_page_zoom.MapPageZoomTests) ... ok
+test_fit_width_really_fits_a_wide_grid_and_view_control_is_visible (test_map_page_zoom.MapPageZoomTests) ... ok
+test_zoom_keeps_pointer_over_same_scene_location_after_deferred_layout (test_map_page_zoom.MapPageZoomTests) ... ok
+test_zoom_limits_and_normal_and_shift_wheel_scrolling (test_map_page_zoom.MapPageZoomTests) ... ok
+test_canceling_an_added_mapping_does_not_change_the_saved_workbook (test_mapping_row_controls.MappingRowControlTests) ... ok
+test_context_delete_preserves_other_rows_when_the_reference_is_shared (test_mapping_row_controls.MappingRowControlTests) ... ok
+test_context_delete_removes_target_mapping_and_matching_plots_but_not_source_data (test_mapping_row_controls.MappingRowControlTests) ... ok
+test_invalid_mapping_choices_are_rejected_before_replacing_the_document (test_mapping_row_controls.MappingRowControlTests) ... ok
+test_new_unused_mapping_is_not_auto_selected_after_renaming_and_refresh (test_mapping_row_controls.MappingRowControlTests) ... ok
+test_older_reference_keyed_drafts_and_analyzed_workbooks_still_open (test_mapping_row_controls.MappingRowControlTests) ... ok
+test_plus_can_reuse_the_only_reference_and_preserve_both_rows_in_a_draft (test_mapping_row_controls.MappingRowControlTests) ... ok
+test_plus_readds_a_reference_parameter_using_the_real_dialog_without_adding_ref_raw_choices (test_mapping_row_controls.MappingRowControlTests) ... ok
+test_removed_mappings_stay_removed_after_draft_and_analyzed_workbook_reopen (test_mapping_row_controls.MappingRowControlTests) ... ok
+test_right_click_deletes_only_target_unchecked_row_even_from_a_limit_editor (test_mapping_row_controls.MappingRowControlTests) ... ok
+test_shared_reference_comparisons_show_their_own_cards_and_reopen_independently (test_mapping_row_controls.MappingRowControlTests) ... ok
+test_shared_reference_rows_survive_source_refresh_and_stage_changes (test_mapping_row_controls.MappingRowControlTests) ... ok
+test_all_parameter_group_axes_align_bias_and_keep_reference_above_raw (test_match_groups.MatchGroupTests) ... ok
+test_apply_group_settings_automatically_updates_all_group_plots (test_match_groups.MatchGroupTests) ... ok
+test_arbitrary_numeric_flags_form_named_groups_and_survive_save (test_match_groups.MatchGroupTests) ... ok
+test_data_only_edit_and_undo_reuse_unaffected_plots (test_match_groups.MatchGroupTests) ... ok
+test_deleting_a_used_mark_moves_its_wafers_to_the_first_mark (test_match_groups.MatchGroupTests) ... ok
+test_dense_group_axis_labels_do_not_overlap_after_resize_or_zoom (test_match_groups.MatchGroupTests) ... ok
+test_filtered_table_edits_and_undo_map_to_source (test_match_groups.MatchGroupTests) ... ok
+test_final_does_not_share_flags_by_equal_row_count (test_match_groups.MatchGroupTests) ... ok
+test_group_card_changes_only_group_trends_not_all_parameter_plots (test_match_groups.MatchGroupTests) ... ok
+test_group_card_never_changes_sources_and_survives_save (test_match_groups.MatchGroupTests) ... ok
+test_group_dialogs_show_controls_without_persistent_usage_prose (test_match_groups.MatchGroupTests)
+Explanatory paragraphs are gone; counts and validation stay visible. ... ok
+test_group_state_copies_detach_nested_records_and_mark_assignments (test_match_groups.MatchGroupTests) ... ok
+test_grouped_correlation_windows_keep_only_the_four_standard_tabs (test_match_groups.MatchGroupTests) ... ok
+test_groups_and_mark_start_unchecked_for_every_match_type (test_match_groups.MatchGroupTests) ... ok
+test_groups_menu_opens_reusable_shared_settings_without_an_inline_toolbar (test_match_groups.MatchGroupTests) ... ok
+test_head_names_dialog_uses_only_entered_flags_and_retains_saved_names (test_match_groups.MatchGroupTests) ... ok
+test_invalid_flag_is_rejected_but_blank_is_not_unknown (test_match_groups.MatchGroupTests) ... D:\WaferMap\tests\test_match_groups.py:501: FutureWarning: Setting an item of incompatible dtype is deprecated and will raise an error in a future version of pandas. Value '' has dtype incompatible with int64, please explicitly cast to a compatible dtype first.
+  flags.loc[0, "TestFlag"] = ""
+ok
+test_linked_trend_uses_group_order_and_standalone_snapshot (test_match_groups.MatchGroupTests) ... ok
+test_mark_alone_groups_without_test_flags (test_match_groups.MatchGroupTests)
+Mark still forms Old/New groups when no TestFlag was entered. ... ok
+test_mark_assignment_rows_stay_separated_and_the_picker_marks_wafers (test_match_groups.MatchGroupTests) ... ok
+test_mark_is_optional_and_custom_names_replace_age_in_the_tables (test_match_groups.MatchGroupTests) ... ok
+test_mark_names_apply_to_plots_and_disabling_mark_merges_filtered_groups (test_match_groups.MatchGroupTests) ... ok
+test_mark_new_whole_row_and_shift_range_skip_filtered_rows (test_match_groups.MatchGroupTests) ... ok
+test_named_heads_filter_the_same_reference_and_raw_records (test_match_groups.MatchGroupTests) ... ok
+test_new_marks_survive_collapsed_grouping_as_partial (test_match_groups.MatchGroupTests) ... ok
+test_numeric_source_rebind_retains_classification_but_rejects_metadata_or_filters (test_match_groups.MatchGroupTests) ... ok
+test_order_starts_blank_and_has_only_paired_input_rows (test_match_groups.MatchGroupTests) ... ok
+test_order_table_shows_mark_names_in_the_group_column_without_test_flags (test_match_groups.MatchGroupTests) ... ok
+test_original_row_order_marks_wafer_boundaries_not_identity_runs (test_match_groups.MatchGroupTests)
+Lot changes inside one wafer must not draw extra Trend boundaries. ... ok
+test_projected_value_edit_preserves_table_scroll (test_match_groups.MatchGroupTests) ... ok
+test_regrouping_does_not_split_repeated_die_or_lose_missing_identity (test_match_groups.MatchGroupTests) ... ok
+test_removed_table_trend_order_loads_as_original_row_order (test_match_groups.MatchGroupTests)
+Workbooks saved with the removed choice keep a defined order. ... ok
+test_renaming_an_assigned_mark_follows_in_the_assignment_picker (test_match_groups.MatchGroupTests) ... ok
+test_repeated_flags_keep_typed_missing_values_and_validation (test_match_groups.MatchGroupTests) ... ok
+test_tem_shows_head_and_mark_group_and_single_wafer_results (test_match_groups.MatchGroupTests) ... ok
+test_unavailable_group_card_leaves_a_gap_without_overall_fallback (test_match_groups.MatchGroupTests) ... ok
+test_user_can_fix_name_collision_after_a_flag_reappears (test_match_groups.MatchGroupTests) ... ok
+test_window_applies_groups_only_on_apply_and_restores_full_source (test_match_groups.MatchGroupTests) ... ok
+test_without_test_flags_and_mark_there_are_no_groups (test_match_groups.MatchGroupTests)
+Neither TestFlag nor Mark leaves the workbook ungrouped. ... ok
+test_bias_counts_follow_stage_filters_and_parameter_units (test_matching.MatchWorkbookTests) ... ok
+test_bias_limit_counts_strict_exceedances_and_survives_wkb (test_matching.MatchWorkbookTests) ... ok
+test_enforces_the_declared_row_and_parameter_capacity (test_matching.MatchWorkbookTests) ... ok
+test_final_stage_uses_separate_already_carded_fullmap_without_reapplying_card (test_matching.MatchWorkbookTests) ... ok
+test_final_validates_already_carded_values_without_applying_another_card (test_matching.MatchWorkbookTests) ... ok
+test_kla_and_nova_maps_default_to_matching_data (test_matching.MatchWorkbookTests) ... ok
+test_legacy_axis_policy_does_not_mix_settings_from_two_stages (test_matching.MatchWorkbookTests) ... ok
+test_legacy_axis_policy_falls_back_to_the_other_stage (test_matching.MatchWorkbookTests) ... ok
+test_legacy_axis_policy_uses_the_saved_active_stage (test_matching.MatchWorkbookTests) ... ok
+test_legacy_axis_ratio_without_mode_remains_loadable (test_matching.MatchWorkbookTests) ... ok
+test_linked_stage_frames_bypass_map_snapshots_without_mutating_them (test_matching.MatchWorkbookTests) ... ok
+test_partial_reference_cannot_bypass_raw_row_capacity (test_matching.MatchWorkbookTests) ... ok
+test_percentage_bias_is_nan_when_reference_is_zero (test_matching.MatchWorkbookTests) ... ok
+test_plot_sampling_keeps_local_extrema_without_changing_analysis_data (test_matching.MatchWorkbookTests) ... ok
+test_preview_generates_one_card_per_parameter_and_applies_it_lazily (test_matching.MatchWorkbookTests) ... ok
+test_preview_stage_applies_the_match_card_to_separate_fullmap_rows (test_matching.MatchWorkbookTests) ... ok
+test_rejects_reference_rows_beyond_raw_extent (test_matching.MatchWorkbookTests) ... ok
+test_reports_slope_and_r_squared_for_each_wafer (test_matching.MatchWorkbookTests) ... ok
+test_reuse_is_rejected_when_rows_mappings_or_stage_change (test_matching.MatchWorkbookTests)
+Stale Cards never survive a changed paired slice or mapping. ... ok
+test_reused_result_keeps_fitted_cards_while_group_labels_change (test_matching.MatchWorkbookTests)
+Renaming a Group is a label edit, so the fitted Cards stay. ... ok
+test_schema_eight_wkb_opens_without_correlation_selections (test_matching.MatchWorkbookTests) ... ok
+test_schema_five_wkb_opens_without_workspace_selections (test_matching.MatchWorkbookTests) ... ok
+test_schema_four_wkb_opens_without_dynamic_snapshots (test_matching.MatchWorkbookTests) ... ok
+test_schema_one_wkb_still_opens_without_fullmap_stage_tables (test_matching.MatchWorkbookTests) ... ok
+test_schema_seven_workspace_selections_open_without_radius_draw_state (test_matching.MatchWorkbookTests) ... ok
+test_schema_six_workspace_selections_open_without_map_draw_state (test_matching.MatchWorkbookTests) ... ok
+test_schema_three_wkb_opens_without_exact_map_snapshots (test_matching.MatchWorkbookTests) ... ok
+test_schema_two_wkb_opens_without_independent_final_match_data (test_matching.MatchWorkbookTests) ... ok
+test_shared_axis_policy_takes_precedence_over_legacy_stage_settings (test_matching.MatchWorkbookTests) ... ok
+test_suggests_each_reference_parameter_to_its_raw_column (test_matching.MatchWorkbookTests) ... ok
+test_tem_map_does_not_fall_back_to_matching_raw_data (test_matching.MatchWorkbookTests) ... ok
+test_wafer_summary_uses_raw_data_measurement_identity (test_matching.MatchWorkbookTests) ... ok
+test_wkb_round_trip_preserves_correlation_selections (test_matching.MatchWorkbookTests) ... ok
+test_wkb_round_trip_preserves_exact_map_tables (test_matching.MatchWorkbookTests) ... ok
+test_wkb_round_trip_preserves_independent_dynamic_tables (test_matching.MatchWorkbookTests) ... ok
+test_wkb_round_trip_preserves_source_tables_and_settings (test_matching.MatchWorkbookTests) ... ok
+test_wkb_round_trip_preserves_workspace_selections (test_matching.MatchWorkbookTests) ... ok
+test_large_automatic_refresh_yields_before_plotting_and_finishes_latest_values (test_matching_value_refresh.MatchingValueRefreshTests) ... ok
+test_nan_edit_uses_full_fallback_with_the_same_gaps_as_fresh_render (test_matching_value_refresh.MatchingValueRefreshTests) ... ok
+test_numeric_edit_retains_single_wafer_metric_points_with_fresh_fit_values (test_matching_value_refresh.MatchingValueRefreshTests) ... ok
+test_selected_wafer_detail_reuses_curves_for_a_numeric_edit (test_matching_value_refresh.MatchingValueRefreshTests) ... ok
+test_undoing_a_missing_value_restores_points_and_die_hover_together (test_matching_value_refresh.MatchingValueRefreshTests) ... ok
+test_value_edit_and_undo_redo_reuse_curves_and_match_fresh_render (test_matching_value_refresh.MatchingValueRefreshTests) ... ok
+test_a_single_parameter_plot_card_stays_at_the_top_of_results (test_matching_window.MatchingWindowTests) ... ok
+test_all_match_trends_use_parameter_titles_and_instrument_legends (test_matching_window.MatchingWindowTests)
+KLA / NOVA / TEM trends label the Reference curve with the match type. ... ok
+test_all_parameter_wafer_axes_hide_metadata_when_narrow_and_restore_it (test_matching_window.MatchingWindowTests) ... ok
+test_analysis_menu_edits_metric_highlighting_without_recalculating_or_changing_draw (test_matching_window.MatchingWindowTests) ... ok
+test_analysis_menu_owns_the_trend_axis_mode (test_matching_window.MatchingWindowTests)
+The menu supplies a decimal threshold and two force modes. ... ok
+test_analysis_results_share_the_scrollable_setup_workspace (test_matching_window.MatchingWindowTests) ... ok
+test_applied_data_selection_survives_raw_data_replacement (test_matching_window.MatchingWindowTests) ... ok
+test_axis_settings_are_shared_between_preview_and_final (test_matching_window.MatchingWindowTests)
+Both open windows and later openings use the same saved policy. ... ok
+test_bias_auto_range_keeps_zero_crossings_and_constant_values_visible (test_matching_window.MatchingWindowTests) ... ok
+test_bias_limit_updates_mapping_count_without_redrawing_and_reopens (test_matching_window.MatchingWindowTests) ... ok
+test_changed_selection_columns_ask_for_a_new_selection (test_matching_window.MatchingWindowTests) ... ok
+test_child_map_data_selection_context_lists_order_and_reference (test_matching_window.MatchingWindowTests) ... ok
+test_child_scope_switch_reloads_selected_and_full_data (test_matching_window.MatchingWindowTests) ... ok
+test_clearing_raw_data_keeps_mappings_and_prompts_for_columns (test_matching_window.MatchingWindowTests) ... ok
+test_closing_managed_dynamic_saves_after_explicit_save_decision (test_matching_window.MatchingWindowTests) ... ok
+test_closing_managed_wafer_map_saves_after_explicit_save_decision (test_matching_window.MatchingWindowTests) ... ok
+test_closing_match_workbook_saves_and_closes_all_analysis_workspaces (test_matching_window.MatchingWindowTests) ... ok
+test_correlation_button_opens_active_reference_and_raw_sources (test_matching_window.MatchingWindowTests) ... ok
+test_data_selection_adds_and_connects_filter_rows_with_and_or (test_matching_window.MatchingWindowTests) ... ok
+test_data_selection_applies_to_correlation_without_head_groups_and_can_exclude_every_row (test_matching_window.MatchingWindowTests) ... ok
+test_data_selection_excludes_visible_rows_without_removing_source_tables (test_matching_window.MatchingWindowTests) ... ok
+test_data_selection_filter_bools_persist_and_migrate_the_old_mode (test_matching_window.MatchingWindowTests) ... ok
+test_data_selection_filters_sort_click_range_and_cancel_are_view_only (test_matching_window.MatchingWindowTests) ... ok
+test_default_correlation_button_reuses_the_standard_tool (test_matching_window.MatchingWindowTests) ... ok
+test_default_registry_exposes_a_multi_instance_matching_tool (test_matching_window.MatchingWindowTests) ... ok
+test_display_filter_does_not_remove_participating_points_in_original_row_order (test_matching_window.MatchingWindowTests) ... ok
+test_drawn_correlation_and_trend_restore_after_window_and_wkb_reopen (test_matching_window.MatchingWindowTests) ... ok
+test_drawn_radius_plot_auto_restores_after_window_and_wkb_reopen (test_matching_window.MatchingWindowTests) ... ok
+test_drawn_wafer_map_auto_restores_after_window_and_wkb_reopen (test_matching_window.MatchingWindowTests) ... ok
+test_dynamic_windows_start_empty_until_the_workbook_has_its_own_table (test_matching_window.MatchingWindowTests)
+Dynamic never copies Raw/Map data; Preview and Final open blank. ... ok
+test_dynamic_workspace_card_checkbox_applies_the_parameter_cards (test_matching_window.MatchingWindowTests) ... ok
+test_editable_match_tables_offer_auto_rename_for_duplicate_headers (test_matching_window.MatchingWindowTests) ... ok
+test_excluded_record_stays_excluded_after_source_identity_edit_and_undo (test_matching_window.MatchingWindowTests) ... ok
+test_exports_native_excel_and_excel_with_embedded_matplotlib_after_analysis (test_matching_window.MatchingWindowTests) ... ok
+test_final_bias_axes_fit_measurements_not_the_zero_reference_line (test_matching_window.MatchingWindowTests) ... ok
+test_final_mode_keeps_evaluated_values_equal_to_raw_data (test_matching_window.MatchingWindowTests) ... ok
+test_four_primary_plots_fit_without_horizontal_scrolling (test_matching_window.MatchingWindowTests) ... ok
+test_group_apply_reuses_fitted_cards_and_raw_edits_refit_them (test_matching_window.MatchingWindowTests)
+Group labels reuse the Cards; editing Raw Data always refits. ... ok
+test_group_curves_connect_across_wafers_and_groups_without_bridging_missing_values (test_matching_window.MatchingWindowTests) ... ok
+test_group_plot_page_never_floats_over_the_menu_bar (test_matching_window.MatchingWindowTests) ... ok
+test_group_plots_automatically_draws_all_groups_without_selection_or_pagination (test_matching_window.MatchingWindowTests) ... ok
+test_group_plots_default_axes_show_only_group_names_and_sparse_die_seq (test_matching_window.MatchingWindowTests) ... ok
+test_group_plots_nests_groups_in_draggable_parameter_sections_without_redraw (test_matching_window.MatchingWindowTests) ... ok
+test_group_plots_reuses_plot_blocks_and_switches_local_or_overall_card (test_matching_window.MatchingWindowTests) ... ok
+test_group_plots_status_is_at_the_top_right_beside_card_options (test_matching_window.MatchingWindowTests) ... ok
+test_group_plots_tracks_enabled_parameters_and_preserves_surviving_blocks (test_matching_window.MatchingWindowTests) ... ok
+test_head_and_mark_show_wafer_keeps_per_group_visibility_and_caption_options (test_matching_window.MatchingWindowTests) ... ok
+test_input_table_footers_only_report_the_table_size (test_matching_window.MatchingWindowTests)
+The Order, Reference and Raw footers drop the origin text and keep the size. ... ok
+test_invalid_plot_layout_does_not_replace_the_open_workbook (test_matching_window.MatchingWindowTests) ... ok
+test_keyboard_undo_restores_deleted_reference_and_raw_tables (test_matching_window.MatchingWindowTests) ... ok
+test_keyboard_undo_restores_replaced_reference_and_raw_tables (test_matching_window.MatchingWindowTests) ... ok
+test_kla_and_nova_keep_all_three_analysis_windows_open (test_matching_window.MatchingWindowTests) ... ok
+test_kla_map_edits_are_saved_in_wkb_and_not_regenerated (test_matching_window.MatchingWindowTests) ... ok
+test_kla_raw_edits_refresh_every_analysis_window (test_matching_window.MatchingWindowTests)
+KLA/NOVA refresh Map and Correlation; Dynamic keeps its own table. ... ok
+test_kla_refresh_keeps_each_windows_plot_view (test_matching_window.MatchingWindowTests)
+A data refresh repaints plots in place: zoom, scroll and page stay. ... ok
+test_linked_correlation_trend_names_each_group_once_without_wafer_metadata (test_matching_window.MatchingWindowTests) ... ok
+test_manage_groups_adds_editable_rows_and_loads_their_checkbox_members (test_matching_window.MatchingWindowTests) ... ok
+test_manage_groups_show_wafer_is_independent_per_group_and_apply_cancel_controls_labels (test_matching_window.MatchingWindowTests) ... ok
+test_manage_groups_validation_cancel_and_apply_preserve_existing_group_ids (test_matching_window.MatchingWindowTests) ... ok
+test_mapping_results_flag_out_of_range_slope_and_r_squared (test_matching_window.MatchingWindowTests) ... ok
+test_mark_group_show_wafer_applies_to_overview_trend_and_bias (test_matching_window.MatchingWindowTests) ... ok
+test_mark_only_groups_ignore_stored_heads_and_restore_them_when_reenabled (test_matching_window.MatchingWindowTests)
+Disabling Head groups hides Heads, not their source TestFlags or Marks. ... ok
+test_mark_only_keeps_blank_source_rows_aligned_when_editing_raw_data (test_matching_window.MatchingWindowTests)
+Clearing one raw row must not shift the retained Mark/TestFlag rows. ... ok
+test_match_image_export_uses_matplotlib_instead_of_widget_capture (test_matching_window.MatchingWindowTests) ... ok
+test_match_plot_shows_fit_equation_to_the_right_of_its_title (test_matching_window.MatchingWindowTests) ... ok
+test_metric_highlighting_dialog_rejects_reversed_slope_range_and_cancel_preserves_settings (test_matching_window.MatchingWindowTests) ... ok
+test_nova_and_tem_show_single_wafer_slope_and_r_squared (test_matching_window.MatchingWindowTests) ... ok
+test_numeric_reference_columns_without_suffix_can_be_mapped_manually (test_matching_window.MatchingWindowTests) ... ok
+test_opened_wkb_becomes_the_target_for_save (test_matching_window.MatchingWindowTests) ... ok
+test_opening_a_wkb_remembers_it_in_the_recent_menu (test_matching_window.MatchingWindowTests) ... ok
+test_order_card_has_the_short_order_title (test_matching_window.MatchingWindowTests) ... ok
+test_original_row_order_shows_die_only_with_real_wafer_boundaries (test_matching_window.MatchingWindowTests) ... ok
+test_paired_table_header_right_click_sorts_and_clears_without_crashing (test_matching_window.MatchingWindowTests)
+The header context menu runs from the event filter, not Qt's signal. ... ok
+test_parameter_plot_order_survives_run_and_wkb (test_matching_window.MatchingWindowTests) ... ok
+test_parameter_use_toggles_once_when_clicked_anywhere_in_its_cell (test_matching_window.MatchingWindowTests) ... ok
+test_pasting_fullmap_after_analysis_keeps_match_results_interactive (test_matching_window.MatchingWindowTests) ... ok
+test_plot_docking_stays_with_parameter_and_survives_refresh_and_wkb (test_matching_window.MatchingWindowTests) ... ok
+test_preview_and_final_dynamic_edits_are_saved_independently_in_wkb (test_matching_window.MatchingWindowTests) ... ok
+test_preview_and_final_fullmap_open_in_the_existing_wafer_workspace (test_matching_window.MatchingWindowTests) ... ok
+test_preview_and_final_wafer_quality_metrics_survive_wkb_reopen (test_matching_window.MatchingWindowTests) ... ok
+test_primary_plot_frames_align_and_omit_the_wafer_axis_title (test_matching_window.MatchingWindowTests) ... ok
+test_primary_plot_height_is_fixed_for_single_and_multiple_parameters (test_matching_window.MatchingWindowTests) ... ok
+test_raw_column_picker_ignores_the_mouse_wheel (test_matching_window.MatchingWindowTests)
+A wheel over the mapping table must not remap the parameter. ... ok
+test_raw_mapping_change_auto_runs_and_preserves_layout (test_matching_window.MatchingWindowTests) ... ok
+test_raw_table_paste_auto_runs_after_first_manual_run (test_matching_window.MatchingWindowTests) ... ok
+test_recent_wkb_menu_reopens_a_persisted_workbook (test_matching_window.MatchingWindowTests) ... ok
+test_reference_and_raw_inputs_are_editable_spreadsheet_grids (test_matching_window.MatchingWindowTests) ... ok
+test_reference_raw_and_mapping_edits_auto_refresh_without_clearing_results (test_matching_window.MatchingWindowTests) ... ok
+test_reference_then_raw_enables_analysis_without_locking_raw_input (test_matching_window.MatchingWindowTests) ... ok
+test_refreshing_analysis_windows_keeps_their_active_tab (test_matching_window.MatchingWindowTests)
+Workbook refresh preserves views and never replaces manual Ref. ... ok
+test_reopened_wkb_restores_map_and_dynamic_sidebar_selections (test_matching_window.MatchingWindowTests) ... ok
+test_reopening_preview_dynamic_restores_its_parameter_selection (test_matching_window.MatchingWindowTests) ... ok
+test_reopening_preview_wafer_map_restores_its_parameter_selection (test_matching_window.MatchingWindowTests) ... ok
+test_replacing_reference_keeps_raw_data_and_refreshes_mappings (test_matching_window.MatchingWindowTests) ... ok
+test_result_plots_show_four_sided_frames_and_use_box_zoom_mode (test_matching_window.MatchingWindowTests) ... ok
+test_results_panel_omits_the_mode_parameter_status_line (test_matching_window.MatchingWindowTests) ... ok
+test_reveal_wkb_action_selects_the_current_workbook (test_matching_window.MatchingWindowTests) ... ok
+test_run_analysis_preserves_the_dragged_setup_splitter_layout (test_matching_window.MatchingWindowTests) ... ok
+test_run_analysis_preserves_the_setup_scroll_position (test_matching_window.MatchingWindowTests) ... ok
+test_save_again_overwrites_current_wkb_without_asking_for_a_path (test_matching_window.MatchingWindowTests) ... ok
+test_save_as_selects_a_new_current_wkb_for_later_saves (test_matching_window.MatchingWindowTests) ... ok
+test_section_guidance_is_available_from_titles_not_inline_comments (test_matching_window.MatchingWindowTests) ... ok
+test_select_all_mappings_checks_every_candidate (test_matching_window.MatchingWindowTests) ... ok
+test_selected_primary_plots_share_one_horizontal_row (test_matching_window.MatchingWindowTests) ... ok
+test_show_wafer_values_above_single_group_label_and_hide_secondary_values_when_narrow (test_matching_window.MatchingWindowTests) ... ok
+test_single_wafer_draw_cell_click_keyboard_and_uncheck_all (test_matching_window.MatchingWindowTests) ... ok
+test_single_wafer_draw_indicators_are_centred_and_rows_are_blue_in_both_themes (test_matching_window.MatchingWindowTests) ... ok
+test_single_wafer_draw_uncheck_restores_compact_metrics_layout (test_matching_window.MatchingWindowTests) ... ok
+test_single_wafer_highlight_can_be_cleared_without_changing_draw (test_matching_window.MatchingWindowTests) ... ok
+test_single_wafer_parameter_sections_can_be_dragged_with_their_selected_plots (test_matching_window.MatchingWindowTests) ... ok
+test_single_wafer_plots_use_the_table_row_numbers_as_ticks (test_matching_window.MatchingWindowTests)
+Full wafer names would collide, so the axis uses the table index. ... ok
+test_single_wafer_points_link_to_rows_and_checked_rows_have_local_plot_blocks (test_matching_window.MatchingWindowTests) ... ok
+test_single_wafer_table_flags_the_same_quality_thresholds (test_matching_window.MatchingWindowTests) ... ok
+test_single_wafer_table_joins_the_identity_lines_with_slashes (test_matching_window.MatchingWindowTests)
+The Wafer cell shows the whole a/b/c identity instead of eliding. ... ok
+test_single_wafer_table_keeps_the_identity_column_compact (test_matching_window.MatchingWindowTests)
+Wafer identities remain readable without stretching across the window. ... ok
+test_single_wafer_table_shows_applied_group_membership_after_filtering (test_matching_window.MatchingWindowTests) ... ok
+test_single_wafer_tick_step_scales_with_the_plot_width (test_matching_window.MatchingWindowTests)
+A narrower plot keeps fewer row-number labels than a wide one. ... ok
+test_single_wafer_ticks_thin_out_when_the_rows_do_not_fit (test_matching_window.MatchingWindowTests)
+Dense plots show every nth row number instead of overlapping. ... ok
+test_stage_selection_cannot_override_shared_axis_settings (test_matching_window.MatchingWindowTests)
+Opening a stage cannot overwrite the workbook menu's policy. ... ok
+test_stage_switch_reuses_each_stages_fitted_cards (test_matching_window.MatchingWindowTests)
+Preview and Final keep one fitted result each while inputs are intact. ... ok
+test_standalone_correlation_window_keeps_its_own_axis_mode_control (test_matching_window.MatchingWindowTests)
+Without a Match Workbook the page keeps the control it always had. ... ok
+test_switching_order_updates_axes_even_when_point_order_is_unchanged (test_matching_window.MatchingWindowTests) ... ok
+test_switching_preview_and_final_keeps_results_and_layout (test_matching_window.MatchingWindowTests) ... ok
+test_tem_correlation_window_follows_raw_edits (test_matching_window.MatchingWindowTests) ... ok
+test_tem_keeps_one_analysis_window_per_button (test_matching_window.MatchingWindowTests)
+TEM opens each of the three windows once, not one window in total. ... ok
+test_tem_map_data_stays_independent_of_raw_edits (test_matching_window.MatchingWindowTests) ... ok
+test_tem_map_starts_empty_and_saved_map_is_restored (test_matching_window.MatchingWindowTests) ... ok
+test_trend_and_bias_use_visible_point_lines (test_matching_window.MatchingWindowTests) ... ok
+test_trend_card_checkbox_switches_between_raw_and_carded_values (test_matching_window.MatchingWindowTests) ... ok
+test_trend_order_offers_source_orders_and_preserves_legacy_rows (test_matching_window.MatchingWindowTests)
+The removed table order no longer appears and loads as original rows. ... ok
+test_trend_plots_share_parameter_title_y_label_and_off_frame_legend (test_matching_window.MatchingWindowTests)
+Every Trend names the mapped Parameter and keeps the legend off the data. ... ok
+test_unavailable_recent_settings_do_not_fail_wkb_save (test_matching_window.MatchingWindowTests) ... Recent WKB list could not be saved: settings unavailable
+ok
+test_unchecking_every_bias_view_hides_its_plots (test_matching_window.MatchingWindowTests)
+Unchecking Bias or Bias % removes exactly that plot. ... ok
+test_user_can_create_combined_group_and_automatically_plot_its_new_card (test_matching_window.MatchingWindowTests) ... ok
+test_wkb_paths_are_sent_to_the_diagnostic_log (test_matching_window.MatchingWindowTests) ... ok
+test_wkb_restores_independent_preview_and_final_raw_data (test_matching_window.MatchingWindowTests) ... ok
+test_wkb_restores_the_saved_setup_splitter_layout (test_matching_window.MatchingWindowTests) ... ok
+test_workspace_card_checkbox_applies_the_parameter_cards (test_matching_window.MatchingWindowTests)
+The Data tab offers the workbook Card; off until the engineer asks. ... ok
+test_aliases_blanks_and_text_ids (test_measurements.MeasurementTests) ... ok
+test_default_identity_keeps_pad_only_when_it_varies (test_measurements.MeasurementTests) ... ok
+test_die_seq_restarts_create_runs_not_one_map_per_die (test_measurements.MeasurementTests) ... ok
+test_explicit_grouping_columns (test_measurements.MeasurementTests) ... ok
+test_group_rows_reach_the_correct_maps (test_measurements.MeasurementTests) ... ok
+test_identity_keys_do_not_collide_on_separators (test_measurements.MeasurementTests) ... ok
+test_lot_and_pad_are_part_of_identity (test_measurements.MeasurementTests) ... ok
+test_missing_die_numbers_and_missing_run_start (test_measurements.MeasurementTests) ... ok
+test_nondefault_index_and_interleaved_rows (test_measurements.MeasurementTests) ... ok
+test_shuffled_or_ambiguous_sequences_are_not_split (test_measurements.MeasurementTests) ... ok
+test_menu_checkboxes_are_square_and_radios_round_on_the_right_in_both_themes (test_menu_controls.MenuControlTests) ... ok
+test_header_lock_icon_and_keyboard_toggle_preserve_names_and_use_red_green_states (test_metadata_locks.MetadataLockTests) ... ok
+test_header_locks_and_exact_strings_survive_workspace_roundtrip_without_sidebar (test_metadata_locks.MetadataLockTests) ... ok
+test_locked_columns_survive_whole_table_paste_by_position_and_shape_change_is_rejected (test_metadata_locks.MetadataLockTests) ... ok
+test_locked_metadata_survives_range_paste_and_measurement_undo (test_metadata_locks.MetadataLockTests) ... ok
+test_metadata_lock_names_preserve_literal_header_whitespace (test_metadata_locks.MetadataLockTests) ... ok
+test_new_empty_table_clears_missing_locks_so_first_paste_is_possible (test_metadata_locks.MetadataLockTests) ... ok
+test_rejected_raw_replacement_keeps_correlation_source_context (test_metadata_locks.MetadataLockTests) ... ok
+test_renamed_xy_columns_keep_their_positions_names_and_values_in_replacement_paste (test_metadata_locks.MetadataLockTests) ... ok
+test_undoing_a_header_to_blank_or_nonmetadata_does_not_leave_an_invisible_lock (test_metadata_locks.MetadataLockTests) ... ok
+test_undoing_a_metadata_rename_keeps_the_same_column_protected (test_metadata_locks.MetadataLockTests) ... ok
+test_wafer_and_correlation_metadata_have_visible_lock_controls (test_metadata_locks.MetadataLockTests) ... ok
+test_wafer_map_table_paste_preserves_locked_positions_in_source_and_analysis (test_metadata_locks.MetadataLockTests) ... ok
+test_child_save_accepts_only_that_named_draft_and_discard_reopens_its_saved_values (test_named_analysis_windows.NamedAnalysisWindowTests) ... ok
+test_context_delete_removes_only_the_chosen_draft_after_confirmation_and_reopen (test_named_analysis_windows.NamedAnalysisWindowTests) ... ok
+test_default_map_is_listed_first_and_copies_raw_while_new_starts_empty (test_named_analysis_windows.NamedAnalysisWindowTests) ... ok
+test_double_click_cancel_preserves_check_state_and_f2_keeps_name_validation_for_each_tool (test_named_analysis_windows.NamedAnalysisWindowTests) ... ok
+test_manual_named_correlation_does_not_regain_workbook_groups_after_reopen (test_named_analysis_windows.NamedAnalysisWindowTests) ... ok
+test_named_correlation_copy_follows_workbook_raw_values (test_named_analysis_windows.NamedAnalysisWindowTests) ... ok
+test_named_data_tabs_and_checked_windows_survive_wkb_save_and_reopen_without_cross_overwrite (test_named_analysis_windows.NamedAnalysisWindowTests) ... ok
+test_named_nova_and_kla_maps_follow_workbook_values_after_copy (test_named_analysis_windows.NamedAnalysisWindowTests) ... ok
+test_named_tem_map_copy_follows_workbook_raw_values (test_named_analysis_windows.NamedAnalysisWindowTests) ... ok
+test_new_windows_are_empty_manual_editors_and_remain_empty_after_refresh_and_reopen (test_named_analysis_windows.NamedAnalysisWindowTests) ... ok
+test_new_windows_are_enabled_without_parent_data_in_preview_and_final (test_named_analysis_windows.NamedAnalysisWindowTests) ... ok
+test_recovery_and_save_without_opening_children_keep_each_named_draft (test_named_analysis_windows.NamedAnalysisWindowTests) ... ok
+test_rename_preserves_the_open_draft_and_identity_and_final_has_separate_choices (test_named_analysis_windows.NamedAnalysisWindowTests) ... ok
+test_single_click_opens_only_that_window_without_changing_the_checklist (test_named_analysis_windows.NamedAnalysisWindowTests) ... ok
+test_three_split_buttons_open_multiple_named_windows_and_activate_only_checked_ones (test_named_analysis_windows.NamedAnalysisWindowTests) ... ok
+test_numeric_values_at_any_position_and_nonfinite_columns_keep_classification (test_numeric_qualification.NumericQualificationTests) ... ok
+test_child_local_selection_updates_immediately_without_recopy (test_p0_final_audit.FinalAuditTests) ... ok
+test_dynamic_data_menu_has_only_local_selection_scope (test_p0_final_audit.FinalAuditTests) ... ok
+test_linked_refresh_draws_trend_once_even_if_correlation_processes_events (test_p0_final_audit.FinalAuditTests) ... ok
+test_native_last_die_tick_does_not_overlap_prior_label (test_p0_final_audit.FinalAuditTests) ... ok
+test_ordinary_export_axes_survive_workbook_styling (test_p0_final_audit.FinalAuditTests) ... ok
+test_parent_selection_does_not_draw_pending_box_changes (test_p0_final_audit.FinalAuditTests) ... ok
+test_parent_selection_does_not_replace_an_excluded_draw_with_another_wafer (test_p0_final_audit.FinalAuditTests) ... ok
+test_parent_selection_redraws_existing_maps_when_a_whole_wafer_is_excluded (test_p0_final_audit.FinalAuditTests) ... ok
+test_parent_selection_redraws_restored_grouped_map_without_recopy (test_p0_final_audit.FinalAuditTests) ... ok
+test_parent_selection_updates_existing_children_without_recopy (test_p0_final_audit.FinalAuditTests) ... ok
+test_source_and_membership_change_restores_map_choices_only_once (test_p0_final_audit.FinalAuditTests) ... ok
+test_benchmark_refuses_a_settings_file_as_its_output (test_p1_storage_lifecycle.P1StorageLifecycleTests) ... ok
+test_cancelled_queued_recovery_releases_frames_before_writer_drains (test_p1_storage_lifecycle.P1StorageLifecycleTests) ... ok
+test_fixture_keeps_exact_width_literal_precision_and_both_stages (test_p1_storage_lifecycle.P1StorageLifecycleTests) ... ok
+test_memory_sampling_does_not_retain_new_pointer_types_on_each_call (test_p1_storage_lifecycle.P1StorageLifecycleTests) ... ok
+test_mixed_benchmark_really_draws_each_tool_with_multiple_wafers (test_p1_storage_lifecycle.P1StorageLifecycleTests) ... ok
+test_repeated_settings_dialog_cancel_changes_neither_memory_nor_disk (test_p1_storage_lifecycle.P1StorageLifecycleTests) ... ok
+test_shell_releases_each_settings_dialog_after_real_modal_cancel (test_p1_storage_lifecycle.P1StorageLifecycleTests) ... ok
+test_trend_reports_retention_without_turning_rss_growth_into_a_leak (test_p1_storage_lifecycle.P1StorageLifecycleTests) ... ok
+test_two_persistent_processes_alternate_saves_and_reject_stale_state (test_p1_storage_lifecycle.P1StorageLifecycleTests) ... ok
+test_clearing_data_removes_old_buttons_and_new_drawing_starts_with_all (test_parameter_filter.ParameterFilterTests) ... ok
+test_correlation_parameter_and_all_keep_fits_curves_and_zoom (test_parameter_filter.ParameterFilterTests) ... ok
+test_cross_source_pairs_intersect_selected_original_rows_before_numeric_cleanup (test_parameter_filter.ParameterFilterTests) ... ok
+test_cross_source_same_name_pairs_use_aligned_rows_and_export_distinct_axes (test_parameter_filter.ParameterFilterTests) ... ok
+test_ctrl_alt_pair_survives_owned_wkb_reopen_and_child_export_snapshot (test_parameter_filter.ParameterFilterTests) ... ok
+test_ctrl_alt_two_parameters_show_only_their_correlation_and_export_without_refitting (test_parameter_filter.ParameterFilterTests) ... ok
+test_ctrl_click_adds_and_removes_parameters_while_plain_click_and_all_reset (test_parameter_filter.ParameterFilterTests) ... ok
+test_ctrl_multi_select_displays_the_union_and_exports_it_without_replacing_curves_or_zoom (test_parameter_filter.ParameterFilterTests) ... ok
+test_filtered_cached_headings_and_exports_use_current_rank (test_parameter_filter.ParameterFilterTests) ... ok
+test_keyboard_pair_selection_adds_after_two_and_trend_keeps_ctrl_union (test_parameter_filter.ParameterFilterTests) ... ok
+test_multi_parameter_choices_survive_owned_wkb_reopen_and_old_single_choices_still_load (test_parameter_filter.ParameterFilterTests) ... ok
+test_multi_selection_keeps_correlation_panel_boundaries_aligned_after_reusing_panels (test_parameter_filter.ParameterFilterTests) ... ok
+test_multi_selection_prunes_removed_names_and_keyboard_and_restoration_keep_the_same_contract (test_parameter_filter.ParameterFilterTests) ... ok
+test_pair_count_is_unordered_but_reference_and_raw_fits_remain_separate (test_parameter_filter.ParameterFilterTests) ... ok
+test_pair_without_an_eligible_fit_has_a_clear_empty_view_and_does_not_bypass_rsq (test_parameter_filter.ParameterFilterTests) ... ok
+test_parameter_buttons_wrap_to_multiple_rows_and_reflow_when_widened (test_parameter_filter.ParameterFilterTests) ... ok
+test_removed_parameter_buttons_disappear_without_resetting_a_surviving_filter (test_parameter_filter.ParameterFilterTests) ... ok
+test_source_groups_have_distinct_containers_and_keep_wrapped_buttons_inside (test_parameter_filter.ParameterFilterTests) ... ok
+test_source_rows_keep_same_named_parameters_independent_and_wrap_separately (test_parameter_filter.ParameterFilterTests) ... ok
+test_trend_filter_includes_comparison_parameter_and_export (test_parameter_filter.ParameterFilterTests) ... ok
+test_trend_parameter_and_all_reuse_every_panel_and_keep_full_curve_values (test_parameter_filter.ParameterFilterTests) ... ok
+test_layout_round_trip_rejects_detached_or_foreign_plots (test_parameter_plot_layout.ParameterPlotLayoutTests) ... ok
+test_plots_resize_and_move_below_a_neighbour_without_leaving_the_area (test_parameter_plot_layout.ParameterPlotLayoutTests) ... ok
+test_editing_blank_reference_cells_and_undo_preserve_original_pair_positions (test_partial_reference_matching.PartialReferenceMatchingTests) ... ok
+test_partial_reference_does_not_block_run_or_compact_empty_rows_in_workbook_ui (test_partial_reference_matching.PartialReferenceMatchingTests) ... ok
+test_partial_reference_keeps_selected_raw_row_scope_in_copied_child (test_partial_reference_matching.PartialReferenceMatchingTests) ... ok
+test_partial_reference_matches_only_finite_original_row_pairs_in_every_mode (test_partial_reference_matching.PartialReferenceMatchingTests) ... ok
+test_partial_reference_survives_wkb_reopen_and_existing_analysis_windows (test_partial_reference_matching.PartialReferenceMatchingTests) ... ok
+test_reference_filters_and_head_groups_keep_the_complete_raw_row_space (test_partial_reference_matching.PartialReferenceMatchingTests) ... ok
+test_large_shift_range_finishes_as_one_responsive_edit (test_participation_bulk.ParticipationBulkTests) ... ok
+test_repeated_flags_queries_keep_readonly_data_and_checkable_use_promptly (test_participation_bulk.ParticipationBulkTests) ... ok
+test_shift_range_notifies_once_and_keeps_filtered_sorted_source_ids (test_participation_bulk.ParticipationBulkTests) ... ok
+test_cached_sources_keep_whitespace_blank_rows_and_copy_on_write_semantics (test_paste_feedback.PasteFeedbackTests) ... ok
+test_cancelled_or_out_of_bounds_paste_keeps_the_previous_receipt_and_values (test_paste_feedback.PasteFeedbackTests) ... ok
+test_changed_paste_uses_native_selection_without_extra_colours_in_both_themes (test_paste_feedback.PasteFeedbackTests) ... ok
+test_correlation_and_dynamic_data_tables_paste_silently_with_selection_and_undo (test_paste_feedback.PasteFeedbackTests) ... ok
+test_dismissal_clears_only_the_receipt_and_next_edit_invalidates_old_differences (test_paste_feedback.PasteFeedbackTests) ... ok
+test_explicit_run_after_keyboard_paste_or_undo_uses_latest_values_without_late_overwrite (test_paste_feedback.PasteFeedbackTests) ... ok
+test_filtered_paste_highlights_source_rows_after_sort_and_reports_hidden_changes (test_paste_feedback.PasteFeedbackTests) ... ok
+test_identical_paste_confirms_no_changes_without_an_edit_or_highlights (test_paste_feedback.PasteFeedbackTests) ... ok
+test_keyboard_paste_and_undo_keep_dirty_and_formal_source_roundtrip_correct (test_paste_feedback.PasteFeedbackTests) ... ok
+test_matching_raw_toolbar_and_grid_paste_without_receipts_and_keep_stage_values (test_paste_feedback.PasteFeedbackTests) ... ok
+test_nearly_identical_paste_reports_only_exact_string_changes (test_paste_feedback.PasteFeedbackTests) ... ok
+test_receipt_retains_changed_column_summary_without_navigation_control (test_paste_feedback.PasteFeedbackTests) ... ok
+test_replacement_of_blank_trailing_rows_reports_structure_not_false_value_edits (test_paste_feedback.PasteFeedbackTests) ... ok
+test_replacement_receipt_counts_cleared_values_and_preserves_undo (test_paste_feedback.PasteFeedbackTests) ... ok
+test_tooltip_escapes_markup_but_clipboard_and_document_keep_literal_strings (test_paste_feedback.PasteFeedbackTests) ... ok
+test_workspace_toolbar_pastes_without_receipts_and_keeps_later_file_load_correct (test_paste_feedback.PasteFeedbackTests) ... ok
+test_batched_wafer_edges_match_native_lines_after_zoom (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_correlation_checkbox_changes_keep_exact_sources_and_are_prompt (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_dense_trend_screen_and_export_match_with_nan_gaps (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_disposed_plot_releases_its_native_menus_and_secondary_view (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_equal_numeric_snapshots_keep_exact_participation_keys_promptly_and_metadata_edits_invalidate (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_equal_value_mapping_column_change_keeps_parameter_title_and_new_source (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_export_immediately_after_edit_uses_current_data_and_card (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_first_wide_trend_draw_preserves_all_source_columns_promptly (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_grouped_trend_avoids_discarded_wafer_items_and_keeps_all_data (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_grouped_trend_keeps_die_values_with_many_rows_without_slow_label_preparation (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_grouped_trend_wheel_preserves_full_curves_promptly (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_hidden_group_plots_show_latest_replacement_and_undo_without_blocking_edit (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_immediate_close_after_analysis_does_not_restore_destroyed_views (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_interleaved_wafer_spans_do_not_require_per_span_dataframes (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_large_filtered_raw_selection_and_single_cell_remain_responsive (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_large_participation_validation_keeps_exact_exclusions_promptly (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_large_plot_selection_preserves_disabled_cells_and_exact_choices_promptly (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_linked_source_update_publishes_one_consistent_selection (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_loaded_correlation_stays_responsive_and_later_source_edits_still_refresh (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_managed_correlation_dirty_check_keeps_baseline_and_undo_promptly (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_many_column_measurements_keep_exact_rows_and_die_details_promptly (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_many_measurement_trend_spans_keep_stable_die_order_promptly (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_map_resize_queued_before_explicit_restore_keeps_latest_view (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_mapping_use_keeps_surviving_curves_and_views_while_analysis_updates (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_measurement_metadata_is_reused_only_within_one_analysis_result (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_measurement_metadata_reuses_numeric_updates_without_stale_identities (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_native_selector_choices_follow_flags_and_reordered_rows (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_numeric_refit_reuses_proven_metadata_without_reusing_measurements (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_raw_paste_and_repeated_keyboard_undo_publish_latest_data_promptly (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_raw_select_all_clear_and_undo_keeps_exact_cells_promptly (test_performance_regressions.WorkbookPerformanceTests) ... FAIL
+test_repeated_measurement_spans_stay_fast_and_detached_for_each_label_option (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_repeated_raw_cell_edit_and_undo_refresh_exact_detached_sources_promptly (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_repeated_raw_replacement_retains_marks_participation_and_undo (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_repeated_recovery_checks_keep_the_current_draft_without_a_long_pause (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_repeated_source_snapshots_are_fast_detached_and_follow_undo (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_restore_disabled_trend_does_not_run_old_queued_draw (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_reused_group_plots_change_instrument_axis_and_legend_together (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_saved_correlation_restores_complete_grouped_plots_promptly (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_saved_wide_workbook_dirty_checks_preserve_the_accepted_state_promptly (test_performance_regressions.WorkbookPerformanceTests) ... FAIL
+test_sheet_clear_ranges_keep_unselected_and_disabled_cells (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_sheet_undo_restores_extent_after_appending_and_explicit_replacement (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_source_correlation_pan_keeps_every_point_without_rebuilding_scatter (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_trend_font_changes_keep_curves_views_and_export_labels_promptly (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_trend_full_curves_keep_duplicate_source_indices_and_literal_rows (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_trend_preparation_keeps_invalid_dies_and_stable_duplicates_consistent (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_unclassified_selected_record_stays_excluded_after_clear_and_undo (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_wafer_window_opens_with_current_cards_and_uses_new_coefficients_after_edit (test_performance_regressions.WorkbookPerformanceTests) ... FAIL
+test_warm_stage_switch_and_group_apply_keep_current_results_promptly (test_performance_regressions.WorkbookPerformanceTests) ... ok
+test_group_show_wafer_switches_only_wafer_captions_not_group_labels (test_plot_labels.PlotLabelTests) ... ok
+test_invalid_display_settings_do_not_replace_the_open_workbook (test_plot_labels.PlotLabelTests) ... ok
+test_map_and_radius_hide_metadata_independently_without_parsing_literal_names (test_plot_labels.PlotLabelTests) ... ok
+test_original_order_label_switches_keep_measurements_and_drawn_values (test_plot_labels.PlotLabelTests) ... ok
+test_parameter_mapping_names_title_match_and_trend_with_matching_y_label (test_plot_labels.PlotLabelTests) ... ok
+test_workbook_restores_label_choices_and_old_workbooks_default_to_full_captions (test_plot_labels.PlotLabelTests) ... ok
+test_changing_radius_boxes_waits_for_the_draw_click (test_radius.RadiusTests) ... ok
+test_radius_canvas_shrinks_to_the_drawn_boxes (test_radius.RadiusTests) ... ok
+test_radius_plot_keeps_its_own_box_selection (test_radius.RadiusTests) ... ok
+test_radius_row_titles_do_not_collide_at_large_fonts (test_radius.RadiusTests)
+A row's title must stay clear of the axis label of the row above. ... ok
+test_real_data_draws_selected_parameters (test_radius.RadiusTests) ... ok
+test_replacing_data_after_first_draw_refreshes_radius_without_selector (test_radius.RadiusTests) ... ok
+test_restored_radius_draw_state_redraws_without_draw_click (test_radius.RadiusTests) ... ok
+test_signed_radius_uses_x_side (test_radius.RadiusTests) ... ok
+test_draw_is_pyqtgraph_without_an_eager_matplotlib_export (test_radius_static.StaticRadiusTests) ... ok
+test_scatter_data_limits_and_geometry_match_matplotlib_export (test_radius_static.StaticRadiusTests) ... ok
+test_window_resize_changes_only_display_not_scientific_coordinates (test_radius_static.StaticRadiusTests) ... ok
+test_different_literal_values_or_column_order_are_never_shared (test_recovery_frame_sharing.RecoveryFrameSharingTests) ... ok
+test_equal_tables_share_storage_but_unpack_as_independent_copies (test_recovery_frame_sharing.RecoveryFrameSharingTests) ... ok
+test_independent_correlation_freezes_tables_and_nested_state_before_worker_reads (test_recovery_snapshot_ownership.RecoverySnapshotOwnershipTests) ... ok
+test_managed_correlation_freezes_draft_and_accepted_basis_before_worker_reads (test_recovery_snapshot_ownership.RecoverySnapshotOwnershipTests) ... ok
+test_bias_converts_reference_into_raw_units (test_reference_alignment.ReferenceAlignmentTests) ... ok
+test_cdsem_pivot_transfer_retains_mp_coordinate_names (test_reference_alignment.ReferenceAlignmentTests) ... ok
+test_only_linked_wafers_are_compared_in_mm_and_mismatch_is_an_error (test_reference_alignment.ReferenceAlignmentTests) ... ok
+test_pasted_raw_table_keeps_na_identity_and_sorts_fields_without_faking_xy (test_reference_alignment.ReferenceAlignmentTests) ... ok
+test_sort_and_wafer_move_preserve_literal_rows_and_stable_duplicates (test_reference_alignment.ReferenceAlignmentTests) ... ok
+test_tab1_transfer_clipboard_drag_sort_and_linked_only_trends (test_reference_alignment.ReferenceAlignmentTests) ... ok
+test_trends_default_two_columns_scroll_without_zoom_and_ctrl_zoom (test_reference_alignment.ReferenceAlignmentTests) ... ok
+test_vendor_aliases_and_units_are_explicit (test_reference_alignment.ReferenceAlignmentTests) ... ok
+test_numeric_qualification_changes_still_add_and_remove_mapping_candidates (test_reference_edit_controls.ReferenceEditControlTests) ... ok
+test_reference_value_edit_and_undo_keep_controls_and_refit_current_values (test_reference_edit_controls.ReferenceEditControlTests) ... ok
+test_each_vendor_accepts_csv_xlsx_xlsm_without_changing_values_or_channels (test_reference_input_formats.ReferenceInputFormatTests) ... ok
+test_kla_actual_duplicate_data_header_is_still_rejected (test_reference_input_formats.ReferenceInputFormatTests) ... ok
+test_kla_long_per_channel_settings_are_not_rejected_measurement_headers (test_reference_input_formats.ReferenceInputFormatTests) ... ok
+test_workbook_cancellation_and_sparse_row_provenance (test_reference_input_formats.ReferenceInputFormatTests) ... ok
+test_data_selection_and_full_data_keep_reference_rows_aligned_with_raw (test_reference_source_columns.ReferenceSourceColumnTests) ... ok
+test_legacy_linked_reference_aliases_reopen_as_source_names_without_losing_draw_choices (test_reference_source_columns.ReferenceSourceColumnTests) ... ok
+test_original_reference_names_keep_workbook_head_classification (test_reference_source_columns.ReferenceSourceColumnTests) ... ok
+test_ref_data_uses_raw_identity_and_complete_original_reference_columns_not_mapping_names (test_reference_source_columns.ReferenceSourceColumnTests) ... ok
+test_cdsem_summary_reads_first_sheet_and_exports_results_without_row_preview (test_reference_summary.ReferenceSummaryTests) ... ok
+test_every_vendor_selects_and_scans_csv_and_first_sheet_excel (test_reference_summary.ReferenceSummaryTests) ... ok
+test_long_pmish_channel_output_can_be_loaded_into_alignment (test_reference_summary.ReferenceSummaryTests) ... ok
+test_multiple_source_folders_scan_recursively_without_duplicate_files (test_reference_summary.ReferenceSummaryTests) ... ok
+test_nova_summary_keeps_rows_and_removes_duplicate_header_and_lbh (test_reference_summary.ReferenceSummaryTests) ... ok
+test_nova_trailing_empty_fields_keep_values_and_collapse_lbh (test_reference_summary.ReferenceSummaryTests) ... ok
+test_registered_window_uses_compact_summary_without_measurement_preview (test_reference_summary.ReferenceSummaryTests) ... ok
+test_vendor_change_clears_incompatible_source_selection (test_reference_summary.ReferenceSummaryTests) ... ok
+test_add_from_home_then_reopen_and_switch_tools_without_losing_reminders (test_reminder_panel.ReminderPanelTests) ... ok
+test_calendar_shows_complete_english_week_and_saves_the_chosen_date (test_reminder_panel.ReminderPanelTests) ... ok
+test_empty_reminder_body_has_no_scrollbar_or_workspace_heading (test_reminder_panel.ReminderPanelTests) ... ok
+test_long_titles_wrap_and_completion_can_be_restored_before_deletion (test_reminder_panel.ReminderPanelTests) ... ok
+test_new_reminder_uses_blue_in_both_themes (test_reminder_panel.ReminderPanelTests) ... ok
+test_only_reminder_body_scrolls_above_an_expanded_log (test_reminder_panel.ReminderPanelTests) ... ok
+test_reminder_symbols_stay_centered_while_pressed_in_both_themes (test_reminder_panel.ReminderPanelTests) ... ok
+test_explicit_reminder_paths_stay_independent_and_do_not_migrate (test_reminders.ReminderTests) ... ok
+test_invalid_edits_and_newer_files_never_replace_existing_reminders (test_reminders.ReminderTests) ... ok
+test_invalid_legacy_records_can_be_repaired_and_migration_retried (test_reminders.ReminderTests) ... ok
+test_old_copies_do_not_overwrite_edits_or_restore_deleted_reminders (test_reminders.ReminderTests) ... ok
+test_reminder_edits_and_completion_survive_reopen_without_a_workbook (test_reminders.ReminderTests) ... ok
+test_smart_views_search_and_overdue_dates_do_not_change_saved_tasks (test_reminders.ReminderTests) ... ok
+test_two_application_instances_preserve_each_others_reminders (test_reminders.ReminderTests) ... ok
+test_two_versions_can_initialize_and_save_to_the_same_user_file (test_reminders.ReminderTests) ... ok
+test_unreadable_or_newer_legacy_files_are_kept_and_can_be_retried (test_reminders.ReminderTests) ... ok
+test_updates_share_automatically_saved_reminders_and_keep_the_old_file (test_reminders.ReminderTests) ... ok
+test_parameter_checks_batch_native_cell_notifications_without_changing_boxes (test_render_preparation.RenderPreparationTests) ... ok
+test_trend_prepares_labels_without_per_wafer_scans_or_losing_rows (test_render_preparation.RenderPreparationTests) ... ok
+test_backup_routes_to_workspace_loader_not_table_import (test_requested_plot_controls.RequestedPlotControlsTests) ... ok
+test_dynamic_comparisons_follow_the_same_die_and_export_every_curve (test_requested_plot_controls.RequestedPlotControlsTests) ... ok
+test_dynamic_mode_comparisons_and_statistics_round_trip (test_requested_plot_controls.RequestedPlotControlsTests) ... ok
+test_dynamic_no_longer_offers_restore (test_requested_plot_controls.RequestedPlotControlsTests) ... ok
+test_match_points_and_sequence_curves_keep_die_metadata_and_full_statistics (test_requested_plot_controls.RequestedPlotControlsTests) ... ok
+test_new_match_extension_is_mwkb (test_requested_plot_controls.RequestedPlotControlsTests) ... ok
+test_new_match_paths_migrate_but_old_wkb_and_backup_contents_remain_readable (test_requested_plot_controls.RequestedPlotControlsTests) ... ok
+test_open_dialog_offers_backups (test_requested_plot_controls.RequestedPlotControlsTests) ... ok
+test_row_number_fallback_does_not_invent_die_metadata (test_requested_plot_controls.RequestedPlotControlsTests) ... ok
+test_statistics_ignore_missing_values_and_use_sample_sigma (test_requested_plot_controls.RequestedPlotControlsTests) ... ok
+test_large_first_save_routes_plain_frames_to_responsive_io (test_save_responsiveness.SaveResponsivenessTests) ... ok
+test_repeated_save_does_not_rewrite_an_unchanged_recent_list (test_save_responsiveness.SaveResponsivenessTests) ... ok
+test_all_workbook_child_types_copy_the_complete_script_as_independent_selection (test_selection_script.SelectionScriptTests) ... ok
+test_checked_row_modes_retain_filters_and_refresh_after_bulk_edits (test_selection_script.SelectionScriptTests) ... ok
+test_copied_filter_alias_does_not_replace_the_targets_source_identity (test_selection_script.SelectionScriptTests) ... ok
+test_copy_workbook_checks_matches_four_fields_and_keeps_unmatched_spectra (test_selection_script.SelectionScriptTests) ... ok
+test_export_preflight_and_cancellation_keep_existing_files_and_sources (test_selection_script.SelectionScriptTests) ... ok
+test_find_filter_values_matches_comma_separated_terms_without_changing_checks (test_selection_script.SelectionScriptTests) ... ok
+test_invalid_recipes_are_rejected_before_selection_is_changed (test_selection_script.SelectionScriptTests) ... ok
+test_live_conflict_is_reported_without_copying_a_stale_script (test_selection_script.SelectionScriptTests) ... ok
+test_multiple_found_values_apply_and_transfer_as_a_selection_filter (test_selection_script.SelectionScriptTests) ... ok
+test_recipe_transfers_all_conditions_and_checks_after_source_reordering (test_selection_script.SelectionScriptTests) ... ok
+test_repeated_measurement_identity_shares_one_state_and_rejects_conflicts (test_selection_script.SelectionScriptTests) ... ok
+test_script_application_updates_filter_controls_and_copied_reference_values (test_selection_script.SelectionScriptTests) ... ok
+test_script_copies_conditions_and_missing_filter_data_by_identity (test_selection_script.SelectionScriptTests) ... ok
+test_script_search_retains_values_from_source_columns_missing_in_target (test_selection_script.SelectionScriptTests) ... ok
+test_selection_matches_four_fields_despite_changed_names_paths_and_die_format (test_selection_script.SelectionScriptTests) ... ok
+test_selection_script_button_copies_live_edits_and_pastes_into_another_dialog (test_selection_script.SelectionScriptTests) ... ok
+test_parameter_remove_add_and_reorder_keep_source_specific_boxes (test_selector_updates.SelectorUpdateTests) ... ok
+test_simultaneous_wafer_and_parameter_changes_keep_exact_cells (test_selector_updates.SelectorUpdateTests) ... ok
+test_active_writer_lock_prevents_save_without_changing_preferences (test_settings.RecentWkbSettingsTests) ... ok
+test_failed_atomic_publish_keeps_file_and_active_preferences (test_settings.RecentWkbSettingsTests) ... ok
+test_fsync_failure_never_publishes_or_activates_candidate (test_settings.RecentWkbSettingsTests) ... ok
+test_interrupted_writer_keeps_old_yaml_and_dead_process_lock_is_recoverable (test_settings.RecentWkbSettingsTests) ... ok
+test_invalid_stored_recovery_intervals_fall_back_to_a_safe_default (test_settings.RecentWkbSettingsTests) ... ok
+test_legacy_preferences_keep_overlay_and_color_defaults_on_partial_save (test_settings.RecentWkbSettingsTests) ... ok
+test_recent_wkbs_persist_newest_first_without_duplicates (test_settings.RecentWkbSettingsTests) ... ok
+test_recovery_interval_defaults_to_two_minutes_and_persists_without_losing_preferences (test_settings.RecentWkbSettingsTests) ... ok
+test_saving_without_loading_keeps_the_stored_settings (test_settings.RecentWkbSettingsTests)
+A script or test that saves first must not replace the user's file. ... ok
+test_second_process_save_is_detected_and_can_be_reloaded (test_settings.RecentWkbSettingsTests) ... ok
+test_unreadable_settings_are_not_replaced_by_default_preferences (test_settings.RecentWkbSettingsTests) ... ok
+test_blank_header_identity_and_size_changes_use_general_behavior (test_sheet_batch_transactions.SheetBatchTransactionTests) ... ok
+test_callbacks_observe_the_complete_edit_and_detached_change_context (test_sheet_batch_transactions.SheetBatchTransactionTests) ... ok
+test_dense_paste_undo_redo_literals_snapshots_and_receipt (test_sheet_batch_transactions.SheetBatchTransactionTests) ... ok
+test_metadata_lock_and_subclass_hooks_are_not_bypassed (test_sheet_batch_transactions.SheetBatchTransactionTests) ... ok
+test_reentrant_apply_and_unknown_notification_invalidate_exactly (test_sheet_batch_transactions.SheetBatchTransactionTests) ... ok
+test_sparse_changes_noop_paste_and_interleaved_ordinary_edit (test_sheet_batch_transactions.SheetBatchTransactionTests) ... ok
+test_first_100k_order_bounds_do_not_build_a_qmodelindex_for_every_cell (test_sheet_bounds.SheetBoundsTests) ... ok
+test_order_bounds_match_visible_values_for_flags_marks_and_empty_headers (test_sheet_bounds.SheetBoundsTests) ... ok
+test_random_visible_rectangles_match_literal_cells_after_edit_and_undo (test_sheet_bounds.SheetBoundsTests) ... ok
+test_dense_and_sparse_loads_match_clipboard_matrix_semantics (test_sheet_bulk_load.SheetBulkLoadTests) ... ok
+test_dense_load_retains_general_metadata_fallback_and_owned_values (test_sheet_bulk_load.SheetBulkLoadTests) ... ok
+test_reentrant_literal_edit_during_load_is_not_replaced_by_prepared_frames (test_sheet_bulk_load.SheetBulkLoadTests) ... ok
+test_reset_notification_reads_never_leave_previous_source_cached (test_sheet_bulk_load.SheetBulkLoadTests) ... ok
+test_blank_rows_headers_growth_and_duplicate_names_keep_full_fallback (test_sheet_cache_updates.SheetCacheUpdateTests) ... ok
+test_callbacks_see_new_values_and_old_snapshots_stay_detached (test_sheet_cache_updates.SheetCacheUpdateTests) ... ok
+test_dense_multi_column_updates_preserve_precision_and_fragmented_frames (test_sheet_cache_updates.SheetCacheUpdateTests) ... ok
+test_nested_edit_and_unknown_notification_still_invalidate (test_sheet_cache_updates.SheetCacheUpdateTests) ... ok
+test_one_cache_write_per_frame_for_edit_undo_redo (test_sheet_cache_updates.SheetCacheUpdateTests) ... ok
+test_structural_signal_reads_cannot_leave_old_frames_cached (test_sheet_cache_updates.SheetCacheUpdateTests) ... ok
+test_copy_on_write_options_keep_old_borrows_and_public_edits_independent (test_sheet_read_views.SheetReadViewTests) ... ok
+test_frozen_recovery_copy_is_independent_of_later_model_changes (test_sheet_read_views.SheetReadViewTests) ... ok
+test_internal_reads_share_readonly_data_and_own_their_metadata (test_sheet_read_views.SheetReadViewTests) ... ok
+test_nonversion_model_keeps_detached_writable_read_fallback (test_sheet_read_views.SheetReadViewTests) ... ok
+test_old_reads_stay_stable_across_batch_undo_redo_and_general_edit (test_sheet_read_views.SheetReadViewTests) ... ok
+test_reset_observers_read_the_new_source_and_old_borrow_remains_old (test_sheet_read_views.SheetReadViewTests) ... ok
+test_unknown_writes_load_and_clear_never_change_previous_reads (test_sheet_read_views.SheetReadViewTests) ... ok
+test_batch_and_undo_swap_immutable_versions_before_notifying (test_sheet_versions.SheetVersionTests) ... ok
+test_cell_mapping_mutators_and_copies_match_dictionary (test_sheet_versions.SheetVersionTests) ... ok
+test_direct_mutation_invalidates_without_requiring_changed_signal (test_sheet_versions.SheetVersionTests) ... ok
+test_interleaved_structure_ordinary_edits_and_external_cells_use_fallback (test_sheet_versions.SheetVersionTests) ... ok
+test_unrepresented_external_cells_cannot_be_discarded_by_version_adoption (test_sheet_versions.SheetVersionTests) ... ok
+test_dragged_log_divider_is_restored_next_session (test_shell.ShellTests) ... ok
+test_empty_shell_omits_the_no_tools_open_message (test_shell.ShellTests) ... ok
+test_invalid_document_is_not_registered_as_an_empty_tool_after_metadata_routing (test_shell.ShellTests) ... ok
+test_light_theme_uses_a_light_fixed_width_terminal_log (test_shell.ShellTests) ... ok
+test_log_spans_the_bottom_below_the_restored_activity_panel (test_shell.ShellTests) ... ok
+test_match_workbook_is_the_first_available_tool (test_shell.ShellTests) ... ok
+test_module_card_shows_the_full_component_title (test_shell.ShellTests) ... ok
+test_registry_rejects_duplicates_and_non_widgets (test_shell.ShellTests) ... ok
+test_section_guidance_is_available_from_titles_not_subtitle_rows (test_shell.ShellTests) ... ok
+test_settings_has_color_range_without_yaml_reload_button (test_shell.ShellTests) ... ok
+test_shell_omits_global_close_and_ready_status_chrome (test_shell.ShellTests) ... ok
+test_spectra_viewer_is_an_independent_analysis_tool (test_shell.ShellTests) ... ok
+test_terminal_log_colours_level_labels_after_theme_switch (test_shell.ShellTests) ... ok
+test_terminal_log_records_runtime_component_and_error_information (test_shell.ShellTests) ... ok
+test_wafer_workspace_supports_multiple_instances (test_shell.ShellTests) ... ok
+test_window_geometry_follows_the_display_and_the_taskbar (test_shell.ShellTests) ... ok
+test_windows_fit_the_display_above_the_taskbar (test_shell.ShellTests) ... ok
+test_compressed_legacy_keeps_stored_values_and_does_not_invent_missing_ncs (test_sme_compatibility.SMECompatibilityTests) ... skipped 'supplied compressed legacy spectrum unavailable'
+test_corrupt_channel_count_lengths_and_footer_fail_without_partial_spectra (test_sme_compatibility.SMECompatibilityTests) ... ok
+test_expanded_series_accepts_both_supplied_head_names_and_keeps_metadata (test_sme_compatibility.SMECompatibilityTests) ... skipped 'supplied spectra unavailable'
+test_instrument_and_mode_are_metadata_for_all_supported_series (test_sme_compatibility.SMECompatibilityTests) ... skipped 'supplied spectra unavailable'
+test_legacy_filename_keeps_named_row_and_column_when_r_precedes_c (test_sme_compatibility.SMECompatibilityTests) ... ok
+test_reflectance_channels_keep_their_own_sampling_and_source_identity (test_sme_compatibility.SMECompatibilityTests) ... skipped 'supplied multichannel reflectance unavailable'
+test_unknown_internal_version_does_not_change_supported_numeric_layouts (test_sme_compatibility.SMECompatibilityTests) ... skipped 'supplied spectra unavailable'
+test_unknown_metadata_and_short_infrared_series_accept_only_complete_layouts (test_sme_compatibility.SMECompatibilityTests) ... ok
+test_every_real_file_is_readable_or_identified_as_encrypted (test_sme_spectra.RealJC1913Tests) ... skipped 'JC1913 unavailable'
+test_ait_name_separates_wafer_lot_pad_and_ignores_tool_timestamp (test_sme_spectra.SpectrumIdentityTests) ... ok
+test_bad_sme_is_reported_without_stopping_the_batch (test_sme_spectra.SpectrumIdentityTests) ... ok
+test_embedded_filename_separates_tool_sn_from_pad_and_field_coordinates (test_sme_spectra.SpectrumIdentityTests) ... ok
+test_encrypted_files_are_reported_with_recovery_instructions (test_sme_spectra.SpectrumIdentityTests) ... ok
+test_legacy_date_token_is_used_as_pad_when_no_named_pad_exists (test_sme_spectra.SpectrumIdentityTests) ... ok
+test_metadata_dataframe_and_csv_keep_one_row_per_channel (test_sme_spectra.SpectrumIdentityTests) ... ok
+test_named_pad_precedes_date_and_angle_labels_keep_full_precision_identity (test_sme_spectra.SpectrumIdentityTests) ... ok
+test_repeated_add_does_not_duplicate_encrypted_file_issues (test_sme_spectra.SpectrumIdentityTests) ... ok
+test_scan_is_cancellable_and_ignores_non_sme_files (test_sme_spectra.SpectrumIdentityTests) ... ok
+test_unrecognized_name_is_preserved_without_guessing_identity (test_sme_spectra.SpectrumIdentityTests) ... ok
+test_irse_keeps_stored_mueller_and_ellipsometry_with_embedded_identity (test_sme_spectra.SuppliedIRSESpectrumTests) ... skipped 'supplied IRSE spectrum unavailable'
+test_batch_groups_by_declared_wafer_and_orders_die_numerically (test_sme_spectra.SuppliedSpectrumBatchTests) ... skipped 'supplied SME regression folder is unavailable'
+test_business_metadata_is_present_for_every_verified_channel (test_sme_spectra.SuppliedSpectrumBatchTests) ... skipped 'supplied SME regression folder is unavailable'
+test_catalog_can_regroup_by_lot_and_die_without_changing_sources (test_sme_spectra.SuppliedSpectrumBatchTests) ... skipped 'supplied SME regression folder is unavailable'
+test_catalog_removes_selected_records_without_touching_source_files (test_sme_spectra.SuppliedSpectrumBatchTests) ... skipped 'supplied SME regression folder is unavailable'
+test_dts_uses_filename_coordinates_when_header_is_placeholder (test_sme_spectra.SuppliedSpectrumBatchTests) ... skipped 'supplied SME regression folder is unavailable'
+test_external_filename_only_fills_missing_internal_identity (test_sme_spectra.SuppliedSpectrumBatchTests) ... skipped 'supplied SME regression folder is unavailable'
+test_reflectance_is_only_read_from_dts_not_from_other_instruments (test_sme_spectra.SuppliedSpectrumBatchTests) ... skipped 'supplied SME regression folder is unavailable'
+test_supplied_batch_preserves_all_verified_channels (test_sme_spectra.SuppliedSpectrumBatchTests) ... skipped 'supplied SME regression folder is unavailable'
+test_early_difference_does_not_skip_invalid_later_state (test_snapshot_equality.SnapshotEqualityTests) ... ok
+test_invalid_equal_and_changed_states_still_use_json_validation (test_snapshot_equality.SnapshotEqualityTests) ... ok
+test_large_unchanged_record_identity_state_compares_promptly (test_snapshot_equality.SnapshotEqualityTests) ... ok
+test_nested_states_keep_encoder_equality_and_errors (test_snapshot_equality.SnapshotEqualityTests) ... ok
+test_state_comparison_matches_json_for_types_order_and_nested_values (test_snapshot_equality.SnapshotEqualityTests) ... ok
+test_state_edits_and_accepted_baseline_mutation_are_not_cached (test_snapshot_equality.SnapshotEqualityTests) ... ok
+test_correlation_y_ticks_keep_original_values_on_screen_and_export (test_source_plot_presentation.SourcePlotPresentationTests) ... ok
+test_excel_correlation_preserves_pair_colors_in_native_and_matplotlib_reports (test_source_plot_presentation.SourcePlotPresentationTests) ... ok
+test_excel_trend_secondary_axes_keep_same_unit_sources_distinct_and_labeled (test_source_plot_presentation.SourcePlotPresentationTests) ... ok
+test_match_y_ticks_do_not_apply_an_implicit_multiplier (test_source_plot_presentation.SourcePlotPresentationTests) ... ok
+test_new_trend_y_axes_name_their_ref_or_raw_source_in_screen_and_export (test_source_plot_presentation.SourcePlotPresentationTests) ... ok
+test_plain_y_tick_format_preserves_small_large_and_negative_values (test_source_plot_presentation.SourcePlotPresentationTests) ... ok
+test_three_pair_categories_have_distinct_stable_colors_and_matching_exports (test_source_plot_presentation.SourcePlotPresentationTests) ... ok
+test_baseline_channel_matches_exact_angles_across_instruments_but_rejects_ambiguity (test_spectra_analysis.SpectraAnalysisTests) ... ok
+test_delta_residual_is_direct_subtraction_in_degrees (test_spectra_analysis.SpectraAnalysisTests) ... ok
+test_near_wavelengths_are_not_equal_and_duplicate_baseline_is_reported (test_spectra_analysis.SpectraAnalysisTests) ... ok
+test_residual_uses_only_exact_wavelengths_and_retains_gaps_and_sources (test_spectra_analysis.SpectraAnalysisTests) ... ok
+test_three_sigma_is_sample_spread_at_exact_wavelengths_with_two_or_more_values (test_spectra_analysis.SpectraAnalysisTests) ... ok
+test_three_sigma_retains_zero_spread_and_is_stable_for_large_offsets (test_spectra_analysis.SpectraAnalysisTests) ... ok
+test_batch_copy_keeps_working_when_retained_folders_make_target_over_260_chars (test_spectra_export.SpectrumExportTests) ... ok
+test_exported_long_paths_can_be_loaded_back_without_changing_sme_bytes (test_spectra_export.SpectrumExportTests) ... skipped 'Windows and supplied SME fixture'
+test_missing_original_can_be_retried_or_skipped_without_losing_other_copies (test_spectra_export.SpectrumExportTests) ... ok
+test_click_point_then_enter_multi_digit_flag_and_reject_invalid_prefix (test_spectra_group_interactions.SpectraGroupInteractionTests) ... ok
+test_color_by_folder_and_flag_groups_sources_and_survives_save_restore (test_spectra_group_interactions.SpectraGroupInteractionTests) ... ok
+test_default_marks_append_replace_and_undo (test_spectra_group_interactions.SpectraGroupInteractionTests) ... ok
+test_group_details_flags_are_shared_with_info_and_undo (test_spectra_group_interactions.SpectraGroupInteractionTests) ... ok
+test_group_settings_flag_button_and_script_share_assignments (test_spectra_group_interactions.SpectraGroupInteractionTests) ... ok
+test_highlight_hidden_channels_and_batched_sme_colours_preserve_samples (test_spectra_group_interactions.SpectraGroupInteractionTests) ... ok
+test_highlight_survives_selection_clear_and_restore_without_curve_rebuild (test_spectra_group_interactions.SpectraGroupInteractionTests) ... ok
+test_tree_and_map_share_actions_and_flag_entry_obeys_configured_values (test_spectra_group_interactions.SpectraGroupInteractionTests) ... ok
+test_u_unchecks_selected_curve_in_main_and_floating_plot (test_spectra_group_interactions.SpectraGroupInteractionTests) ... ok
+test_copy_groups_matches_business_identity_and_rejects_conflicting_duplicates (test_spectra_groups.SpectraGroupTests) ... ok
+test_invalid_group_drafts_are_rejected_before_replacing_spectra (test_spectra_groups.SpectraGroupTests) ... ok
+test_local_group_settings_apply_and_master_toggle_preserve_participation (test_spectra_groups.SpectraGroupTests) ... ok
+test_tree_mark_legend_prefix_map_group_and_undo_do_not_rebuild_curves (test_spectra_groups.SpectraGroupTests) ... ok
+test_wkb_group_copy_is_one_time_local_and_persists_with_draggable_legend (test_spectra_groups.SpectraGroupTests) ... ok
+test_batched_highlight_cache_matches_native_stroke_compositing (test_spectra_highlight_style.HighlightStyleTests) ... ok
+test_dark_background_keeps_a_light_halo_and_fixed_core (test_spectra_highlight_style.HighlightStyleTests) ... ok
+test_disposed_overlay_and_cache_are_released_after_repeated_highlights (test_spectra_highlight_style.HighlightStyleTests) ... ok
+test_either_axis_highlight_is_above_both_axes_in_actual_scene_order (test_spectra_highlight_style.HighlightStyleTests) ... ok
+test_highlight_does_not_change_manual_ranges_or_leak_scene_items (test_spectra_highlight_style.HighlightStyleTests) ... ok
+test_highlight_is_one_two_stroke_overlay_per_axis_in_both_render_paths (test_spectra_highlight_style.HighlightStyleTests) ... ok
+test_ordinary_selection_keeps_original_color_and_width (test_spectra_highlight_style.HighlightStyleTests) ... ok
+test_secondary_highlight_cache_matches_full_native_export (test_spectra_highlight_style.HighlightStyleTests) ... ok
+test_small_highlight_is_visible_while_its_background_raster_is_pending (test_spectra_highlight_style.HighlightStyleTests) ... ok
+test_clear_all_highlights_works_without_selection_and_can_be_undone (test_spectra_highlight_style.ViewerHighlightTests) ... ok
+test_highlight_syncs_all_mueller_axes_and_floating_plot_in_both_color_modes (test_spectra_highlight_style.ViewerHighlightTests) ... ok
+test_legend_highlight_icon_has_white_halo_and_bright_core (test_spectra_highlight_style.ViewerHighlightTests) ... ok
+test_persistent_highlight_changes_die_point_color_and_undo_restores_it (test_spectra_highlight_style.ViewerHighlightTests) ... ok
+test_reflectance_and_legend_keep_highlight_after_selection_is_cleared (test_spectra_highlight_style.ViewerHighlightTests) ... ok
+test_three_sigma_highlight_reuses_aggregate_segments_and_preserves_source_samples (test_spectra_highlight_style.ViewerHighlightTests) ... ok
+test_unpinned_die_map_does_not_raise_when_spectra_viewer_is_activated (test_spectra_highlight_style.ViewerHighlightTests) ... ok
+test_extra_or_ambiguous_checked_sources_and_timestamp_mismatches_are_reported (test_spectra_info.SpectraInfoTests) ... ok
+test_hidden_rows_never_enter_tables_but_hidden_checked_extras_still_report (test_spectra_info.SpectraInfoTests) ... ok
+test_original_row_order_sme_metadata_reference_columns_and_flag_position (test_spectra_info.SpectraInfoTests) ... ok
+test_copy_wkb_editor_filters_do_not_hide_participating_info_rows (test_spectra_info.SpectraInfoWorkflowTests) ... ok
+test_die_map_sets_flags_without_replacing_maps_or_changing_checks (test_spectra_info.SpectraInfoWorkflowTests) ... ok
+test_flag_editor_supports_values_grouping_and_safe_wheel_without_changing_live_state (test_spectra_info.SpectraInfoWorkflowTests) ... ok
+test_info_blocks_export_for_extra_checked_spectra_and_flag_dialog_has_local_cancel (test_spectra_info.SpectraInfoWorkflowTests) ... ok
+test_open_info_tracks_raw_pairing_repairs_and_preview_final_switches (test_spectra_info.SpectraInfoWorkflowTests) ... ok
+test_open_info_tracks_reloaded_metadata_and_exports_current_values (test_spectra_info.SpectraInfoWorkflowTests) ... ok
+test_open_info_tracks_workbook_reference_edits_without_manual_refresh (test_spectra_info.SpectraInfoWorkflowTests) ... ok
+test_similar_wafer_check_and_flag_actions_are_independent (test_spectra_info.SpectraInfoWorkflowTests) ... ok
+test_workbook_info_filters_copy_export_flags_and_spec_restore (test_spectra_info.SpectraInfoWorkflowTests) ... ok
+test_all_tabs_share_raw_and_default_order_and_flag_edit_refreshes_both_directions (test_spectra_info_edits.SpectraInfoEditTests) ... ok
+test_delete_column_shifts_report_and_exports_without_changing_source (test_spectra_info_edits.SpectraInfoEditTests) ... ok
+test_edit_report_flag_updates_matching_die_in_place_with_shared_undo_redo (test_spectra_info_edits.SpectraInfoEditTests) ... ok
+test_keyboard_shortcuts_and_saved_report_projection (test_spectra_info_edits.SpectraInfoEditTests) ... ok
+test_without_raw_natural_identity_die_time_order_and_missing_xy (test_spectra_info_xy.SpectraXYTests) ... ok
+test_xy_uses_sme_coordinates_in_original_raw_row_order (test_spectra_info_xy.SpectraXYTests) ... ok
+test_standalone_xy_tab_copy_export_and_live_checks (test_spectra_info_xy.SpectraXYWorkflowTests) ... ok
+test_xy_data_selection_filter_apply_changes_info_participation (test_spectra_info_xy.SpectraXYWorkflowTests) ... ok
+test_blank_scroll_area_clears_selection_without_affecting_checks (test_spectra_map.SpectraMapWindowTests) ... ok
+test_cards_show_live_point_counts_without_changing_plot_size_or_range (test_spectra_map.SpectraMapWindowTests) ... ok
+test_check_changes_reuse_plots_ranges_and_unchecked_points (test_spectra_map.SpectraMapWindowTests) ... ok
+test_check_unselected_applies_only_to_points_in_the_context_wafer (test_spectra_map.SpectraMapWindowTests) ... ok
+test_full_page_is_built_in_responsive_batches (test_spectra_map.SpectraMapWindowTests) ... ok
+test_identical_coordinates_render_one_point_for_multiple_spectra (test_spectra_map.SpectraMapWindowTests) ... ok
+test_left_drag_selects_point_clusters_without_zoom_and_modifiers_add_points (test_spectra_map.SpectraMapWindowTests) ... ok
+test_long_titles_keep_whole_wafers_visible_on_full_pages_and_resize (test_spectra_map.SpectraMapWindowTests) ... ok
+test_map_tiles_keep_their_size_and_use_scrollbars_when_window_shrinks (test_spectra_map.SpectraMapWindowTests) ... ok
+test_map_uses_equal_aspect_and_infers_common_wafer_diameters (test_spectra_map.SpectraMapWindowTests) ... ok
+test_one_map_per_wafer_retains_unchecked_points (test_spectra_map.SpectraMapWindowTests) ... ok
+test_pad_outlines_stay_behind_points_and_reuse_geometry_on_check_changes (test_spectra_map.SpectraMapWindowTests) ... ok
+test_pages_contain_at_most_twelve_wafer_maps (test_spectra_map.SpectraMapWindowTests) ... ok
+test_same_wafer_with_different_lot_or_pad_has_separate_outlined_maps (test_spectra_map.SpectraMapWindowTests) ... ok
+test_selecting_a_spectrum_reuses_the_current_wafer_plot (test_spectra_map.SpectraMapWindowTests) ... ok
+test_single_tile_window_has_regular_titles_and_tight_square_coordinate_extent (test_spectra_map.SpectraMapWindowTests) ... ok
+test_grid_fills_circle_including_unmeasured_fields_without_moving_points (test_spectra_pad_geometry.PadGeometryTests) ... ok
+test_missing_or_inconsistent_coordinates_do_not_invent_a_pad_size (test_spectra_pad_geometry.PadGeometryTests) ... ok
+test_size_uses_only_three_references_and_rounds_to_two_decimal_mm (test_spectra_pad_geometry.PadGeometryTests) ... ok
+test_sparse_negative_fields_infer_pitch_without_origin_or_adjacent_samples (test_spectra_pad_geometry.PadGeometryTests) ... ok
+test_source_entrypoint_checks_die_map_and_exits_without_auto_weighting (test_spectra_release_smoke.SpectraReleaseSmokeTests) ... skipped 'Requires supplied SME fixture'
+test_add_spectra_merges_wafers_and_preserves_existing_checks (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_all_spectrum_splitters_can_collapse_and_double_click_restore_defaults (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_all_view_blocks_are_available_with_a_complete_mueller_grid (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_analysis_reports_insufficient_samples_and_no_common_wavelengths (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_baseline_mode_subtracts_exact_wavelengths_and_syncs_floating_plot (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_blank_map_and_main_plot_background_clear_the_linked_selection (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_channel_checkboxes_remain_open_and_restore_hidden_checked_sources (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_channel_summary_counts_instrument_angle_pairs_without_duplicate_footer (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_check_changes_reuse_other_wafer_curves_and_preserve_manual_axes (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_checking_one_spectrum_selects_only_that_file (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_clear_bsl_exits_residual_and_keeps_checked_sources (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_clearing_checked_spectra_removes_curves_from_plot_data (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_clicking_actual_view_all_button_keeps_selection_and_highlight (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_closing_a_dense_plot_cancels_its_background_work (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_color_by_wafer_identity_or_sme_keeps_channels_distinct_and_state_stable (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_ctrl_curve_clicks_add_and_remove_spectra_from_the_selection (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_curve_and_blank_clicks_sync_selection_with_map_and_floating_plot (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_delete_tree_removes_only_selected_folded_branch_and_keeps_disk_files (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_dense_screen_geometry_preserves_peaks_gaps_and_full_detail_on_zoom (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_dense_spectrum_background_render_matches_native_pixels_after_resize (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_die_map_apply_to_similar_wafer_updates_checks_once_and_retains_maps (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_die_map_double_click_toggles_checks_without_recreating_plots (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_double_click_opens_one_floating_copy_per_plot (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_encrypted_file_rows_show_source_and_decryption_guidance (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_failed_replacement_keeps_existing_spectra (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_file_and_options_menus_own_loading_and_view_actions (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_filter_by_reclassifies_tree_without_changing_participation_selection_or_plots (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_fold_and_unfold_tree_buttons_change_branch_visibility (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_hiding_and_restoring_a_batched_channel_retains_its_source_buffers (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_highlighting_spectra_does_not_change_axis_ranges (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_incremental_changes_recompute_enabled_auto_axes_from_visible_data (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_large_selection_paints_in_cancellable_steps (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_legend_groups_channel_and_double_click_toggles_all_curves (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_legend_hide_all_preserves_checks_selection_axes_and_other_sections (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_legend_sections_follow_view_choices_and_reclaim_the_space (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_legend_select_channel_controls_all_wafers_without_rebuilding_curves (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_legend_selection_follows_wafer_and_sme_groups_without_changing_checks (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_legend_show_all_restores_its_section_without_rechecking_spectra (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_legend_visibility_reuses_dense_curves_and_their_cached_images (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_legends_are_grouped_by_plot_family_and_scroll_with_the_wheel (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_loading_long_filename_does_not_resize_existing_plot_views (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_loading_runs_in_a_worker_and_populates_the_real_catalog (test_spectra_viewer.SpectraViewerTreeTests) ... skipped 'supplied SME regression folder is unavailable'
+test_many_color_edits_retain_unaffected_curve_batches (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_many_individual_colors_are_batched_and_match_native_rendering (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_map_and_enlarged_plot_support_application_scoped_pinning (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_map_ctrl_selection_across_wafers_and_context_check_actions_sync_tree (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_map_selection_highlights_the_spectrum_tree_entry (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_mueller_wavelength_major_labels_are_uniform_at_full_and_zoomed_ranges (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_multichannel_file_is_one_tree_leaf_and_one_map_point (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_native_axis_menu_edits_ranges_in_matrix_and_floating_plots (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_open_map_reuses_one_window_and_tracks_checked_spectra (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_pad_arrow_opens_lazy_spectra_with_a_mouse_click (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_plot_background_is_white_and_x_limits_are_tight_after_auto_range (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_plot_boundaries_are_resizable_splitters (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_plot_navigation_uses_box_zoom_native_axis_menu_and_auto_button (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_rapid_dense_check_changes_keep_only_the_latest_spectra (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_resizing_dense_plots_keeps_curves_and_coalesces_paint_batches (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_selected_collapsed_wafer_checks_all_its_spectra_without_checking_others (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_set_as_bsl_uses_one_selected_spectrum_without_checking_it (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_spectrum_leaves_are_created_only_when_the_pad_opens (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_spectrum_screen_curves_use_antialiasing_in_main_and_floating_plots (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_ten_channel_colours_are_distinct_and_match_legend_icons_and_plots (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_three_sigma_groups_checked_samples_by_wafer_and_channel_without_a_baseline (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_three_sigma_preserves_wafer_statistics_and_restores_sme_color_choice (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_tree_ctrl_and_shift_selection_can_check_and_uncheck_only_selected_spectra (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_tree_groups_wafer_lot_pad_and_orders_die_numerically (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_tree_menu_checks_and_unchecks_every_spectrum (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_unchanged_selection_and_added_duplicates_keep_existing_plot_zoom (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_viewport_clipping_preserves_thick_strokes_at_dense_view_edges (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_views_menu_allows_multiple_checks_without_closing (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_wafer_channel_colours_are_distinct_stable_and_match_legends (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_zoom_clips_each_spectrum_without_changing_gaps_bounds_or_source_samples (test_spectra_viewer.SpectraViewerTreeTests) ... ok
+test_child_can_save_and_open_spec_without_saving_its_parent (test_spectra_workbook.SpectraWorkbookTests) ... ok
+test_context_export_copies_only_checked_sme_in_original_folders (test_spectra_workbook.SpectraWorkbookTests) ... ERROR
+test_copy_wkb_selection_updates_script_view_once_without_changing_parent (test_spectra_workbook.SpectraWorkbookTests) ... ok
+test_data_selection_row_modes_follow_manual_spectrum_checks_outside_saved_filters (test_spectra_workbook.SpectraWorkbookTests) ... ok
+test_delete_spectra_window_keeps_other_child_and_dynamic_selections (test_spectra_workbook.SpectraWorkbookTests) ... ok
+test_document_storage_work_keeps_gui_timers_running (test_spectra_workbook.SpectraWorkbookTests) ... ok
+test_embedded_spectra_round_trip_preserves_samples_and_view_choices (test_spectra_workbook.SpectraWorkbookTests) ... ok
+test_escape_from_export_recovery_cancels_without_leaving_a_waiting_worker (test_spectra_workbook.SpectraWorkbookTests) ... ok
+test_export_collision_reports_failure_and_preserves_the_original_export (test_spectra_workbook.SpectraWorkbookTests) ... ok
+test_export_dialog_retries_and_skips_missing_originals_then_lists_unexported_paths (test_spectra_workbook.SpectraWorkbookTests) ... ok
+test_invalid_spec_settings_do_not_replace_current_spectra (test_spectra_workbook.SpectraWorkbookTests) ... ok
+test_managed_loading_embeds_all_instruments_and_survives_source_removal (test_spectra_workbook.SpectraWorkbookTests) ... skipped 'Original mixed-instrument samples unavailable'
+test_managed_save_shortcuts_target_workbook_and_standalone_targets_spec (test_spectra_workbook.SpectraWorkbookTests) ... ok
+test_managed_titles_follow_workbook_save_as_and_standalone_spec_names (test_spectra_workbook.SpectraWorkbookTests) ... ok
+test_match_save_reopen_and_closed_child_restore_without_sme_files (test_spectra_workbook.SpectraWorkbookTests) ... ok
+test_path_save_type_removes_embedded_samples_and_reloads_original_files (test_spectra_workbook.SpectraWorkbookTests) ... ERROR
+test_showing_an_empty_viewer_does_not_create_unsaved_changes (test_spectra_workbook.SpectraWorkbookTests) ... ok
+test_spec_uses_standard_shell_routing_and_revision_protection (test_spectra_workbook.SpectraWorkbookTests) ... ok
+test_spectra_data_selection_updates_checks_and_survives_spec_save (test_spectra_workbook.SpectraWorkbookTests) ... ok
+test_workbook_and_shell_viewers_use_the_same_light_and_dark_styles (test_spectra_workbook.SpectraWorkbookTests) ... ok
+test_workbook_path_mode_and_missing_references_survive_save_without_embedding (test_spectra_workbook.SpectraWorkbookTests) ... ERROR
+test_changing_precision_never_rounds_the_measurements (test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok
+test_export_uses_precision_even_while_map_selector_is_visible (test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok
+test_immediate_export_and_copy_flush_pending_precision (test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok
+test_loading_final_after_preview_selection_keeps_shared_participation (test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok
+test_point_values_default_to_two_fixed_decimal_places (test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok
+test_precision_changes_existing_labels_without_reinterpolation (test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok
+test_precision_control_is_on_appearance_row_and_defaults_to_two (test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok
+test_precision_is_an_application_preference_not_restored_from_documents (test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok
+test_preview_selection_survives_switch_to_empty_final_and_back (test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok
+test_report_export_flushes_pending_precision (test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok
+test_restored_head_mark_selection_survives_first_final_paste (test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok
+test_selection_survives_ready_stage_switches_without_setting_it_again (test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok
+test_selection_survives_stage_specific_literal_id_representations (test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok
+test_temporarily_empty_final_does_not_reset_preview_participation (test_stage_selection_and_point_precision.StageSelectionAndPointPrecisionTests) ... ok
+test_first_responsive_shell_defers_analysis_dependencies (test_startup_imports.StartupImportTests) ... ok
+test_all_child_copies_are_editable_and_include_full_actual_sources (test_storage_v2.StorageV2Tests) ... ok
+test_application_exit_preserves_discard_edits_when_later_save_fails (test_storage_v2.StorageV2Tests) ... ok
+test_background_recovery_preserves_each_child_draft_and_its_accepted_basis (test_storage_v2.StorageV2Tests) ... ok
+test_copy_cannot_overwrite_owner_or_samefile_alias (test_storage_v2.StorageV2Tests) ... ok
+test_copy_contains_current_child_draft_without_saving_match (test_storage_v2.StorageV2Tests) ... ok
+test_explicit_workbook_data_reset_is_confirmed_and_remains_a_draft (test_storage_v2.StorageV2Tests) ... ok
+test_export_keeps_active_cell_input_without_forcing_draw (test_storage_v2.StorageV2Tests) ... ok
+test_failed_child_save_keeps_file_and_discard_baseline (test_storage_v2.StorageV2Tests) ... Unable to save WKB workspace
+Traceback (most recent call last):
+  File "D:\WaferMap\metrology_app\window.py", line 373, in save_wkb
+    saved = self.document.save()
+  File "D:\WaferMap\metrology_app\workspace_document.py", line 72, in guarded
+    return method(target, *args, **kwargs)
+  File "D:\WaferMap\metrology_app\workspace_document.py", line 619, in save
+    result = owner(self.window.model.document_frame())
+  File "D:\WaferMap\metrology_app\matching_window.py", line 3627, in <lambda>
+    self._save_managed_workspace_on_close(
+  File "D:\WaferMap\metrology_app\matching_window.py", line 4455, in _save_managed_workspace_on_close
+    return self.save_workbook(self.workbook_path, capture_children=False, child=workspace)
+  File "D:\WaferMap\metrology_app\workspace_document.py", line 72, in guarded
+    return method(target, *args, **kwargs)
+  File "D:\WaferMap\metrology_app\matching_window.py", line 6033, in save_workbook
+    if large_spectra_payload(snapshot, target) else save_workspace(target, snapshot, expected_revision=expected))
+  File "D:\WaferMap\metrology_app\workspace_store.py", line 262, in save_workspace
+    os.replace(temporary, target)
+  File "F:\Anaconda3\envs\octs\lib\unittest\mock.py", line 1114, in __call__
+    return self._mock_call(*args, **kwargs)
+  File "F:\Anaconda3\envs\octs\lib\unittest\mock.py", line 1118, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+  File "F:\Anaconda3\envs\octs\lib\unittest\mock.py", line 1179, in _execute_mock_call
+    result = effect(*args, **kwargs)
+  File "D:\WaferMap\tests\test_storage_v2.py", line 195, in fail_formal
+    raise PermissionError("target in use")
+PermissionError: target in use
+ok
+test_future_recovery_version_is_rejected_before_changing_window (test_storage_v2.StorageV2Tests) ... ok
+test_importing_an_independent_workspace_into_child_keeps_match_ownership (test_storage_v2.StorageV2Tests) ... ok
+test_independent_readonly_document_save_requests_new_path (test_storage_v2.StorageV2Tests) ... ok
+test_new_edit_during_atomic_write_is_not_marked_saved (test_storage_v2.StorageV2Tests) ... ok
+test_old_tool_wkb_requires_explicit_typed_save_as (test_storage_v2.StorageV2Tests) ... ok
+test_parent_close_prompts_for_child_editor_that_has_not_lost_focus (test_storage_v2.StorageV2Tests) ... ok
+test_recovery_interval_updates_managed_and_independent_windows_without_starting_child_writers (test_storage_v2.StorageV2Tests) ... ok
+test_recovery_keeps_other_child_draft_and_its_discard_baseline (test_storage_v2.StorageV2Tests) ... ok
+test_recovery_uses_version_gate_and_formal_save_removes_recovery_tables (test_storage_v2.StorageV2Tests) ... ok
+test_reopen_same_scope_only_activates_existing_draft (test_storage_v2.StorageV2Tests) ... ok
+test_save_as_cancel_then_success_changes_only_current_path (test_storage_v2.StorageV2Tests) ... ok
+test_shared_axis_change_is_parent_dirty_not_child_local_edit (test_storage_v2.StorageV2Tests) ... ok
+test_subwindow_has_no_hidden_save_as_shortcut (test_storage_v2.StorageV2Tests) ... ok
+test_successful_file_is_accepted_even_if_title_update_fails (test_storage_v2.StorageV2Tests) ... Saved baseline; title update failed: display unavailable
+Workbook saved; auxiliary update failed: display unavailable
+ok
+test_tem_map_explicit_copy_requires_confirmation_and_dynamic_stays_independent (test_storage_v2.StorageV2Tests) ... ok
+test_untrusted_old_recovery_requires_whole_save_as_for_local_discard (test_storage_v2.StorageV2Tests) ... ok
+test_workbook_data_menu_tracks_match_type_without_reopening_children (test_storage_v2.StorageV2Tests) ... ok
+test_copy_animates_the_range_without_editing_and_escape_cancels_only_feedback (test_table_clipboard.TableClipboardTests) ... ok
+test_cut_copies_before_clearing_as_one_undoable_operation (test_table_clipboard.TableClipboardTests) ... ok
+test_cut_of_filtered_sorted_rows_preserves_hidden_rows_and_undo_identity (test_table_clipboard.TableClipboardTests) ... ok
+test_delete_ranges_preserve_unselected_and_locked_cells_as_one_edit (test_table_clipboard.TableClipboardTests) ... ok
+test_derived_order_cells_are_copyable_but_a_mixed_cut_is_rejected (test_table_clipboard.TableClipboardTests) ... ok
+test_dynamic_cut_preserves_source_precision_and_trailing_zeroes_in_clipboard (test_table_clipboard.TableClipboardTests) ... ok
+test_dynamic_cut_uses_shared_data_history_and_keeps_derived_row_read_only (test_table_clipboard.TableClipboardTests) ... ok
+test_edit_returns_immutable_original_values_for_applied_cells_only (test_table_clipboard.TableClipboardTests) ... ok
+test_failed_copy_does_not_clear_cut_source (test_table_clipboard.TableClipboardTests) ... ok
+test_known_paste_rectangle_is_reported_without_reconstructing_it_from_differences (test_table_clipboard.TableClipboardTests) ... ok
+test_large_copy_and_animation_do_not_enumerate_selected_indexes_or_emit_edits (test_table_clipboard.TableClipboardTests) ... ok
+test_order_paste_reports_only_editable_cells_and_preserves_undo (test_table_clipboard.TableClipboardTests) ... ok
+test_paste_selects_full_rectangle_without_extra_colour_or_border_even_when_values_match (test_table_clipboard.TableClipboardTests) ... ok
+test_projected_bounds_follow_edits_undo_header_changes_and_filtered_row_order (test_table_clipboard.TableClipboardTests) ... ok
+test_read_only_result_tables_copy_with_feedback_without_cutting_calculated_values (test_table_clipboard.TableClipboardTests) ... ok
+test_reload_model_switch_hidden_view_and_clipboard_replacement_stop_animation (test_table_clipboard.TableClipboardTests) ... ok
+test_select_all_boundary_grows_when_a_whitespace_edge_cell_gets_data (test_table_clipboard.TableClipboardTests) ... ok
+test_select_all_excludes_reserved_and_blank_trailing_cells_not_internal_blanks (test_table_clipboard.TableClipboardTests) ... ok
+test_select_all_in_projection_selects_visible_data_and_empty_sheet_selects_nothing (test_table_clipboard.TableClipboardTests) ... ok
+test_select_all_keeps_deleted_internal_columns_but_trims_deleted_right_columns (test_table_clipboard.TableClipboardTests) ... ok
+test_select_all_order_includes_calculated_headers_and_shrinks_after_flag_deletion (test_table_clipboard.TableClipboardTests) ... ok
+test_select_all_trims_deleted_left_columns_and_undo_restores_the_boundary (test_table_clipboard.TableClipboardTests) ... ok
+test_select_all_trims_deleted_top_and_bottom_rows_without_excluding_internal_rows (test_table_clipboard.TableClipboardTests) ... ok
+test_select_all_uses_visible_projection_edges_without_touching_hidden_measurements (test_table_clipboard.TableClipboardTests) ... ok
+test_custom_disabled_flags_keep_original_native_notification (test_table_selection_notifications.TableSelectionNotificationTests) ... ok
+test_custom_header_styling_keeps_the_native_header_path (test_table_selection_notifications.TableSelectionNotificationTests) ... ok
+test_delete_undo_retains_internal_and_trailing_blanks_across_replays (test_table_selection_notifications.TableSelectionNotificationTests) ... ok
+test_duplicate_locked_header_renames_keep_change_order (test_table_selection_notifications.TableSelectionNotificationTests) ... ok
+test_first_dense_delete_undo_restores_exact_cells_and_notification_promptly (test_table_selection_notifications.TableSelectionNotificationTests) ... ok
+test_full_selection_model_signal_and_projection_mapping_are_retained (test_table_selection_notifications.TableSelectionNotificationTests) ... ok
+test_hidden_header_edges_and_sort_arrow_match_native_options (test_table_selection_notifications.TableSelectionNotificationTests) ... ok
+test_native_first_cell_events_keep_delta_order_without_expanding_ranges (test_table_selection_notifications.TableSelectionNotificationTests) ... ok
+test_nested_change_context_restores_outer_cells_and_clears_after_notification (test_table_selection_notifications.TableSelectionNotificationTests) ... ok
+test_numeric_zero_participation_header_is_not_blank (test_table_selection_notifications.TableSelectionNotificationTests) ... ok
+test_order_selection_does_not_expand_clipboard_or_cut_permissions (test_table_selection_notifications.TableSelectionNotificationTests) ... ok
+test_empty_and_header_only_versions_preserve_their_shapes (test_table_version.LiteralTableVersionTests) ... ok
+test_exact_literals_duplicate_headers_blank_rows_and_attributes_round_trip (test_table_version.LiteralTableVersionTests) ... ok
+test_input_and_public_read_mutations_do_not_change_any_version (test_table_version.LiteralTableVersionTests) ... ok
+test_new_versions_share_only_unchanged_immutable_columns (test_table_version.LiteralTableVersionTests) ... ok
+test_snapshot_cells_keep_original_empty_tail_marker (test_table_version.LiteralTableVersionTests) ... ok
+test_unrepresentable_values_and_schema_changes_are_explicit (test_table_version.LiteralTableVersionTests) ... ok
+test_benchmark_module_entry_isolates_all_inherited_persistence_paths (test_test_environment.TestEnvironmentTests) ... ok
+test_default_runs_do_not_share_mutable_settings_or_recovery (test_test_environment.TestEnvironmentTests) ... ok
+test_inherited_user_paths_are_replaced_by_one_scratch_directory (test_test_environment.TestEnvironmentTests) ... ok
+test_legacy_file_entry_rejects_before_importing_app_with_user_paths (test_test_environment.TestEnvironmentTests) ... ok
+test_always_one_axis_overrides_different_units_and_marks_them (test_trend.TrendLogicTests) ... ok
+test_always_two_axes_overrides_matching_units (test_trend.TrendLogicTests) ... ok
+test_angles_and_lengths_use_a_second_axis (test_trend.TrendLogicTests) ... ok
+test_decimal_ratio_threshold_changes_automatic_split (test_trend.TrendLogicTests) ... ok
+test_different_units_use_a_second_axis_regardless_of_scale (test_trend.TrendLogicTests) ... ok
+test_explicit_suffix_wins_over_the_name_rule (test_trend.TrendLogicTests) ... ok
+test_ocd_names_carry_their_industry_units (test_trend.TrendLogicTests) ... ok
+test_overlay_series_preserves_nan_without_interpolation (test_trend.TrendLogicTests) ... ok
+test_ratios_are_dimensionless (test_trend.TrendLogicTests) ... ok
+test_same_unit_parameters_share_one_axis (test_trend.TrendLogicTests) ... ok
+test_same_unit_parameters_with_a_large_gap_split_the_axes (test_trend.TrendLogicTests) ... ok
+test_same_unit_parameters_with_comparable_values_share_one_axis (test_trend.TrendLogicTests) ... ok
+test_unit_suffix_is_parsed_from_brackets_and_parentheses (test_trend.TrendLogicTests) ... ok
+test_unnamed_parameters_share_the_nanometre_axis (test_trend.TrendLogicTests) ... ok
+test_excluding_first_rows_does_not_change_original_wafer_order (test_trend_order.TrendOrderTests) ... ok
+test_missing_wafer_column_falls_back_to_original_rows (test_trend_order.TrendOrderTests) ... ok
+test_original_wafer_order_collects_lot_and_pad_in_first_source_order (test_trend_order.TrendOrderTests) ... ok
+test_group_scopes_migrate_legacy_wafer_order_to_group_order (test_trend_order.TrendOrderWindowTests) ... ok
+test_grouped_controls_offer_only_group_and_original_order (test_trend_order.TrendOrderWindowTests) ... ok
+test_linked_original_row_order_does_not_collect_interleaved_identities (test_trend_order.TrendOrderWindowTests) ... ok
+test_linked_trend_preserves_original_rows_inside_each_wafer_identity (test_trend_order.TrendOrderWindowTests) ... ok
+test_reordering_redraws_nonconstant_bias_and_bias_percent (test_trend_order.TrendOrderWindowTests) ... ok
+test_selected_child_keeps_full_source_first_appearance_after_exclusion (test_trend_order.TrendOrderWindowTests) ... ok
+test_ungrouped_trend_and_bias_collect_identities_without_changing_sources (test_trend_order.TrendOrderWindowTests) ... ok
+test_wkb_round_trip_retains_wafer_order_and_linked_plot_choices (test_trend_order.TrendOrderWindowTests) ... ok
+test_each_source_resolves_its_own_die_seq_header_alias (test_trend_row_number.TrendRowNumberTests) ... ok
+test_present_but_blank_die_seq_does_not_silently_change_semantics (test_trend_row_number.TrendRowNumberTests) ... ok
+test_raw_without_die_seq_can_draw_using_sheet_row_numbers (test_trend_row_number.TrendRowNumberTests) ... ok
+test_ref_and_raw_choose_coordinates_independently (test_trend_row_number.TrendRowNumberTests) ... ok
+test_reference_only_without_die_seq_can_draw (test_trend_row_number.TrendRowNumberTests) ... ok
+test_wafer_filter_keeps_gaps_in_original_visible_row_numbers (test_trend_row_number.TrendRowNumberTests) ... ok
+test_copy_png_refreshes_compact_spacing_even_when_the_grid_size_is_unchanged (test_trend_wafer_labels.TrendWaferLabelTests) ... ok
+test_current_groups_preserve_filtered_flags_and_child_full_data_scope (test_trend_wafer_labels.TrendWaferLabelTests) ... ok
+test_expand_checkbox_uses_the_same_expand_wafers_name (test_trend_wafer_labels.TrendWaferLabelTests) ... ok
+test_expand_child_trend_shows_every_wafer_and_scrolls_without_redrawing (test_trend_wafer_labels.TrendWaferLabelTests) ... ok
+test_expand_choices_save_independently_and_old_wkb_defaults_are_compact (test_trend_wafer_labels.TrendWaferLabelTests) ... ok
+test_expand_collects_interleaved_wafer_identities_without_touching_sources (test_trend_wafer_labels.TrendWaferLabelTests)
+Expanded Trends draw each Wafer / Lot / PAD identity as one range. ... ok
+test_expand_uneven_wafers_is_compact_and_keeps_every_observation (test_trend_wafer_labels.TrendWaferLabelTests) ... ok
+test_expand_workbook_trend_and_bias_retains_curves_and_compact_docking (test_trend_wafer_labels.TrendWaferLabelTests) ... ok
+test_expanded_card_toggle_keeps_wafer_spacing_and_zoom (test_trend_wafer_labels.TrendWaferLabelTests) ... ok
+test_expanded_comparison_uses_identical_spacing_on_both_y_axes (test_trend_wafer_labels.TrendWaferLabelTests) ... ok
+test_group_wafer_expansion_keeps_classification_and_card_spacing (test_trend_wafer_labels.TrendWaferLabelTests) ... ok
+test_reopened_linked_trend_keeps_boxes_when_classification_is_enabled (test_trend_wafer_labels.TrendWaferLabelTests) ... ok
+test_reopened_linked_trend_uses_current_workbook_classification (test_trend_wafer_labels.TrendWaferLabelTests) ... ok
+test_native_pixels_and_point_values_match_for_uniform_and_varied_styles (test_uniform_scatter.UniformScatterTests) ... ok
+test_opt_in_atlas_keeps_native_pixels_after_style_dpr_and_size_changes (test_uniform_scatter.UniformScatterTests) ... ok
+test_opt_in_broadcast_enumerates_one_style_but_keeps_every_native_point (test_uniform_scatter.UniformScatterTests) ... ok
+test_opt_in_hover_and_scaled_styles_fall_back_to_full_native_enumeration (test_uniform_scatter.UniformScatterTests) ... ok
+test_opt_in_initial_data_also_prepares_only_one_symbol_key (test_uniform_scatter.UniformScatterTests) ... ok
+test_style_changes_and_atlas_clear_preserve_native_pixels (test_uniform_scatter.UniformScatterTests) ... ok
+test_uniform_update_prepares_one_atlas_key_for_all_native_points (test_uniform_scatter.UniformScatterTests) ... ok
+test_map_and_both_correlation_sources_float_without_replacing_models (test_v411_float_scope.FloatScopeTests) ... ok
+test_raw_editor_is_not_a_system_topmost_window (test_v411_float_scope.FloatScopeTests) ... ok
+test_unpinned_raw_raise_is_parent_only_and_never_covers_modal_prompts (test_v411_float_scope.FloatScopeTests) ... ok
+test_analysis_counts_include_blank_source_rows_and_survive_invalid_headers (test_v41_workflows.V41Workflows) ... ok
+test_analysis_table_sizes_refresh_on_edits_without_waiting_for_recognition (test_v41_workflows.V41Workflows) ... ok
+test_child_table_obeys_hidden_workbook_scope_and_full_data_restores_rows (test_v41_workflows.V41Workflows) ... ok
+test_classified_boundaries_distinguish_group_from_wafer_in_child (test_v41_workflows.V41Workflows) ... ok
+test_correlation_reference_size_refreshes_on_edits_replacement_and_undo (test_v41_workflows.V41Workflows) ... ok
+test_decimals_round_half_up_and_are_global_not_workspace_state (test_v41_workflows.V41Workflows) ... ok
+test_group_and_all_parameter_trend_cards_are_exclusive_and_use_distinct_fits (test_v41_workflows.V41Workflows) ... ok
+test_hidden_participation_is_reversible_and_edits_only_visible_source_rows (test_v41_workflows.V41Workflows) ... ok
+test_hidden_selection_survives_workspace_restore_and_unhide_in_child (test_v41_workflows.V41Workflows) ... ok
+test_hidden_table_captions_report_visible_and_total_rows (test_v41_workflows.V41Workflows) ... ok
+test_leaving_a_measurement_point_restores_statistics_tooltip (test_v41_workflows.V41Workflows) ... ok
+test_linked_analysis_captions_distinguish_visible_rows_from_total (test_v41_workflows.V41Workflows) ... ok
+test_order_caption_keeps_actual_rows_when_a_draft_has_more_flags_than_raw (test_v41_workflows.V41Workflows) ... ok
+test_partial_exclusion_refreshes_map_and_radius_membership_without_reloading_sources (test_v41_workflows.V41Workflows) ... ok
+test_partial_paste_maps_noncontiguous_visible_rows_and_undo_restores_them (test_v41_workflows.V41Workflows) ... ok
+test_partial_visible_paste_keeps_counts_and_unhide_restores_untouched_rows (test_v41_workflows.V41Workflows) ... ok
+test_projected_paste_overflow_and_replace_cannot_touch_hidden_rows (test_v41_workflows.V41Workflows) ... ok
+test_raw_card_floats_and_returns_with_the_same_live_editor (test_v41_workflows.V41Workflows) ... ok
+test_statistics_are_default_hover_not_a_checkbox_or_title (test_v41_workflows.V41Workflows) ... ok
+test_wafer_boundaries_are_thin_grey_and_behind_measurements (test_v41_workflows.V41Workflows) ... ok
+test_workbook_captions_follow_replacement_growth_and_undo (test_v41_workflows.V41Workflows) ... ok
+test_dynamic_export_keeps_selected_second_sets_exact_source_cells (test_v4_release_exports.ReleaseExportTests) ... ok
+test_dynamic_raw_pivots_parameter_charts_and_summary_share_one_sheet (test_v4_release_exports.ReleaseExportTests) ... ok
+test_dynamic_source_derived_labels_starting_with_equals_remain_literal (test_v4_release_exports.ReleaseExportTests) ... ok
+test_fullmap_software_images_have_fixed_physical_height (test_v4_release_exports.ReleaseExportTests) ... ok
+test_match_views_and_group_names_without_redundant_sheets (test_v4_release_exports.ReleaseExportTests) ... ok
+test_native_caption_write_failure_or_cancellation_keeps_previous_report (test_v4_release_exports.ReleaseExportTests) ... ok
+test_native_die_group_and_wafer_axes_and_symmetric_bias (test_v4_release_exports.ReleaseExportTests) ... ok
+test_native_identity_captions_are_detached_editable_chart_shapes (test_v4_release_exports.ReleaseExportTests) ... ok
+test_nearly_equal_sigma_values_use_zero_based_bar_tick_spacing (test_v4_release_exports.ReleaseExportTests) ... ok
+test_short_neighboring_groups_keep_all_names_without_overlapping_captions (test_v4_release_exports.ReleaseExportTests) ... ok
+test_single_wafer_metrics_exposes_the_plotted_row_number (test_v4_release_exports.ReleaseExportTests) ... ok
+test_map_die_identity_stays_positional_with_duplicate_source_index_and_missing_coordinates (test_wafer_hover.WaferHoverTests) ... ok
+test_noninteractive_map_retains_measured_die_after_invalid_rows_and_source_strings (test_wafer_hover.WaferHoverTests) ... ok
+test_input_order_is_preserved_instead_of_merging_or_sorting_rectangles (test_wafer_label_index.WaferLabelIndexTests) ... ok
+test_random_mixed_sizes_and_negative_coordinates_preserve_every_accepted_index (test_wafer_label_index.WaferLabelIndexTests) ... ok
+test_repeated_wide_and_zero_size_boxes_keep_original_greedy_semantics (test_wafer_label_index.WaferLabelIndexTests) ... ok
+test_touching_edges_corners_and_float_neighbours_keep_strict_overlap (test_wafer_label_index.WaferLabelIndexTests) ... ok
+test_close_and_delete_cancel_all_queued_graphics_and_page_callbacks (test_wafer_render_batches.WaferRenderBatchTests) ... ok
+test_creation_failure_retains_old_picture_as_stale_and_retry_succeeds (test_wafer_render_batches.WaferRenderBatchTests) ... ok
+test_initial_surface_completion_keeps_canvas_intent_through_next_data_update (test_wafer_render_batches.WaferRenderBatchTests) ... ok
+test_large_page_yields_between_batches_and_publishes_one_complete_grid (test_wafer_render_batches.WaferRenderBatchTests) ... ok
+test_latest_data_cancels_unpublished_panels_without_losing_last_update (test_wafer_render_batches.WaferRenderBatchTests) ... ok
+test_latest_style_is_atomic_and_reuses_exact_numerical_surfaces (test_wafer_render_batches.WaferRenderBatchTests) ... ok
+test_overlay_finishing_after_source_pause_restores_current_export_controls (test_wafer_render_batches.WaferRenderBatchTests) ... ok
+test_pending_graphics_are_excluded_from_live_capture_and_saved_draw_completes (test_wafer_render_batches.WaferRenderBatchTests) ... ok
+test_queued_pagination_is_pending_and_close_releases_graphics_not_choices (test_wafer_render_batches.WaferRenderBatchTests) ... ok
+test_repeated_replacements_release_retired_panels_after_deferred_deletion (test_wafer_render_batches.WaferRenderBatchTests) ... ok
+test_select_maps_during_preparation_keeps_current_page_choice (test_wafer_render_batches.WaferRenderBatchTests) ... ok
+test_stale_revision_never_enables_old_export_or_publishes_candidate (test_wafer_render_batches.WaferRenderBatchTests) ... ok
+test_copy_png_matches_unchanged_matplotlib_renderer_and_updated_controls (test_wafer_static.StaticWaferTests) ... ok
+test_prepared_maps_do_not_block_the_ui (test_wafer_static.StaticWaferTests)
+Installer: C:\Users\qinyu\AppData\Local\Temp\tmp4f_wq_yh\Setup.exe
+Bytes: 17
+SHA256: bb43c2e945e913600f618f98b7fd78b997fe3a87a4f342d22b6dcab611e290cb
+wafer UI seconds: [0.12407299999904353, 0.15580370000679977, 0.15183780000370461] median: 0.15183780000370461
+Ten prepared maps should present within a 250 ms UI blocking budget. ... ok
+test_repeated_data_changes_keep_only_current_scene_items (test_wafer_static.StaticWaferTests) ... ok
+test_screen_geometry_pixels_and_contours_match_export (test_wafer_static.StaticWaferTests) ... ok
+test_screen_zoom_scales_the_grid_without_matplotlib_or_individual_plot_navigation (test_wafer_static.StaticWaferTests) ... ok
+test_skip_error_and_replacement_do_not_leave_old_maps (test_wafer_static.StaticWaferTests) ... ok
+test_cancelled_recopy_keeps_manual_inputs_and_the_unchecked_choice (test_workbook_copy_data.WorkbookCopyDataTests) ... ok
+test_copy_menu_replaces_the_duplicate_file_command_but_dynamic_keeps_its_only_command (test_workbook_copy_data.WorkbookCopyDataTests) ... ok
+test_correlation_reference_is_manual_and_raw_copy_does_not_replace_or_clear_it (test_workbook_copy_data.WorkbookCopyDataTests) ... ok
+test_deleting_reference_removes_its_boxes_and_raw_still_draws (test_workbook_copy_data.WorkbookCopyDataTests) ... ok
+test_linked_correlation_and_trend_redraw_raw_values_and_renamed_columns (test_workbook_copy_data.WorkbookCopyDataTests) ... ok
+test_linked_selection_dialog_follows_parent_then_local_edits_switch_to_full_data (test_workbook_copy_data.WorkbookCopyDataTests) ... ok
+test_locked_map_selection_choices_stay_enabled_without_copy_and_do_not_replace_data (test_workbook_copy_data.WorkbookCopyDataTests) ... ok
+test_manual_input_ignores_workbook_selection_and_recopy_uses_its_selected_rows (test_workbook_copy_data.WorkbookCopyDataTests) ... ok
+test_manual_raw_edits_are_preserved_and_stop_the_copy_link (test_workbook_copy_data.WorkbookCopyDataTests) ... ok
+test_manual_raw_saved_before_parent_refresh_keeps_literal_edits_and_detaches_copy (test_workbook_copy_data.WorkbookCopyDataTests) ... ok
+test_map_copy_off_keeps_locked_positions_and_recopy_preserves_them_in_saved_workbook (test_workbook_copy_data.WorkbookCopyDataTests) ... ok
+test_old_nova_and_kla_copy_checked_map_follows_raw_not_saved_snapshot (test_workbook_copy_data.WorkbookCopyDataTests) ... ok
+test_one_copy_choice_clears_inputs_allows_manual_draw_and_recopies_current_workbook (test_workbook_copy_data.WorkbookCopyDataTests) ... ok
+test_parent_cut_keeps_linked_correlation_until_raw_is_replaced (test_workbook_copy_data.WorkbookCopyDataTests) ... ok
+test_rejected_workbook_copy_or_cancel_keeps_locked_manual_table_and_choices (test_workbook_copy_data.WorkbookCopyDataTests) ... ok
+test_reopened_full_data_scope_loads_all_rows_before_restoring_local_selection (test_workbook_copy_data.WorkbookCopyDataTests) ... ok
+test_saved_manual_mode_stays_empty_across_workbook_refresh_and_reopen (test_workbook_copy_data.WorkbookCopyDataTests) ... ok
+test_tem_map_menu_can_explicitly_copy_raw_and_protect_locked_coordinates (test_workbook_copy_data.WorkbookCopyDataTests) ... ok
+test_tem_map_with_copy_checked_follows_repeated_workbook_raw_edits (test_workbook_copy_data.WorkbookCopyDataTests) ... ok
+test_workbook_selection_stays_available_for_manual_map_input (test_workbook_copy_data.WorkbookCopyDataTests) ... ok
+test_cancelled_launch_does_not_leave_a_workbook_window (test_workbook_startup.WorkbookStartupTests) ... ok
+test_confirmed_new_workbook_resets_the_window_without_rewriting_its_old_file (test_workbook_startup.WorkbookStartupTests) ... ok
+test_existing_no_bias_draft_opens_clean_and_can_add_a_view_after (test_workbook_startup.WorkbookStartupTests) ... ok
+test_new_cancel_and_unsaved_prompt_cancel_keep_the_active_document (test_workbook_startup.WorkbookStartupTests) ... ok
+test_new_workbook_settings_page_starts_from_the_saved_defaults (test_workbook_startup.WorkbookStartupTests)
+Only New asks for launch settings, and it validates them first. ... ok
+test_new_workbook_uses_confirmed_settings_before_the_window_opens (test_workbook_startup.WorkbookStartupTests) ... ok
+test_open_settings_are_unsaved_until_the_workbook_is_saved (test_workbook_startup.WorkbookStartupTests) ... ok
+test_opened_complete_draft_can_launch_each_analysis_without_running_it_first (test_workbook_startup.WorkbookStartupTests) ... ok
+test_opened_final_raw_only_draft_keeps_the_final_editor_editable (test_workbook_startup.WorkbookStartupTests) ... ok
+test_opened_raw_only_draft_allows_paste_and_undo_without_enabling_invalid_analysis (test_workbook_startup.WorkbookStartupTests) ... ok
+test_opening_a_workbook_skips_the_settings_page (test_workbook_startup.WorkbookStartupTests)
+Open WKB loads the file's own choices; no launch page appears. ... ok
+test_recent_choice_passes_the_validated_snapshot_instead_of_loading_it_again (test_workbook_startup.WorkbookStartupTests) ... ok
+test_recent_choosers_only_read_routing_metadata_not_measurement_payloads (test_workbook_startup.WorkbookStartupTests) ... ok
+test_recent_list_only_offers_match_workbooks_and_opens_the_clicked_one (test_workbook_startup.WorkbookStartupTests) ... ok
+test_replaced_file_after_chooser_read_is_reloaded_before_installing_snapshot (test_workbook_startup.WorkbookStartupTests) ... ok
+test_saved_bias_choices_are_reflected_in_the_analysis_menu (test_workbook_startup.WorkbookStartupTests) ... ok
+test_saved_choices_open_clean_and_missing_final_inputs_open_as_a_draft (test_workbook_startup.WorkbookStartupTests) ... ok
+test_shell_open_uses_the_saved_choices_without_a_settings_page (test_workbook_startup.WorkbookStartupTests) ... ok
+test_shell_recent_choice_opens_the_workbook_straight_away (test_workbook_startup.WorkbookStartupTests)
+Picking a recent workbook never shows the settings page again. ... ok
+test_auto_rename_starts_at_one_and_skips_reserved_suffixes (test_workspace.SheetTests) ... ok
+test_default_parameter_exclusions_ignore_formatting (test_workspace.SheetTests) ... ok
+test_header_letters_and_undo (test_workspace.SheetTests) ... ok
+test_text_import_preserves_ids (test_workspace.SheetTests) ... ok
+test_auto_rename_numbers_duplicate_headers_in_column_order (test_workspace.WorkspaceTests)
+The Auto rename button fixes repeated row-1 names without touching data. ... ok
+test_card_option_stays_disabled_without_match_workbook_cards (test_workspace.WorkspaceTests)
+A stand-alone table has no Cards, so the Data-tab option is inert. ... ok
+test_child_window_radio_switches_between_workbook_and_full_data_selection (test_workspace.WorkspaceTests) ... ok
+test_clicking_anywhere_on_a_row_toggles_it (test_workspace.WorkspaceTests) ... ok
+test_default_paste_at_a1_keeps_cells_outside_the_pasted_range (test_workspace.WorkspaceTests)
+Ctrl+V only overwrites the pasted rectangle; it never clears the table. ... ok
+test_duplicate_headers_and_unsaved_cancel (test_workspace.WorkspaceTests) ... ok
+test_edits_reidentify_wafers_and_headers (test_workspace.WorkspaceTests) ... ok
+test_filter_keeps_selection (test_workspace.WorkspaceTests) ... ok
+test_first_cell_paste_auto_identifies_wafers (test_workspace.WorkspaceTests) ... ok
+test_frame_selection_dialog_shows_order_and_reference_columns (test_workspace.WorkspaceTests) ... ok
+test_frame_selection_keeps_its_filter_rows_when_reopened (test_workspace.WorkspaceTests) ... ok
+test_full_table_paste_xlsx_and_save (test_workspace.WorkspaceTests) ... ok
+test_grid_paste_and_keyboard_undo (test_workspace.WorkspaceTests) ... ok
+test_grouping_fields_are_multiselect (test_workspace.WorkspaceTests) ... ok
+test_linked_header_refresh_keeps_current_cells_and_exact_values (test_workspace.WorkspaceTests) ... ok
+test_page_size_reads_two_digit_values (test_workspace.WorkspaceTests) ... ok
+test_paste_size_reminder_cancel_leaves_the_table_untouched (test_workspace.WorkspaceTests) ... ok
+test_paste_size_reminder_lists_both_sizes_and_can_replace (test_workspace.WorkspaceTests) ... ok
+test_quality_columns_are_numeric_in_correlation_and_dynamic_parameter_lists (test_workspace.WorkspaceTests) ... ok
+test_radius_pages_keep_all_metrics_of_a_wafer_together (test_workspace.WorkspaceTests) ... ok
+test_recognition_and_array_selection (test_workspace.WorkspaceTests) ... ok
+test_replace_paste_ignores_an_empty_clipboard (test_workspace.WorkspaceTests) ... ok
+test_replace_paste_shortcut_clears_the_table_and_reidentifies (test_workspace.WorkspaceTests) ... ok
+test_replacing_table_keeps_available_wafer_and_parameter_selections (test_workspace.WorkspaceTests) ... ok
+test_section_guidance_is_available_from_titles_not_inline_comments (test_workspace.WorkspaceTests) ... ok
+test_selection_show_modes_keep_all_rows_and_can_filter_rows (test_workspace.WorkspaceTests) ... ok
+test_sequence_axis_keeps_labels_until_the_plot_is_laid_out (test_workspace.WorkspaceTests) ... ok
+test_sidebar_keeps_its_scroll_position_when_the_table_is_rebuilt (test_workspace.WorkspaceTests) ... ok
+test_standalone_dirty_workspace_still_confirms_before_closing (test_workspace.WorkspaceTests) ... ok
+test_wafer_map_pages_keep_all_metrics_of_a_wafer_together (test_workspace.WorkspaceTests) ... ok
+test_wafer_map_quality_columns_are_selectable_numeric_not_metadata (test_workspace.WorkspaceTests) ... ok
+test_wafer_record_filter_hides_and_unchecks_small_measurement_sets (test_workspace.WorkspaceTests) ... ok
+test_workspace_data_selection_limits_plots_and_restores_with_the_document (test_workspace.WorkspaceTests) ... ok
+test_all_parameters_are_paginated_within_the_map_budget (test_workspace_group_parity.WorkspaceGroupParityTests) ... ok
+test_correlation_default_marks_and_compact_identity_table (test_workspace_group_parity.WorkspaceGroupParityTests) ... ok
+test_correlation_ref_and_raw_offer_persistent_metadata_locks (test_workspace_group_parity.WorkspaceGroupParityTests) ... ok
+test_group_caption_repaint_retains_prepared_maps_and_adds_measured_sigma (test_workspace_group_parity.WorkspaceGroupParityTests) ... ok
+test_linked_correlation_raw_refresh_retains_locked_metadata (test_workspace_group_parity.WorkspaceGroupParityTests) ... ok
+test_marks_dialog_append_creates_a_real_composite_group (test_workspace_group_parity.WorkspaceGroupParityTests) ... ok
+test_wafer_group_snapshot_and_clean_baseline_do_not_alias_workbook_context (test_workspace_group_parity.WorkspaceGroupParityTests) ... ok
+test_wafer_groups_are_captions_and_persist_without_splitting_rows (test_workspace_group_parity.WorkspaceGroupParityTests) ... ok
+test_wafer_workbook_groups_can_be_copied_once_and_restored_independently (test_workspace_group_parity.WorkspaceGroupParityTests) ... ok
+test_detached_source_reads_are_mutable_and_keep_the_owner_unchanged (test_workspace_source_frames.WorkspaceSourceFrameTests) ... ok
+test_formal_snapshot_still_collects_ui_and_detaches_source_data (test_workspace_source_frames.WorkspaceSourceFrameTests) ... ok
+test_missing_reference_keeps_the_existing_empty_source_contract (test_workspace_source_frames.WorkspaceSourceFrameTests) ... ok
+test_source_guard_reads_both_literal_tables_without_collecting_ui (test_workspace_source_frames.WorkspaceSourceFrameTests) ... ok
+test_backup_and_conflict_keep_the_latest_accepted_file (test_workspace_store.WorkspaceStoreTests) ... ok
+test_backup_failure_preserves_the_formal_document (test_workspace_store.WorkspaceStoreTests) ... ok
+test_complete_payload_is_written_in_one_durable_transaction (test_workspace_store.WorkspaceStoreTests) ... ok
+test_destination_changed_during_backup_is_not_overwritten (test_workspace_store.WorkspaceStoreTests) ... ok
+test_each_document_uses_its_own_extension (test_workspace_store.WorkspaceStoreTests) ... ok
+test_failed_write_leaves_original_and_removes_temporary_files (test_workspace_store.WorkspaceStoreTests) ... ok
+test_final_fsync_failure_never_publishes_the_private_candidate (test_workspace_store.WorkspaceStoreTests) ... ok
+test_lock_cleanup_failure_after_commit_does_not_report_unsaved (test_workspace_store.WorkspaceStoreTests) ... Workspace saved, but write lock could not be removed: C:\Users\qinyu\AppData\Local\Temp\tmpcg3tw2io\dynamic.wdyn.lock
+ok
+test_private_database_pragmas_do_not_disable_future_connection_durability (test_workspace_store.WorkspaceStoreTests) ... ok
+test_round_trip_keeps_measurement_text_duplicate_headers_and_state (test_workspace_store.WorkspaceStoreTests) ... ok
+test_wrong_extension_and_wrong_existing_type_are_refused (test_workspace_store.WorkspaceStoreTests) ... ok
+test_wrong_type_newer_version_and_missing_file_are_rejected (test_workspace_store.WorkspaceStoreTests) ... ok
+test_deserialization_retains_validation_and_does_not_take_input_lists (test_writer_cell_serialization.WriterCellSerializationTests) ... ok
+test_plain_and_nested_cells_match_asdict_with_independent_mutable_values (test_writer_cell_serialization.WriterCellSerializationTests) ... ok
+test_plain_cells_avoid_generic_recursive_serialization_cost (test_writer_cell_serialization.WriterCellSerializationTests) ... FAIL
+
+======================================================================
+ERROR: test_context_export_copies_only_checked_sme_in_original_folders (test_spectra_workbook.SpectraWorkbookTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\WaferMap\tests\test_spectra_workbook.py", line 303, in test_context_export_copies_only_checked_sme_in_original_folders
+    root = copy_verified_samples(Path(folder) / "source").resolve()
+  File "D:\WaferMap\tests\test_sme_spectra.py", line 36, in copy_verified_samples
+    shutil.copytree(SAMPLE_ROOT / name, root / name)
+  File "F:\Anaconda3\envs\octs\lib\shutil.py", line 557, in copytree
+    with os.scandir(src) as itr:
+FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\all_uploaded_SME_spectra_42_files\\01_AIT_UVSE_20_Die'
+
+======================================================================
+ERROR: test_path_save_type_removes_embedded_samples_and_reloads_original_files (test_spectra_workbook.SpectraWorkbookTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\WaferMap\tests\test_spectra_workbook.py", line 87, in test_path_save_type_removes_embedded_samples_and_reloads_original_files
+    copy_verified_samples(root / "sources")
+  File "D:\WaferMap\tests\test_sme_spectra.py", line 36, in copy_verified_samples
+    shutil.copytree(SAMPLE_ROOT / name, root / name)
+  File "F:\Anaconda3\envs\octs\lib\shutil.py", line 557, in copytree
+    with os.scandir(src) as itr:
+FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\all_uploaded_SME_spectra_42_files\\01_AIT_UVSE_20_Die'
+
+======================================================================
+ERROR: test_workbook_path_mode_and_missing_references_survive_save_without_embedding (test_spectra_workbook.SpectraWorkbookTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\WaferMap\tests\test_spectra_workbook.py", line 33, in test_workbook_path_mode_and_missing_references_survive_save_without_embedding
+    copy_verified_samples(root / "sources")
+  File "D:\WaferMap\tests\test_sme_spectra.py", line 36, in copy_verified_samples
+    shutil.copytree(SAMPLE_ROOT / name, root / name)
+  File "F:\Anaconda3\envs\octs\lib\shutil.py", line 557, in copytree
+    with os.scandir(src) as itr:
+FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\Yuanhao Qin\\OneDrive\\Desktop\\all_uploaded_SME_spectra_42_files\\01_AIT_UVSE_20_Die'
+
+======================================================================
+FAIL: test_closing_changed_analysis_state_is_responsive_and_keeps_source (test_analysis_close_performance.AnalysisCloseTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\WaferMap\tests\test_analysis_close_performance.py", line 68, in test_closing_changed_analysis_state_is_responsive_and_keeps_source
+    self.close_children(dirty=True)
+  File "D:\WaferMap\tests\test_analysis_close_performance.py", line 100, in close_children
+    self.assertLess(elapsed, .25, f"{child.workspace_type} close blocks the GUI")
+AssertionError: 0.45369719999143854 not less than 0.25 : wafer_map close blocks the GUI
+
+======================================================================
+FAIL: test_raw_select_all_clear_and_undo_keeps_exact_cells_promptly (test_performance_regressions.WorkbookPerformanceTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\WaferMap\tests\test_performance_regressions.py", line 837, in test_raw_select_all_clear_and_undo_keeps_exact_cells_promptly
+    self.assertLess(elapsed, .6, f"Clearing selected Raw cells stalled for {elapsed:.3f}s")
+AssertionError: 0.8207365999987815 not less than 0.6 : Clearing selected Raw cells stalled for 0.821s
+
+======================================================================
+FAIL: test_saved_wide_workbook_dirty_checks_preserve_the_accepted_state_promptly (test_performance_regressions.WorkbookPerformanceTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\WaferMap\tests\test_performance_regressions.py", line 953, in test_saved_wide_workbook_dirty_checks_preserve_the_accepted_state_promptly
+    self.assertLess(min(times), .10, f"Dirty-title checks blocked unchanged controls: {times}")
+AssertionError: 0.11000440000498202 not less than 0.1 : Dirty-title checks blocked unchanged controls: [0.11000440000498202, 0.1178792999999132, 0.11197529999481048]
+
+======================================================================
+FAIL: test_wafer_window_opens_with_current_cards_and_uses_new_coefficients_after_edit (test_performance_regressions.WorkbookPerformanceTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\WaferMap\tests\test_performance_regressions.py", line 998, in test_wafer_window_opens_with_current_cards_and_uses_new_coefficients_after_edit
+    self.assertLess(elapsed, .4, f"Opening Wafer Map stalled for {elapsed:.3f}s")
+AssertionError: 0.40818339999532327 not less than 0.4 : Opening Wafer Map stalled for 0.408s
+
+======================================================================
+FAIL: test_plain_cells_avoid_generic_recursive_serialization_cost (test_writer_cell_serialization.WriterCellSerializationTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\WaferMap\tests\test_writer_cell_serialization.py", line 73, in test_plain_cells_avoid_generic_recursive_serialization_cost
+    self.assertLess(elapsed, .3, f'Plain-cell encoding blocked for {elapsed:.3f}s')
+AssertionError: 0.3169386000081431 not less than 0.3 : Plain-cell encoding blocked for 0.317s
+
+----------------------------------------------------------------------
+Ran 1567 tests in 1307.058s
+
+FAILED (failures=5, errors=3, skipped=19)

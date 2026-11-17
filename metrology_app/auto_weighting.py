@@ -48,10 +48,14 @@ class Cell:
         # Most table cells contain only immutable scalars and empty review
         # lists. Preserve asdict's output and detachment without recursively
         # inspecting the same nine dataclass fields for every plain cell.
+        bbox = self.bbox
         if (type(self) is Cell and type(self.text) is str and type(self.source) is str
-                and type(self.raw) is str and type(self.confidence) in (float, int)
+                and type(self.raw) is str and (type(self.confidence) is float or type(self.confidence) is int)
                 and type(self.collected) is bool and type(self.reviewed) is bool
-                and type(self.bbox) is tuple and all(type(v) is int for v in self.bbox)
+                and type(bbox) is tuple
+                and (not bbox or (len(bbox) == 4
+                     and type(bbox[0]) is int and type(bbox[1]) is int
+                     and type(bbox[2]) is int and type(bbox[3]) is int))
                 and type(self.alternatives) is list and not self.alternatives
                 and type(self.history) is list and not self.history):
             return {'text': self.text, 'source': self.source, 'bbox': self.bbox,

@@ -21,6 +21,8 @@ from PyQt6.QtWidgets import (
 from .sme_spectra import M_COLS, ChannelKey, natural_key
 from .plotting.curve import cache_curve_image
 
+HIGHLIGHT_COLOR = '#FF3D00'
+
 
 @dataclass(frozen=True, slots=True)
 class CurveSegment:
@@ -60,6 +62,14 @@ class CurveGroup:
     key: ChannelKey | WaferChannelKey
     color: QColor
     segments: tuple[CurveSegment, ...]
+
+
+def highlight_pens(background=None):
+    """Persistent Highlight styling, independent of the channel palette."""
+    dark = background is not None and QColor(background).lightnessF() < .5
+    return (pg.mkPen('#e6edf3' if dark else '#ffffff', width=7.5,
+                     style=Qt.PenStyle.SolidLine),
+            pg.mkPen(HIGHLIGHT_COLOR, width=3.2, style=Qt.PenStyle.SolidLine))
 
 
 def _join_segments(segments, indices=None):
@@ -225,6 +235,42 @@ class _MulticolorViewportCurve(_ViewportCurve):
             self._native_curves = None
 
 
+class _HighlightViewportCurve(_ViewportCurve):
+    """One axis overlay: paint all halos, then all cores over shared geometry."""
+
+    def __init__(self, segments, background):
+        self.halo_pen, self.core_pen = highlight_pens(background)
+        self.preview_while_rendering = True
+        self._native_geometry = None
+        self._native_layers = ()
+        # The widest stroke controls bounds padding and viewport clipping.
+        super().__init__(segments, pen=self.halo_pen)
+
+    def cache_screen_image(self):
+        super().cache_screen_image()
+        self.screen_cache._prepare.start(0)
+
+    def raster_components(self):
+        components = []
+        for pen in (self.halo_pen, self.core_pen):
+            payload = QByteArray()
+            stream = QDataStream(payload, QIODevice.OpenModeFlag.WriteOnly)
+            stream << pen
+            components.append((self.xData, self.yData, bytes(payload)))
+        return components
+
+    def paint(self, painter, option, widget=None):
+        geometry = id(self.xData), id(self.yData)
+        if geometry != self._native_geometry:
+            self._native_geometry = geometry
+            self._native_layers = tuple(pg.PlotCurveItem(
+                x=self.xData, y=self.yData, pen=pen, connect='finite', antialias=True)
+                for pen in (self.halo_pen, self.core_pen))
+        for curve in self._native_layers:
+            curve.setExportMode(isinstance(self._exportOpts, dict), self._exportOpts)
+            curve.paint(painter, option, widget)
+
+
 class _ResetHandle(QSplitterHandle):
     def mouseDoubleClickEvent(self, event):
         splitter = self.splitter()
@@ -321,6 +367,7 @@ class SpectrumPlotPanel(QWidget):
         self._highlight_groups = {}
         self._emphasis_groups = {}
         self._emphasis_items = []
+        self._secondary_emphasis = None
         self._emphasized_keys = set()
         self._batch_slots = {}
         self._tight_x_range = None
@@ -378,6 +425,7 @@ class SpectrumPlotPanel(QWidget):
             self.secondary.setMouseEnabled(x=False, y=False)
             self.secondary.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
             self.plot.getPlotItem().vb.sigResized.connect(self._sync_secondary)
+            self.secondary.sigStateChanged.connect(self._sync_secondary_emphasis)
             self._sync_secondary()
         else:
             self.secondary = None
@@ -491,6 +539,17 @@ class SpectrumPlotPanel(QWidget):
             self.plot.getPlotItem().vb,
             self.secondary.XAxis,
         )
+        self._sync_secondary_emphasis()
+
+    def _sync_secondary_emphasis(self, *_):
+        foreground = self._secondary_emphasis
+        if foreground is None or self.secondary is None:
+            return
+        foreground.setGeometry(self.secondary.mapRectToItem(self.plot.getPlotItem(), self.secondary.rect()))
+        x_range, y_range = self.secondary.viewRange()
+        foreground.setRange(xRange=x_range, yRange=y_range, padding=0)
+        foreground.invertX(self.secondary.state['xInverted'])
+        foreground.invertY(self.secondary.state['yInverted'])
 
     def set_curves(
         self,
@@ -533,18 +592,15 @@ class SpectrumPlotPanel(QWidget):
             self._fit_x_range()
 
     def _sync_items(self, existing, *, highlight=False, emphasis=False):
-        selected_keys = self._emphasized_keys if emphasis else self._selected_keys
-        highlight = highlight or emphasis
+        if emphasis:
+            return self._sync_emphasis_items(existing)
+        selected_keys = self._selected_keys
         desired = set()
         items = []
         for axis, view, groups in ((0, self.plot.getPlotItem(), self._all_groups),
                                    (1, self.secondary, self._all_secondary_groups)):
             if view is None:
                 continue
-            if emphasis:
-                # Paul Tol's vibrant magenta; foreground stroke also distinguishes
-                # a highlighted spectrum when ordinary channel colours overlap.
-                groups = [CurveGroup(g.key,QColor('#EE3377'),g.segments) for g in groups]
             if groups and (len(groups) > 32 or self._batch_slots.get(axis)):
                 slots = self._batch_slots.get(axis, {})
                 if any(g.key not in slots for g in groups):
@@ -588,7 +644,7 @@ class SpectrumPlotPanel(QWidget):
                         item = previous[1]
                         if previous[0] != signature:
                             item.set_groups(visible)
-                    z = (30 if emphasis else 20 if highlight else 0) + batch / (max(slots.values()) + 1)
+                    z = (20 if highlight else 0) + batch / (max(slots.values()) + 1)
                     item.setZValue(z)
                     item.screen_cache.image_item.setZValue(z)
                     item.screen_cache.set_visible(bool(visible))
@@ -617,7 +673,7 @@ class SpectrumPlotPanel(QWidget):
                     existing[key] = signature, item
                 item = existing[key][1]
                 # Replacing one group must not change which wafer paints on top.
-                z = (30 if emphasis else 20 if highlight else 0) + index / (len(groups) + 1)
+                z = (20 if highlight else 0) + index / (len(groups) + 1)
                 item.setZValue(z)
                 item.screen_cache.image_item.setZValue(z)
                 item.screen_cache.set_visible(group.key not in self._hidden_keys)
@@ -625,6 +681,63 @@ class SpectrumPlotPanel(QWidget):
                 items.append(existing[key][1])
         for key in existing.keys() - desired:
             self._remove_curve(existing.pop(key)[1])
+        return items
+
+    def _sync_emphasis_items(self, existing):
+        items = []
+        desired = set()
+        for axis, view, groups in ((0, self.plot.getPlotItem(), self._all_groups),
+                                   (1, self.secondary, self._all_secondary_groups)):
+            if view is None:
+                continue
+            segments = tuple(segment for group in groups if group.key not in self._hidden_keys
+                             for segment in group.segments
+                             if segment.spectrum_key in self._emphasized_keys
+                             or segment.spectrum_keys & self._emphasized_keys)
+            if not segments:
+                continue
+            if axis == 1:
+                # A secondary ViewBox is behind the primary PlotItem as a
+                # whole: a high local curve z cannot cross that parent order.
+                # One foreground view shares its ranges and keeps all selected
+                # secondary curves above ordinary curves on either axis.
+                if self._secondary_emphasis is None:
+                    self._secondary_emphasis = pg.ViewBox(enableMouse=False, enableMenu=False)
+                    self._secondary_emphasis.setParentItem(self.plot.getPlotItem())
+                    self._secondary_emphasis.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+                    self._secondary_emphasis.setAcceptHoverEvents(False)
+                    self._secondary_emphasis.setZValue(30)
+                self._sync_secondary_emphasis()
+                view = self._secondary_emphasis
+            background = self.plot.backgroundBrush().color()
+            signature = (background.rgba(), tuple(
+                (s.spectrum_key, *((a.__array_interface__['data'][0], a.shape, a.strides, a.dtype.str)
+                                   for a in (s.x, s.y))) for s in segments))
+            previous = existing.get(axis)
+            if previous is None or previous[0] != signature:
+                if previous is not None:
+                    self._remove_curve(previous[1])
+                item = _HighlightViewportCurve(segments, background)
+                view.addItem(item, ignoreBounds=True)
+                item.setZValue(30)
+                item.cache_screen_image()
+                item.screen_cache.image_item.setZValue(30)
+                existing[axis] = signature, item
+            desired.add(axis)
+            items.append(existing[axis][1])
+        for axis in existing.keys() - desired:
+            self._remove_curve(existing.pop(axis)[1])
+        if 1 not in desired and self._secondary_emphasis is not None:
+            self._secondary_emphasis.close()
+            self._secondary_emphasis.setParentItem(None)
+            scene = self._secondary_emphasis.scene()
+            if scene is not None:
+                scene.removeItem(self._secondary_emphasis)
+            self._secondary_emphasis.deleteLater()
+            self._secondary_emphasis = None
+        opacity = 128 / 255 if items else 1.0
+        for item in self._curve_items:
+            item.screen_cache.set_opacity(opacity)
         return items
 
     def _add_group(
@@ -661,7 +774,9 @@ class SpectrumPlotPanel(QWidget):
     def _remove_curve(self, item):
         if item.screen_cache is not None:
             item.screen_cache.dispose()
-        if self.secondary is not None and item.getViewBox() is self.secondary:
+        if self._secondary_emphasis is not None and item.getViewBox() is self._secondary_emphasis:
+            self._secondary_emphasis.removeItem(item)
+        elif self.secondary is not None and item.getViewBox() is self.secondary:
             self.secondary.removeItem(item)
         else:
             self.plot.getPlotItem().removeItem(item)

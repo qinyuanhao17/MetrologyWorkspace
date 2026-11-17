@@ -18,15 +18,15 @@ from .measurements import Measurement, default_identity_columns, detect_measurem
 def _copy_state_value(value):
     """Copy only the containers of one grouping value; scalars stay shared."""
     if isinstance(value, dict):
-        if all(type(item) is str for item in value.values()):
+        if all(map(str.__instancecheck__, value.values())):
             return value.copy()
         return {key: _copy_state_value(item) for key, item in value.items()}
     if isinstance(value, list):
-        if all(type(item) is str for item in value):
+        if all(map(str.__instancecheck__, value)):
             return value.copy()
         return [_copy_state_value(item) for item in value]
     if isinstance(value, tuple):
-        if all(type(item) is str for item in value):
+        if all(map(str.__instancecheck__, value)):
             return value
         return tuple(_copy_state_value(item) for item in value)
     return value

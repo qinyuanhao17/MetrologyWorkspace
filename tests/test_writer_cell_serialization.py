@@ -17,6 +17,7 @@ class WriterCellSerializationTests(unittest.TestCase):
         class ExtendedCell(Cell):
             extra: str = 'preserved'
         for cell in (Cell('1.230000'), Cell('bad', bbox=(1, 2, 3, 4), confidence=.4),
+                     Cell('odd box', bbox=(1, 2)), Cell('boolean box', bbox=(True, 2, 3, 4)),
                      Cell('original', alternatives=[{'text': 'candidate', 'metadata': [1]}],
                           history=[{'text': 'old', 'nested': Cell('nested')}]),
                      ExtendedCell('extended')):

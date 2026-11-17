@@ -1,0 +1,160 @@
+{
+  "command": "python -X faulthandler -X utf8 run_tests.py",
+  "summary": "Ran 1578 tests in 1052.827s\n\nFAILED (failures=1, skipped=22)",
+  "failures": [
+    "test_wafer_window_opens_with_current_cards_and_uses_new_coefficients_after_edit"
+  ],
+  "full_suite_passed": false,
+  "thresholds_unchanged": true,
+  "limitations_disclosed": true,
+  "settings_isolated": true,
+  "full_log_sha256": "c571931c289ae2cc1462b2848b05359258d16caf512b9caf76ecd3f6b163110e",
+  "tests_run": 1578,
+  "seconds": 1052.827,
+  "counts": {
+    "failures": 1,
+    "errors": 0,
+    "skipped": 22
+  },
+  "tests_passed": 1555,
+  "skip_reasons": [
+    "'JC1913 unavailable'",
+    "'Original mixed-instrument SME samples unavailable; set METROLOGY_SME_SAMPLE_ROOT'",
+    "'Original mixed-instrument samples unavailable'",
+    "'Requires supplied SME fixture'",
+    "'Windows and supplied SME fixture'",
+    "'supplied IRSE spectrum unavailable'",
+    "'supplied SME regression folder is unavailable'",
+    "'supplied compressed legacy spectrum unavailable'",
+    "'supplied multichannel reflectance unavailable'",
+    "'supplied spectra unavailable'"
+  ],
+  "full_failure_details": "\n======================================================================\nFAIL: test_wafer_window_opens_with_current_cards_and_uses_new_coefficients_after_edit (test_performance_regressions.WorkbookPerformanceTests)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"D:\\WaferMap\\tests\\test_performance_regressions.py\", line 998, in test_wafer_window_opens_with_current_cards_and_uses_new_coefficients_after_edit\n    self.assertLess(elapsed, .4, f\"Opening Wafer Map stalled for {elapsed:.3f}s\")\nAssertionError: 0.40419220000057976 not less than 0.4 : Opening Wafer Map stalled for 0.404s\n\n----------------------------------------------------------------------\nRan 1578 tests in 1052.827s\n\nFAILED (failures=1, skipped=22)\n",
+  "changed_files": [
+    "README.md",
+    "VERSION",
+    "benchmarks/benchmark_spectra_highlight.py",
+    "benchmarks/benchmark_spectra_highlight_real.py",
+    "benchmarks/benchmark_workspace_save.py",
+    "docs/releases/v5.3.2.md",
+    "metrology_app/analysis_export.py",
+    "metrology_app/auto_weighting.py",
+    "metrology_app/bias_die_map.py",
+    "metrology_app/cdsem1.py",
+    "metrology_app/correlation_window.py",
+    "metrology_app/die_map_selection.py",
+    "metrology_app/floating_editor.py",
+    "metrology_app/group_script.py",
+    "metrology_app/group_settings_ui.py",
+    "metrology_app/match_groups.py",
+    "metrology_app/matching_window.py",
+    "metrology_app/plot.py",
+    "metrology_app/plot_page.py",
+    "metrology_app/plotting/curve.py",
+    "metrology_app/reference_merge.py",
+    "metrology_app/sequence_data.py",
+    "metrology_app/settings.py",
+    "metrology_app/sheet.py",
+    "metrology_app/spectra_map.py",
+    "metrology_app/spectra_plots.py",
+    "metrology_app/spectra_viewer.py",
+    "metrology_app/wafer_graphics.py",
+    "metrology_app/window.py",
+    "metrology_app/workspace_document.py",
+    "packaging/windows-installer.iss",
+    "tests/test_cdsem1_compatibility.py",
+    "tests/test_correlation_source_identity.py",
+    "tests/test_die_map_selection.py",
+    "tests/test_reference_input_formats.py",
+    "tests/test_save_responsiveness.py",
+    "tests/test_selection_state_regressions.py",
+    "tests/test_sme_spectra.py",
+    "tests/test_spectra_group_interactions.py",
+    "tests/test_spectra_highlight_style.py",
+    "tests/test_spectra_viewer.py",
+    "tests/test_writer_cell_serialization.py"
+  ],
+  "performance_before": {
+    "source": "D:\\WaferMap\\.cache\\v5.3.1-release-20261116\\source",
+    "modules": [
+      "D:\\WaferMap\\.cache\\v5.3.1-release-20261116\\source\\metrology_app\\sheet.py",
+      "D:\\WaferMap\\.cache\\v5.3.1-release-20261116\\source\\metrology_app\\workspace_document.py",
+      "D:\\WaferMap\\.cache\\v5.3.1-release-20261116\\source\\metrology_app\\auto_weighting.py"
+    ],
+    "tests": 4,
+    "passed": false,
+    "measurements": [
+      {
+        "test": "tests.test_writer_cell_serialization.WriterCellSerializationTests.test_plain_cells_avoid_generic_recursive_serialization_cost",
+        "seconds": 0.3171965999999884,
+        "threshold": 0.3,
+        "message": "Plain-cell encoding blocked for 0.317s"
+      },
+      {
+        "test": "tests.test_performance_regressions.WorkbookPerformanceTests.test_raw_select_all_clear_and_undo_keeps_exact_cells_promptly",
+        "seconds": 0.7715061999999762,
+        "threshold": 0.6,
+        "message": "Clearing selected Raw cells stalled for 0.772s"
+      },
+      {
+        "test": "tests.test_performance_regressions.WorkbookPerformanceTests.test_saved_wide_workbook_dirty_checks_preserve_the_accepted_state_promptly",
+        "seconds": 0.10511810000002697,
+        "threshold": 0.1,
+        "message": "Dirty-title checks blocked unchanged controls: [0.10511810000002697, 0.11808340000004591, 0.10569959999997991]"
+      },
+      {
+        "test": "tests.test_performance_regressions.WorkbookPerformanceTests.test_wafer_window_opens_with_current_cards_and_uses_new_coefficients_after_edit",
+        "seconds": 0.4845724000000473,
+        "threshold": 0.4,
+        "message": "Opening Wafer Map stalled for 0.485s"
+      }
+    ],
+    "settings_isolated": true,
+    "thresholds_unchanged": true
+  },
+  "performance_after": {
+    "source": "D:\\WaferMap",
+    "modules": [
+      "D:\\WaferMap\\metrology_app\\sheet.py",
+      "D:\\WaferMap\\metrology_app\\workspace_document.py",
+      "D:\\WaferMap\\metrology_app\\auto_weighting.py"
+    ],
+    "tests": 4,
+    "passed": false,
+    "measurements": [
+      {
+        "test": "tests.test_writer_cell_serialization.WriterCellSerializationTests.test_plain_cells_avoid_generic_recursive_serialization_cost",
+        "seconds": 0.2718733000000384,
+        "threshold": 0.3,
+        "message": "Plain-cell encoding blocked for 0.272s"
+      },
+      {
+        "test": "tests.test_performance_regressions.WorkbookPerformanceTests.test_raw_select_all_clear_and_undo_keeps_exact_cells_promptly",
+        "seconds": 0.5647453999999925,
+        "threshold": 0.6,
+        "message": "Clearing selected Raw cells stalled for 0.565s"
+      },
+      {
+        "test": "tests.test_performance_regressions.WorkbookPerformanceTests.test_saved_wide_workbook_dirty_checks_preserve_the_accepted_state_promptly",
+        "seconds": 0.09212639999998373,
+        "threshold": 0.1,
+        "message": "Dirty-title checks blocked unchanged controls: [0.09294099999999617, 0.09288890000004812, 0.09212639999998373]"
+      },
+      {
+        "test": "tests.test_performance_regressions.WorkbookPerformanceTests.test_wafer_window_opens_with_current_cards_and_uses_new_coefficients_after_edit",
+        "seconds": 0.44040430000006836,
+        "threshold": 0.4,
+        "message": "Opening Wafer Map stalled for 0.440s"
+      }
+    ],
+    "settings_isolated": true,
+    "thresholds_unchanged": true
+  },
+  "new_issue_tests": "Ran 7 tests in 2.718s; OK",
+  "final_new_issue_and_static_map_tests": "Ran 14 tests in 20.527s; OK (8 new issue tests + 6 static map tests)",
+  "correlation_related_tests": "Ran 85 tests in 49.291s; OK",
+  "final_new_issue_tests": "Ran 11 tests in 9.569s; OK (including clipboard count corrections, Undo/Redo and Trend)",
+  "related_tests": "Ran 139 tests in 133.724s; OK",
+  "missing_original_fixture": "METROLOGY_SME_SAMPLE_ROOT optional; no substitute data",
+  "kla_fault_file_validation": "Awaiting actual failing Offline file path"
+}

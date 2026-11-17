@@ -1,6 +1,7 @@
 """Behavior checks for SME source identity and catalog ordering."""
 
 from pathlib import Path
+import os
 import shutil
 import tempfile
 import unittest
@@ -24,15 +25,17 @@ from metrology_app.sme_spectra import (
 )
 
 
-SAMPLE_ROOT = Path(
-    r"C:\Users\Yuanhao Qin\OneDrive\Desktop\all_uploaded_SME_spectra_42_files"
-)
+SAMPLE_ROOT = Path(os.environ.get("METROLOGY_SME_SAMPLE_ROOT",
+    r"C:\Users\Yuanhao Qin\OneDrive\Desktop\all_uploaded_SME_spectra_42_files"))
 
 
 def copy_verified_samples(destination):
     """Isolate the original fixture from later user additions to its parent."""
     root = Path(destination)
-    for name in ("01_AIT_UVSE_20_Die", "02_wafer01_IMSE_20_Die", "03_BBSE_multichannel", "04_DTS_reflectance"):
+    names = ("01_AIT_UVSE_20_Die", "02_wafer01_IMSE_20_Die", "03_BBSE_multichannel", "04_DTS_reflectance")
+    if not all((SAMPLE_ROOT / name).is_dir() for name in names):
+        raise unittest.SkipTest("Original mixed-instrument SME samples unavailable; set METROLOGY_SME_SAMPLE_ROOT")
+    for name in names:
         shutil.copytree(SAMPLE_ROOT / name, root / name)
     return root
 

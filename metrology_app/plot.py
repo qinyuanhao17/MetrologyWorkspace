@@ -147,7 +147,7 @@ def map_statistics_text(values):
 
 def set_panel_title(ax, metric, classification, stats, font_size=10):
     """Draw a centered three-line panel heading with an emphasized metric name."""
-    detail_size = max(6, font_size - 1)
+    detail_size = max(3, font_size - 1)
     lower_offset = 5
     middle_offset = lower_offset + detail_size * 1.45
     title_pad = middle_offset + detail_size * 1.45
@@ -475,9 +475,9 @@ class WaferPlot:
         else:
             self.point_markers = ax.scatter(*positions.T, c="#101820", s=5, linewidths=0, zorder=3)
         self.point_markers.set_visible(options.points)
-        size = max(4.5, font_size * (0.55 if compact else 0.65))
+        size = max(2 if font_size < 8 else 4.5, font_size * (0.55 if compact else 0.65))
         if len(values) > 100:
-            size = max(4.5, size - 1)
+            size = max(2 if font_size < 8 else 4.5, size - 1)
         self.value_labels = ValueLabels(positions, values, size, options.point_decimals)
         self.value_labels.set_visible(options.labels)
         self.value_labels.set_zorder(4)
@@ -489,8 +489,8 @@ class WaferPlot:
         ax.set(xlim=(center[0] - margin, center[0] + margin),
                ylim=(center[1] - margin, center[1] + margin), aspect="equal")
         transformed = options.rotation != 0 or options.flip
-        label_size = max(6, font_size - 1)
-        tick_size = max(5, font_size - 2)
+        label_size = max(3, font_size - 1)
+        tick_size = max(2, font_size - 2)
         ax.set_xlabel(axis_names[0] + (" (view)" if transformed else ""), fontsize=label_size)
         ax.set_ylabel(axis_names[1] + (" (view)" if transformed else ""), fontsize=label_size)
         classification = " · ".join(subtitle.splitlines())

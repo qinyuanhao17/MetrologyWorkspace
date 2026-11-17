@@ -2201,7 +2201,8 @@ class MatchingWindow(QMainWindow):
                     used = set()
                     records = []
                     for position, key in enumerate(new_keys):
-                        identifier = (old_ids[position] if position < len(old_ids) else None) if positional else by_key.get(key)
+                        identifier = (old_ids[position] if positional and position < len(old_ids)
+                                      else by_key.get(key))
                         if identifier in used:
                             identifier = None
                         if identifier is None and position < len(old_ids):
@@ -2255,7 +2256,7 @@ class MatchingWindow(QMainWindow):
         plan = controls.plan
         selection = controls.state.get("applied", controls.state).get("data_selection") or {}
         hide = bool(selection.get("hide_excluded"))
-        projected = plan is not None and bool(hide or controls.state["filters"] or controls.state["sort"])
+        projected = plan is not None and len(plan.raw) > 0 and bool(hide or controls.state["filters"] or controls.state["sort"])
         rows = plan.display_rows if projected else None
         if projected and hide:
             included = set(plan.included_rows)

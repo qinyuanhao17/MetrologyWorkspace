@@ -180,7 +180,10 @@ def remember_recent_wkb(path, *, settings_path=SETTINGS_PATH, limit=MAX_RECENT_W
     recent = _normalized_recent_wkbs(
         (path, *settings.get("recent_wkbs", ())), limit=limit
     )
-    settings["recent_wkbs"] = [str(item) for item in recent]
+    paths = [str(item) for item in recent]
+    if settings.get('recent_wkbs') == paths:
+        return recent
+    settings["recent_wkbs"] = paths
     save_settings(settings, settings_path)
     return recent
 

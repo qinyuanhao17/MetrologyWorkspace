@@ -40,7 +40,8 @@ def _screen_path(x, y, transform, tolerance):
     return pg.functions.arrayToQPath(vertices[:, 0], vertices[:, 1], connect=connect, finiteCheck=False)
 
 
-def _render_path(payload, width, height, antialias, segments=None, colored_segments=None, screen_error=0.0):
+def _render_path(payload, width, height, antialias, segments=None, colored_segments=None, screen_error=0.0,
+                 opacity=1.0):
     buffer = QByteArray(payload)
     stream = QDataStream(buffer, QIODevice.OpenModeFlag.ReadOnly)
     path, pen, transform = QPainterPath(), QPen(), QTransform()
@@ -50,6 +51,7 @@ def _render_path(payload, width, height, antialias, segments=None, colored_segme
     painter = QPainter(image)
     try:
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, antialias)
+        painter.setOpacity(opacity)
         painter.setPen(pen)
         painter.setWorldTransform(transform)
         if colored_segments is not None:
@@ -94,6 +96,8 @@ class _CurveRasterizer(QObject):
         self._screen_error = screen_error
         self._disposed = False
         self._visible = True
+        self.display_opacity = 1.0
+        self._native_screen_visible = True
         self._native_export_mode = curve.setExportMode
         curve.setExportMode = self._set_export_mode
         self.image_item = QGraphicsPixmapItem(curve.parentItem())
@@ -103,6 +107,7 @@ class _CurveRasterizer(QObject):
         self._screen_enabled = False
         self._revision = 0
         self._cached = None
+        self._opacity_images = {}
         self._future = None
         self._latest = None
         self._running = None
@@ -146,6 +151,7 @@ class _CurveRasterizer(QObject):
             return
         self._revision += 1
         self._cached = None
+        self._opacity_images.clear()
         self._latest = None
         self.image_item.hide()
         pen = self.opts['pen']
@@ -163,12 +169,30 @@ class _CurveRasterizer(QObject):
         self._prepare.start(16 if self._solid else 0)
 
     def _show_curve(self, visible):
+        self._native_screen_visible = bool(visible)
         if self._solid:
             # A standalone curve is also the ViewBox's bounds authority. Keep
             # it visible for auto-range, without invoking native screen paint.
-            self.curve.setOpacity(1.0 if visible else 0.0)
+            preview = (getattr(self.curve, 'preview_while_rendering', False)
+                       and self._cached is None and self.xData is not None
+                       and len(self.xData) <= 4096)
+            self.curve.setOpacity(self.display_opacity if visible or preview else 0.0)
         else:
             self.curve.setVisible(visible)
+
+    def set_opacity(self, opacity):
+        """Keep native and worker stroke compositing equal; retain source geometry."""
+        if self.display_opacity == float(opacity):
+            return
+        self.display_opacity = float(opacity)
+        if self._solid:
+            self._show_curve(self._native_screen_visible)
+        if self.display_opacity in self._opacity_images:
+            self._request()
+        else:
+            # New foreground overlays prepare on the next turn. Let them
+            # reach the renderer before the optional background fade jobs.
+            self._prepare.start(32)
 
     def cancel(self):
         self._prepare.stop()
@@ -198,6 +222,8 @@ class _CurveRasterizer(QObject):
     def dispose(self):
         self._disposed = True
         self.cancel()
+        self._cached = None
+        self._opacity_images.clear()
         self.image_item.hide()
         if self.image_item.scene() is not None:
             self.image_item.scene().removeItem(self.image_item)
@@ -269,7 +295,12 @@ class _CurveRasterizer(QObject):
         local_matrix = (*matrix[:4], transform.dx() - rect.x(), transform.dy() - rect.y())
         segmented = self._solid and self.curve._shouldUseDrawLineSegments(pen)
         key = (self._revision, QPen(pen), bool(self.opts['antialias']), segmented,
-               local_matrix, rect.width(), rect.height())
+               local_matrix, rect.width(), rect.height(), self.display_opacity)
+        cached = self._opacity_images.get(self.display_opacity)
+        if cached is not None and cached[0] == key and self._cached is not cached:
+            self.cancel()
+            self._cached = cached
+            self._install_image(cached)
         if self._cached is None or self._cached[0] != key:
             if self._latest is None or self._latest[0] != key:
                 if hasattr(self.curve, 'raster_components'):
@@ -308,6 +339,7 @@ class _CurveRasterizer(QObject):
             return
         self._running = self._latest
         _, _, rect, path, pen, antialias = self._running
+        request_opacity = self._running[0][-1]
         payload = QByteArray()
         stream = QDataStream(payload, QIODevice.OpenModeFlag.WriteOnly)
         transform = self._running[1]
@@ -328,7 +360,7 @@ class _CurveRasterizer(QObject):
             renderer = _RENDERER
         try:
             self._future = renderer.submit(_render_path, bytes(payload), rect.width(), rect.height(), antialias,
-                                           segments, colored_segments, self._screen_error)
+                                           segments, colored_segments, self._screen_error, request_opacity)
         except Exception:
             self._failed = True
             self._latest = None
@@ -361,15 +393,24 @@ class _CurveRasterizer(QObject):
         else:
             if self._latest is not None and request[0] == self._latest[0]:
                 self._cached = (*request[:3], image)
-                inverse, valid = request[1].inverted()
-                if valid:
-                    self.image_item.setPixmap(QPixmap.fromImage(image))
-                    self.image_item.setTransform(QTransform.fromTranslate(rect.x(), rect.y()) * inverse)
-                    self.image_item.show()
+                opacity = request[0][-1]
+                if len(self._opacity_images) >= 2 and opacity not in self._opacity_images:
+                    self._opacity_images.clear()
+                self._opacity_images[opacity] = self._cached
+                self._install_image(self._cached)
+                self._show_curve(False)
             elif self._latest is not None:
                 self._start()
         self.curve.update()
         self.rendering_changed.emit()
+
+    def _install_image(self, cached):
+        _, transform, rect, image = cached
+        inverse, valid = transform.inverted()
+        if valid:
+            self.image_item.setPixmap(QPixmap.fromImage(image))
+            self.image_item.setTransform(QTransform.fromTranslate(rect.x(), rect.y()) * inverse)
+            self.image_item.show()
 
 
 def cache_curve_image(curve, *, screen_error=0.0):

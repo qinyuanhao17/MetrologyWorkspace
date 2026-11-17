@@ -1499,6 +1499,7 @@ class SpectraViewerTreeTests(unittest.TestCase):
                 "Check Selected",
                 "Uncheck Selected",
                 "Highlight",
+                "Clear Highlight",
                 "Set Mark",
                 "Set Test Flag",
                 "Check Unselected",

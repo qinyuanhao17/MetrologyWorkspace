@@ -2,7 +2,7 @@
 import re
 from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PyQt6.QtWidgets import (QDialog, QDialogButtonBox, QLabel, QTableView,
-                            QVBoxLayout, QHBoxLayout, QSizePolicy, QHeaderView)
+                            QVBoxLayout, QHBoxLayout, QSizePolicy, QHeaderView, QPushButton)
 
 from .appearance import fit_window_to_screen
 from .match_groups import normalized
@@ -73,6 +73,11 @@ class GroupSettingsDialog(QDialog):
         classification = QHBoxLayout()
         for widget in (controls.enabled,controls.names_button,controls.mark_enabled,controls.new_button):
             classification.addWidget(widget)
+        flag_editor = getattr(owner, 'open_test_flags', None)
+        if callable(flag_editor):
+            self.set_flags_button = QPushButton('Set Test Flag…')
+            self.set_flags_button.clicked.connect(flag_editor)
+            classification.addWidget(self.set_flags_button)
         classification.addStretch(1)
         controls.layout().insertLayout(0,classification)
         controls.setSizePolicy(QSizePolicy.Policy.Preferred,QSizePolicy.Policy.Maximum)

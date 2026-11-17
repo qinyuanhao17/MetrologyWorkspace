@@ -107,6 +107,13 @@ def open_group_script(controls):
                 ('apply_button','Apply Script',self.apply_script),
                 ('close_button','Close',self.hide)):
                 button = QPushButton(label)
+                if attr == 'apply_button':
+                    button.setStyleSheet('QPushButton { background-color: #000000; color: #ffffff; '
+                                        'border: 1px solid #000000; border-radius: 4px; padding: 6px 12px; } '
+                                        'QPushButton:hover { background-color: #242424; } '
+                                        'QPushButton:pressed { background-color: #404040; } '
+                                        'QPushButton:focus { border: 2px solid #5b9bd5; } '
+                                        'QPushButton:disabled { background-color: #767676; border-color: #767676; }')
                 setattr(self,attr,button)
                 button.clicked.connect(slot)
                 row.addWidget(button)

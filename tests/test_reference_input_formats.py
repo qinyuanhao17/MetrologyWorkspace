@@ -8,6 +8,43 @@ from tests.test_cdsem1_compatibility import workbook
 
 
 class ReferenceInputFormatTests(unittest.TestCase):
+    def test_kla_long_per_channel_settings_are_not_rejected_measurement_headers(self):
+        import csv
+        from metrology_app.reference_merge import parse_file
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / 'offline.csv'
+            rows = []
+            for channel in (1, 2):
+                rows.append(['Head', 'WaferID:', 'W1', 'LotID:', 'L1', 'Slot:', '01',
+                             'TestID:', str(channel), 'TestLabel:', f'Channel {channel}'])
+                rows.append(['Site #', 'Pass Settings', '', 'Pass Settings'])
+                rows.extend([f'Display setting {i}', 'on'] for i in range(220))
+                rows.extend([['Site #', 'X (mm)', 'Y (mm)', 'CD'],
+                             ['1', '1.2500', '-2.5000', f'{channel}.123400']])
+            with path.open('w', newline='', encoding='utf-8') as stream:
+                csv.writer(stream).writerows(rows)
+            parsed = parse_file(path, 'KLA')
+            self.assertEqual(parsed.issues, [])
+            self.assertEqual(parsed.blocks, 2)
+            self.assertEqual([row['channel'] for row in parsed.records],
+                             [('1', 'Channel 1'), ('2', 'Channel 2')])
+            self.assertEqual([row['data']['CD'] for row in parsed.records], ['1.123400', '2.123400'])
+            self.assertEqual([row['data']['X (mm)'] for row in parsed.records], ['1.2500'] * 2)
+
+    def test_kla_actual_duplicate_data_header_is_still_rejected(self):
+        from metrology_app.reference_merge import parse_file
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / 'bad.csv'
+            for first_row in ('', 'bad-site,30,31\n'):
+                with self.subTest(first_row=first_row):
+                    path.write_text('Head,TestID:,1,TestLabel:,CD\nSite #,CD,CD\n' +
+                                    first_row + '1,30,31\nHead,TestID:,2,TestLabel:,Good\nSite #,CD\n1,32\n',
+                                    encoding='utf-8')
+                    parsed = parse_file(path, 'KLA')
+                    self.assertEqual(len(parsed.records), 1)
+                    self.assertTrue(any(issue['Kind'] == 'HEADER' and 'Duplicate or empty' in issue['Detail']
+                                        for issue in parsed.issues))
+
     def test_each_vendor_accepts_csv_xlsx_xlsm_without_changing_values_or_channels(self):
         fixtures={
             'NOVA':[['WaferID','LotID','CD','Note','A_LBH'],['W1','L1','30.100','quoted, note\nnext line','NO_LBH']],

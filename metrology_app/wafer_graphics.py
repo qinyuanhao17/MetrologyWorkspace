@@ -311,9 +311,9 @@ class WaferPanel(pg.GraphicsObject):
             self.drawn_indices = list(template.drawn_indices)
             self._label_key = label_key
             return
-        size = max(4.5, self.font_size * .55)
+        size = max(2 if self.font_size < 8 else 4.5, self.font_size * .55)
         if len(self.values) > 100:
-            size = max(4.5, size - 1)
+            size = max(2 if self.font_size < 8 else 4.5, size - 1)
         scale = size * 100/72
         gap = max(1.5, scale * .12)
         transform = self.data_transform()
@@ -407,7 +407,7 @@ class WaferPanel(pg.GraphicsObject):
         caption = measurement_caption(self.source["label"], self.identity_labels,
                                       self.source.get("caption_fields")).replace("\n", " · ")
         painter.setPen(QColor("#17202a"))
-        detail = max(6, base-1)
+        detail = max(3, base-1)
         line = detail * 1.45 * 100/72
         title_bottom = rect.top() - 5 * 100/72
         painter.setFont(self.font(base, True))
@@ -464,7 +464,7 @@ class WaferPanel(pg.GraphicsObject):
 
     def _paint_axes(self, painter):
         options, rect = self.source["options"], self.axis_rect
-        tick_font = self.font(max(5, self.font_size-2))
+        tick_font = self.font(max(2, self.font_size-2))
         painter.setFont(tick_font)
         transform, length = self.data_transform(), 3*100/72
         for value in self._ticks(options.center_x, self.settings.x):
@@ -479,7 +479,7 @@ class WaferPanel(pg.GraphicsObject):
                 painter.drawLine(QPointF(rect.left(), y), QPointF(rect.left()-length, y))
                 painter.drawLine(QPointF(rect.right(), y), QPointF(rect.right()+length, y))
                 self.text(painter, f"{value:g}", QRectF(rect.left()-56, y-10, 48, 20), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        painter.setFont(self.font(max(6, self.font_size-1)))
+        painter.setFont(self.font(max(3, self.font_size-1)))
         suffix = " (view)" if options.rotation or options.flip else ""
         self.text(painter, self.settings.x+suffix, QRectF(rect.left(), rect.bottom()+24, rect.width(), 22))
         painter.save()
@@ -507,7 +507,7 @@ class WaferPanel(pg.GraphicsObject):
         painter.fillRect(bar, self.bar_gradient)
         painter.setPen(QPen(QColor("#303030"), .6*100/72))
         painter.drawRect(bar)
-        painter.setFont(self.font(max(5, self.font_size-2)))
+        painter.setFont(self.font(max(2, self.font_size-2)))
         for value, label in self.bar_ticks:
             y = bar.bottom() - (value-self.low)/(self.high-self.low)*bar.height()
             painter.drawLine(QPointF(bar.right(), y), QPointF(bar.right()+4, y))

@@ -23,11 +23,17 @@ DOCUMENTS = weakref.WeakSet()
 
 
 def large_spectra_payload(snapshot=None, path=None):
+    """Deferred spectra and large plain tables both need responsive file I/O."""
     if path is not None and Path(path).is_file() and Path(path).stat().st_size > 8_000_000:
         return True
-    return snapshot is not None and any(
-        isinstance(frame,StoredFrame) or ("samples" in frame and frame["samples"].map(lambda value: len(value) if isinstance(value, str) else 0).sum() > 8_000_000)
-        for frame in snapshot.frames.values())
+    size = 0
+    for frame in snapshot.frames.values() if snapshot is not None else ():
+        if isinstance(frame, StoredFrame):
+            return True
+        size += int(frame.memory_usage(index=False, deep=True).sum())
+        if size > 8_000_000:
+            return True
+    return False
 
 
 def document_io(parent, action, label):
@@ -383,7 +389,10 @@ def _same_plain_state(first, second):
         for (k1, v1), (k2, v2) in zip(first.items(), second.items()):
             if type(k1) is not str or type(k2) is not str or k1 != k2:
                 return None
-            matched = _same_plain_state(v1, v2)
+            # Source membership records contain many literal string fields.
+            # Compare those leaves directly, retaining full validation for
+            # every other value (including a later invalid value).
+            matched = v1 == v2 if type(v1) is str and type(v2) is str else _same_plain_state(v1, v2)
             if matched is None:
                 return None
             equal = equal and matched
@@ -393,7 +402,7 @@ def _same_plain_state(first, second):
             return None
         equal = True
         for a, b in zip(first, second):
-            matched = _same_plain_state(a, b)
+            matched = a == b if type(a) is str and type(b) is str else _same_plain_state(a, b)
             if matched is None:
                 return None
             equal = equal and matched
@@ -632,7 +641,7 @@ class WkbDocument:
         snapshot = self.window.workspace_snapshot()
         self.last_warning = ""
         expected = self.revision if target == self.path else self.selected_target_revision
-        saved = (document_io(self.window, lambda: save_workspace(target, snapshot, expected_revision=expected), "Saving spectra data…")
+        saved = (document_io(self.window, lambda: save_workspace(target, snapshot, expected_revision=expected), "Saving workspace…")
                  if large_spectra_payload(snapshot, target) else save_workspace(target, snapshot, expected_revision=expected))
         self.last_warning = "; ".join(snapshot.warnings)
         self.path = saved.resolve()

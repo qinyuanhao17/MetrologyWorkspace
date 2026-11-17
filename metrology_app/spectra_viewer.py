@@ -56,6 +56,7 @@ from .spectra_plots import (
     ResizablePlotSplitter,
     SpectrumPlotPanel,
     WaferChannelKey,
+    highlight_pens,
 )
 
 
@@ -65,6 +66,7 @@ ROLE_SPECTRA = Qt.ItemDataRole.UserRole + 2
 ROLE_LEAF_GROUP = Qt.ItemDataRole.UserRole + 3
 ROLE_SORT_TEXT = Qt.ItemDataRole.UserRole + 4
 ROLE_BASE_TEXT = Qt.ItemDataRole.UserRole + 5
+ROLE_HIGHLIGHT = Qt.ItemDataRole.UserRole + 6
 GROUP_KINDS = {"wafer", "lot", "pad", "die"}
 GROUP_LABELS = (("wafer", "Wafer ID"), ("lot", "Lot"), ("pad", "PAD Name"), ("die", "Die"))
 TREE_COLUMNS = (
@@ -122,13 +124,15 @@ class _SpectrumTreeItem(QTreeWidgetItem):
         return key(self) < key(other)
 
 
-def _line_icon(color: QColor, *, selected=False) -> QIcon:
+def _line_icon(color: QColor, *, selected=False, highlighted=False) -> QIcon:
     pixmap = QPixmap(24, 14)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    painter.setPen(QPen(color, 4.4 if selected else 2.2))
-    painter.drawLine(2, 7, 22, 7)
+    pens = highlight_pens() if highlighted else (QPen(color, 4.4 if selected else 2.2),)
+    for pen in pens:
+        painter.setPen(pen)
+        painter.drawLine(2, 7, 22, 7)
     painter.end()
     return QIcon(pixmap)
 
@@ -1018,6 +1022,7 @@ class SpectraViewerWindow(QMainWindow):
         highlight.setChecked(bool(self._selected_keys) and self._selected_keys <= self.highlighted_keys)
         highlight.setEnabled(bool(self._selected_keys))
         highlight.triggered.connect(self.highlight_selected_spectra)
+        menu.addAction('Clear Highlight', self.clear_highlights).setEnabled(bool(self.highlighted_keys))
         self.group_options.mark_menu(menu)
         flags = menu.addMenu("Set Test Flag")
         flags.setEnabled(bool(self._selected_keys))
@@ -1396,7 +1401,15 @@ class SpectraViewerWindow(QMainWindow):
             panel.set_emphasized_keys(self.highlighted_keys)
         for window in self.floating_plot_windows.values():
             window.panel.set_emphasized_keys(self.highlighted_keys)
+        self._sync_legend_selection()
+        self._sync_map()
         self.stateChanged.emit()
+
+    def clear_highlights(self):
+        before = set(self.highlighted_keys)
+        if before:
+            self.record_edit('Clear Highlight', lambda: self._apply_highlights(before),
+                             lambda: self._apply_highlights(set()))
 
     def _set_selected_spectra_checked(self, checked):
         if not self._selected_keys:
@@ -1824,6 +1837,12 @@ class SpectraViewerWindow(QMainWindow):
             if spectrum.key in self._selected_keys
             for channel in spectrum.channels
         }
+        highlighted = {
+            self._color_key(spectrum, channel)
+            for spectrum in self.checked_spectra()
+            if spectrum.key in self.highlighted_keys
+            for channel in spectrum.channels
+        }
         for legend in self.legends.values():
             blocked = legend.blockSignals(True)
             first_new = None
@@ -1831,16 +1850,19 @@ class SpectraViewerWindow(QMainWindow):
                 item = legend.item(index)
                 key = item.data(Qt.ItemDataRole.UserRole)
                 active = key in selected
+                emphasized = key in highlighted
                 font = item.font()
-                if item.isSelected() != active or font.bold() != active:
+                if (item.isSelected() != active or font.bold() != (active or emphasized)
+                        or bool(item.data(ROLE_HIGHLIGHT)) != emphasized):
                     legend.selectionModel().select(
                         legend.indexFromItem(item),
                         QItemSelectionModel.SelectionFlag.Select if active
                         else QItemSelectionModel.SelectionFlag.Deselect,
                     )
-                    font.setBold(active)
+                    font.setBold(active or emphasized)
                     item.setFont(font)
-                    item.setIcon(_line_icon(self._color_for(key), selected=active))
+                    item.setIcon(_line_icon(self._color_for(key), selected=active, highlighted=emphasized))
+                    item.setData(ROLE_HIGHLIGHT, emphasized)
                     if active and first_new is None:
                         first_new = item
             legend.blockSignals(blocked)
@@ -2229,6 +2251,7 @@ class SpectraViewerWindow(QMainWindow):
         self.map_window = SpectraMapWindow(pin_owner=self)
         self.map_window.selection_menu_factory = self.build_tree_menu
         self.add_edit_history_actions(self.map_window)
+        self.map_window.set_edit_history_actions(self.map_window.undo_action, self.map_window.redo_action)
         self.map_window.spectra_selected.connect(self.select_spectrum_keys)
         self.map_window.check_selected_requested.connect(self.check_selected_spectra)
         self.map_window.uncheck_selected_requested.connect(self.uncheck_selected_spectra)
@@ -2250,6 +2273,7 @@ class SpectraViewerWindow(QMainWindow):
             return
         self.map_window.update_test_flags(self.test_flags, flag_values=self.test_flag_values)
         self.map_window.update_groups(self.group_options.labels())
+        self.map_window.update_highlights(self.highlighted_keys)
         signature = (
             tuple(
                 (spectrum.key, id(spectrum))

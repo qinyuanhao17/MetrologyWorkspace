@@ -91,9 +91,10 @@ def _pin_icon():
 class WindowPin(QObject):
     """The editor's application-scoped pin for an already independent window."""
 
-    def __init__(self, window, owner=None):
+    def __init__(self, window, owner=None, *, raise_above_owner=True):
         super().__init__(window)
         self.window, self.owner, self.pinned = window, owner or window, False
+        self.raise_above_owner = raise_above_owner
         self.raise_timer = QTimer(self, singleShot=True, interval=0)
         self.raise_timer.timeout.connect(self._raise_in_scope)
         self.action = QAction(_pin_icon(), "Pin", window)
@@ -102,12 +103,11 @@ class WindowPin(QObject):
         self.action.toggled.connect(self.set_pinned)
         window.addAction(self.action)
         self.set_pinned(False)
-        QApplication.instance().installEventFilter(self)
 
     def _should_raise_for(self, widget):
         return (self.window.isVisible() and isinstance(widget, QWidget) and widget.isWindow()
                 and widget is not self.window and QApplication.activeModalWidget() is None
-                and (self.pinned or widget is self.owner))
+                and (self.pinned or self.raise_above_owner and widget is self.owner))
 
     def _raise_in_scope(self):
         if (QApplication.applicationState() == Qt.ApplicationState.ApplicationActive
@@ -117,8 +117,14 @@ class WindowPin(QObject):
     def set_pinned(self, pinned):
         self.pinned = bool(pinned)
         self.action.setChecked(self.pinned)
-        scope = "all Metrology Workspace windows" if self.pinned else "its parent window only"
-        self.action.setToolTip(f"Above {scope}. Never above other software. Alt+P to toggle.")
+        if self.pinned or self.raise_above_owner:
+            QApplication.instance().installEventFilter(self)
+        else:
+            QApplication.instance().removeEventFilter(self)
+            self.raise_timer.stop()
+        scope = ("Above all Metrology Workspace windows" if self.pinned else
+                 "Above its parent window only" if self.raise_above_owner else "Normal window stacking")
+        self.action.setToolTip(f"{scope}. Never above other software. Alt+P to toggle.")
         state = QIcon.State.On if self.pinned else QIcon.State.Off
         self.window.setWindowIcon(QIcon(self.action.icon().pixmap(24, 24, QIcon.Mode.Normal, state)))
         if self._should_raise_for(QApplication.activeWindow()):
