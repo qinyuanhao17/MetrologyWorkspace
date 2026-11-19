@@ -461,11 +461,11 @@ def _same_state(first, second):
     return _comparison_json(first) == _comparison_json(second)
 
 
-def same_snapshot(first, second):
+def same_snapshot(first, second, *, compare_states=_same_state):
     return (first.workspace_type == second.workspace_type
             and first.frames.keys() == second.frames.keys()
             and all(frames_equal(frame,second.frames[name]) for name, frame in first.frames.items())
-            and _same_state(first.states, second.states))
+            and compare_states(first.states, second.states))
 
 
 def recovery_directory():
@@ -530,6 +530,23 @@ class WkbDocument:
         if hasattr(window, "selection_changed"):
             window.selection_changed.connect(lambda *_: self.identity_timer.start())
 
+    @property
+    def baseline(self):
+        return self._baseline
+
+    @baseline.setter
+    def baseline(self, snapshot):
+        self._baseline = snapshot
+        self._baseline_state_text = None
+
+    def _compare_accepted_workbook_state(self, current, accepted):
+        # Match Workbooks can retain several large child selection grids.
+        # The accepted state stays fixed until Save, Open or recovery replaces
+        # the baseline. Encode it once and compare each new capture against it.
+        if self._baseline_state_text is None:
+            self._baseline_state_text = _comparison_json(accepted)
+        return _comparison_json(current) == self._baseline_state_text
+
     def mark_clean(self, snapshot=None):
         self._cancel_recovery()
         if snapshot is None:
@@ -575,6 +592,8 @@ class WkbDocument:
                 {**current.states, "ui": local_ui(current.states.get("ui", {}), readonly=True)})
             baseline = WorkspaceSnapshot(baseline.workspace_type, baseline.frames,
                 {**baseline.states, "ui": local_ui(baseline.states.get("ui", {}), readonly=True)})
+        if self.window.workspace_type == "match_workbook":
+            return not same_snapshot(current, baseline, compare_states=self._compare_accepted_workbook_state)
         return not same_snapshot(current, baseline)
 
     def has_changes(self):

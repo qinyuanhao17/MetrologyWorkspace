@@ -858,7 +858,9 @@ class MatchingWindow(QMainWindow):
             if document.path is None and not document.forced_dirty and not document.untrusted_recovery:
                 # Qt resolves the initial splitter geometry only on first show.
                 # Accept that geometry alone, never pre-show data/settings edits.
-                document.baseline.states["match"]["setup_splitter_sizes"] = self.setup_splitter.sizes()
+                baseline = document.baseline
+                layout = {**baseline.states["match"], "setup_splitter_sizes": self.setup_splitter.sizes()}
+                document.baseline = replace(baseline, states={**baseline.states, "match": layout})
                 document.refresh_identity()
 
     def workspace_snapshot(self, *, include_drafts=False, readonly=False, validate=True):
