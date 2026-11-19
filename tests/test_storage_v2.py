@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import QApplication, QFileDialog, QLineEdit, QMessageBox
 from metrology_app.matching_window import MatchingWindow
 from metrology_app.workspace_store import EXTENSIONS, WorkspaceSnapshot, load_workspace, save_workspace
 from metrology_app.window import MainWindow
+from tests.match_fixtures import configure_match_fixture
 
 APP = QApplication.instance() or QApplication([])
 
@@ -96,6 +97,7 @@ class StorageV2Tests(unittest.TestCase):
         self.match.set_reference_frame(pd.DataFrame({"CD Reference": [2., 4., 6.]}), "Ref")
         self.match.set_raw_frame(pd.DataFrame({"Wafer ID": ["001"] * 3,
                                              "Die Seq": [1, 2, 3], "CD": [1., 2., 3.]}), "Raw")
+        configure_match_fixture(self.match)
         self.match.run_analysis()
 
     def tearDown(self):

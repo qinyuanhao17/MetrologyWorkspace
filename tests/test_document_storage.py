@@ -13,6 +13,7 @@ from PyQt6.QtTest import QTest
 from metrology_app.window import MainWindow
 from metrology_app.correlation_window import CorrelationWindow
 from metrology_app.dynamic_window import DynamicWindow
+from tests.match_fixtures import configure_match_fixture
 
 
 APP = QApplication.instance() or QApplication([])
@@ -756,6 +757,7 @@ class DocumentStorageTests(unittest.TestCase):
             try:
                 first.set_reference_frame(pd.DataFrame({"CD Reference": [2., 4., 6.]}), "Ref")
                 first.set_raw_frame(pd.DataFrame({"CD": [1., 2., 3.]}), "Raw")
+                configure_match_fixture(first)
                 first.run_analysis()
                 original = first.save_workbook(Path(directory) / "original.wkb")
                 first.raw_model.edit({(1, 0): "9.999"})
@@ -843,6 +845,7 @@ class DocumentStorageTests(unittest.TestCase):
                 window.set_reference_frame(pd.DataFrame({"CD Reference": [2., 4., 6.]}), "Ref")
                 window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"] * 3,
                                                   "Die Seq": [1, 2, 3], "CD": [1., 2., 3.]}), "Raw")
+                configure_match_fixture(window)
                 window.run_analysis()
                 window.preview_dynamic_frame = window.raw_frame.copy()
                 dynamic = window.open_dynamic_workspace("preview")
@@ -869,6 +872,7 @@ class DocumentStorageTests(unittest.TestCase):
             try:
                 first.set_reference_frame(pd.DataFrame({"CD Reference": [2., 4., 6.]}), "Ref")
                 first.set_raw_frame(pd.DataFrame({"CD": [1., 2., 3.]}), "Raw")
+                configure_match_fixture(first)
                 first.run_analysis()
                 first.raw_model.load(pd.DataFrame({"CD": ["1.00", "2.00"]}))
                 path = first.save_workbook(Path(directory) / "draft.wkb")
@@ -890,6 +894,7 @@ class DocumentStorageTests(unittest.TestCase):
             try:
                 first.set_reference_frame(pd.DataFrame({"CD Reference": [2., 4., 6.]}), "Ref")
                 first.set_raw_frame(pd.DataFrame({"CD": [1., 2., 3.]}), "Raw")
+                configure_match_fixture(first)
                 first.run_analysis()
                 child = first.open_stage_workspace("preview")
                 frame = pd.DataFrame([["2.1000", "NA"]], columns=["CD", "CD"])
@@ -956,6 +961,7 @@ class DocumentStorageTests(unittest.TestCase):
             window.set_reference_frame(pd.DataFrame({"CD Reference": [2., 4., 6.]}), "Ref")
             window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"] * 3, "Die Seq": [1, 2, 3],
                                                "CD": [1., 2., 3.]}), "Raw")
+            configure_match_fixture(window)
             window.run_analysis()
             window.preview_dynamic_frame = window.raw_frame.copy()
             child = window.open_dynamic_workspace("preview")
@@ -1027,6 +1033,7 @@ class DocumentStorageTests(unittest.TestCase):
                 first.set_reference_frame(pd.DataFrame({"CD Reference": [2., 4., 6.]}), "Ref")
                 first.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"] * 3,
                                                   "Die Seq": [1, 2, 3], "CD": [1., 2., 3.]}), "Raw")
+                configure_match_fixture(first)
                 first.run_analysis()
                 child = first.open_correlation_workspace()
                 child.set_reference_table(pd.DataFrame({"CD": [2., 4., 6.]}), "Manual Reference")
@@ -1061,6 +1068,7 @@ class DocumentStorageTests(unittest.TestCase):
                 window.set_reference_frame(pd.DataFrame({"CD Reference": [2., 4., 6.]}), "Reference")
                 window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"] * 3,
                                                     "Die Seq": [1, 2, 3], "CD": [1., 2., 3.]}), "Raw")
+                configure_match_fixture(window)
                 window.run_analysis()
                 window.preview_dynamic_frame = window.raw_frame.copy()
                 child = window.open_dynamic_workspace("preview")

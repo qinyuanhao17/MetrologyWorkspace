@@ -13,6 +13,7 @@ from PIL import Image
 from metrology_app.analysis_export import append_report
 from metrology_app.excel_export import write_fullmap
 from tests import test_excel_export as fixtures
+from tests.match_fixtures import configure_match_fixture
 
 NS = {'d': 'http://schemas.openxmlformats.org/drawingml/2006/chartDrawing',
       'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'}
@@ -27,6 +28,7 @@ class ExportWkbAxesTests(unittest.TestCase):
         self.window.set_raw_frame(pd.DataFrame({'Wafer ID': ['W1'] * 2 + ['W2'] * 2 + ['W1'] * 2 + ['W2'] * 2,
                                               'Die Seq': ['01', '02'] * 4,
                                               'CD': ['1.000', '2.000', '3.000', '4.000', '5.000', '6.000', '7.000', '8.000']}))
+        configure_match_fixture(self.window)
         self.window.group_controls.restore({'enabled': True, 'head_names': {'0': 'Old Unknown', '1': 'New MM1'},
                                             'show_wafer_groups': ['All:0', 'All:1']},
                                            pd.DataFrame({'TestFlag': [0] * 4 + [1] * 4}))

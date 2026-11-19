@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import QApplication, QLabel
 import pandas as pd
 
 from metrology_app.sheet import SheetModel, SheetView
+from tests.match_fixtures import configure_match_fixture
 
 
 APP = QApplication.instance() or QApplication([])
@@ -31,6 +32,7 @@ class PasteFeedbackTests(unittest.TestCase):
             try:
                 window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7.]}))
                 window.set_raw_frame(pd.DataFrame({"CD": ["1.000", "2.000", "3.000"]}))
+                configure_match_fixture(window)
                 window.run_analysis()
                 path = Path(scratch) / "source.mwkb"
                 window.save_workbook(path)
@@ -63,6 +65,7 @@ class PasteFeedbackTests(unittest.TestCase):
         try:
             window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7.]}))
             window.set_raw_frame(pd.DataFrame({"CD": ["1.000", "2.000", "3.000"]}))
+            configure_match_fixture(window)
             window.run_analysis()
             window.raw_view.setCurrentIndex(window.raw_view.model().index(1, 0))
             APP.clipboard().setText("4.000")

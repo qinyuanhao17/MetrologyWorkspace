@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from .match_groups import participation_ids, participation_source_keys, row_ids, filter_mask
+from .match_groups import missing_excluded_records, participation_ids, participation_source_keys, row_ids, filter_mask
 from .match_group_ui import ColumnFilterDialog
 from .table_clipboard import attach_copy_feedback
 from .table_selection import RangeSelectionTableView
@@ -696,8 +696,11 @@ class DataSelectionDialog(SelectionDialog):
         self.hide_excluded.setToolTip("Apply hides unchecked records in Order, Reference, Raw Data and linked Match-selection views. Uncheck and Apply to restore them; source data is never deleted.")
 
     def accept(self):
-        self.selection = {"records": [{"key": key, "id": identifier} for key, identifier in zip(row_ids(self.plan.raw), self.model.ids)],
-                          "excluded": [key for key in self.model.ids if key not in self.model.checked],
+        records = [{"key": key, "id": identifier} for key, identifier in zip(row_ids(self.plan.raw), self.model.ids)]
+        retained = missing_excluded_records(self.selection, records)
+        excluded = [key for key in self.model.ids if key not in self.model.checked]
+        self.selection = {"records": records + retained,
+                          "excluded": excluded + [record["id"] for record in retained],
                           "view_filter_groups": deepcopy([list(row) for row in self.filter_groups]),
                           "view_filter_row_bools": [list(bools) for bools in self.filter_row_bools],
                           "view_filter_group_bools": list(self.filter_group_bools),
@@ -720,8 +723,8 @@ class FrameSelectionDialog(SelectionDialog):
         self.saved_show = show
         frame = frame.reset_index(drop=True)
         keys = participation_source_keys(frame)
-        skipped = set(excluded)
-        checked = [key for key in keys if key not in skipped]
+        self._previous_excluded = set(excluded)
+        checked = [key for key in keys if key not in self._previous_excluded]
         display = frame
         extras = [(name, extra.reset_index(drop=True))
                   for name, extra in (extra_frames or [])
@@ -738,7 +741,8 @@ class FrameSelectionDialog(SelectionDialog):
                          show=self.saved_show, search=search, hide_excluded=hide_excluded, context=context)
 
     def accept(self):
-        self.excluded = [key for key in self.model.ids if key not in self.model.checked]
+        absent = self._previous_excluded.difference(self.model.ids)
+        self.excluded = [key for key in self.model.ids if key not in self.model.checked] + sorted(absent)
         self.saved_filters = deepcopy([list(row) for row in self.filter_groups])
         self.saved_row_bools = [list(bools) for bools in self.filter_row_bools]
         self.saved_group_bools = list(self.filter_group_bools)

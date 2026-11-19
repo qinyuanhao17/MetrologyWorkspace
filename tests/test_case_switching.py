@@ -153,7 +153,7 @@ class CaseSwitchingTests(unittest.TestCase):
                                 f"Case {name} dropped Raw columns: {set(expected.columns) - set(actual.columns)}")
                 pd.testing.assert_frame_equal(actual.loc[:, expected.columns], expected)
 
-    def test_same_named_ref_raw_can_analyze_after_an_intermediate_incompatible_case(self):
+    def test_replacing_raw_keeps_mapping_until_a_new_column_is_selected(self):
         reference = pd.DataFrame({"CD": ["11.000", "12.000", "13.000", "14.000"]})
         initial = pd.DataFrame({"Wafer ID": ["W1"] * 4, "Die Seq": [1, 2, 3, 4],
                                 "Other CD": ["1.000", "2.000", "3.000", "4.000"]})
@@ -169,6 +169,9 @@ class CaseSwitchingTests(unittest.TestCase):
                 view.setCurrentIndex(view.model().index(0, 0))
                 view.paste()
         APP.processEvents()
+        self.assertEqual(self.window.mapping_table.cellWidget(0, 3).currentText(), "Other CD")
+        self.assertFalse(self.window.analyze_button.isEnabled())
+        self.window.mapping_table.cellWidget(0, 3).setCurrentText("CD")
         self.assertTrue(self.window.analyze_button.isEnabled(), self.window.status.text())
         result = self.window.run_analysis()
         self.assertEqual(result.summary["Valid pairs"].tolist(), [4])

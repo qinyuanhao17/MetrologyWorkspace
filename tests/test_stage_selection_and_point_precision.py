@@ -18,6 +18,7 @@ from metrology_app.plot import ValueLabels
 from metrology_app.window import MainWindow
 from metrology_app.workspace_store import load_workspace, save_workspace
 from metrology_app.settings import get_settings, save_settings
+from tests.match_fixtures import configure_match_fixture
 
 APP = QApplication.instance() or QApplication([])
 
@@ -41,6 +42,7 @@ class StageSelectionAndPointPrecisionTests(unittest.TestCase):
         window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"] * 3 + ["W2"] * 3,
                                            "Die Seq": [1, 2, 3] * 2,
                                            "CD": [1., 2., 3., 4., 5., 6.]}))
+        configure_match_fixture(window)
         return window
 
     def exclude_second_wafer(self, window):

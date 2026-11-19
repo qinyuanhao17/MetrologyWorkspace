@@ -11,6 +11,7 @@ from PyQt6.QtTest import QTest
 
 from metrology_app.matching_window import MatchingWindow
 from metrology_app.workspace_store import load_workspace, save_workspace
+from tests.match_fixtures import configure_match_fixture
 
 APP = QApplication.instance() or QApplication([])
 
@@ -24,6 +25,7 @@ class WorkbookStartupTests(unittest.TestCase):
         source.set_reference_frame(pd.DataFrame({"CD Reference": [2., 4., 6.]}), "Ref")
         source.set_raw_frame(pd.DataFrame({"Wafer ID": ["001"] * 3,
                                           "Die Seq": [1, 2, 3], "CD": [1., 2., 3.]}), "Raw")
+        configure_match_fixture(source)
         source.run_analysis()
         source.save_workbook(self.path)
 
@@ -214,6 +216,8 @@ class WorkbookStartupTests(unittest.TestCase):
         pd.testing.assert_frame_equal(window.raw_model.document_frame(), raw)
         self.assertFalse(window.run_action.isEnabled())
         window.set_reference_frame(pd.DataFrame({"CD Reference": ["2.000", "4.000", "6.000"]}))
+        self.assertFalse(window.run_action.isEnabled())
+        configure_match_fixture(window)
         self.assertTrue(window.run_action.isEnabled())
         self.assertAlmostEqual(window.run_analysis().card("CD").slope, 2)
 

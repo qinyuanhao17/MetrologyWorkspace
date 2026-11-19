@@ -338,6 +338,17 @@ def participation_ids(raw, selection):
     return tuple(previous.get(key) or uuid4().hex for key in row_ids(raw))
 
 
+def missing_excluded_records(previous, records):
+    """Retain unchecked identities that are temporarily absent from the table."""
+    if not previous or not previous["excluded"]:
+        return []
+    keys = {record["key"] for record in records}
+    ids = {record["id"] for record in records}
+    excluded = set(previous["excluded"])
+    return [dict(record) for record in previous["records"]
+            if record["id"] in excluded and record["id"] not in ids and record["key"] not in keys]
+
+
 @lru_cache(maxsize=6)
 def _encoded_source_keys(keys, paths):
     return tuple(json.dumps([key, path], ensure_ascii=False) for key, path in zip(keys, paths))

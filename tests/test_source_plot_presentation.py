@@ -12,6 +12,7 @@ from metrology_app.matching_window import MatchingWindow
 from metrology_app.analysis_export import capture_window, append_report, plot_figure
 from metrology_app.plotting import InteractivePlotWidget
 from metrology_app.plotting.annotations import plain_y_axes
+from tests.match_fixtures import configure_match_fixture
 from openpyxl import Workbook
 
 APP = QApplication.instance() or QApplication([])
@@ -87,6 +88,7 @@ class SourcePlotPresentationTests(unittest.TestCase):
         window.set_reference_frame(pd.DataFrame({"DP Reference": ["0.0011", "0.0021", "0.0031", "0.0041"]}))
         window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"]*4, "Die Seq": [1, 2, 3, 4],
                                            "DP": ["0.0010", "0.0020", "0.0030", "0.0040"]}))
+        configure_match_fixture(window)
         window.run_analysis()
         plot = window.plot_groups["DP"]["plots"]["match"]
         self.assertFalse(plot.getAxis("left").autoSIPrefix)

@@ -17,6 +17,7 @@ from metrology_app.dynamic_window import DynamicWindow
 from metrology_app.correlation_window import CorrelationWindow
 from metrology_app.window import MainWindow
 from metrology_app.matching import ParameterMapping
+from tests.match_fixtures import configure_match_fixture
 from unittest.mock import patch
 from PIL import Image as PillowImage
 
@@ -78,6 +79,7 @@ class ExcelExportTests(unittest.TestCase):
         self.window.match_type.setCurrentText("NOVA")
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         result = self.window.run_analysis()
         self.assertEqual(result.card("CD").valid_pairs, 2)
         with tempfile.TemporaryDirectory() as folder:
@@ -121,6 +123,7 @@ class ExcelExportTests(unittest.TestCase):
         reference, raw = self.frames()
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         with tempfile.TemporaryDirectory() as folder:
             book = self.export(folder)
@@ -188,6 +191,7 @@ class ExcelExportTests(unittest.TestCase):
         reference, raw = self.frames()
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.group_controls.restore(
             {"enabled": True, "head_names": {"0": "Head A", "1": "Head B"}},
             pd.DataFrame({"TestFlag": [0, 0, 1]}),
@@ -230,6 +234,7 @@ class ExcelExportTests(unittest.TestCase):
         reference, raw = self.frames()
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.result_mode.setCurrentText("Final")
         self.window.set_raw_frame(raw.assign(CD=["3.000", "5.000", "7.000"]))
         self.window.result_mode.setCurrentText("Preview")
@@ -255,6 +260,7 @@ class ExcelExportTests(unittest.TestCase):
         reference, raw = self.frames()
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         with tempfile.TemporaryDirectory() as folder:
             native = self.export(folder)
@@ -284,6 +290,7 @@ class ExcelExportTests(unittest.TestCase):
         reference = pd.DataFrame({'CD Reference': [2 * value + 1 for value in range(1, count + 1)]})
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         before = self.window.workspace_snapshot()
         data = pd.DataFrame({'Raw': range(1, count + 1), 'Reference': reference['CD Reference'],
@@ -326,6 +333,7 @@ class ExcelExportTests(unittest.TestCase):
         reference, raw = self.frames()
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         with tempfile.TemporaryDirectory() as folder:
             target = Path(folder) / "plots.xlsx"
@@ -343,6 +351,7 @@ class ExcelExportTests(unittest.TestCase):
         self.window.match_type.setCurrentText("NOVA")
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         with tempfile.TemporaryDirectory() as folder:
             book = self.export(folder)
@@ -459,6 +468,7 @@ class ExcelExportTests(unittest.TestCase):
         reference, raw = self.frames()
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "existing.xlsx"
@@ -476,6 +486,7 @@ class ExcelExportTests(unittest.TestCase):
         raw["Note"] = ["=not a formula", "00123", "literal"]
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         with tempfile.TemporaryDirectory() as folder:
             book = self.export(folder)
@@ -495,6 +506,7 @@ class ExcelExportTests(unittest.TestCase):
         raw.loc[2, "CD"] = "999.000"
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         with tempfile.TemporaryDirectory() as folder:
             match = self.export(folder)["Match Original (WO Card)"]
@@ -572,6 +584,7 @@ class ExcelExportTests(unittest.TestCase):
         reference, raw = self.frames()
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         with tempfile.TemporaryDirectory() as folder:
             target = Path(folder) / "background.xlsx"
@@ -595,6 +608,7 @@ class ExcelExportTests(unittest.TestCase):
         reference = pd.DataFrame({f'P{i} Reference': [2 * (value+i) + 1 for value in range(count)] for i in range(4)})
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         before = self.window.workspace_snapshot()
         ticks = []
@@ -631,6 +645,7 @@ class ExcelExportTests(unittest.TestCase):
         reference = pd.DataFrame({'CD Reference': range(count), 'Depth Reference': range(count)})
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         with tempfile.TemporaryDirectory() as folder:
             target = self.window.export_excel(Path(folder) / 'previous.xlsx')
@@ -656,6 +671,7 @@ class ExcelExportTests(unittest.TestCase):
         reference, raw = self.frames()
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         entered, release = Event(), Event()
         original_save = Workbook.save
@@ -691,6 +707,7 @@ class ExcelExportTests(unittest.TestCase):
         reference, raw = self.frames()
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         snapshot = self.window.excel_export_snapshot()
         with tempfile.TemporaryDirectory() as folder:
@@ -718,6 +735,7 @@ class ExcelExportTests(unittest.TestCase):
         self.window.set_reference_frame(pd.DataFrame({'CD Reference': range(count)}))
         self.window.set_raw_frame(pd.DataFrame({'Wafer ID': ['W1'] * count,
             'Die Seq': range(count), 'CD': [f'{value}.000' for value in range(count)]}))
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         snapshot = self.window.excel_export_snapshot()
         with tempfile.TemporaryDirectory() as folder:
@@ -747,6 +765,7 @@ class ExcelExportTests(unittest.TestCase):
             'CD': [f'{value}.000' for value in range(count)],
             'Note': [notes[index % len(notes)] for index in range(count)]})
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         snapshot = self.window.excel_export_snapshot()
         typed = pd.DataFrame({'Date': [datetime(2026, 10, 16, 3, 4, 5)],
@@ -771,6 +790,7 @@ class ExcelExportTests(unittest.TestCase):
         self.window.set_reference_frame(pd.DataFrame({'CD Reference': range(count)}))
         self.window.set_raw_frame(pd.DataFrame({'Wafer ID': ['W1'] * count,
             'Die Seq': range(count), 'CD': range(count)}))
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         snapshot = self.window.excel_export_snapshot()
         with tempfile.TemporaryDirectory() as folder:
@@ -788,6 +808,7 @@ class ExcelExportTests(unittest.TestCase):
         reference, raw = self.frames()
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         with tempfile.TemporaryDirectory() as folder:
             target = Path(folder) / 'previous.xlsx'

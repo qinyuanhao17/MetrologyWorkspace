@@ -1,10 +1,12 @@
 """Reference edits refit current data without replacing unchanged mapping controls."""
 import unittest
+from unittest.mock import patch
 
 import pandas as pd
 from PyQt6.QtWidgets import QApplication
 
 from metrology_app.matching_window import MatchingWindow
+from tests.match_fixtures import configure_match_fixture
 
 APP = QApplication.instance() or QApplication([])
 
@@ -17,6 +19,7 @@ class ReferenceEditControlTests(unittest.TestCase):
                                                      'Candidate': ['', '', 'bad']}))
         self.window.set_raw_frame(pd.DataFrame({'Wafer ID': ['W1']*3, 'Die Seq': ['1', '2', '3'],
                                                'CD': ['1.000', '2.000', '3.000']}))
+        configure_match_fixture(self.window)
         self.window.run_analysis()
 
     def tearDown(self):
@@ -42,10 +45,15 @@ class ReferenceEditControlTests(unittest.TestCase):
         self.assertAlmostEqual(window.result.card('CD').slope, card.slope, places=12)
         self.assertTrue(window._analysis_current)
 
-    def test_numeric_qualification_changes_still_add_and_remove_mapping_candidates(self):
+    def test_numeric_qualification_updates_add_dialog_without_changing_existing_mappings(self):
         window = self.window
+        original_mappings = window._mapping_state()
+
         def candidates():
-            return [window.mapping_table.item(row, 2).text() for row in range(window.mapping_table.rowCount())]
+            with patch("metrology_app.matching_window.QInputDialog.getItem", return_value=("", False)) as dialog:
+                window.add_parameter_mapping()
+            self.assertEqual(window._mapping_state(), original_mappings)
+            return dialog.call_args.args[3]
         self.assertNotIn('Candidate', candidates())
         window.reference_model.edit({(1, 1): '1.5000'})
         APP.processEvents()

@@ -24,6 +24,7 @@ from metrology_app.matching import MatchWorkbook
 from metrology_app.matching_window import DataFrameModel, MatchingWindow
 from metrology_app.module_registry import create_default_registry
 from metrology_app.sheet import SheetModel, SheetView
+from tests.match_fixtures import configure_match_fixture
 
 
 APP = QApplication.instance() or QApplication([])
@@ -39,6 +40,7 @@ class MatchingWindowTests(unittest.TestCase):
                             "Die Seq": [1, 2, 3] * 4, "CD": [1., 2., 3.] * 4})
         window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7.] * 4}))
         window.set_raw_frame(raw)
+        configure_match_fixture(window)
         controls = window.group_controls
         controls.restore({"enabled": True, "mark_enabled": True,
                           "head_names": {"0": "Head A", "1": "Head B"},
@@ -128,6 +130,7 @@ class MatchingWindowTests(unittest.TestCase):
             "PAD Name": ["PAD-2026-VERY-LONG-IDENTITY"] * count,
             "Die Seq": [1, 4, 8] * 20, "Depth": list(range(1, count + 1)),
         }))
+        configure_match_fixture(window)
         window.percent_bias.setChecked(True)
         window.group_controls.enabled.setChecked(False)
         window.run_analysis()
@@ -176,6 +179,7 @@ class MatchingWindowTests(unittest.TestCase):
                             "Die Seq": [1, 2, 3] * 4, "CD": [1., 2., 3.] * 4})
         window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7.] * 4}))
         window.set_raw_frame(raw)
+        configure_match_fixture(window)
         controls = window.group_controls
         controls.restore({"enabled": False, "mark_enabled": True,
                           "new_rows": row_ids(raw)[6:]},
@@ -205,6 +209,7 @@ class MatchingWindowTests(unittest.TestCase):
             "Die Seq": [1, 4, 8, 12, 16, 20] * 20,
             "Depth": list(range(1, count + 1)),
         }))
+        configure_match_fixture(window)
         window.group_controls.restore({"enabled": True, "mark_enabled": False,
                                        "head_names": {"0": "Optical A", "1": "Optical B"}},
                                       pd.DataFrame({"TestFlag": [0] * 60 + [1] * 60}))
@@ -273,6 +278,7 @@ class MatchingWindowTests(unittest.TestCase):
                                                 "Thickness Reference": [10., 20., 30.] * 2}))
         window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"] * 3 + ["W2"] * 3,
                                          "CD": [1., 2., 3.] * 2, "Thickness": [5., 10., 15.] * 2}))
+        configure_match_fixture(window)
         window.group_controls.restore({"enabled": True, "mark_enabled": False},
                                       pd.DataFrame({"TestFlag": [0] * 3 + [1] * 3}))
         window.run_analysis()
@@ -326,6 +332,7 @@ class MatchingWindowTests(unittest.TestCase):
         window = self.window
         window.set_reference_frame(self.reference())
         window.set_raw_frame(self.raw().assign(**{"Wafer ID": ["W1"] * 3}))
+        configure_match_fixture(window)
         window.run_analysis()
         window.results_tabs.setCurrentIndex(1)
         window.resize(1900, 1000)
@@ -361,6 +368,7 @@ class MatchingWindowTests(unittest.TestCase):
                                                 "RSQ Reference": [2., 1., 2., 5.]}))
         window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"] * 4, "Die Seq": [1, 2, 3, 4],
                                          "Slope": [1., 2., 3., 4.], "RSQ": [1., 2., 3., 4.]}))
+        configure_match_fixture(window)
         window.run_analysis()
         result = window.result
         blocks = dict(window.plot_groups)
@@ -453,6 +461,7 @@ class MatchingWindowTests(unittest.TestCase):
         window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"] * 6 + ["W2"] * 6,
             "Lot ID": ["LOT-ONE"] * 6 + ["LOT-TWO"] * 6,
             "PAD Name": ["ARRAY"] * 12, "Die Seq": list(range(1, 7)) * 2, "CD": list(range(1, 13))}))
+        configure_match_fixture(window)
         window.group_controls.restore({"enabled": True, "mark_enabled": False,
             "head_names": {"0": "Head A"}, "show_wafer_groups": ["All:0"]},
             pd.DataFrame({"TestFlag": [0] * 12}))
@@ -490,6 +499,7 @@ class MatchingWindowTests(unittest.TestCase):
         window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7., 9., 11., 13., 15., float("nan"), 19.]}))
         window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"] * 3 + ["W2"] * 3 + ["W3"] * 3,
             "Die Seq": [1, 2, 3] * 3, "CD": [1., 2., 3., 4., float("nan"), 6., 7., 8., 9.]}))
+        configure_match_fixture(window)
         window.percent_bias.setChecked(True)
         window.group_controls.restore({"enabled": True, "mark_enabled": False,
             "combined_groups": [{"id": "combined:ab", "name": "A+B", "members": ["All:0", "All:1"]}]},
@@ -517,6 +527,7 @@ class MatchingWindowTests(unittest.TestCase):
         window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7., 9.]}))
         window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1", "W1", "W2", "W2"],
             "Die Seq": [1, 2, 1, 2], "CD": [1., 2., 3., 4.]}))
+        configure_match_fixture(window)
         window.group_controls.restore({"enabled": True, "mark_enabled": False},
                                       pd.DataFrame({"TestFlag": [0] * 4}))
         window.run_analysis()
@@ -541,6 +552,7 @@ class MatchingWindowTests(unittest.TestCase):
         window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7., 9.]}))
         window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1", "W1", "W2", "W2"],
             "Die Seq": [1, 2, 1, 2], "CD": [1., 2., 3., 4.]}))
+        configure_match_fixture(window)
         window.group_controls.restore(
             {"enabled": True, "mark_enabled": False, "trend_order": "table"},
             pd.DataFrame({"TestFlag": [0] * 4}))
@@ -557,6 +569,7 @@ class MatchingWindowTests(unittest.TestCase):
         window.set_reference_frame(pd.DataFrame({"CD Reference": list(range(10, 18))}))
         window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"] * 4 + ["W2"] * 4,
             "Die Seq": [3, 1, 4, 2] * 2, "CD": list(range(1, 9))}))
+        configure_match_fixture(window)
         window.percent_bias.setChecked(True)
         window.group_controls.restore({"enabled": True, "mark_enabled": False, "trend_order": "original",
             "head_names": {"0": "Head A", "1": "Head B"},
@@ -597,6 +610,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(window.order_source.text(), "0 rows × 4 columns")
         window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7.]}), "Clipboard")
         window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"] * 3, "CD": [1., 2., 3.]}), "Clipboard")
+        configure_match_fixture(window)
         self.assertEqual(window.order_source.text(), "3 rows × 4 columns")
         self.assertEqual(window.reference_source.text(), "3 rows × 1 columns")
         self.assertEqual(window.raw_source.text(), "3 rows × 2 columns")
@@ -613,6 +627,7 @@ class MatchingWindowTests(unittest.TestCase):
         window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7., 9., 11., 13.]}))
         window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"] * 3 + ["W2"] * 3,
                                            "Die Seq": [1, 2, 3] * 2, "CD": [1., 2., 3.] * 2}))
+        configure_match_fixture(window)
         window.group_controls.restore({"enabled": True, "mark_enabled": False},
                                       pd.DataFrame({"TestFlag": [0] * 3 + [1] * 3}))
         window.run_analysis()
@@ -655,6 +670,7 @@ class MatchingWindowTests(unittest.TestCase):
                             "Die Seq": [1, 2, 3] * 2, "CD": [1., 2., 3.] * 2})
         window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7.] * 2}))
         window.set_raw_frame(raw)
+        configure_match_fixture(window)
         window.group_controls.restore({"enabled": False, "mark_enabled": True,
                                        "mark_names": {"Old": "POR"}}, pd.DataFrame())
         window.run_analysis()
@@ -703,6 +719,7 @@ class MatchingWindowTests(unittest.TestCase):
                             "Die Seq": [1, 2, 3] * 4, "CD": [1., 2., 3.] * 4}).astype(str)
         window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7.] * 4}))
         window.set_raw_frame(raw)
+        configure_match_fixture(window)
         window.percent_bias.setChecked(True)
         window.group_controls.restore({"enabled": True, "mark_enabled": True,
             "mark_names": {"Old": "POR"}, "head_names": {"0": "Head A", "1": "Head B"},
@@ -747,6 +764,7 @@ class MatchingWindowTests(unittest.TestCase):
             "CD": [1., 2., 3.] * 3})
         window.set_reference_frame(reference)
         window.set_raw_frame(raw)
+        configure_match_fixture(window)
         window.percent_bias.setChecked(True)
         window.group_controls.restore({"enabled": True, "mark_enabled": False,
             "head_names": {"0": "Head A", "1": "Head B"},
@@ -824,6 +842,7 @@ class MatchingWindowTests(unittest.TestCase):
         window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"] * 3 + ["W2"] * 3 + ["W3"] * 3,
             "Lot ID": ["L1"] * 9, "PAD Name": ["ARRAY"] * 9, "Die Seq": [1, 2, 3] * 3,
             "CD": [1., 2., 3.] * 3}))
+        configure_match_fixture(window)
         window.percent_bias.setChecked(True)
         window.group_controls.restore({"enabled": True, "mark_enabled": False,
             "head_names": {"0": "Head A", "1": "Head B"}},
@@ -849,6 +868,7 @@ class MatchingWindowTests(unittest.TestCase):
         window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7.] * 3}))
         window.set_raw_frame(pd.DataFrame({"Wafer ID": [f"W{i}" for i in range(3) for _ in range(3)],
                                           "CD": [1., 2., 3.] * 3}))
+        configure_match_fixture(window)
         window.group_controls.restore({"enabled": True, "mark_enabled": False},
                                       pd.DataFrame({"TestFlag": [i for i in range(3) for _ in range(3)]}))
         window.run_analysis()
@@ -906,6 +926,7 @@ class MatchingWindowTests(unittest.TestCase):
         window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7.] * 3}))
         window.set_raw_frame(pd.DataFrame({"Wafer ID": [f"W{i}" for i in range(3) for _ in range(3)],
                                           "CD": [1., 2., 3.] * 3}))
+        configure_match_fixture(window)
         original = [{"id": "combined:ab", "name": "AB", "members": ["All:0", "All:1"]},
                     {"id": "combined:bc", "name": "BC", "members": ["All:1", "All:2"]}]
         window.group_controls.restore({"enabled": True, "mark_enabled": False, "combined_groups": original},
@@ -976,6 +997,7 @@ class MatchingWindowTests(unittest.TestCase):
         window = self.window
         window.set_reference_frame(self.reference())
         window.set_raw_frame(self.raw())
+        configure_match_fixture(window)
         window.group_controls.restore({"enabled": True, "mark_enabled": False},
                                       pd.DataFrame({"TestFlag": [0, 0, 0]}))
         window.run_analysis()
@@ -998,6 +1020,7 @@ class MatchingWindowTests(unittest.TestCase):
         window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7.] * 6}))
         window.set_raw_frame(pd.DataFrame({"Wafer ID": [f"W{i}" for i in range(6) for _ in range(3)],
                                           "CD": [1., 2., 3.] * 6}))
+        configure_match_fixture(window)
         window.group_controls.restore({"enabled": True, "mark_enabled": False},
                                       pd.DataFrame({"TestFlag": [i for i in range(6) for _ in range(3)]}))
         window.run_analysis()
@@ -1031,6 +1054,7 @@ class MatchingWindowTests(unittest.TestCase):
                                                  "Thickness Reference": [10., 20., 30.] * 2}))
         window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"] * 3 + ["W2"] * 3,
                                           "CD": [1., 2., 3.] * 2, "Thickness": [5., 10., 15.] * 2}))
+        configure_match_fixture(window)
         window.group_controls.restore({"enabled": True, "mark_enabled": False},
                                       pd.DataFrame({"TestFlag": [0] * 3 + [1] * 3}))
         window.run_analysis()
@@ -1063,6 +1087,7 @@ class MatchingWindowTests(unittest.TestCase):
         window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7., 8., 11., 14.]}))
         window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"] * 3 + ["W2"] * 3,
                                           "CD": [1., 2., 3.] * 2}))
+        configure_match_fixture(window)
         window.run_analysis()
         window.resize(1950, 950)
         window.results_tabs.setCurrentIndex(1)
@@ -1095,6 +1120,7 @@ class MatchingWindowTests(unittest.TestCase):
         window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7., 8., 11., 14.]}))
         window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"] * 3 + ["W2"] * 3,
                                           "CD": [1., 2., 3.] * 2}))
+        configure_match_fixture(window)
         window.run_analysis()
         window.resize(1950, 950)
         window.results_tabs.setCurrentIndex(1)
@@ -1154,6 +1180,7 @@ class MatchingWindowTests(unittest.TestCase):
         window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7., 8., 11., 14.]}))
         window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"] * 3 + ["W2"] * 3,
                                           "CD": [1., 2., 3.] * 2}))
+        configure_match_fixture(window)
         window.run_analysis()
         window.resize(1780, 950)
         window.results_tabs.setCurrentIndex(1)
@@ -1188,6 +1215,7 @@ class MatchingWindowTests(unittest.TestCase):
         window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7., 8., 11., 14.]}))
         window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"] * 3 + ["W2"] * 3,
                                           "Die Seq": [1, 2, 3] * 2, "CD": [1., 2., 3.] * 2}))
+        configure_match_fixture(window)
         window.run_analysis()
         window.resize(1780, 950)
         window.results_tabs.setCurrentIndex(1)
@@ -1215,6 +1243,7 @@ class MatchingWindowTests(unittest.TestCase):
         raw = pd.DataFrame({"Wafer ID": ["W1"] * 3 + ["W2"] * 3, "CD": [1., 2., 3.] * 2})
         window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7., 8., 11., 14.]}))
         window.set_raw_frame(raw)
+        configure_match_fixture(window)
         window.group_controls.restore({"enabled": True, "mark_enabled": False, "trend_order": "original",
             "filters": [{"table": "raw", "column": "Wafer ID", "values": ["W1"]}],
             "data_selection": {"records": [], "excluded": []}}, pd.DataFrame({"TestFlag": [0] * 6}))
@@ -1393,6 +1422,7 @@ class MatchingWindowTests(unittest.TestCase):
         reference = pd.DataFrame({"CD Reference": [3., 5., 7., 8., 11., 14.]})
         window.set_reference_frame(reference)
         window.set_raw_frame(raw)
+        configure_match_fixture(window)
         window.run_analysis()
         self.assertTrue(hasattr(window, "data_selection_action"))
         self.assertIn(window.data_selection_action,window.data_menu.actions())
@@ -1432,6 +1462,7 @@ class MatchingWindowTests(unittest.TestCase):
         window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"] * 3 + ["W2"] * 3,
                                            "Die Seq": [1, 2, 3] * 2,
                                            "CD": [1., 2., 3., 4., 5., 6.]}))
+        configure_match_fixture(window)
         window.group_controls.restore({"enabled": True, "mark_enabled": False},
                                       pd.DataFrame({"TestFlag": [0] * 3 + [1] * 3}))
         window.run_analysis()
@@ -1474,6 +1505,7 @@ class MatchingWindowTests(unittest.TestCase):
         window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1", "W2", "W3", "W4"],
                                            "Tool SN": ["P1", "P2", "P1", "P2"],
                                            "CD": [1., 2., 3., 4.]}))
+        configure_match_fixture(window)
         window.group_controls.restore({"enabled": True, "mark_enabled": False},
                                       pd.DataFrame({"TestFlag": [0, 0, 1, 1]}))
         window.run_analysis()
@@ -1518,6 +1550,7 @@ class MatchingWindowTests(unittest.TestCase):
                             "Die Seq": [1, 2, 3] * 2, "CD": [1., 2., 3.] * 2})
         window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7., 8., 11., 14.]}))
         window.set_raw_frame(raw)
+        configure_match_fixture(window)
         window.run_analysis()
         child = window.open_correlation_workspace()
         self.assertTrue(child.reference_model.document_frame().empty)
@@ -1558,6 +1591,7 @@ class MatchingWindowTests(unittest.TestCase):
         window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1", "W2", "W3", "W4"],
                                            "Die Seq": [1, 2, 3, 4],
                                            "CD": [1., 2., 3., 4.]}))
+        configure_match_fixture(window)
         window.group_controls.restore({"enabled": True, "mark_enabled": False},
                                       pd.DataFrame({"TestFlag": [0, 0, 1, 1]}))
         window.run_analysis()
@@ -1585,6 +1619,7 @@ class MatchingWindowTests(unittest.TestCase):
         window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"] * 3 + ["W2"] * 3,
                                            "Die Seq": [1, 2, 3] * 2,
                                            "CD": [1., 2., 3.] * 2}))
+        configure_match_fixture(window)
         window.run_analysis()
 
         def exclude_w2():
@@ -1619,6 +1654,7 @@ class MatchingWindowTests(unittest.TestCase):
                             "Die Seq": [1, 2, 3] * 2, "CD": [1., 2., 3.] * 2})
         window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7., 8., 11., 14.]}))
         window.set_raw_frame(raw)
+        configure_match_fixture(window)
         window.run_analysis()
         def exclude():
             dialog = APP.activeModalWidget()
@@ -1641,6 +1677,7 @@ class MatchingWindowTests(unittest.TestCase):
         window = self.window
         window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7., 8., 11., 14., 100., 120., 140.]}))
         window.set_raw_frame(raw)
+        configure_match_fixture(window)
         window.group_controls.restore({"enabled": True, "mark_enabled": False},
                                       pd.DataFrame({"TestFlag": [0] * 3 + [1] * 3 + [2] * 3}))
         window.run_analysis()
@@ -1678,6 +1715,7 @@ class MatchingWindowTests(unittest.TestCase):
                             "Die Seq": [1, 2, 3] * 2, "CD": [1., 2., 3.] * 2})
         window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7., 8., 11., 14.]}))
         window.set_raw_frame(raw)
+        configure_match_fixture(window)
         window.group_controls.restore({"enabled": True, "mark_enabled": False},
                                       pd.DataFrame({"TestFlag": [0] * 3 + [1] * 3}))
         window.run_analysis()
@@ -1734,6 +1772,7 @@ class MatchingWindowTests(unittest.TestCase):
                             "Die Seq": [1, 2, 3] * 2, "CD": [1., 2., 3.] * 2})
         window.set_reference_frame(reference)
         window.set_raw_frame(raw)
+        configure_match_fixture(window)
         window.run_analysis()
         window.resize(1180, 900)
         window.results_tabs.setCurrentIndex(1)
@@ -1817,6 +1856,7 @@ class MatchingWindowTests(unittest.TestCase):
                             "Die Seq": [1, 2, 3] * 2, "CD": [1., 2., 3.] * 2})
         window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7., 8., 11., 14.]}))
         window.set_raw_frame(raw)
+        configure_match_fixture(window)
         window.group_controls.restore({"enabled": True, "mark_enabled": False},
                                       pd.DataFrame({"TestFlag": [0] * 6}))
         window.run_analysis()
@@ -1879,6 +1919,7 @@ class MatchingWindowTests(unittest.TestCase):
                     window.result_mode.setCurrentText("Preview")
                     window.set_reference_frame(reference)
                     window.set_raw_frame(raw)
+                    configure_match_fixture(window)
                     window.group_controls.restore(
                         {"enabled": grouped and match_type != "TEM",
                          "mark_enabled": False}, flags)
@@ -1900,6 +1941,7 @@ class MatchingWindowTests(unittest.TestCase):
                             "Die Seq": [1, 2, 3] * 3, "CD": [1., 2., 3.] * 3})
         window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7.] * 3}))
         window.set_raw_frame(raw)
+        configure_match_fixture(window)
         flags = pd.DataFrame({"TestFlag": [7, 7, 7, 7, 7, 8, 8, 8, 8]})
         state = {"enabled": True, "head_names": {"7": "Optical A", "8": "Optical B"},
                  "new_rows": row_ids(raw)[4:],
@@ -1932,6 +1974,7 @@ class MatchingWindowTests(unittest.TestCase):
         window = self.window
         window.set_reference_frame(self.reference())
         window.set_raw_frame(self.raw())
+        configure_match_fixture(window)
         result = window.run_analysis()
         snapshot = window.workspace_snapshot()
         snapshot.states["match_ui"]["plot_layouts"] = {"preview": {"CD_Bot": {
@@ -1945,6 +1988,7 @@ class MatchingWindowTests(unittest.TestCase):
         window = self.window
         window.set_reference_frame(self.reference())
         window.set_raw_frame(self.raw())
+        configure_match_fixture(window)
         window.percent_bias.setChecked(True)
         window.run_analysis()
         window.resize(1600, 900)
@@ -2012,6 +2056,7 @@ class MatchingWindowTests(unittest.TestCase):
                                                  "SPA Reference": [10., 20., 30., 40.]}))
         raw = pd.DataFrame({"CD": [10.5, 19.5, 30.6, 39.4], "SPA": [10.5, 19.5, 30.6, 39.4]})
         window.set_raw_frame(raw)
+        configure_match_fixture(window)
         window.result_mode.setCurrentText("Final")
         window.set_raw_frame(raw)
         window.percent_bias.setChecked(True)
@@ -2216,6 +2261,7 @@ class MatchingWindowTests(unittest.TestCase):
         )
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
 
         workspace = self.window.open_correlation_workspace()
 
@@ -2256,6 +2302,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_drawn_correlation_and_trend_restore_after_window_and_wkb_reopen(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
 
         with tempfile.TemporaryDirectory() as folder:
@@ -2338,6 +2385,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_keyboard_undo_restores_replaced_reference_and_raw_tables(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.show()
 
         self.window.raw_view.setCurrentIndex(self.window.raw_model.index(0, 0))
@@ -2389,6 +2437,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_keyboard_undo_restores_deleted_reference_and_raw_tables(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.show()
 
         for view, frame_name in (
@@ -2419,6 +2468,7 @@ class MatchingWindowTests(unittest.TestCase):
         window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1", "W1", "W2", "W2"],
                                            "Die Seq": [1, 2, 1, 2],
                                            "CD": [1., 2., 3., 4.]}))
+        configure_match_fixture(window)
         window.run_analysis()
         first = window.result
         card = first.card("CD")
@@ -2445,6 +2495,7 @@ class MatchingWindowTests(unittest.TestCase):
         window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1", "W1", "W2", "W2"],
                                            "Die Seq": [1, 2, 1, 2],
                                            "CD": [1., 2., 3., 4.]}))
+        configure_match_fixture(window)
         window.run_analysis()
         preview = window.result
         self.assertAlmostEqual(preview.card("CD").slope, 2)
@@ -2472,6 +2523,9 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertFalse(self.window.analyze_button.isEnabled())
 
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        self.assertEqual(self.window.mapping_table.rowCount(), 0)
+        self.assertFalse(self.window.analyze_button.isEnabled())
+        configure_match_fixture(self.window)
         self.assertEqual(self.window.mapping_table.rowCount(), 2)
         self.assertTrue(self.window.analyze_button.isEnabled())
 
@@ -2483,6 +2537,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(self.window.save_action.shortcut().toString(), "Ctrl+S")
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
 
         with tempfile.TemporaryDirectory() as folder:
@@ -2511,6 +2566,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_opened_wkb_becomes_the_target_for_save(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
 
         with tempfile.TemporaryDirectory() as folder:
@@ -2540,6 +2596,7 @@ class MatchingWindowTests(unittest.TestCase):
         )
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
 
         with tempfile.TemporaryDirectory() as folder:
@@ -2574,6 +2631,7 @@ class MatchingWindowTests(unittest.TestCase):
         window = self.window
         window.set_reference_frame(self.reference(), "Clipboard")
         window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(window)
         window.show()
         window.setup_scroll.ensureWidgetVisible(window.mapping_table)
         APP.processEvents()
@@ -2600,8 +2658,11 @@ class MatchingWindowTests(unittest.TestCase):
             self.assertEqual(item.checkState(), expected)
             self.assertEqual(window.select_all_mappings.isChecked(), expected == Qt.CheckState.Checked)
 
-    def test_select_all_mappings_checks_every_candidate(self):
+    def test_select_all_mappings_checks_every_added_row(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window._populate_mappings([
+            {"reference_column": "CD_Bot Reference"}, {"reference_column": "SPA Reference"},
+        ])
 
         self.assertFalse(self.window.select_all_mappings.isChecked())
         self.window.select_all_mappings.click()
@@ -2617,6 +2678,7 @@ class MatchingWindowTests(unittest.TestCase):
         """A wheel over the mapping table must not remap the parameter."""
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.show()
         APP.processEvents()
         picker = self.window.mapping_table.cellWidget(0, 3)
@@ -2643,6 +2705,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_clearing_raw_data_keeps_mappings_and_prompts_for_columns(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.show()
         self.window.raw_view.setFocus()
         QTest.keyClick(
@@ -2675,11 +2738,9 @@ class MatchingWindowTests(unittest.TestCase):
             == Qt.CheckState.Checked
             for row in range(self.window.mapping_table.rowCount())
         ))
-        self.assertTrue(all(
-            not self.window.mapping_table.cellWidget(row, 3).currentText()
-            for row in range(self.window.mapping_table.rowCount())
-        ))
-        self.assertIn("Choose a Raw Data column", self.window.status.text())
+        self.assertEqual([self.window.mapping_table.cellWidget(row, 3).currentText()
+                          for row in range(self.window.mapping_table.rowCount())], ["CD_Bot", "SPA"])
+        self.assertIn("Check the source columns", self.window.status.text())
         self.assertEqual(self.window.status.objectName(), "warning")
         self.assertTrue(self.window.status.wordWrap())
         self.assertFalse(self.window.analyze_button.isEnabled())
@@ -2696,6 +2757,7 @@ class MatchingWindowTests(unittest.TestCase):
         })
         self.window.set_reference_frame(reference, "Clipboard")
         self.window.set_raw_frame(raw, "Clipboard")
+        configure_match_fixture(self.window)
         self.window.match_type.setCurrentText("NOVA")
         self.window.run_analysis()
         APP.processEvents()
@@ -2718,6 +2780,7 @@ class MatchingWindowTests(unittest.TestCase):
         })
         self.window.set_reference_frame(reference, "Clipboard")
         self.window.set_raw_frame(raw, "Clipboard")
+        configure_match_fixture(self.window)
         self.window.match_type.setCurrentText("NOVA")
         self.window.run_analysis()
         APP.processEvents()
@@ -2782,6 +2845,7 @@ class MatchingWindowTests(unittest.TestCase):
             "Wafer ID": ["AH06836.00-01", "AH06836.00-02", "AH06836.00-03"],
             "CD_Bot": [1.0, 2.0, 3.0],
         }), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         APP.processEvents()
 
@@ -2813,6 +2877,7 @@ class MatchingWindowTests(unittest.TestCase):
             "Die Seq": [1, 2, 1, 2],
             "CD": [1.0, 2.0, 3.0, 4.0],
         }), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.match_type.setCurrentText("NOVA")
         self.window.run_analysis()
         APP.processEvents()
@@ -2836,6 +2901,7 @@ class MatchingWindowTests(unittest.TestCase):
                 self.window.match_type.setCurrentText(match_type)
                 self.window.set_reference_frame(self.reference(), "Clipboard")
                 self.window.set_raw_frame(self.raw(), "Clipboard")
+                configure_match_fixture(self.window)
                 self.window.run_analysis()
                 for stage in ("preview", "final"):
                     workspace = self.window.open_dynamic_workspace(stage)
@@ -2853,6 +2919,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.window.document.confirm_close = lambda: True
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.percent_bias.setChecked(True)
         self.window.run_analysis()
         APP.processEvents()
@@ -2950,6 +3017,7 @@ class MatchingWindowTests(unittest.TestCase):
 
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.percent_bias.setChecked(True)
         self.window.run_analysis()
 
@@ -3039,6 +3107,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_raw_table_paste_auto_runs_after_first_manual_run(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
 
         self.window.analyze_button.click()
         self.assertIsNotNone(self.window.result)
@@ -3059,6 +3128,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_raw_mapping_change_auto_runs_and_preserves_layout(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window._run_analysis_clicked()
         self.window.resize(1600, 900)
         self.window.show()
@@ -3080,6 +3150,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_reference_raw_and_mapping_edits_auto_refresh_without_clearing_results(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window._run_analysis_clicked()
         self.window.resize(1600, 900)
         self.window.show()
@@ -3115,6 +3186,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_selected_primary_plots_share_one_horizontal_row(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         self.window.resize(1600, 900)
         self.window.show()
@@ -3138,6 +3210,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_four_primary_plots_fit_without_horizontal_scrolling(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.percent_bias.setChecked(True)
         self.window.run_analysis()
         self.window.resize(1600, 900)
@@ -3173,6 +3246,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.window.set_raw_frame(
             self.raw()[["Wafer ID", "CD_Bot"]], "Clipboard"
         )
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         self.window.resize(1600, 900)
         self.window.show()
@@ -3184,6 +3258,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_primary_plot_height_is_fixed_for_single_and_multiple_parameters(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         self.window.resize(1600, 900)
         self.window.show()
@@ -3202,6 +3277,7 @@ class MatchingWindowTests(unittest.TestCase):
             single.set_raw_frame(
                 self.raw()[["Wafer ID", "CD_Bot"]], "Clipboard"
             )
+            configure_match_fixture(single)
             single.run_analysis()
             single.resize(1600, 900)
             single.show()
@@ -3224,6 +3300,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_match_plot_shows_fit_equation_to_the_right_of_its_title(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
 
         group = self.window.plot_groups["CD_Bot"]
@@ -3248,6 +3325,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_result_plots_show_four_sided_frames_and_use_box_zoom_mode(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         self.window.resize(1600, 900)
         self.window.show()
@@ -3271,6 +3349,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_primary_plot_frames_align_and_omit_the_wafer_axis_title(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         self.window.resize(1600, 900)
         self.window.show()
@@ -3303,6 +3382,7 @@ class MatchingWindowTests(unittest.TestCase):
         })
         self.window.set_reference_frame(reference, "Clipboard")
         self.window.set_raw_frame(raw, "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
 
         slope_bad = self.window.mapping_table.item(0, 4)
@@ -3339,6 +3419,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_trend_and_bias_use_visible_point_lines(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.match_type.setCurrentText("TEM")
         self.window.percent_bias.setChecked(True)
         self.window.run_analysis()
@@ -3392,6 +3473,7 @@ class MatchingWindowTests(unittest.TestCase):
         raw["CD_Bot"] = [9, 19.1, 29.2]
         raw["SPA"] = [8, 10.1, 12.2]
         self.window.set_raw_frame(raw, "Final Clipboard")
+        configure_match_fixture(self.window)
         self.window.percent_bias.setChecked(True)
         self.window.run_analysis()
         self.window.resize(1500, 900)
@@ -3427,6 +3509,7 @@ class MatchingWindowTests(unittest.TestCase):
         raw["CD_Bot"] = [11, 22, 33]
         raw["SPA"] = [5, 7, 9]
         self.window.set_raw_frame(raw, "Final Clipboard")
+        configure_match_fixture(self.window)
         self.window.percent_bias.setChecked(True)
         self.window.run_analysis()
         for parameter in ("CD_Bot", "SPA"):
@@ -3444,6 +3527,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_trend_card_checkbox_switches_between_raw_and_carded_values(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
 
         group = self.window.plot_groups["CD_Bot"]
@@ -3482,6 +3566,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_run_analysis_preserves_the_dragged_setup_splitter_layout(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.resize(1600, 900)
         self.window.show()
         APP.processEvents()
@@ -3500,6 +3585,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_wkb_restores_the_saved_setup_splitter_layout(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         self.window.resize(1600, 900)
         self.window.show()
@@ -3533,6 +3619,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_wkb_paths_are_sent_to_the_diagnostic_log(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
 
         with tempfile.TemporaryDirectory() as folder:
@@ -3548,6 +3635,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_recent_wkb_menu_reopens_a_persisted_workbook(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
 
         with tempfile.TemporaryDirectory() as folder:
@@ -3582,6 +3670,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_opening_a_wkb_remembers_it_in_the_recent_menu(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
 
         with tempfile.TemporaryDirectory() as folder:
@@ -3609,6 +3698,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_unavailable_recent_settings_do_not_fail_wkb_save(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
 
         with tempfile.TemporaryDirectory() as folder:
@@ -3630,6 +3720,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_reveal_wkb_action_selects_the_current_workbook(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
 
         with tempfile.TemporaryDirectory() as folder:
@@ -3648,6 +3739,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_parameter_plot_order_survives_run_and_wkb(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
 
         card = self.window.plot_groups["CD_Bot"]["card"]
@@ -3691,6 +3783,11 @@ class MatchingWindowTests(unittest.TestCase):
 
         self.window.set_reference_frame(reference, "Clipboard")
         self.window.set_raw_frame(raw, "Clipboard")
+        self.assertEqual(self.window.mapping_table.rowCount(), 0)
+        for column in ("PMISH", "TEM", "BIAS"):
+            with patch("metrology_app.matching_window.QInputDialog.getItem", return_value=(column, True)) as dialog:
+                self.window.add_parameter_mapping()
+            self.assertEqual(dialog.call_args.args[3], ["PMISH", "TEM", "BIAS"])
 
         reference_columns = [
             self.window.mapping_table.item(row, 2).text()
@@ -3716,6 +3813,7 @@ class MatchingWindowTests(unittest.TestCase):
         raw = pd.DataFrame({"CD": [11.0, 19.0, 31.0]})
         self.window.set_reference_frame(reference, "Clipboard")
         self.window.set_raw_frame(raw, "Clipboard")
+        configure_match_fixture(self.window)
         self.window.result_mode.setCurrentText("Final")
         self.window.set_raw_frame(raw, "Final clipboard")
 
@@ -3745,6 +3843,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.window = MatchingWindow(wafer_window_factory=FakeWaferWorkspace)
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.set_preview_frame(pd.DataFrame({
             "Wafer ID": ["P1", "P1"],
             "X": [-1.0, 1.0],
@@ -3795,6 +3894,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.window = MatchingWindow(wafer_window_factory=FakeWaferWorkspace)
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
 
         workspace = self.window.open_stage_workspace("preview")
@@ -3844,6 +3944,7 @@ class MatchingWindowTests(unittest.TestCase):
         )
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
 
         preview_workspace = self.window.open_dynamic_workspace("preview")
@@ -3891,6 +3992,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_closing_managed_wafer_map_saves_after_explicit_save_decision(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
 
         with tempfile.TemporaryDirectory() as folder:
@@ -3920,6 +4022,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_closing_managed_dynamic_saves_after_explicit_save_decision(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         self.window.preview_dynamic_frame = pd.DataFrame({
             "Wafer ID": ["W1", "W1", "W1", "W1"],
@@ -3988,6 +4091,7 @@ class MatchingWindowTests(unittest.TestCase):
             pd.DataFrame(reference_rows), "Clipboard"
         )
         self.window.set_raw_frame(pd.DataFrame(raw_rows), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         map_window = self.window.open_stage_workspace("preview")
         correlation_window = self.window.open_correlation_workspace()
@@ -4061,6 +4165,7 @@ class MatchingWindowTests(unittest.TestCase):
         """The menu supplies a decimal threshold and two force modes."""
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
 
         self.assertEqual(self.window.trend_axis_mode, "auto")
@@ -4172,6 +4277,7 @@ class MatchingWindowTests(unittest.TestCase):
         """Both open windows and later openings use the same saved policy."""
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Preview clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         self.window.second_axis_spin.setValue(2.75)
         self.window.set_trend_axis_mode("dual")
@@ -4213,6 +4319,7 @@ class MatchingWindowTests(unittest.TestCase):
         """The Data tab offers the workbook Card; off until the engineer asks."""
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         workspace = self.window.open_stage_workspace("preview")
         try:
@@ -4253,6 +4360,7 @@ class MatchingWindowTests(unittest.TestCase):
             "Die Seq": [1, 2, 1, 2, 1, 2],
             "CD_Bot": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
         }), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         # Dynamic only opens with the table the workbook saved for it.
         self.window.preview_dynamic_frame = pd.DataFrame({
@@ -4299,6 +4407,7 @@ class MatchingWindowTests(unittest.TestCase):
             "CD_Bot": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
             "SPA": [9.0, 8.0, 7.0, 6.0, 5.0, 4.0],
         }), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         map_window = self.window.open_stage_workspace("preview")
         dynamic_window = self.window.open_dynamic_workspace("preview")
@@ -4394,6 +4503,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.window.match_type.setCurrentText("TEM")
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
 
         correlation = self.window.open_correlation_workspace()
@@ -4427,6 +4537,7 @@ class MatchingWindowTests(unittest.TestCase):
                 self.window.match_type.setCurrentText(match_type)
                 self.window.set_reference_frame(self.reference(), "Clipboard")
                 self.window.set_raw_frame(self.raw(), "Clipboard")
+                configure_match_fixture(self.window)
                 self.window.run_analysis()
                 windows = [
                     self.window.open_stage_workspace("preview"),
@@ -4455,6 +4566,7 @@ class MatchingWindowTests(unittest.TestCase):
             "Die Seq": [1, 2, 1, 2, 1, 2],
             "CD_Bot": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
         }), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         map_window = self.window.open_stage_workspace("preview")
         dynamic_window = self.window.open_dynamic_workspace("preview")
@@ -4501,6 +4613,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.window.match_type.setCurrentText("TEM")
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         correlation_window = self.window.open_correlation_workspace()
         try:
@@ -4526,6 +4639,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.window.match_type.setCurrentText("TEM")
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         independent = pd.DataFrame({
             "Wafer ID": ["W1", "W1"],
@@ -4563,6 +4677,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_closing_match_workbook_saves_and_closes_all_analysis_workspaces(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         self.window.preview_dynamic_frame = pd.DataFrame({
             "Wafer ID": ["W1", "W1", "W1", "W1"],
@@ -4621,6 +4736,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_reopening_preview_dynamic_restores_its_parameter_selection(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         self.window.preview_dynamic_frame = pd.DataFrame({
             "Wafer ID": ["W1"] * 6,
@@ -4654,6 +4770,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_preview_and_final_wafer_quality_metrics_survive_wkb_reopen(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         frame = pd.DataFrame({
             "Wafer ID": ["W1", "W1"], "X": [-1, 1], "Y": [0, 0],
             "CD_Bot": [4, 5], "SPA": [5, 6],
@@ -4701,6 +4818,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_reopening_preview_wafer_map_restores_its_parameter_selection(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
 
         first = self.window.open_stage_workspace("preview")
@@ -4727,6 +4845,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_drawn_wafer_map_auto_restores_after_window_and_wkb_reopen(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         self.window.preview_map_frame = pd.DataFrame({
             "Wafer ID": ["W1"] * 4,
@@ -4794,6 +4913,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_drawn_radius_plot_auto_restores_after_window_and_wkb_reopen(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         self.window.preview_map_frame = pd.DataFrame({
             "Wafer ID": ["W1"] * 4,
@@ -4857,6 +4977,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_reopened_wkb_restores_map_and_dynamic_sidebar_selections(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         self.window.preview_dynamic_frame = pd.DataFrame({
             "Wafer ID": ["W1"] * 4 + ["W2"] * 4,
@@ -4948,6 +5069,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.window = MatchingWindow(wafer_window_factory=FakeWaferWorkspace)
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.match_type.setCurrentText("TEM")
         self.window.run_analysis()
 
@@ -4980,6 +5102,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_pasting_fullmap_after_analysis_keeps_match_results_interactive(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
 
         self.window.set_preview_frame(pd.DataFrame({
@@ -4998,6 +5121,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_replacing_reference_keeps_raw_data_and_refreshes_mappings(self):
         self.window.set_reference_frame(self.reference(), "First Reference")
         self.window.set_raw_frame(self.raw(), "First Raw")
+        configure_match_fixture(self.window)
         self.assertTrue(self.window.analyze_button.isEnabled())
 
         replacement = self.reference().assign(**{"CD_Bot Reference": [13.0, 23.0, 33.0]})
@@ -5010,6 +5134,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_switching_preview_and_final_keeps_results_and_layout(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window._run_analysis_clicked()
         self.window.resize(1600, 900)
         self.window.show()
@@ -5066,6 +5191,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_wkb_restores_independent_preview_and_final_raw_data(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Preview clipboard")
+        configure_match_fixture(self.window)
         self.window.result_mode.setCurrentText("Final")
         final_raw = self.raw().assign(CD_Bot=[11.0, 19.0, 31.0])
         self.window.set_raw_frame(final_raw, "Final clipboard")
@@ -5104,6 +5230,7 @@ class MatchingWindowTests(unittest.TestCase):
         })
         self.window.set_reference_frame(reference, "Clipboard")
         self.window.set_raw_frame(raw, "Clipboard")
+        configure_match_fixture(self.window)
         self.window.match_type.setCurrentText("NOVA")
         self.window.run_analysis()
 
@@ -5127,6 +5254,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_exports_native_excel_and_excel_with_embedded_matplotlib_after_analysis(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.set_preview_frame(self.raw().assign(**{
             "Wafer ID": ["P1", "P2", "P3"],
         }), "Preview clipboard")
@@ -5186,6 +5314,7 @@ class MatchingWindowTests(unittest.TestCase):
     def test_match_image_export_uses_matplotlib_instead_of_widget_capture(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         self.window.show()
         APP.processEvents()

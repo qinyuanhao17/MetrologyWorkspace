@@ -702,8 +702,10 @@ class WorkspaceTests(unittest.TestCase):
         w = self.window
         self.assertTrue(all(w.group_checks[name].isChecked() for name in ("Wafer ID", "Lot ID", "PAD Name")))
         w.show()
+        APP.processEvents()
         w.group_menu.popup(w.group_picker.mapToGlobal(QPoint(0, w.group_picker.height())))
         APP.processEvents()
+        self.assertTrue(w.group_menu.isVisible())
         pad = w.group_checks["PAD Name"]
         QTest.mouseClick(w.group_menu, Qt.MouseButton.LeftButton,
                          pos=w.group_menu.actionGeometry(pad).center())

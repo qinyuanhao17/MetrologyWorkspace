@@ -11,8 +11,10 @@ import pandas as pd
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
 
+from metrology_app.matching import ParameterMapping
 from metrology_app.matching_window import MatchingWindow
 from metrology_app.settings import get_settings, save_settings
+from tests.match_fixtures import configure_match_fixture
 
 APP = QApplication.instance() or QApplication([])
 
@@ -39,9 +41,7 @@ class PlotLabelTests(unittest.TestCase):
         }).astype(str)
         self.window.set_reference_frame(pd.DataFrame({"CD Reference": list(range(3, 20, 2)) * 2}))
         self.window.set_raw_frame(self.raw)
-        self.window.mapping_table.item(0, 1).setText("Depth")
-        self.window.mapping_table.cellWidget(0, 3).setCurrentText("CD Raw")
-        self.window.mapping_table.item(0, 0).setCheckState(Qt.CheckState.Checked)
+        configure_match_fixture(self.window, ParameterMapping("Depth", "CD Reference", "CD Raw"))
         self.window.run_analysis()
 
     @staticmethod

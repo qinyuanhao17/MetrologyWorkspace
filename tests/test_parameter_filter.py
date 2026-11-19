@@ -21,6 +21,7 @@ from metrology_app.sequence_page import SequencePage
 from metrology_app import settings as settings_module
 from metrology_app.matching_window import MatchingWindow
 from metrology_app.workspace_store import load_workspace, save_workspace
+from tests.match_fixtures import configure_match_fixture
 
 APP = QApplication.instance() or QApplication([])
 
@@ -190,8 +191,9 @@ class ParameterFilterTests(unittest.TestCase):
         fits, errors = source_pairwise_linear_fits(frame, ["DP"], sources, groups, cells)
         self.assertEqual(fits, [])
         self.assertIn("fewer than 3", errors[0][-1])
-        with self.assertRaisesRegex(ValueError, "row-aligned"):
-            source_pairwise_linear_fits(frame, ["DP"], (sources[0], {**sources[1], "rows": (6, 7, 8)}), groups, cells)
+        fits, errors = source_pairwise_linear_fits(
+            frame, ["DP"], (sources[0], {**sources[1], "rows": (6, 7, 8)}), groups, cells)
+        self.assertEqual((fits, errors), ([], []))
 
     def test_pair_count_is_unordered_but_reference_and_raw_fits_remain_separate(self):
         window = CorrelationWindow()
@@ -319,6 +321,7 @@ class ParameterFilterTests(unittest.TestCase):
         parent.set_reference_frame(frame[["DP", "TG", "EW"]].rename(
             columns={name: f"{name} Reference" for name in ("DP", "TG", "EW")}))
         parent.set_raw_frame(frame)
+        configure_match_fixture(parent)
         parent.run_analysis()
         child = parent.open_correlation_workspace()
         self.addCleanup(close, child)
@@ -513,6 +516,7 @@ class ParameterFilterTests(unittest.TestCase):
         parent.set_reference_frame(frame[["DP", "TG", "EW"]].rename(
             columns={name: f"{name} Reference" for name in ("DP", "TG", "EW")}))
         parent.set_raw_frame(frame)
+        configure_match_fixture(parent)
         parent.run_analysis()
         child = parent.open_correlation_workspace()
         self.addCleanup(close, child)

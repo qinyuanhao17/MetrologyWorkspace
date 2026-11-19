@@ -13,6 +13,7 @@ from PyQt6.QtTest import QSignalSpy, QTest
 from PyQt6.QtWidgets import QApplication, QLineEdit, QPushButton
 
 from metrology_app.matching_window import MatchingWindow
+from tests.match_fixtures import configure_match_fixture
 from tests import test_workbook_copy_data as copy_fixtures
 
 APP = QApplication.instance() or QApplication([])
@@ -26,6 +27,7 @@ class FinalAuditTests(unittest.TestCase):
         parent.match_type.setCurrentText('NOVA')
         parent.set_reference_frame(reference)
         parent.set_raw_frame(raw)
+        configure_match_fixture(parent)
         parent.run_analysis()
         return parent
 

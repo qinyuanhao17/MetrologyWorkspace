@@ -7,6 +7,7 @@ from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 from metrology_app.matching_window import MatchingWindow
+from tests.match_fixtures import configure_match_fixture
 from tests import test_workbook_copy_data as fixtures
 
 APP = QApplication.instance() or QApplication([])
@@ -23,6 +24,7 @@ class MatchingValueRefreshTests(unittest.TestCase):
         window.match_type.setCurrentText('NOVA')
         window.set_reference_frame(reference)
         window.set_raw_frame(raw)
+        configure_match_fixture(window)
         window.percent_bias.setChecked(True)
         window.run_analysis()
         return window

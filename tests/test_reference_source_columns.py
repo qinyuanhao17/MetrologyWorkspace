@@ -60,9 +60,7 @@ class ReferenceSourceColumnTests(unittest.TestCase):
         try:
             parent.set_reference_frame(self.reference)
             parent.set_raw_frame(self.raw)
-            parent.mapping_table.item(0, 1).setText("OCD_DEPTH1 2")
-            parent.mapping_table.cellWidget(0, 3).setCurrentText("OCD_DEPTH1_2")
-            parent.mapping_table.item(0, 0).setCheckState(Qt.CheckState.Checked)
+            parent._populate_mappings([ParameterMapping("OCD_DEPTH1 2", "OCD_DEPTH1", "OCD_DEPTH1_2")])
             parent.group_controls.restore({"enabled": True, "mark_enabled": False,
                                            "head_names": {"0": "Head A", "1": "Head B"}},
                                           pd.DataFrame({"TestFlag": [0, 0, 1]}))
@@ -91,9 +89,7 @@ class ReferenceSourceColumnTests(unittest.TestCase):
             parent.set_reference_frame(self.reference)
             parent.set_raw_frame(self.raw)
             alias = "OCD_DEPTH1_2"  # Also a real Raw column: never rename its Raw source choice.
-            parent.mapping_table.item(0, 1).setText(alias)
-            parent.mapping_table.cellWidget(0, 3).setCurrentText("OCD_DEPTH1_2")
-            parent.mapping_table.item(0, 0).setCheckState(Qt.CheckState.Checked)
+            parent._populate_mappings([ParameterMapping(alias, "OCD_DEPTH1", "OCD_DEPTH1_2")])
             parent.run_analysis()
             child = parent.open_correlation_workspace()
             child.set_reference_table(self.reference, "Manual Reference")
@@ -166,9 +162,7 @@ class ReferenceSourceColumnTests(unittest.TestCase):
         try:
             parent.set_reference_frame(self.reference)
             parent.set_raw_frame(self.raw)
-            parent.mapping_table.item(0, 1).setText("OCD_DEPTH1 2")
-            parent.mapping_table.cellWidget(0, 3).setCurrentText("OCD_DEPTH1_2")
-            parent.mapping_table.item(0, 0).setCheckState(Qt.CheckState.Checked)
+            parent._populate_mappings([ParameterMapping("OCD_DEPTH1 2", "OCD_DEPTH1", "OCD_DEPTH1_2")])
             records = [{"key": key, "id": f"record{i}"} for i, key in enumerate(row_ids(self.raw))]
             parent.group_controls.restore({"enabled": False, "mark_enabled": False,
                                            "data_selection": {"records": records, "excluded": ["record1"]}})

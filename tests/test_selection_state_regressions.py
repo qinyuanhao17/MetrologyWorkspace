@@ -73,6 +73,53 @@ class SelectionStateRegressionTests(unittest.TestCase):
                     self.assertEqual(participation_rows(w._active_raw_frame(), state['data_selection']), (1,4))
                     self.assertEqual(state['data_selection'], saved)
 
+    def test_applied_selection_survives_shortened_raw_apply_and_reopen(self):
+        window = self.window()
+        ref, raw = self.sources()
+        raw = raw.assign(**{"Die Seq": range(1, len(raw) + 1)})
+        window.set_reference_frame(ref)
+        window.set_raw_frame(raw)
+        self.select(window, [0, 2, 3, 4])
+        state = window.group_controls.state
+        excluded = set(state["data_selection"]["excluded"])
+        window.set_reference_frame(ref.iloc[:4])
+        window.set_raw_frame(raw.iloc[:4])
+        self.assertEqual(participation_rows(window.raw_frame, state["data_selection"]), (0, 2, 3))
+        self.select(window, [0, 2, 3])
+        self.assertEqual(set(state["data_selection"]["excluded"]), excluded)
+
+        with TemporaryDirectory() as folder:
+            saved = window.save_workbook(Path(folder) / "temporarily-short.mwkb")
+            reopened = self.window()
+            reopened.load_workbook(saved)
+            reopened.set_raw_frame(raw.iloc[[5, 0, 2, 1, 3, 4]].reset_index(drop=True))
+            self.assertEqual(participation_rows(reopened.raw_frame, reopened.group_controls.state["data_selection"]), (1, 2, 4, 5))
+            reopened.set_raw_frame(raw)
+            for config in (reopened.group_controls.state, reopened.group_controls.state["applied"]):
+                self.assertEqual(participation_rows(reopened.raw_frame, config["data_selection"]), (0, 2, 3, 4))
+                self.assertEqual(set(config["data_selection"]["excluded"]), excluded)
+
+    def test_child_refresh_keeps_unchecked_identity_through_reordering_and_removal(self):
+        from metrology_app.match_groups import participation_source_keys
+        from metrology_app.window import MainWindow
+        from metrology_app.data_selection import FrameSelectionDialog
+        _, source = self.sources()
+        raw = source.iloc[:3]
+        child = MainWindow()
+        self.addCleanup(self.close, child)
+        child.set_table(raw, "Raw")
+        excluded = participation_source_keys(raw)[0]
+        child._local_selection_excluded = {excluded}
+        child.set_table(raw.iloc[[1, 2, 0]], "Reordered", keep_local_selection=True)
+        self.assertEqual(child.participating_positions(child._frame), {0, 1})
+        child.set_table(raw.iloc[1:], "Temporarily shorter", keep_local_selection=True)
+        dialog = FrameSelectionDialog(child._frame, child._local_selection_excluded, child)
+        dialog.accept()
+        self.assertEqual(dialog.excluded, [excluded])
+        dialog.deleteLater()
+        child.set_table(raw, "Restored", keep_local_selection=True)
+        self.assertEqual(child.participating_positions(child._frame), {1, 2})
+
     def test_one_selected_pair_opens_and_saves_map_and_dynamic_without_invalid_card(self):
         w = self.window()
         ref, raw = self.sources()

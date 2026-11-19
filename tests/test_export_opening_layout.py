@@ -17,6 +17,7 @@ from metrology_app import export_job
 from metrology_app.excel_export import style_workbook, write_fullmap
 from metrology_app.match_groups import group_state
 from metrology_app.settings import recent_wkb_paths, remember_recent_wkb
+from tests.match_fixtures import configure_match_fixture
 from tests import test_excel_export as fixtures
 
 APP, MatchingWindow = fixtures.APP, fixtures.MatchingWindow
@@ -30,6 +31,7 @@ class ExportOpeningLayoutTests(unittest.TestCase):
         self.window.set_reference_frame(pd.DataFrame({'CD Reference': [3., 5., 7.]}))
         self.window.set_raw_frame(pd.DataFrame({'Wafer ID': ['W1'] * 3,
                                                'Die Seq': ['01', '02', '03'], 'CD': ['1.000', '2.000', '3.000']}))
+        configure_match_fixture(self.window)
         self.window.run_analysis()
 
     def wait_finished(self):

@@ -8,6 +8,7 @@ import pandas as pd
 
 from metrology_app.matching import MatchWorkbook, ParameterMapping
 from metrology_app.match_groups import GroupPlan, group_state, row_ids
+from tests.match_fixtures import configure_match_fixture
 
 
 class MatchGroupTests(unittest.TestCase):
@@ -117,6 +118,7 @@ class MatchGroupTests(unittest.TestCase):
             window.match_type.setCurrentText("TEM")
             window.set_reference_frame(ref)
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             window.group_controls.restore({"enabled": True, "mark_enabled": True}, flags)
             window.run_analysis()
             self.assertEqual(window.result.group_plan.group_keys, ("Old:0", "Old:1"))
@@ -170,6 +172,7 @@ class MatchGroupTests(unittest.TestCase):
             ref, raw, flags = self.frames()
             window.set_reference_frame(ref)
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             window.group_controls.restore({"enabled": True, "mark_enabled": True}, flags)
             window.run_analysis()
 
@@ -209,6 +212,7 @@ class MatchGroupTests(unittest.TestCase):
                 "Wafer ID": ["W1", "W1", "W1", "W2", "W2", "W2"],
                 "Lot ID": ["L1", "L2", "L1", "L3", "L4", "L3"],
                 "Die Seq": [1, 2, 3, 1, 2, 3], "P": [1., 2., 3., 4., 5., 6.]}))
+            configure_match_fixture(window)
             window.group_controls.restore(
                 {"enabled": True, "mark_enabled": False,
                  "identity_columns": ["Wafer ID", "Lot ID"], "trend_order": "original"},
@@ -239,6 +243,7 @@ class MatchGroupTests(unittest.TestCase):
         try:
             window.set_reference_frame(ref)
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             window.group_controls.restore({"enabled": True, "mark_enabled": True,
                 "head_names": {"0": "Head A"}, "new_rows": row_ids(raw)[3:], "use_group_card": True,
                 "filters": [{"table": "order", "column": "Group", "values": ["Old Head A"]}]}, flags)
@@ -812,6 +817,7 @@ class MatchGroupTests(unittest.TestCase):
             ref, raw, flags = self.frames()
             window.set_reference_frame(ref)
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             window.group_controls.restore({"enabled": True, "mark_enabled": True}, flags)
             window.show()
             self.assertIn("Groups", [action.text() for action in window.menuBar().actions()])
@@ -896,6 +902,7 @@ class MatchGroupTests(unittest.TestCase):
             ref, raw, flags = self.frames()
             window.set_reference_frame(ref)
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             for mode in ("Preview", "Final"):
                 with self.subTest(mode=mode):
                     window.result_mode.setCurrentText(mode)
@@ -954,6 +961,7 @@ class MatchGroupTests(unittest.TestCase):
             ref, raw, flags = self.frames()
             window.set_reference_frame(ref)
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             window.group_controls.restore({"enabled": True, "mark_enabled": True}, flags)
             window.run_analysis()
             page = window.group_plot_page
@@ -1000,6 +1008,7 @@ class MatchGroupTests(unittest.TestCase):
             ref, raw, flags = self.frames()
             window.set_reference_frame(ref)
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             window.percent_bias.setChecked(True)
             window.group_controls.restore({"enabled": True, "group_order": ["Old:1", "Old:0"],
                                            "mark_enabled": True,
@@ -1055,6 +1064,7 @@ class MatchGroupTests(unittest.TestCase):
         try:
             window.set_reference_frame(ref)
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             window.percent_bias.setChecked(True)
             window.group_controls.restore({"enabled": True, "new_rows": row_ids(raw)[1200:],
                                            "head_names": {"0": "MM1", "1": "MM2", "-1": "Unknown"}}, flags)
@@ -1108,6 +1118,7 @@ class MatchGroupTests(unittest.TestCase):
             raw["Q"] = raw["P"] * 2
             window.set_reference_frame(ref)
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             window.group_controls.restore({"enabled": True, "mark_enabled": True}, flags)
             window.run_analysis()
             unchanged = window.plot_groups["Q"]["plots"]["match"].listDataItems()[0]
@@ -1138,6 +1149,7 @@ class MatchGroupTests(unittest.TestCase):
             ref, raw, flags = self.frames()
             window.set_reference_frame(ref)
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             window.group_controls.restore({"enabled": True}, flags)
             window.run_analysis()
             window.group_controls.change("filters", [{"table": "order", "column": "TestFlag", "values": ["1"]}])
@@ -1182,6 +1194,7 @@ class MatchGroupTests(unittest.TestCase):
             ref, raw, flags = self.frames()
             window.set_reference_frame(ref)
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             window.group_controls.restore({"enabled": True}, flags)
             for mode in ("Preview", "Final"):
                 with self.subTest(mode=mode):
@@ -1219,6 +1232,7 @@ class MatchGroupTests(unittest.TestCase):
             raw["FIELD X"], raw["FIELD Y"] = [0, 1, 2] * 2, [0] * 6
             window.set_reference_frame(ref)
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             window.group_controls.restore({"enabled": True, "mark_enabled": True,
                                            "group_order": ["Old:1", "Old:0"]}, flags)
             window.run_analysis()

@@ -14,6 +14,7 @@ from metrology_app.bias_die_map import die_map_points, out_of_range_rows
 from metrology_app.matching_window import MatchingWindow
 from metrology_app.sme_spectra import LoadResult
 from metrology_app.spectra_viewer import SpectraViewerWindow
+from tests.match_fixtures import configure_match_fixture
 from tests.test_spectra_viewer import APP, make_spectrum
 
 
@@ -29,6 +30,7 @@ class BiasDieMapTests(unittest.TestCase):
         owner.set_reference_frame(ref)
         owner.result_mode.setCurrentText('Final')
         owner.set_raw_frame(raw)
+        configure_match_fixture(owner)
         metadata = [json.dumps({'identity':{'wafer':'W1','lot':'L1','pad':'P1','die_seq':die},
                                 'x_mm':die*10, 'y_mm':die*-5}) for die in (1,2,3)]
         frame = pd.DataFrame({'source':['a','b','c'], 'metadata':metadata,
@@ -57,6 +59,7 @@ class BiasDieMapTests(unittest.TestCase):
         owner.set_raw_frame(pd.DataFrame({'Wafer ID':['W1']*5, 'Lot ID':['L1']*5, 'PAD Name':['P1']*5,
             'Die Seq':[1,2,3,4,5], 'X(mm)':[0,20,40,60,80], 'Y(mm)':[0,10,20,30,40],
             'CD':[0,1.1,4.5,3.2,6.5]}))
+        configure_match_fixture(owner)
         owner.run_analysis()
         window = owner.show_bias_die_map(0)
         QTest.qWait(80)
@@ -134,6 +137,7 @@ class BiasDieMapTests(unittest.TestCase):
             "PAD Name": ["P1"] * 4, "Die Seq": [1, 2, 3, 4], "FIELD X": [0, 1, 0, 1],
             "FIELD Y": [0, 0, 1, 1], "X (mm)": [0, 20, 0, 20], "Y (mm)": [0, 0, 30, 30],
             "CD": [0, 1.5, 3, "NaN"]}))
+        configure_match_fixture(owner)
         button = owner.mapping_table.cellWidget(0, 12)
         self.assertEqual(button.text(), "Show Die Map")
         self.assertFalse(button.isEnabled())

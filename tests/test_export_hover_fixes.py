@@ -18,6 +18,7 @@ from metrology_app.dynamic_page import DynamicPage
 from metrology_app.excel_export import parameter_figure, picture_ratio
 from metrology_app.matching.analysis import Card
 from metrology_app.matching_window import MatchingWindow
+from tests.match_fixtures import configure_match_fixture
 
 APP = QApplication.instance() or QApplication([])
 
@@ -47,6 +48,7 @@ class ExportHoverFixTests(unittest.TestCase):
         })
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         self.child = self.window.open_stage_workspace("preview")
         self.child.resize(1400, 900)

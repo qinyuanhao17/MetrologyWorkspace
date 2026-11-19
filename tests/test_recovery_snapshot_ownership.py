@@ -18,6 +18,7 @@ from metrology_app.matching import MatchWorkbook, ParameterMapping
 from metrology_app.matching_window import MatchingWindow
 from metrology_app.workspace_document import same_snapshot, unpack_snapshot
 from metrology_app.workspace_store import WorkspaceSnapshot, file_revision, load_workspace
+from tests.match_fixtures import configure_match_fixture
 
 
 APP = QApplication.instance() or QApplication([])
@@ -64,6 +65,7 @@ class RecoverySnapshotOwnershipTests(unittest.TestCase):
                     owner = MatchingWindow()
                     owner.set_reference_frame(reference)
                     owner.set_raw_frame(raw)
+                    configure_match_fixture(owner)
                     owner.run_analysis()
                     window = owner.open_correlation_workspace()
                 else:

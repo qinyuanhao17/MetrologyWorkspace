@@ -514,6 +514,12 @@ class CorrelationWindow(DataWorkspaceWindow):
         if selection.get("reference_column_names"):
             return
         current = self.reference_model.document_frame()
+        owner = getattr(self, "_managed_owner", None)
+        if current.empty and owner is not None:
+            reference = owner.reference_frame
+            raw = self.raw_model.document_frame()
+            if not reference.empty and len(reference) == len(raw):
+                current = _aligned_reference_frame(reference, raw)
         aliases = {mapping.name: mapping.reference_column for mapping in self._source_mappings
                    if mapping.name not in current.columns and mapping.reference_column in current.columns}
         stored = snapshot.frames.get("reference_data")
@@ -619,7 +625,7 @@ class CorrelationWindow(DataWorkspaceWindow):
     def _grouped_trend_selection(self, selection):
         if self.display_options is not None and not self.display_options.enabled.isChecked():
             return selection
-        if not self._match_groups or self._group_plan is None:
+        if "available_cells" not in selection or not self._match_groups or self._group_plan is None:
             return selection
         plan = self._group_plan
         if not plan.enabled and plan.state["trend_order"] == "groups":

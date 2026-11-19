@@ -18,6 +18,7 @@ from metrology_app.matching_window import MatchingWindow
 from metrology_app.sequence_page import SequencePage
 from metrology_app.correlation_page import CorrelationPage, pairwise_linear_fits
 from metrology_app.radius_graphics import RadiusGrid
+from tests.match_fixtures import configure_match_fixture
 from tests import test_workbook_copy_data as copy_fixtures
 
 APP = QApplication.instance() or QApplication([])
@@ -178,6 +179,7 @@ class LinkedSourceRefreshTests(unittest.TestCase):
         self.parent.match_type.setCurrentText('NOVA')
         self.parent.set_reference_frame(reference)
         self.parent.set_raw_frame(raw)
+        configure_match_fixture(self.parent)
         self.parent.run_analysis()
         self.child = self.parent.open_correlation_workspace()
         self.child.set_reference_table(reference)

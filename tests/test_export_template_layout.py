@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import QApplication
 
 from metrology_app.excel_export import write_fullmap
 from metrology_app.matching_window import MatchingWindow
+from tests.match_fixtures import configure_match_fixture
 from tests import test_excel_export as fixtures
 
 APP = QApplication.instance() or QApplication([])
@@ -25,6 +26,7 @@ class TemplateLayoutTests(unittest.TestCase):
             window.set_reference_frame(pd.DataFrame({'DP Reference': [3., 5., 7.], 'EW Reference': [9., 11., 13.]}))
             window.set_raw_frame(pd.DataFrame({'Wafer ID': ['W1'] * 3, 'Die Seq': ['1', '2', '3'],
                                                'DP': ['1.000', '2.000', '3.000'], 'EW': ['4.000', '5.000', '6.000']}))
+            configure_match_fixture(window)
             window.group_controls.restore({'enabled': True, 'head_names': {'0': 'A', '1': 'B'}},
                                           pd.DataFrame({'TestFlag': [0, 0, 1]}))
             window.group_controls.apply_button.click()
@@ -82,6 +84,7 @@ class TemplateLayoutTests(unittest.TestCase):
         try:
             window.set_reference_frame(pd.DataFrame({'DP Reference': [3., 5., 7.]}))
             window.set_raw_frame(pd.DataFrame({'Wafer ID': ['W1'] * 3, 'Die Seq': [1, 2, 3], 'DP': [1., 2., 3.]}))
+            configure_match_fixture(window)
             window.run_analysis()
             child = window.open_dynamic_workspace('preview')
             child.set_table(pd.DataFrame({'Wafer ID': ['D1'] * 4, 'Die Seq': [1, 2, 1, 2],
@@ -118,6 +121,7 @@ class TemplateLayoutTests(unittest.TestCase):
                                 'DP': ['1.000', '2.000', '3.000'], 'EW': ['4.000', '5.000', '6.000']})
             window.set_reference_frame(pd.DataFrame({'DP Reference': [3., 5., 7.], 'EW Reference': [9., 11., 13.]}))
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             window.run_analysis()
             before = window.workspace_snapshot()
             with tempfile.TemporaryDirectory() as folder:

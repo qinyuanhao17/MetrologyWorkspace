@@ -8,6 +8,7 @@ import pandas as pd
 from openpyxl import load_workbook
 
 from tests import test_excel_export as fixtures
+from tests.match_fixtures import configure_match_fixture
 
 
 class ExcelReportLayoutTests(unittest.TestCase):
@@ -76,6 +77,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
         })
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.group_controls.restore(
             {"enabled": True, "head_names": {"0": "Head A", "1": "Head B"}},
             raw[["TestFlag"]])
@@ -145,6 +147,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
         self.window.percent_bias.setChecked(True)
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.run_analysis()
 
         def title_text(chart):
@@ -277,6 +280,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
         reference, raw = self.frames()
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         with tempfile.TemporaryDirectory() as folder:
             book = self.export(folder)
@@ -326,6 +330,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
         raw["Lot ID"], raw["PAD Name"] = "L1", "ARRAY"
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         before = self.window.workspace_snapshot()
         with tempfile.TemporaryDirectory() as folder:
@@ -363,6 +368,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
         reference, raw = self.frames()
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.result_mode.setCurrentText("Final")
         self.window.set_raw_frame(raw.assign(CD=["3.000", "5.000", "7.000"]))
         self.window.run_analysis()
@@ -381,6 +387,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
         reference, raw = self.frames()
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         with tempfile.TemporaryDirectory() as folder:
             for native in (True, False):
@@ -402,6 +409,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
         reference, raw = self.frames()
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         with tempfile.TemporaryDirectory() as folder:
             for native in (True, False):
@@ -474,6 +482,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
             "CD": [str(index + 1) for index in range(60)], "TestFlag": [0] * 30 + [1] * 30})
         self.window.set_reference_frame(pd.DataFrame({"CD Reference": [2 * index + 3 for index in range(60)]}))
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.group_controls.restore({"enabled": True, "head_names": {"0": "Head A", "1": "Head B"}}, raw[["TestFlag"]])
         self.window.group_controls.apply_button.click()
         with tempfile.TemporaryDirectory() as folder:
@@ -768,6 +777,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
             "CD Reference": [index + 2 for index in range(len(raw))]}))
         self.window.result_mode.setCurrentText("Final")
         self.window.set_raw_frame(raw.copy())
+        configure_match_fixture(self.window)
         self.window.result_mode.setCurrentText("Preview")
         self.window.set_raw_frame(raw)
         self.window.group_controls.restore(
@@ -936,6 +946,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
         reference, raw = self.frames()
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         with tempfile.TemporaryDirectory() as folder:
             path = self.window.export_excel(Path(folder) / "editable.xlsx")
@@ -959,6 +970,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
         reference, raw = self.frames()
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.group_controls.restore({'enabled': True, 'head_names': {'0': 'Head A', '1': 'Head B'}},
                                            pd.DataFrame({'TestFlag': [0, 0, 1]}))
         self.window.group_controls.apply_button.click()
@@ -975,6 +987,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
                             "CD": ["1.000", "8.000", "2.000", "9.000"]})
         self.window.set_reference_frame(pd.DataFrame({"CD Reference": [3, 17, 5, 19]}))
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.group_controls.restore({"enabled": True, "trend_order": "original",
             "head_names": {"0": "Head A", "1": "Head B"}}, pd.DataFrame({"TestFlag": [0, 1, 0, 1]}))
         self.window.group_controls.apply_button.click()
@@ -1004,6 +1017,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
                             'CD': ['1.000', '2.000', '3.000', '4.000', '5.000', '6.000']})
         self.window.set_reference_frame(pd.DataFrame({'CD Reference': [3, 5, 7, 9, 11, 13]}))
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.group_controls.restore({'enabled': True, 'head_names': {'0': 'Head A', '1': 'Head B'}},
                                            pd.DataFrame({'TestFlag': [0] * 4 + [1] * 2}))
         self.window.group_controls.apply_button.click()
@@ -1047,6 +1061,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
                             "CD": ["1.000", "8.000", "2.000", "9.000"]})
         self.window.set_reference_frame(pd.DataFrame({"CD Reference": [3, 17, 5, 19]}))
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.group_controls.restore({"enabled": True, "trend_order": "original",
             "head_names": {"0": "Head A", "1": "Head B"}}, pd.DataFrame({"TestFlag": [0, 1, 1, 0]}))
         self.window.group_controls.apply_button.click()
@@ -1101,6 +1116,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
         self.window.set_reference_frame(
             pd.DataFrame({"CD Reference": [2., 3., 4., 5., 6.]}))
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         self.window.group_controls.restore(
             {"enabled": True, "mark_enabled": False,
              "head_names": {"0": "A", "1": "B"},
@@ -1128,6 +1144,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
         reference, raw = self.frames()
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         full = raw.assign(CD=["11.000", "21.000", "31.000"], Other=[101, 102, 103])
         self.window.set_preview_frame(full)
         self.window.run_analysis()
@@ -1161,6 +1178,7 @@ class ExcelReportLayoutTests(unittest.TestCase):
         reference, raw = self.frames()
         self.window.set_reference_frame(reference)
         self.window.set_raw_frame(raw)
+        configure_match_fixture(self.window)
         full = pd.DataFrame({"Wafer ID": ["OWN"] * 4, "Die Seq": [1, 2, 3, 4],
             "FIELD X": [-1, 1, 0, 0], "FIELD Y": [0, 0, -1, 1],
             "CD": [11, 21, 31, 41], "Other": [101, 102, 103, 104]})

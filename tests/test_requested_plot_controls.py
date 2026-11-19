@@ -19,6 +19,7 @@ from metrology_app.matching_window import MatchingWindow
 from metrology_app.correlation_window import CorrelationWindow
 from metrology_app.dynamic_trend import DynamicTrendPage
 from metrology_app.plotting.annotations import statistics_text, point_tip
+from tests.match_fixtures import configure_match_fixture
 
 APP = QApplication.instance() or QApplication([])
 
@@ -107,6 +108,7 @@ class RequestedPlotControlsTests(unittest.TestCase):
         reference = pd.DataFrame({"DP Reference": ["0.011", "0.019", "0.032"]})
         window.set_reference_frame(reference)
         window.set_raw_frame(raw)
+        configure_match_fixture(window)
         window.run_analysis()
         group = window.plot_groups["DP"]
         plots = group["plots"]

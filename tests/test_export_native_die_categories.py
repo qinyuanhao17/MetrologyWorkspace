@@ -15,6 +15,7 @@ from openpyxl.utils.cell import range_boundaries
 
 from tests import test_excel_export as fixtures
 from metrology_app import excel_export
+from tests.match_fixtures import configure_match_fixture
 
 
 class NativeDieCategoryTests(unittest.TestCase):
@@ -34,6 +35,7 @@ class NativeDieCategoryTests(unittest.TestCase):
             'EW Reference': [i * 3 + 2 for i in range(1, 13)],
         }))
         self.window.set_raw_frame(self.raw.copy())
+        configure_match_fixture(self.window)
 
     def groups(self, shown=()):
         self.window.group_controls.restore({

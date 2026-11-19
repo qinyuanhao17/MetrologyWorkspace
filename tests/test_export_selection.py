@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import QDialogButtonBox, QFileDialog
 from metrology_app.excel_export import report_sequence_layout, write_fullmap, write_workbook
 from metrology_app.export_sheet_dialog import ExportSheetDialog
 from metrology_app.export_sheets import export_sheet_names, select_export_sheets
+from tests.match_fixtures import configure_match_fixture
 from tests import test_excel_export as fixtures
 
 
@@ -27,6 +28,7 @@ class ExportSelectionTests(unittest.TestCase):
         self.window.set_reference_frame(pd.DataFrame({'CD Reference': [3., 5., 7., 9.]}))
         self.window.set_raw_frame(pd.DataFrame({'Wafer ID': ['W1', 'W1', 'W2', 'W2'],
                                                'Die Seq': ['001', '002'] * 2, 'CD': ['1.000', '2.000', '3.000', '4.000']}))
+        configure_match_fixture(self.window)
         self.window.group_controls.restore({'enabled': True, 'head_names': {'0': 'POR', '1': 'New'}},
                                            pd.DataFrame({'TestFlag': [0, 0, 1, 1]}))
         self.window.group_controls.apply_button.click()

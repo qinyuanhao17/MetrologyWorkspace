@@ -7,6 +7,8 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication
 
 from metrology_app.correlation_window import CorrelationWindow
+from metrology_app.matching import ParameterMapping
+from tests.match_fixtures import configure_match_fixture
 
 APP = QApplication.instance() or QApplication([])
 
@@ -18,8 +20,7 @@ class WorkspaceGroupParityTests(unittest.TestCase):
         raw = pd.DataFrame({'Wafer ID':['W1']*2,'Die Seq':['1','2'],'CD':['1.00','2.00']})
         owner.set_reference_frame(pd.DataFrame({'CD':['2.00','4.00']}))
         owner.set_raw_frame(raw)
-        owner.mapping_table.cellWidget(0,3).setCurrentText('CD')
-        owner.mapping_table.item(0,0).setCheckState(Qt.CheckState.Checked)
+        configure_match_fixture(owner, ParameterMapping("CD", "CD", "CD"))
         from metrology_app.match_groups import row_ids
         owner.group_controls.restore({'enabled':True,'data_selection':{
             'records':[{'key':key,'id':str(i)} for i,key in enumerate(row_ids(raw))],
@@ -188,8 +189,7 @@ class WorkspaceGroupParityTests(unittest.TestCase):
                             'Die Seq':[1,2,3,4],'X':[0,1,0,1],'Y':[0,0,1,1],'CD':[1,2,3,4]})
         owner.set_reference_frame(pd.DataFrame({'CD':[1,2,3,4]}))
         owner.set_raw_frame(raw)
-        owner.mapping_table.cellWidget(0,3).setCurrentText('CD')
-        owner.mapping_table.item(0,0).setCheckState(Qt.CheckState.Checked)
+        configure_match_fixture(owner, ParameterMapping("CD", "CD", "CD"))
         owner.group_controls.restore({'mark_enabled':True},pd.DataFrame({'TestFlag':[0]*4}))
         owner.group_controls.accept_changes()
         owner.run_analysis()

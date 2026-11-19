@@ -8,6 +8,7 @@ import pandas as pd
 
 from metrology_app.match_groups import GroupPlan, participation_ids, row_ids
 from metrology_app.matching_window import MatchingWindow
+from tests.match_fixtures import configure_match_fixture
 from PyQt6.QtWidgets import QApplication
 
 
@@ -63,6 +64,7 @@ class TrendOrderWindowTests(unittest.TestCase):
         self.reference, self.raw = interleaved_sources()
         self.window.set_reference_frame(self.reference)
         self.window.set_raw_frame(self.raw)
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         self.reference = self.window.reference_model.frame().copy(deep=True)
 

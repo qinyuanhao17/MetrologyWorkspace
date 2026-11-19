@@ -10,6 +10,7 @@ from matplotlib.colors import to_hex
 
 from tests import test_excel_export as fixtures
 from metrology_app.excel_export import parameter_figure, style_workbook, write_fullmap
+from tests.match_fixtures import configure_match_fixture
 
 
 def title_text(title):
@@ -27,6 +28,7 @@ class ExportSourceLayoutTests(unittest.TestCase):
         self.window.set_reference_frame(pd.DataFrame({'CD Reference': ['3.000', '', '7.000']}))
         self.window.set_raw_frame(pd.DataFrame({'Wafer ID': ['W1'] * 4, 'Die Seq': ['01', '02', '03', '04'],
                                               'CD': ['1.000', '2.000', '3.000', '4.000']}))
+        configure_match_fixture(self.window)
         self.window.run_analysis()
         before = self.window.workspace_snapshot()
         with tempfile.TemporaryDirectory() as folder:
@@ -89,6 +91,7 @@ class ExportSourceLayoutTests(unittest.TestCase):
     def test_matplotlib_match_header_and_trend_semantics_match_wkb(self):
         self.window.set_reference_frame(pd.DataFrame({'CD Reference': [3., 5., 7.]}))
         self.window.set_raw_frame(pd.DataFrame({'CD': [1., 2., 3.]}))
+        configure_match_fixture(self.window)
         card = self.window.run_analysis().card('CD')
         data = pd.DataFrame({'Raw': [1., 2., 3.], 'Reference': [3., 5., 7.]})
         match = parameter_figure('CD', data, card, 'Preview', 'All', reference_label='NOVA')

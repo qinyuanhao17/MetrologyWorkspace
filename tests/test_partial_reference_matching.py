@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import QApplication
 from metrology_app.matching import MatchWorkbook, ParameterMapping
 from metrology_app.matching_window import MatchingWindow
 from metrology_app.match_groups import row_ids
+from tests.match_fixtures import configure_match_fixture
 
 APP = QApplication.instance() or QApplication([])
 
@@ -54,6 +55,7 @@ class PartialReferenceMatchingTests(unittest.TestCase):
                     window.result_mode.setCurrentText(stage)
                     window.set_reference_frame(reference)
                     window.set_raw_frame(raw)
+                    configure_match_fixture(window)
                     self.assertTrue(window.run_action.isEnabled(), window.status.text())
                     result = window.run_analysis()
                     self.assertEqual(result.card("CD").valid_pairs, 4)
@@ -77,6 +79,7 @@ class PartialReferenceMatchingTests(unittest.TestCase):
             window.match_type.setCurrentText("NOVA")
             window.set_reference_frame(reference)
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             window.group_controls.restore({"enabled": False, "mark_enabled": False})
             window.run_analysis()
             window.reference_model.edit({(2, 0): ""})
@@ -104,6 +107,7 @@ class PartialReferenceMatchingTests(unittest.TestCase):
             window.match_type.setCurrentText("NOVA")
             window.set_reference_frame(reference)
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             window.run_analysis()
             window.open_correlation_workspace()
             window.open_stage_workspace("preview")
@@ -151,6 +155,7 @@ class PartialReferenceMatchingTests(unittest.TestCase):
             window.match_type.setCurrentText("NOVA")
             window.set_reference_frame(reference)
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             window.group_controls.restore({"enabled": False, "mark_enabled": False, "data_selection": {
                 "records": [{"key": key, "id": f"row{i}"} for i, key in enumerate(row_ids(raw))],
                 "excluded": ["row2"],

@@ -17,6 +17,7 @@ from metrology_app.match_group_ui import ProjectedSheetModel
 from metrology_app.plot import ValueLabels
 from metrology_app.settings import get_settings, save_settings
 from metrology_app.window import MainWindow
+from tests.match_fixtures import configure_match_fixture
 
 APP = QApplication.instance() or QApplication([])
 
@@ -38,6 +39,7 @@ class V41Workflows(unittest.TestCase):
         window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7., 9., 11., 13.]}))
         window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"] * 3 + ["W2"] * 3,
                                            "Die Seq": [1, 2, 3] * 2, "CD": [1., 2., 3., 4., 5., 6.]}))
+        configure_match_fixture(window)
         window.run_analysis()
         return window
 

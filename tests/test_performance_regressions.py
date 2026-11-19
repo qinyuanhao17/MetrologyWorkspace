@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from metrology_app.matching import MatchWorkbook, ParameterMapping
+from tests.match_fixtures import configure_match_fixture
 
 
 class WorkbookPerformanceTests(unittest.TestCase):
@@ -39,6 +40,7 @@ class WorkbookPerformanceTests(unittest.TestCase):
         with patch("sys.excepthook", side_effect=lambda kind, error, tb: errors.append(str(error))):
             window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7.]}))
             window.set_raw_frame(pd.DataFrame({"CD": [1., 2., 3.]}))
+            configure_match_fixture(window)
             window.run_analysis()
             window.document.force_close = True
             window.close()
@@ -155,6 +157,7 @@ class WorkbookPerformanceTests(unittest.TestCase):
                                 **{f"Metadata {i}": ["retained"] * 8000 for i in range(30)}}).astype(str)
             window.set_reference_frame(pd.DataFrame({"CD Reference": np.arange(1, 8001.) * 2 + 1}))
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             window.group_controls.restore({"enabled": True, "mark_enabled": True,
                                            "new_rows": row_ids(raw)[4000:]},
                                           pd.DataFrame({"TestFlag": ["0"] * 4000 + ["1"] * 4000}))
@@ -493,6 +496,7 @@ class WorkbookPerformanceTests(unittest.TestCase):
                                 'Die Seq': list(range(1, 21)) * 800, 'Depth': values})
             window.set_reference_frame(pd.DataFrame({'Depth Reference': values * 1.03 + 2}))
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             window.group_controls.restore({'enabled': True, 'mark_enabled': False},
                                           pd.DataFrame({'TestFlag': [0] * len(raw)}))
             window.run_analysis()
@@ -535,6 +539,7 @@ class WorkbookPerformanceTests(unittest.TestCase):
                                 'CD': [1., 2., 3.]})
             window.set_reference_frame(pd.DataFrame({'CD Reference': [3., 5., 7.]}))
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             window.run_analysis()
             child = window.open_correlation_workspace()
             app.processEvents()
@@ -567,6 +572,7 @@ class WorkbookPerformanceTests(unittest.TestCase):
                 ref[f'CD{i} Reference'] = raw[f'CD{i}'] * 2 + 3
             window.set_reference_frame(ref)
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             window.run_analysis()
             window.result_mode.setCurrentText('Final')
             window.set_raw_frame(raw.assign(CD0=raw.CD0 + 10))
@@ -694,8 +700,8 @@ class WorkbookPerformanceTests(unittest.TestCase):
             app.processEvents()
 
     def test_equal_value_mapping_column_change_keeps_parameter_title_and_new_source(self):
-        from PyQt6.QtCore import Qt
         from PyQt6.QtWidgets import QApplication
+        from metrology_app.matching import ParameterMapping
         from metrology_app.matching_window import MatchingWindow
         app = QApplication.instance() or QApplication([])
         window = MatchingWindow()
@@ -703,9 +709,8 @@ class WorkbookPerformanceTests(unittest.TestCase):
             window.set_reference_frame(pd.DataFrame({"Ref Reference": [4., 6., 8.]}))
             window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"] * 3, "Die Seq": [1, 2, 3],
                                               "CD": [1., 2., 3.], "Alias": [1., 2., 3.]}))
+            configure_match_fixture(window, ParameterMapping("Ref", "Ref Reference", "CD"))
             picker = window.mapping_table.cellWidget(0, 3)
-            picker.setCurrentText("CD")
-            window.mapping_table.item(0, 0).setCheckState(Qt.CheckState.Checked)
             window.run_analysis()
             name = window.mapping_table.item(0, 1).text()
             picker.setCurrentText("Alias")
@@ -783,6 +788,7 @@ class WorkbookPerformanceTests(unittest.TestCase):
                 reference[f"CD{index} Reference"] = raw[f"CD{index}"] * 1.03 + 2
             window.set_reference_frame(reference)
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             window.run_analysis()
             removed_name = window.mapping_table.item(0, 1).text()
             kept_name = window.mapping_table.item(1, 1).text()
@@ -928,6 +934,7 @@ class WorkbookPerformanceTests(unittest.TestCase):
                 raw[f"Unmapped parameter {column}"] = np.arange(6000.) + column
             window.set_reference_frame(pd.DataFrame({"CD Reference": raw["CD"] * 1.03 + 2}))
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             window.group_controls.restore({"enabled": True, "mark_enabled": False,
                 "data_selection": {"records": [{"key": key, "id": str(i)} for i, key in enumerate(row_ids(raw))],
                                    "excluded": ["19"]}},
@@ -973,6 +980,7 @@ class WorkbookPerformanceTests(unittest.TestCase):
                 raw[f"Unmapped parameter {column}"] = np.arange(6000.) + column
             window.set_reference_frame(pd.DataFrame({"CD Reference": raw["CD"] * 1.03 + 2}))
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             window.group_controls.restore({"enabled": True, "mark_enabled": False,
                 "data_selection": {"records": [{"key": key, "id": str(i)} for i, key in enumerate(row_ids(raw))],
                                    "excluded": ["19"]}}, pd.DataFrame({"TestFlag": [0] * len(raw)}))
@@ -1050,6 +1058,7 @@ class WorkbookPerformanceTests(unittest.TestCase):
                 raw[f"Additional parameter {column}"] = np.arange(6000.) + column + 1
             window.set_reference_frame(pd.DataFrame({"CD Reference": raw["CD"] * 1.03 + 2}))
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             window.group_controls.restore({"enabled": True, "mark_enabled": False,
                 "data_selection": {"records": [{"key": key, "id": str(i)} for i, key in enumerate(row_ids(raw))],
                                    "excluded": ["19"]}}, pd.DataFrame({"TestFlag": [0] * len(raw)}))
@@ -1228,6 +1237,7 @@ class WorkbookPerformanceTests(unittest.TestCase):
             window.match_type.setCurrentText("NOVA")
             window.set_reference_frame(pd.DataFrame({"CD Reference": [4., 6., 8.]}))
             window.set_raw_frame(pd.DataFrame({"Wafer ID": ["001"] * 3, "Die Seq": [1, 2, 3], "CD": [1., 2., 3.]}))
+            configure_match_fixture(window)
             window.group_controls.restore({"enabled": True, "mark_enabled": False},
                                           pd.DataFrame({"TestFlag": [0, 0, 0]}))
             window.run_analysis()
@@ -1253,6 +1263,7 @@ class WorkbookPerformanceTests(unittest.TestCase):
         try:
             window.set_reference_frame(pd.DataFrame({"CD Reference": [4., 6., 8.]}))
             window.set_raw_frame(pd.DataFrame({"Wafer ID": ["001"] * 3, "Die Seq": [1, 2, 3], "CD": [1., 2., 3.]}))
+            configure_match_fixture(window)
             window.run_analysis()
             window.raw_model.edit({(1, 2): "2.000", (2, 2): "3.000", (3, 2): "4.000"})
             # Do not process the queued auto-analysis before the user's export.
@@ -1344,6 +1355,7 @@ class WorkbookPerformanceTests(unittest.TestCase):
                 raw[f"Metadata {column}"] = "retained"
             window.set_reference_frame(pd.DataFrame({"CD Reference": x * 1.03 + 2}))
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             window.group_controls.restore({"enabled": True, "mark_enabled": False,
                 "combined_groups": [{"id": "combined:ab", "name": "Heads A+B", "members": ["All:0", "All:1"]}]},
                 pd.DataFrame({"TestFlag": np.repeat([0, 1, 2] * 100, 20)}))
@@ -1671,6 +1683,7 @@ class WorkbookPerformanceTests(unittest.TestCase):
                 raw[f"Additional {column}"] = np.arange(9000.)
             window.set_reference_frame(pd.DataFrame({"CD Reference": raw["CD"] * 1.03 + 2}))
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             window.group_controls.restore({"enabled": True, "mark_enabled": False},
                                           pd.DataFrame({"TestFlag": [0] * len(raw)}))
             start = perf_counter()
@@ -1703,6 +1716,7 @@ class WorkbookPerformanceTests(unittest.TestCase):
                                 "Die Seq": list(range(1, 7)) * 2, "CD": x})
             window.set_reference_frame(pd.DataFrame({"CD Reference": x * 1.03 + 2}))
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             window.group_controls.restore({
                 "enabled": False, "mark_enabled": False,
                 "data_selection": {"records": [{"key": key, "id": str(i)} for i, key in enumerate(row_ids(raw))],
@@ -1798,6 +1812,7 @@ class WorkbookPerformanceTests(unittest.TestCase):
                                 "Die Seq": list(range(1, 7)) * 2, "CD": x})
             window.set_reference_frame(pd.DataFrame({"CD Reference": x * 1.03 + 2}))
             window.set_raw_frame(raw)
+            configure_match_fixture(window)
             ids = row_ids(raw)
             window.group_controls.restore({
                 "mark_enabled": True, "mark_rows": {"New": list(ids[6:])},

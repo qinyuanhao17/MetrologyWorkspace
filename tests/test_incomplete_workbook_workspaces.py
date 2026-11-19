@@ -10,6 +10,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 from metrology_app.matching_window import MatchingWindow
+from tests.match_fixtures import configure_match_fixture
 
 APP = QApplication.instance() or QApplication([])
 
@@ -30,6 +31,7 @@ class IncompleteWorkbookWorkspaceTests(unittest.TestCase):
                             "Lot ID": ["Lot-01"] * 3, "CD": ["1.000", "2.000", "3.000"],
                             "Empty": ["", "", ""]})
         window.set_raw_frame(raw)
+        configure_match_fixture(window)
         state = dict(window.group_controls.state)
         state["mark_enabled"] = True
         window.group_controls.restore(state)
@@ -50,6 +52,7 @@ class IncompleteWorkbookWorkspaceTests(unittest.TestCase):
                             ["", "", "3.000", ""]], columns=["", "", "CD", "Unused"])
         window.set_reference_frame(reference)
         window.set_raw_frame(raw)
+        configure_match_fixture(window)
         self.assertEqual(window.reference_frame.columns.tolist(), ["CD Reference"])
         self.assertEqual(window.raw_frame.columns.tolist(), ["CD"])
         self.assertEqual(window.mapping_table.rowCount(), 1)
@@ -99,6 +102,7 @@ class IncompleteWorkbookWorkspaceTests(unittest.TestCase):
                             "CD": ["1.000", "2.000", "3.000"]})
         window.set_reference_frame(reference)
         window.set_raw_frame(raw)
+        configure_match_fixture(window)
         self.assertTrue(window.run_action.isEnabled())
         result = window.run_analysis()
         self.assertEqual(result.card("CD").valid_pairs, 2)

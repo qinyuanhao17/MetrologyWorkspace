@@ -1384,13 +1384,13 @@ class MainWindow(QMainWindow):
                     keys = list(participation_source_keys(frame.reset_index(drop=True)))
                 except ValueError:
                     keys = []
-                exclusions = set()
-                for position, key in enumerate(keys):
-                    if key in previous_excluded:
-                        exclusions.add(key)
-                    elif position < len(previous_keys) and previous_keys[position] in previous_excluded:
-                        exclusions.add(key)
-                self._local_selection_excluded = exclusions
+                surviving_keys = set(keys)
+                old_keys = set(previous_keys)
+                replacements = {
+                    old: new for old, new in zip(previous_keys, keys)
+                    if new not in old_keys and old not in surviving_keys and old in previous_excluded
+                }
+                self._local_selection_excluded = (previous_excluded - replacements.keys()) | set(replacements.values())
                 self._refresh_selection_badge()
                 self.update_plan()
             if had_table:

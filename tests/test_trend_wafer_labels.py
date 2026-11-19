@@ -11,6 +11,7 @@ from PyQt6.QtGui import QFontMetricsF
 from PyQt6.QtWidgets import QApplication, QCheckBox, QInputDialog, QLineEdit, QPushButton
 
 from metrology_app.matching_window import MatchingWindow
+from tests.match_fixtures import configure_match_fixture
 
 
 APP = QApplication.instance() or QApplication([])
@@ -242,6 +243,7 @@ class TrendWaferLabelTests(unittest.TestCase):
         })
         self.parent.set_reference_frame(pd.DataFrame({"CD Reference": [2 * value for value in range(1, 13)]}))
         self.parent.set_raw_frame(self.raw)
+        configure_match_fixture(self.parent)
         self.parent.run_analysis()
 
     @staticmethod

@@ -12,6 +12,7 @@ from PyQt6.QtGui import QContextMenuEvent
 
 from metrology_app.matching_window import MatchingWindow
 from metrology_app.workspace_document import same_snapshot
+from tests.match_fixtures import configure_match_fixture
 
 APP = QApplication.instance() or QApplication([])
 
@@ -24,6 +25,7 @@ class NamedAnalysisWindowTests(unittest.TestCase):
         self.parent.set_raw_frame(pd.DataFrame({"Wafer ID": ["W001"] * 3, "Die Seq": ["01", "02", "03"],
                                                "FIELD X": ["-1", "0", "1"], "FIELD Y": ["0"] * 3,
                                                "CD": ["1.000", "2.000", "3.000"]}))
+        configure_match_fixture(self.parent)
         self.parent.run_analysis()
         self.parent.show()
 

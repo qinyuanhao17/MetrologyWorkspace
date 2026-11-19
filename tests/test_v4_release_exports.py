@@ -11,6 +11,7 @@ from PIL import Image
 from tests import test_excel_export as fixtures
 from metrology_app.excel_export import write_fullmap
 from metrology_app.analysis_export import append_report
+from tests.match_fixtures import configure_match_fixture
 
 
 class ReleaseExportTests(unittest.TestCase):
@@ -25,6 +26,7 @@ class ReleaseExportTests(unittest.TestCase):
             'CD': ['1.000', '8.000', '2.000', '9.000', '3.000', '10.000']})
         self.window.set_reference_frame(pd.DataFrame({'CD Reference': [3, 17, 5.2, 19, 7, 21.3]}))
         self.window.set_raw_frame(self.raw)
+        configure_match_fixture(self.window)
         self.window.set_preview_frame(self.raw.copy())
         self.window.group_controls.restore({'enabled': True,
             'head_names': {'0': 'Old MM1', '1': 'New MM2'}},
@@ -289,6 +291,7 @@ class ReleaseExportTests(unittest.TestCase):
         names = ['Old MM1', 'Old MM2', 'New MM1', "New MM2's long name"]
         self.window.set_reference_frame(pd.DataFrame({'CD Reference': [2 * i + 1 for i in range(26)]}))
         self.window.set_raw_frame(pd.DataFrame({'Wafer ID': ['W1'] * 26, 'Die Seq': range(26), 'CD': range(26)}))
+        configure_match_fixture(self.window)
         self.window.group_controls.restore({'enabled': True, 'head_names': {str(i): name for i, name in enumerate(names)}},
             pd.DataFrame({'TestFlag': flags}))
         self.window.group_controls.apply_button.click()

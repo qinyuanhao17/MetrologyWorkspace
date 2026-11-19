@@ -11,6 +11,7 @@ from PyQt6.QtGui import QContextMenuEvent
 from PyQt6.QtWidgets import QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QLineEdit, QMenu, QToolButton
 from metrology_app.matching_window import MatchingWindow
 from metrology_app.workspace_store import save_workspace
+from tests.match_fixtures import configure_match_fixture
 
 APP = QApplication.instance() or QApplication([])
 
@@ -24,6 +25,7 @@ class MappingRowControlTests(unittest.TestCase):
                                  "CD": ["1.000", "2.000", "3.000"], "Depth": ["3.000", "5.000", "7.000"]})
         self.window.set_reference_frame(self.reference)
         self.window.set_raw_frame(self.raw)
+        configure_match_fixture(self.window)
 
     def tearDown(self):
         self.window.document.force_close = True
@@ -129,9 +131,10 @@ class MappingRowControlTests(unittest.TestCase):
         self.assertEqual(failures, [])
         self.assertEqual(window.mapping_table.rowCount(), 1)
         self.assertEqual(window.mapping_table.item(0, 2).text(), "CD Reference")
-        self.assertEqual(window.selected_mappings()[0].raw_column, "CD")
         self.assertEqual(window.mapping_table.horizontalHeaderItem(3).text(), "Raw Data column")
         picker = window.mapping_table.cellWidget(0, 3)
+        self.assertEqual(picker.currentText(), "")
+        self.assertEqual(window.mapping_table.item(0, 0).checkState(), Qt.CheckState.Unchecked)
         self.assertEqual([picker.itemText(i) for i in range(picker.count())], ["", "Wafer ID", "Die Seq", "CD", "Depth"])
         pd.testing.assert_frame_equal(window.reference_model.document_frame(), self.reference)
         pd.testing.assert_frame_equal(window.raw_model.document_frame(), self.raw)
@@ -139,6 +142,7 @@ class MappingRowControlTests(unittest.TestCase):
     def test_plus_can_reuse_the_only_reference_and_preserve_both_rows_in_a_draft(self):
         window = self.window
         reference = self.reference[["CD Reference"]]
+        window.remove_parameter_mapping(1)
         window.set_reference_frame(reference)
         original = window.selected_mappings()
         self.assertTrue(window.mapping_add_button.isEnabled())
@@ -189,6 +193,7 @@ class MappingRowControlTests(unittest.TestCase):
     def test_shared_reference_comparisons_show_their_own_cards_and_reopen_independently(self):
         window = self.window
         reference = self.reference[["CD Reference"]]
+        window.remove_parameter_mapping(1)
         window.set_reference_frame(reference)
         window.mapping_table.item(0, 1).setText("CD comparison")
         self.add_mapping("CD Reference")
@@ -233,6 +238,7 @@ class MappingRowControlTests(unittest.TestCase):
     def test_context_delete_preserves_other_rows_when_the_reference_is_shared(self):
         window = self.window
         reference = self.reference[["CD Reference"]]
+        window.remove_parameter_mapping(1)
         window.set_reference_frame(reference)
         self.add_mapping("CD Reference")
         window.mapping_table.cellWidget(1, 3).setCurrentText("Depth")
@@ -252,6 +258,8 @@ class MappingRowControlTests(unittest.TestCase):
         self.assertTrue(window.mapping_add_button.isEnabled())
         self.add_mapping("CD Reference")
         self.assertEqual(window.mapping_table.rowCount(), 1)
+        window.mapping_table.cellWidget(0, 3).setCurrentText("CD")
+        window.mapping_table.item(0, 0).setCheckState(Qt.CheckState.Checked)
         self.assertEqual(window.selected_mappings()[0].raw_column, "CD")
         pd.testing.assert_frame_equal(window.reference_model.document_frame(), reference)
         pd.testing.assert_frame_equal(window.raw_model.document_frame(), self.raw)
@@ -259,6 +267,7 @@ class MappingRowControlTests(unittest.TestCase):
     def test_shared_reference_rows_survive_source_refresh_and_stage_changes(self):
         window = self.window
         reference = self.reference[["CD Reference"]]
+        window.remove_parameter_mapping(1)
         window.set_reference_frame(reference)
         self.add_mapping("CD Reference")
         window.mapping_table.cellWidget(1, 3).setCurrentText("Depth")
@@ -283,6 +292,7 @@ class MappingRowControlTests(unittest.TestCase):
 
     def test_new_unused_mapping_is_not_auto_selected_after_renaming_and_refresh(self):
         window = self.window
+        window.remove_parameter_mapping(1)
         window.set_reference_frame(self.reference[["CD Reference"]])
         window.mapping_table.item(0, 1).setText("Original calibration")
         self.add_mapping("CD Reference")

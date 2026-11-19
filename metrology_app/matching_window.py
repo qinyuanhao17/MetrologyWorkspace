@@ -2162,7 +2162,7 @@ class MatchingWindow(QMainWindow):
         match one fall back to the previous participation at the same position,
         so pasting a corrected table does not silently select everything again.
         """
-        from .match_groups import participation_ids, reuse_row_ids, row_ids
+        from .match_groups import missing_excluded_records, participation_ids, reuse_row_ids, row_ids
         current = self._active_raw_frame()
         if current.empty:
             # An empty stage has no replacement records. Keep the shared
@@ -2206,8 +2206,9 @@ class MatchingWindow(QMainWindow):
                         identifier = identifier or uuid4().hex
                         used.add(identifier)
                         records.append({"key": key, "id": identifier})
-                selection["records"] = [dict(record) for record in records]
-                known = {record["id"] for record in records}
+                retained = missing_excluded_records(selection, records)
+                selection["records"] = [dict(record) for record in records] + retained
+                known = {record["id"] for record in selection["records"]}
                 selection["excluded"] = [identifier for identifier in selection["excluded"]
                                          if identifier in known]
             if len(current) == len(previous_raw):
@@ -3479,7 +3480,16 @@ class MatchingWindow(QMainWindow):
                 if "analysis_states" in saved:
                     # An independent source can intentionally have no Workbook
                     # groups. Do not retain keys from the temporary linked input.
+                    live_states = snapshot.states
                     snapshot.states = deepcopy(saved["analysis_states"])
+                    if kind == "correlation" and hasattr(workspace, "workbook_copy_sources"):
+                        # Participation has already been prepared from the current
+                        # parent. Restore it with the tables, before replaying plots.
+                        snapshot.states["workbook_participation"] = live_states.get(
+                            "workbook_participation", {"excluded": []})
+                        local = snapshot.states.setdefault("data_selection", {})
+                        if isinstance(local, dict):
+                            local["hide_workbook_excluded"] = live_states["data_selection"]["hide_workbook_excluded"]
                 snapshot.states["ui"] = deepcopy(saved["ui"])
                 for name in snapshot.frames:
                     frame = self._workspace_frames.get(f"{scope}.{name}")
@@ -3495,8 +3505,6 @@ class MatchingWindow(QMainWindow):
                     restore_linked(snapshot)
                 else:
                     workspace.restore_workspace(snapshot)
-                if kind == "correlation" and hasattr(workspace, "workbook_copy_sources"):
-                    self._set_correlation_participation(workspace, book)
             self._workspace_states.setdefault(scope, {})["window"] = metadata
             if kind == "correlation":
                 self._offer_second_axis_settings(workspace)

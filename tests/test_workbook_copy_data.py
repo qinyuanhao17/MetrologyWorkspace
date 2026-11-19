@@ -17,6 +17,7 @@ from metrology_app.correlation_window import CorrelationWindow
 from metrology_app.matching import ParameterMapping
 from metrology_app.matching_window import MatchingWindow
 from metrology_app.workspace_store import load_workspace, save_workspace
+from tests.match_fixtures import configure_match_fixture
 
 APP = QApplication.instance() or QApplication([])
 
@@ -145,6 +146,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
         reference, raw, _mappings = self.sources()
         parent.set_reference_frame(reference)
         parent.set_raw_frame(raw)
+        configure_match_fixture(parent)
         parent.run_analysis()
         child = parent.open_correlation_workspace()
         column = child.raw_model.document_frame().columns.get_loc("CD")
@@ -172,6 +174,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
                     parent.match_type.setCurrentText(match_type)
                     parent.set_reference_frame(reference)
                     parent.set_raw_frame(raw)
+                    configure_match_fixture(parent)
                     parent.run_analysis()
                     child = parent.open_stage_workspace("preview")
                     self.addCleanup(self.close_window, child)
@@ -215,6 +218,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
                 parent.result_mode.setCurrentText(stage.title())
                 parent.set_reference_frame(reference)
                 parent.set_raw_frame(raw)
+                configure_match_fixture(parent)
                 parent.run_analysis()
                 child = parent.open_stage_workspace(stage)
                 self.addCleanup(self.close_window, child)
@@ -241,6 +245,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
         reference, raw, _mappings = self.sources()
         parent.set_reference_frame(reference)
         parent.set_raw_frame(raw)
+        configure_match_fixture(parent)
         parent.run_analysis()
         child = parent.open_correlation_workspace()
         self.addCleanup(self.close_window, child)
@@ -271,6 +276,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
         reference, raw, _mappings = self.sources()
         parent.set_reference_frame(reference)
         parent.set_raw_frame(raw)
+        configure_match_fixture(parent)
         parent.run_analysis()
         child = parent.open_correlation_workspace()
         self.addCleanup(self.close_window, child)
@@ -289,6 +295,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
         parent.match_type.setCurrentText("NOVA")
         parent.set_reference_frame(reference)
         parent.set_raw_frame(raw)
+        configure_match_fixture(parent)
         parent.run_analysis()
         child = parent.open_correlation_workspace()
         self.addCleanup(self.close_window, child)
@@ -332,6 +339,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
         parent.match_type.setCurrentText("NOVA")
         parent.set_reference_frame(reference)
         parent.set_raw_frame(raw)
+        configure_match_fixture(parent)
         parent.run_analysis()
         for child in (parent.open_stage_workspace("preview"), parent.open_correlation_workspace()):
             self.addCleanup(self.close_window, child)
@@ -348,6 +356,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
         parent.match_type.setCurrentText("NOVA")
         parent.set_reference_frame(reference)
         parent.set_raw_frame(raw)
+        configure_match_fixture(parent)
         parent.run_analysis()
         failures = []
 
@@ -421,6 +430,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
         parent.match_type.setCurrentText("NOVA")
         parent.set_reference_frame(reference)
         parent.set_raw_frame(raw)
+        configure_match_fixture(parent)
         parent.run_analysis()
         child = parent.open_stage_workspace("preview")
         self.addCleanup(self.close_window, child)
@@ -467,6 +477,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
         parent.match_type.setCurrentText("NOVA")
         parent.set_reference_frame(reference)
         parent.set_raw_frame(raw)
+        configure_match_fixture(parent)
         parent.run_analysis()
         child = parent.open_stage_workspace("preview")
         self.addCleanup(self.close_window, child)
@@ -525,6 +536,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
         parent.match_type.setCurrentText("TEM")
         parent.set_reference_frame(reference)
         parent.set_raw_frame(raw)
+        configure_match_fixture(parent)
         parent.run_analysis()
         child = parent.open_stage_workspace("preview")
         self.addCleanup(self.close_window, child)
@@ -569,6 +581,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
         parent.match_type.setCurrentText("NOVA")
         parent.set_reference_frame(reference)
         parent.set_raw_frame(raw)
+        configure_match_fixture(parent)
         parent.run_analysis()
         child = parent.open_stage_workspace("preview")
         self.addCleanup(self.close_window, child)
@@ -646,6 +659,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
         parent.match_type.setCurrentText("NOVA")
         parent.set_reference_frame(reference)
         parent.set_raw_frame(raw)
+        configure_match_fixture(parent)
         parent.run_analysis()
         original_parent = parent.workspace_snapshot()
         for kind, child in (("correlation", parent.open_correlation_workspace()),
@@ -715,6 +729,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
         reference, raw, _mappings = self.sources()
         parent.set_reference_frame(reference)
         parent.set_raw_frame(raw)
+        configure_match_fixture(parent)
         parent.run_analysis()
         child = parent.open_correlation_workspace()
         self.addCleanup(self.close_window, child)
@@ -736,6 +751,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
         parent.match_type.setCurrentText("NOVA")
         parent.set_reference_frame(reference)
         parent.set_raw_frame(raw)
+        configure_match_fixture(parent)
         parent.run_analysis()
         child = parent.open_correlation_workspace()
         self.addCleanup(self.close_window, child)
@@ -777,6 +793,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
         parent.match_type.setCurrentText("NOVA")
         parent.set_reference_frame(reference)
         parent.set_raw_frame(raw)
+        configure_match_fixture(parent)
         parent.run_analysis()
         for child in (parent.open_stage_workspace("preview"), parent.open_correlation_workspace()):
             self.addCleanup(self.close_window, child)
@@ -808,6 +825,7 @@ class WorkbookCopyDataTests(unittest.TestCase):
         parent.match_type.setCurrentText("NOVA")
         parent.set_reference_frame(reference)
         parent.set_raw_frame(raw)
+        configure_match_fixture(parent)
         parent.run_analysis()
         errors = []
 
