@@ -175,8 +175,11 @@ class SpectraLoadThread(QThread):
         self.pack_workbook = bool(getattr(parent, "_workbook_embedded", False)
                                   and getattr(parent, "spec_save_type", "embedded") == "embedded")
         from .spectra_workbook import import_compression_threads
+        logical_cpus = os.cpu_count()
         self.compression_threads = import_compression_threads(
-            os.cpu_count(), get_settings()["spectra_import_compression_threads"])[1]
+            logical_cpus, get_settings()["spectra_import_compression_threads"])[1]
+        self.read_threads = min(4, logical_cpus or 1)
+        self.active_compression_threads = 0
         self.workbook_samples = {}
 
     def run(self):
@@ -201,12 +204,13 @@ class SpectraLoadThread(QThread):
                 self.folders,
                 progress=progress,
                 cancelled=self.isInterruptionRequested,
+                workers=self.read_threads,
             )
             if self.pack_workbook and result.spectra and not result.cancelled:
                 from .spectra_workbook import compression_workers, encode_sources
-                workers = compression_workers(self.compression_threads, len(result.spectra))
+                self.active_compression_threads = compression_workers(self.compression_threads, len(result.spectra))
                 self.workbook_samples = encode_sources(
-                    result.spectra, cancelled=self.isInterruptionRequested, workers=workers,
+                    result.spectra, cancelled=self.isInterruptionRequested, workers=self.active_compression_threads,
                     progress=preparation_progress)
             if result.cancelled or self.isInterruptionRequested():
                 self.workbook_samples = {}
@@ -488,6 +492,7 @@ class SpectraViewerWindow(QMainWindow):
         self.compression_threads_combo = combo = ScrollSafeComboBox()
         label.setBuddy(combo)
         combo.setAccessibleName(label.text())
+        combo.setToolTip("Used for embedded spectra on the next import. Paths Only skips compression.")
         combo.setMaxVisibleItems(10)
         combo.view().setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         _, automatic, manual = import_compression_threads(os.cpu_count())
@@ -687,6 +692,8 @@ class SpectraViewerWindow(QMainWindow):
             legend_row.addWidget(section_widget)
             self.legends[name] = legend
             self.legend_sections[name] = section_widget
+        from .widgets import LinkedVerticalScroll
+        self._legend_scroll_link = LinkedVerticalScroll(legend_row, self.legends.values())
         legend_row.setMinimumHeight(60)
         self.legend_plot_splitter = ResizablePlotSplitter(Qt.Orientation.Vertical, default_sizes=(1,5))
         self.legend_plot_splitter.addWidget(legend_row)
@@ -716,7 +723,10 @@ class SpectraViewerWindow(QMainWindow):
             **self.plot_panels,
             "mueller": self.mueller_panel,
         }
+        from .plotting.selection import DataPointEdits
+        self._chart_edits = DataPointEdits(self._change_chart_checks, self._set_chart_flags)
         for plot_widget in self.all_plot_panels.values():
+            plot_widget.data_point_edits = self._chart_edits
             if isinstance(plot_widget, SpectrumPlotPanel):
                 plot_widget.sigDoubleClicked.connect(self.open_plot_window)
                 plot_widget.spectraSelected.connect(self.select_spectrum_keys)
@@ -806,7 +816,8 @@ class SpectraViewerWindow(QMainWindow):
         if self._load_cancel_requested:
             return
         message = f"Preparing embedded spectra {done} / {total}"
-        self.status.setToolTip(message)
+        workers = self._loader.active_compression_threads if self._loader else 0
+        self.status.setToolTip(f"{message} · {workers} compression threads" if workers else message)
         self.status.setText(message)
         self.progress.setRange(0, total)
         self.progress.setValue(done)
@@ -1364,6 +1375,15 @@ class SpectraViewerWindow(QMainWindow):
                                   visible_keys=self._checked_keys, verify_timestamp=self.verify_spectra_time_action.isChecked(),
                                   flags=self.test_flags)
 
+    def spectra_group_rows(self):
+        from .spectra_info import group_rows_in_raw_order
+
+        if self._spectra_info_source is None:
+            return None
+        raw, _reference = self._spectra_info_source()
+        return group_rows_in_raw_order(raw, self.catalog.spectra,
+                                       verify_timestamp=self.verify_spectra_time_action.isChecked())
+
     def open_spectra_info(self):
         from .spectra_info_ui import SpectraInfoWindow
         if self.info_window is None or sip.isdeleted(self.info_window):
@@ -1381,6 +1401,7 @@ class SpectraViewerWindow(QMainWindow):
         return self.info_window
 
     def _refresh_spectra_info(self):
+        self.group_options.refresh_order()
         if self.info_window is not None and not sip.isdeleted(self.info_window) and self.info_window.isVisible():
             self.info_window.refresh()
 
@@ -1604,6 +1625,20 @@ class SpectraViewerWindow(QMainWindow):
         if not self._selected_keys:
             return
         self.set_spectrum_checks({key: checked for key in self._selected_keys})
+
+    def _change_chart_checks(self, keys, checked):
+        valid = {source.key for source in self.catalog.spectra}
+        changed = {key for key in keys & valid if (key in self._checked_keys) != checked}
+        if changed:
+            self.set_spectrum_checks({key: checked for key in changed})
+        return changed
+
+    def _set_chart_flags(self, keys):
+        from .plotting.selection import ask_test_flag
+
+        value = ask_test_flag(self)
+        if value is not None:
+            self.set_test_flags({key: int(value or 0) for key in keys})
 
     def set_spectrum_checks(self, updates):
         valid = {s.key for s in self.catalog.spectra}

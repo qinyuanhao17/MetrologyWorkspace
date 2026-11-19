@@ -69,7 +69,7 @@ def main():
         reference = window.open_component("reference_summary")
         app.processEvents()
         from metrology_app.auto_weighting_ocr import local_self_test
-        valid = (wafer.tabs.count() == 3 and correlation.tabs.count() == 4
+        valid = (wafer.tabs.count() == 3 and correlation.tabs.count() == 5
                  and matching.mode_tabs.count() == 2 and dynamic.tabs.count() == 3
                  and writer.tabs.count() == 2 and spectra.tree.columnCount() > 0
                  and reference.vendor.count() == 4 and local_self_test())

@@ -1593,8 +1593,11 @@ class WorkbookPerformanceTests(unittest.TestCase):
             for _ in range(3):
                 self.assertFalse(child.document.is_dirty())
             elapsed = perf_counter() - start
-            child.set_second_axis_ratio(2.75)
-            self.assertFalse(child.document.is_dirty(), "Shared axes are not child-local edits")
+            initial_ratio = child.sequence_page.axis_ratio_limit()
+            child.sequence_page.restore_axis_ratio(2.75)
+            self.assertTrue(child.document.is_dirty(), "The child owns its Trend Y axis settings")
+            child.sequence_page.restore_axis_ratio(initial_ratio)
+            self.assertFalse(child.document.is_dirty())
             child.raw_model.edit({(1, 2): "9.999"})
             self.assertTrue(child.document.is_dirty())
             child.raw_model.undo.undo()

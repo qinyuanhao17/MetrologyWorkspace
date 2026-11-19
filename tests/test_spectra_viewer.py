@@ -255,25 +255,31 @@ class SpectraViewerTreeTests(unittest.TestCase):
         self.assertEqual(maps.wafer_plots, original)
         self.assertIn("Applied to 1", maps.statusBar().currentMessage())
 
-    def test_die_map_double_click_toggles_checks_without_recreating_plots(self):
-        self.window.uncheck_all_spectra()
+    def test_die_map_double_click_remove_and_shift_double_click_uncheck(self):
+        self.window.check_all_spectra()
         self.window.show()
         maps = self.window.open_wafer_map()
         QTest.qWait(100)
-        plot = next(iter(maps.wafer_plots.values()))
-        self.assertEqual(self.window.open_map_button.text(), "Open Die Map")
-        self.assertEqual(maps.windowTitle(), "Spectrum Die Map")
+        wafer, plot = next(iter(maps.wafer_plots.items()))
         spectrum = self.window.catalog.spectra[0]
-        for expected in (True, False):
-            # Qt lays out axes when paint updates resume. Target the current
-            # marker position after that event turn, as an actual user would.
+
+        def double_click(modifier):
             QTest.qWait(20)
             position = plot.plot.mapFromScene(plot.plot.getViewBox().mapViewToScene(QPointF(spectrum.x_mm, spectrum.y_mm)))
-            QTest.mouseDClick(plot.plot.viewport(), Qt.MouseButton.LeftButton, pos=position)
-            QTest.mouseRelease(plot.plot.viewport(), Qt.MouseButton.LeftButton, pos=position)
+            QTest.mouseDClick(plot.plot.viewport(), Qt.MouseButton.LeftButton, modifier, pos=position)
+            QTest.mouseRelease(plot.plot.viewport(), Qt.MouseButton.LeftButton, modifier, pos=position)
             APP.processEvents()
-            self.assertEqual(spectrum.key in {s.key for s in self.window.checked_spectra()}, expected)
-            self.assertIs(next(iter(maps.wafer_plots.values())), plot)
+
+        double_click(Qt.KeyboardModifier.NoModifier)
+        self.assertIn(spectrum.key, {s.key for s in self.window.checked_spectra()})
+        self.assertIn(spectrum.key, maps._removed_map_keys[wafer])
+        actions = {a.text(): a for a in maps.build_selection_menu(wafer).actions()}
+        actions["Restore Removed Selection"].trigger()
+        double_click(Qt.KeyboardModifier.ShiftModifier)
+        self.assertNotIn(spectrum.key, {s.key for s in self.window.checked_spectra()})
+        actions = {a.text(): a for a in maps.build_selection_menu(wafer).actions()}
+        actions["Restore Unchecked Selection"].trigger()
+        self.assertIn(spectrum.key, {s.key for s in self.window.checked_spectra()})
 
     def setUp(self):
         self.window = SpectraViewerWindow()
@@ -668,6 +674,16 @@ class SpectraViewerTreeTests(unittest.TestCase):
                             Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
         APP.sendEvent(legend.viewport(), wheel)
         self.assertGreater(legend.verticalScrollBar().value(), 0)
+        self.assertEqual(self.window.legends["Mueller"].verticalScrollBar().value(), 0)
+        ctrl_wheel = QWheelEvent(position, QPointF(legend.viewport().mapToGlobal(position.toPoint())),
+                                 QPoint(), QPoint(0, -120), Qt.MouseButton.NoButton,
+                                 Qt.KeyboardModifier.ControlModifier, Qt.ScrollPhase.NoScrollPhase, False)
+        APP.sendEvent(legend.viewport(), ctrl_wheel)
+        bar = legend.verticalScrollBar()
+        progress = bar.value() / bar.maximum()
+        for item in self.window.legends.values():
+            peer = item.verticalScrollBar()
+            self.assertEqual(peer.value(), round(progress * peer.maximum()))
 
     def test_curve_and_blank_clicks_sync_selection_with_map_and_floating_plot(self):
         spectrum = make_spectrum(1)

@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import QApplication, QScrollArea
 from PyQt6.QtCore import QPoint, QPointF, Qt
 from PyQt6.QtTest import QTest
 
+from metrology_app.appearance import SELECTION_HIGHLIGHT_COLOR
 from metrology_app.spectra_map import SpectraMapWindow
 from tests.test_spectra_viewer import make_spectrum
 
@@ -61,6 +62,8 @@ class SpectraMapWindowTests(unittest.TestCase):
         self.settle_page(1)
         plot = next(iter(self.window.wafer_plots.values()))
         self.assertEqual(plot.summary_label.text(), "2 points · 1 checked · 1 selected")
+        self.assertEqual(plot.selection.opts["pen"].color().name().upper(),
+                         SELECTION_HIGHLIGHT_COLOR.upper())
         size, ranges = plot.size(), plot.plot.getViewBox().viewRange()
         self.window.update_checks({first.key, second.key}, selected_keys=set())
         self.assertEqual(plot.summary_label.text(), "2 points · 2 checked · 0 selected")
@@ -90,6 +93,65 @@ class SpectraMapWindowTests(unittest.TestCase):
         self.assertEqual(updates[-1], {spectra[1].key: False})
         actions["Check Unselected"].trigger()
         self.assertEqual(updates[-1], {spectra[1].key: True})
+
+    def test_selection_menu_matches_the_concise_spectra_order(self):
+        spectra = (make_spectrum(1), make_spectrum(2))
+        self.window.set_data(spectra, checked_keys={s.key for s in spectra},
+                             selected_keys={spectra[0].key})
+        menu = self.window.build_selection_menu(("W1", "L1", "P1"))
+        texts = [None if action.isSeparator() else action.text() for action in menu.actions()]
+        self.assertEqual(texts, [
+            "Check All Spectra",
+            "Uncheck All Spectra",
+            None,
+            "Check Selected",
+            "Uncheck Selected",
+            "Check Unselected",
+            "Uncheck Unselected",
+            "Restore Unchecked Selection",
+            "Apply Check To Similar Wafer",
+            None,
+            "Remove Selection",
+            "Restore Removed Selection",
+            None,
+            "Apply Remove to Uncheck",
+            "Restore Applied Unchecks",
+            None,
+            "Set as BSL",
+            "Clear BSL",
+            "Highlight",
+            "Clear Highlight",
+            "Set Mark",
+            "Set Test Flag",
+            None,
+            "Export Checked Spectra…",
+        ])
+
+    def test_map_set_mark_targets_the_context_wafer_not_the_selected_point(self):
+        from PyQt6.QtWidgets import QMenu
+        spectra = (make_spectrum(1), make_spectrum(2), make_spectrum(1, wafer="W2"))
+        self.window.set_data(spectra, checked_keys={s.key for s in spectra},
+                             selected_keys={spectra[0].key})
+        captured = []
+
+        class Owner:
+            def __init__(self):
+                self.group_options = self
+
+            def build_tree_menu(self, _wafer=None):
+                return QMenu()
+
+            @staticmethod
+            def mark_menu(parent, keys=None):
+                captured.append(set(keys or ()))
+                parent.addMenu("Set Mark")
+
+        owner = Owner()
+        self.window.selection_menu_factory = owner.build_tree_menu
+        menu = self.window.build_selection_menu(("W1", "L1", "P1"))
+        self.assertEqual(captured, [{spectra[0].key, spectra[1].key}])
+        mark = next(action for action in menu.actions() if action.text() == "Set Mark")
+        self.assertTrue(mark.menu().isEnabled())
 
     def test_map_tiles_keep_their_size_and_use_scrollbars_when_window_shrinks(self):
         spectra = tuple(make_spectrum(1, wafer=f"W{i}") for i in range(12))
@@ -266,8 +328,6 @@ class SpectraMapWindowTests(unittest.TestCase):
         self.assertEqual(selected[-1], {spectra[i].key for i in (0, 1, 3)})
         self.assertEqual(len(plot.selection.data), 2)
         self.assertEqual(view.viewRange(), ranges)
-        drag((10, 40), (-10, 25), Qt.KeyboardModifier.ControlModifier)
-        self.assertEqual(selected[-1], {s.key for s in spectra})
         drag((-10, 25), (10, 40))
         self.assertEqual(selected[-1], {spectra[2].key})
         drag((-30, -20), (-10, 0), Qt.KeyboardModifier.ShiftModifier)
@@ -275,6 +335,9 @@ class SpectraMapWindowTests(unittest.TestCase):
         drag((30, -40), (40, -30))
         self.assertEqual(selected[-1], set())
         self.assertEqual(view.viewRange(), ranges)
+        drag((-10, 25), (10, 40), Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual(selected[-1], set())
+        self.assertLess(view.viewRange()[0][1] - view.viewRange()[0][0], ranges[0][1] - ranges[0][0])
 
     def test_map_uses_equal_aspect_and_infers_common_wafer_diameters(self):
         small = replace(make_spectrum(1, wafer="W1"), x_mm=40.0, y_mm=0.0)

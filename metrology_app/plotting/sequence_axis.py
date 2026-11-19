@@ -163,7 +163,8 @@ def space_wafer_plot(plot, spacing):
             curve.setData(x=positions, y=curve.yData)
         curve._wafer_ordinals = (source, curve.xData)
     plot._wafer_spacing = spacing
-    for axis in (plot.getAxis("bottom"), getattr(plot, "_wafer_axis", None)):
+    for axis in (plot.getAxis("bottom"), getattr(plot, "_wafer_axis", None),
+                 getattr(plot, "_group_wafer_axis", None), getattr(plot, "_combined_caption_axis", None)):
         if isinstance(axis, (SpanLabelAxis, DieSequenceAxis)):
             axis.spacing = spacing
             axis.refresh()

@@ -6,7 +6,7 @@ from tempfile import TemporaryDirectory
 import json
 
 import pandas as pd
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QPoint, QTimer, Qt
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QDoubleSpinBox
 
@@ -19,6 +19,54 @@ from tests.test_spectra_viewer import APP, make_spectrum
 
 
 class BiasDieMapTests(unittest.TestCase):
+    def test_chart_selection_marks_the_matching_die_map_point_with_a_yellow_ring(self):
+        owner = MatchingWindow()
+        owner.document.force_close = True
+        self.addCleanup(owner.close)
+        raw = pd.DataFrame({
+            "Wafer ID": ["W1"] * 4,
+            "Lot ID": ["L1"] * 4,
+            "PAD Name": ["P1"] * 4,
+            "Die Seq": [1, 2, 3, 4],
+            "X (mm)": [0, 20, 40, 60],
+            "Y (mm)": [0, 10, 20, 30],
+            "CD": [0, 1.1, 4.5, 3.2],
+        })
+        owner.set_reference_frame(pd.DataFrame({"CD Reference": [0, 1, 2, 3]}))
+        owner.result_mode.setCurrentText("Final")
+        owner.set_raw_frame(raw)
+        configure_match_fixture(owner)
+        owner.run_analysis()
+        owner.resize(1500, 950)
+        owner.show()
+        APP.processEvents()
+
+        map_window = owner.show_bias_die_map(0)
+        QTest.qWait(80)
+        map_plot = next(iter(map_window.wafer_plots.values()))
+        chart = owner.plot_groups["CD"]["plots"]["match"]
+        curve = chart.listDataItems()[0]
+        point = curve.scatter.points()[1]
+        source_row = int(curve.scatter._selection_rows[1])
+        position = chart.mapFromScene(curve.scatter.mapToScene(point.pos()))
+        QTest.mouseClick(chart.viewport(), Qt.MouseButton.LeftButton, pos=position)
+        APP.processEvents()
+
+        self.assertEqual(len(map_plot.preview.data), 1)
+        self.assertEqual(
+            map_plot.preview.opts["pen"].color().name().upper(),
+            "#F2B705",
+        )
+        preview = map_plot.preview.points()[0]
+        self.assertAlmostEqual(preview.pos().x(), float(raw.loc[source_row, "X (mm)"]))
+        self.assertAlmostEqual(preview.pos().y(), float(raw.loc[source_row, "Y (mm)"]))
+        self.assertEqual(len(map_plot.selection.data), 0)
+        self.assertFalse(map_window._selected_keys)
+
+        QTest.mouseClick(chart.viewport(), Qt.MouseButton.LeftButton, pos=QPoint(2, 2))
+        APP.processEvents()
+        self.assertEqual(len(map_plot.preview.data), 0)
+
     def test_closed_deferred_spectra_supply_metadata_coordinates_without_opening_viewer(self):
         from metrology_app.workspace_store import WorkspaceSnapshot, save_workspace, load_workspace
         owner = MatchingWindow()

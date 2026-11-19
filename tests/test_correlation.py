@@ -128,7 +128,8 @@ class CorrelationTests(unittest.TestCase):
 
             self.assertEqual(
                 [window.tabs.tabText(index) for index in range(window.tabs.count())],
-                ["1. Ref Data", "2. Raw Data", "3. Correlation", "4. Trend"],
+                ["1. Ref Data", "2. Raw Data", "3. Correlation", "4. Trend",
+                 "5. Wafer Mean / Sigma"],
             )
             self.assertEqual(tuple(window.raw_model.frame()), tuple(raw))
             self.assertEqual(
@@ -748,7 +749,7 @@ class CorrelationTests(unittest.TestCase):
                 self.assertTrue(rows, page.objectName())
                 for row in rows:
                     widgets = [row.itemAt(position).widget() for position in range(row.count())]
-                    widgets = [widget for widget in widgets if widget is not None]
+                    widgets = [widget for widget in widgets if widget is not None and widget.isVisible()]
                     self.assertLessEqual(row.minimumSize().width(), page.width(),
                                          f"{page.objectName()} toolbar needs "
                                          f"{row.minimumSize().width()} px")
@@ -1255,16 +1256,24 @@ class CorrelationTests(unittest.TestCase):
             self.assertEqual(len(set(row.sizes())), 1)
             self.assertEqual(grid.row_splitters[1].sizes(), row.sizes())
 
-            # Left drag selects a region and zooms into it.
+            # Ctrl+left drag zooms; ordinary left drag owns point selection.
             view = first.getPlotItem().getViewBox()
             self.assertEqual(view.state["mouseMode"], pg.ViewBox.RectMode)
             before = view.viewRange()
             rect = first.rect()
             start = QPoint(int(rect.width() * .3), int(rect.height() * .3))
             end = QPoint(int(rect.width() * .7), int(rect.height() * .7))
-            QTest.mousePress(first.viewport(), Qt.MouseButton.LeftButton, pos=start)
-            QTest.mouseMove(first.viewport(), end, delay=20)
-            QTest.mouseRelease(first.viewport(), Qt.MouseButton.LeftButton, pos=end)
+            QTest.mousePress(
+                first.viewport(), Qt.MouseButton.LeftButton,
+                Qt.KeyboardModifier.ControlModifier, pos=start,
+            )
+            QTest.mouseMove(
+                first.viewport(), end, delay=20,
+            )
+            QTest.mouseRelease(
+                first.viewport(), Qt.MouseButton.LeftButton,
+                Qt.KeyboardModifier.ControlModifier, pos=end,
+            )
             APP.processEvents()
             zoomed = view.viewRange()
             self.assertLess(zoomed[0][1] - zoomed[0][0], .9 * (before[0][1] - before[0][0]))
@@ -1732,11 +1741,12 @@ class CorrelationTests(unittest.TestCase):
         window = CorrelationWindow()
         try:
             window.load_path(ROOT / "sample_data" / "OCD_measurement_data.csv")
-            self.assertEqual(window.tabs.count(), 4)
+            self.assertEqual(window.tabs.count(), 5)
             self.assertEqual(window.tabs.tabText(0), "1. Ref Data")
             self.assertEqual(window.tabs.tabText(1), "2. Raw Data")
             self.assertEqual(window.tabs.tabText(2), "3. Correlation")
             self.assertEqual(window.tabs.tabText(3), "4. Trend")
+            self.assertEqual(window.tabs.tabText(4), "5. Wafer Mean / Sigma")
             self.assertGreater(window.sheet.model().rowCount(), 0)
             self.assertEqual(len(window.selection["metrics"]), 15)
             tree = window.parameter_list
@@ -1865,11 +1875,13 @@ class CorrelationTests(unittest.TestCase):
             self.assertEqual(widget.contextMenuPolicy(),
                              Qt.ContextMenuPolicy.DefaultContextMenu)
             native = widget.getPlotItem().getViewBox().getMenu(None)
+            native.aboutToShow.emit()
             texts = [action.text() for action in native.actions()]
             self.assertNotIn("叠加对比…", texts)
             self.assertNotIn("解除对比", texts)
             self.assertIn("View All", texts)
-            self.assertTrue(native.actions()[texts.index("Restore all removed points") + 1].isSeparator())
+            self.assertNotIn("Restore all removed points", texts)
+            self.assertTrue(native.actions()[texts.index("Restore Removed Selection") + 1].isSeparator())
         finally:
             window.model.undo.setClean()
             window.close()
@@ -2358,8 +2370,8 @@ class CorrelationTests(unittest.TestCase):
             self.assertIn("Raw Data · DP Raw", reference_items)
             self.assertEqual(reference_items["Reference · DP Ref"]
                              .opts["pen"].color().name(), "#ed7d31")
-            self.assertNotIn(reference_items["Raw Data · DP Raw"]
-                             .opts["pen"].color().name(), {"#ed7d31", "#5b9bd5"})
+            self.assertEqual(reference_items["Raw Data · DP Raw"]
+                             .opts["pen"].color().name(), "#5b9bd5")
             _x, compared_values = reference_items["Raw Data · DP Raw"].getData()
             np.testing.assert_allclose(compared_values, [1.2, 2.2, 3.2])
             self.assertIn("Raw Data · DP Raw", raw_items)

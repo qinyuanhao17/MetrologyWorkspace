@@ -243,11 +243,12 @@ class SpectraInfoWindow(QMainWindow):
 
 class TestFlagDialog(QDialog):
     """Marks-style per-measurement-set assignment, independent of participation."""
-    def __init__(self, viewer):
-        super().__init__(viewer)
+    def __init__(self, viewer, *, parent=None, records=None):
+        super().__init__(parent or viewer)
         self.setWindowTitle("Set Test Flag")
         self.resize(760, 700)
         self.viewer = viewer
+        self.records = tuple(viewer.catalog.spectra if records is None else records)
         self.assignments = dict(viewer.test_flags)
         layout = QVBoxLayout(self)
         from .spectra_viewer import _ViewMenu
@@ -375,7 +376,7 @@ class TestFlagDialog(QDialog):
         fields = self.group_fields()
         self.group_picker.setText(" / ".join(a.text() for a in self.group_menu.actions() if a.isChecked()) or "All spectra")
         groups = defaultdict(list)
-        for source in self.viewer.catalog.spectra:
+        for source in self.records:
             groups[tuple(str(getattr(source.identity, field)) for field in fields)].append(source.key)
         self.tree.clear()
         self.combos, self.anchor = [], None

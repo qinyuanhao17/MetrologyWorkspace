@@ -410,7 +410,6 @@ class CorrelationPage(QWidget):
 
     def __init__(self):
         super().__init__(objectName="correlationPage")
-        self.point_history = None
         self._point_input_pending = False
         settings = get_settings()
         self.frame = pd.DataFrame()
@@ -503,7 +502,7 @@ class CorrelationPage(QWidget):
         options.addWidget(self.columns)
         self.reset_button = QPushButton("Reset views")
         self.reset_button.setToolTip(
-            "Ctrl+scroll to zoom · Drag a box to zoom · Right-drag to pan.\n"
+            "Ctrl+scroll to zoom · Ctrl+left-drag to zoom · Left-drag to select · Right-drag to pan.\n"
             "Ordinary scrolling moves the page.\n"
             "Reset returns every plot to its original range."
         )
@@ -1529,12 +1528,12 @@ class CorrelationPage(QWidget):
             widget.deleteLater()
             raise RuntimeError('Correlation rendering cancelled')
         widget.point_double_clicked.connect(lambda row: self._emit_point_double_clicked(widget, row))
-        if self.point_history is not None:
-            widget.add_point_edit_menu(self.point_history)
+        widget.point_selection.data = getattr(self, 'data_point_edits', None)
+        widget.point_selection.scope = ('Correlation', key[:-1])
         widget.setMinimumSize(180, 310)
-        widget.setToolTip("Ctrl+scroll to zoom · Drag a box to zoom · Right-drag to pan · "
+        widget.setToolTip("Ctrl+scroll to zoom · Ctrl+left-drag to zoom · Left-drag to select · Right-drag to pan · "
                           "Ordinary scrolling moves the page · "
-                          "Double-click a point to change Data selection · "
+                          "Double-click to remove · Shift+double-click to uncheck · "
                           "Double-click the background to fit this plot · Reset views restores all plots")
         plot = widget.getPlotItem()
         plot.setTitle(None)   # the QLabel above the plot owns the heading

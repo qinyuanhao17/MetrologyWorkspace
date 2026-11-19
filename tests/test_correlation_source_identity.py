@@ -68,7 +68,7 @@ class CorrelationSourceIdentityTests(unittest.TestCase):
         APP.processEvents()
         plot, = page.plot_widgets
         scatter = plot.listDataItems()[0]
-        self.double_click(plot, scatter, 3, 8)
+        self.double_click(plot, scatter, 3, 8, Qt.KeyboardModifier.ShiftModifier)
 
         dialog = window._data_selection_dialog()
         keys = participation_source_keys(raw)
@@ -96,33 +96,27 @@ class CorrelationSourceIdentityTests(unittest.TestCase):
         other_data = other.listDataItems()[0].yData.copy()
         item, = plot.listDataItems()
         original = item.yData.copy()
-        self.double_click(plot, item.scatter, item.xData[0], item.yData[0])
+        self.double_click(plot, item.scatter, item.xData[0], item.yData[0], Qt.KeyboardModifier.ShiftModifier)
 
         self.assertEqual(window._table_participating_positions("reference", reference), {0, 1})
         self.assertEqual(window.participating_positions(raw), set(range(len(raw))))
         self.assertIs(page.stack.currentWidget(), page.interactive_scroll)
         self.assertEqual(page.plot_widgets, [plot, other])
-        self.assertEqual(item.yData.tolist(), original[1:].tolist())
         self.assertEqual(other.listDataItems()[0].yData.tolist(), other_data.tolist())
-        restored = CorrelationWindow()
-        self.addCleanup(self.close_window, restored)
-        restored.restore_workspace(window.workspace_snapshot())
-        self.assertEqual(restored._table_participating_positions("reference", reference), {0, 1})
+        saved = CorrelationWindow()
+        self.addCleanup(self.close_window, saved)
+        saved.restore_workspace(window.workspace_snapshot())
+        self.assertEqual(saved._table_participating_positions("reference", reference), {0, 1})
 
         menu = plot.getViewBox().getMenu(None)
+        menu.aboutToShow.emit()
         actions = {action.text(): action for action in menu.actions()}
         self.assertIn("View All", actions)
-        actions["Undo point removal"].trigger()
-        self.assertEqual(item.yData.tolist(), original.tolist())
+        actions["Restore Unchecked Selection"].trigger()
         self.assertEqual(window._table_participating_positions("reference", reference), {0, 1, 2})
-        redo = next(action for action in menu.actions() if action.text() == "Redo point removal")
-        redo.trigger()
-        self.assertEqual(item.yData.tolist(), original[1:].tolist())
-        actions["Restore all removed points"].trigger()
-        self.assertEqual(item.yData.tolist(), original.tolist())
         self.assertIs(page.stack.currentWidget(), page.interactive_scroll)
 
-    def test_removing_points_only_repaints_clicked_correlation_charts_and_undo_restores_them(self):
+    def test_removing_points_changes_only_clicked_chart_until_restored(self):
         from unittest.mock import patch
         window = self.window
         raw = pd.DataFrame({'Wafer ID': ['W1'] * 5, 'Die Seq': [5, 4, 3, 2, 1],
@@ -147,15 +141,15 @@ class CorrelationSourceIdentityTests(unittest.TestCase):
             QTest.qWait(170)
             self.assertIs(page.stack.currentWidget(), page.interactive_scroll)
             self.assertEqual(page.plot_widgets, plots)
-            self.assertEqual([len(plot.listDataItems()[0].getData()[0]) for plot in plots], [4, 4, 5])
-            self.assertEqual(window.participating_positions(raw), {0, 2, 4})
-            menu = first.getViewBox().getMenu(None)
-            undo = next(action for action in menu.actions() if action.text() == "Undo point removal")
-            undo.trigger()
-            self.assertEqual([len(plot.listDataItems()[0].getData()[0]) for plot in plots], [4, 5, 5])
-            reset = next(action for action in menu.actions() if action.text() == "Restore all removed points")
-            reset.trigger()
+            import numpy as np
+            self.assertEqual([int(np.isfinite(plot.listDataItems()[0].getData()[1]).sum())
+                              for plot in plots], [4, 4, 5])
             self.assertEqual(window.participating_positions(raw), set(range(len(raw))))
+            for plot in (first, second):
+                menu = plot.getViewBox().getMenu(None)
+                menu.aboutToShow.emit()
+                action = next(action for action in menu.actions() if action.text() == "Restore Removed Selection")
+                action.trigger()
             draw.assert_not_called()
         for plot, (x, y) in zip(plots, data):
             restored_x, restored_y = plot.listDataItems()[0].getData()
@@ -163,9 +157,11 @@ class CorrelationSourceIdentityTests(unittest.TestCase):
             self.assertEqual(restored_y.tolist(), y.tolist())
 
     @staticmethod
-    def double_click(plot, scatter, x, y):
+    def double_click(plot, scatter, x, y, modifiers=Qt.KeyboardModifier.NoModifier):
+        # Finish any axis layout queued by the first paint before mapping the point.
+        APP.processEvents()
         position = plot.mapFromScene(scatter.mapToScene(QPointF(x, y)))
-        QTest.mouseDClick(plot.viewport(), Qt.MouseButton.LeftButton, pos=position)
+        QTest.mouseDClick(plot.viewport(), Qt.MouseButton.LeftButton, modifiers, pos=position)
 
     @staticmethod
     def close_window(window):
@@ -267,6 +263,17 @@ class CorrelationSourceIdentityTests(unittest.TestCase):
             page.draw_plot()
             self.assertTrue(page.ready, page.status.text())
         pd.testing.assert_frame_equal(w.reference_model.document_frame(), reference)
+
+    def test_chart_flag_writes_independent_reference_and_raw_rows(self):
+        window = self.window
+        raw = pd.DataFrame({'Wafer ID': ['W1'] * 5, 'Die Seq': range(5), 'CD': range(5)})
+        reference = raw.iloc[:3].assign(CD=[24, 32, 45])
+        window.set_table(raw, 'Raw Data')
+        window.set_reference_table(reference)
+        window.recognize()
+        window._chart_edits.set_flag({1, len(reference) + 3}, "12")
+        self.assertEqual(window.reference_model.document_frame()['TestFlag'].tolist(), ['', '12', ''])
+        self.assertEqual(window.raw_model.document_frame()['TestFlag'].tolist(), ['', '', '', '12', ''])
 
     def test_imported_ref_identity_is_not_replaced_by_existing_or_later_raw(self):
         w = self.window

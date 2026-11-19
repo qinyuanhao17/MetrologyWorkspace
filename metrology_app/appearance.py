@@ -13,6 +13,8 @@ from PyQt6.QtWidgets import QApplication, QLabel
 # Correlation observations and regressions use the same colors in every workspace.
 CORRELATION_POINT_COLOR = "#4f8bd6"
 CORRELATION_FIT_COLOR = "#e09f3e"
+SELECTION_HIGHLIGHT_COLOR = "#E53935"
+SELECTION_LINKED_COLOR = "#F2B705"
 TREND_LINE_WIDTH = 2.5
 TREND_MARKER_SIZE = 6
 

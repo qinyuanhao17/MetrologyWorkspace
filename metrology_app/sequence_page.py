@@ -57,6 +57,8 @@ COMPARE_COLOURS = (
     "#666666",  # neutral grey
 )
 COMPARE_CONTROL_WIDTH = 180
+RAW_COMPARE_COLOURS = ("#5b9bd5", "#2f75b5", "#00b0f0", "#4472c4", "#9dc3e6")
+REF_COMPARE_COLOURS = ("#ed7d31", "#c55a11", "#f4b183", "#ffc000", "#a65a00")
 
 
 class CompareComboBox(QComboBox):
@@ -123,8 +125,9 @@ class SequencePage(QWidget):
 
     point_double_clicked = pyqtSignal(object, int)
 
-    def __init__(self):
+    def __init__(self, *, defer_initial_input=False):
         super().__init__(objectName="sequencePage")
+        self.plot_decimals = 3
         settings = get_settings()
         self.frame = pd.DataFrame()
         self.selection = {}
@@ -148,7 +151,6 @@ class SequencePage(QWidget):
         self.base_size = (1100, 650)
         self.wafer_column = None
         self.die_column = None
-        self.point_history = None
         self._point_input_pending = False
         self.compare_timer = QTimer(self)
         self.compare_timer.setSingleShot(True)
@@ -196,7 +198,7 @@ class SequencePage(QWidget):
         options.addWidget(self.columns)
         self.reset_button = QPushButton("Reset views")
         self.reset_button.setToolTip(
-            "Ctrl+scroll to zoom · Drag a box to zoom · Right-drag to pan.\n"
+            "Ctrl+scroll to zoom · Ctrl+left-drag to zoom · Left-drag to select · Right-drag to pan.\n"
             "Ordinary scrolling moves the page.\n"
             "Reset returns every curve to its original range."
         )
@@ -277,7 +279,7 @@ class SequencePage(QWidget):
         box_layout.setContentsMargins(0, 0, 0, 0)
         box_bar = QHBoxLayout()
         box_bar.addStretch()
-        self.selector = MapSelector()
+        self._selector = MapSelector()
         for title, handler in (("All", self.selector.selectAll), ("None", self.selector.clearSelection)):
             control = QPushButton(title, objectName="subtle")
             control.clicked.connect(handler)
@@ -290,6 +292,30 @@ class SequencePage(QWidget):
         layout.addWidget(self.status)
         self.selector.changed.connect(self.selector_changed)
         self.invalidate()
+        self._defer_input = defer_initial_input
+        self._selector_waiting = False
+
+    @property
+    def selector(self):
+        self._apply_waiting_input()
+        return self._selector
+
+    def _apply_waiting_input(self):
+        if getattr(self, "_selector_waiting", False):
+            self._selector_waiting = self._defer_input = False
+            self._update_selector()
+
+    def showEvent(self, event):
+        self._apply_waiting_input()
+        super().showEvent(event)
+
+    def selector_state(self):
+        if not self._selector_waiting:
+            return self._selector.selected_cells(), self._selector.pending_draw
+        wafers, metrics = self.selection["wafers"], self.selection["metrics"]
+        cells = {(wafer, metric) for wafer in wafers for metric in metrics}
+        available = self.selection.get("available_cells")
+        return (cells if available is None else cells & available), True
 
     def draw_state(self):
         """Return the last successful curve-box selection for WKB persistence."""
@@ -367,6 +393,16 @@ class SequencePage(QWidget):
         self.selection = selection.copy()
         self.wafer_column = find_column(frame, ("waferid", "wafer", "waferno"))
         self.die_column = find_column(frame, ("dieseq", "diesequence", "diesequenceno", "dieid"))
+        if self._defer_input and not self.isVisible():
+            # There are no box edits before the first visit. Build the grid
+            # using the latest data when the page first needs the selector.
+            self._selector_waiting = bool(selection.get("wafers") and selection.get("metrics"))
+            return
+        self._selector_waiting = self._defer_input = False
+        self._update_selector()
+
+    def _update_selector(self):
+        selection = self.selection
         self._updating_input = True
         try:
             self.selector.set_array(
@@ -511,6 +547,49 @@ class SequencePage(QWidget):
             target.append(current["start"] - .5)
         return groups, wafers
 
+    def _classification_spans(self, groups, edges):
+        """Optional Wafer identities above base groups, with combined captions below."""
+        show_wafer = self.selection.get("wafer_caption_keys", ())
+        combined = self.selection.get("combined_labels", {})
+        pairs = list(zip(groups, edges))
+        identities = [(group, edge) for group, edge in pairs if group["key"] in show_wafer]
+        captions = (wafer_identity_labels(
+            self.frame, [group["source_positions"] for group, _ in identities], self.wafer_column,
+            show_pad=self.identity_labels["pad"], show_lot=self.identity_labels["lot"]) if identities else [])
+        wafers = [(start, end, caption) for (_, (start, end)), caption in zip(identities, captions)]
+        combinations = []
+        for group, (start, end) in pairs:
+            label = combined.get(group["key"], "")
+            if label and combinations and combinations[-1][1:] == (start, label):
+                combinations[-1] = (combinations[-1][0], end, label)
+            elif label:
+                combinations.append((start, end, label))
+        return wafers, combinations
+
+    def _add_export_caption_row(self, axis, spans, offset, base, *, wafer=False):
+        renderer = self.figure.canvas.get_renderer()
+        font = axis.xaxis.label.get_fontproperties().copy()
+        font.set_size(max(6, base - 2))
+        ticks = span_label_ticks(
+            spans, axis.get_xlim(), axis.bbox.width,
+            lambda text: renderer.get_text_width_height_descent(text, font, False)[0],
+            optional_fields=wafer)
+        transform = axis.get_xaxis_transform() + ScaledTranslation(
+            0, -offset / 72, self.figure.dpi_scale_trans)
+        for position, caption in ticks:
+            axis.text(position, 0, caption, transform=transform, ha="center", va="top",
+                      color="#5f6368", fontproperties=font, clip_on=False)
+
+    @staticmethod
+    def _add_caption_axis(widget, spans, row, *, optional_fields=False):
+        axis = SpanLabelAxis(spans, font=widget.font(), optional_fields=optional_fields)
+        axis.setPen(pg.mkPen(QColor(0, 0, 0, 0)))
+        axis.setTextPen(pg.mkPen("#5f6368"))
+        widget.getPlotItem().layout.addItem(axis, row, 1)
+        axis.linkToView(widget.getViewBox())
+        axis.refresh()
+        return axis
+
     def set_identity_labels(self, options):
         """Update wafer text in place; Group names, curves and zoom stay intact."""
         if self.identity_labels == options:
@@ -518,11 +597,18 @@ class SequencePage(QWidget):
         self.identity_labels = dict(options)
         if self.ready:
             spans = self._label_spans()
+            wafers, _ = self._classification_spans(
+                self.axis_groups, [(group["start"] - .5, group["stop"] + .5) for group in self.axis_groups])
             for widget in self.plot_widgets:
                 axis = getattr(widget, "_wafer_axis", None)
                 if axis is not None:
                     axis.spans = spans
                     axis.setToolTip(" · ".join(label for _, _, label in spans))
+                    axis.refresh()
+                axis = getattr(widget, "_group_wafer_axis", None)
+                if axis is not None:
+                    axis.spans = wafers
+                    axis.setToolTip(" · ".join(label for _, _, label in wafers))
                     axis.refresh()
             self._export_dirty = True
             self._copy_image = self._copy_dpi = None
@@ -990,6 +1076,7 @@ class SequencePage(QWidget):
             task.close()
 
     def draw_plot(self, *_, prepared=None, background_render=False):
+        self._apply_waiting_input()
         self._point_input_pending = False
         self._cancel_background_draw()
         self.input_refresh_timer.stop()
@@ -1187,9 +1274,25 @@ class SequencePage(QWidget):
         source_name, metric = comparison
         return self._source(source_name), str(metric)
 
-    @staticmethod
-    def _compare_color(index):
-        return COMPARE_COLOURS[index % len(COMPARE_COLOURS)]
+    def _comparison_colours(self, panel):
+        primary = (panel.get("source") or {}).get("color", LINE_COLOR)
+        used = {pg.mkColor(primary).name().lower()}
+        colours = []
+        for comparison in panel.get("comparisons", ()):
+            source, _metric = self._comparison_series(panel, comparison)
+            name = normalized_name((source or {}).get("name", ""))
+            palette = (RAW_COMPARE_COLOURS if "raw" in name else
+                       REF_COMPARE_COLOURS if "reference" in name else COMPARE_COLOURS)
+            color = next((value for value in (*palette, *COMPARE_COLOURS) if value not in used), None)
+            if color is None:
+                index = len(used)
+                color = pg.intColor(index, hues=360, values=11).name().lower()
+                while color in used:
+                    index += 1
+                    color = pg.intColor(index, hues=360, values=11).name().lower()
+            used.add(color)
+            colours.append(color)
+        return colours
 
     @staticmethod
     def _legend_label(source, metric):
@@ -1214,9 +1317,13 @@ class SequencePage(QWidget):
         width, height = self.base_size
         base = int(self.font_size.currentText())
         label_spans = self._label_spans()
+        wafers, combined = self._classification_spans(
+            self.axis_groups, [(group["start"] - .5, group["stop"] + .5) for group in self.axis_groups])
         # Reserve physical annotation space for every row, not just the last.
         # A fixed hspace made large-font wafer labels overlap the next title.
         label_lines = max((label.count("\n") + 1 for _, _, label in label_spans), default=1)
+        label_lines += sum(max((label.count("\n") + 1 for _, _, label in spans), default=0)
+                           for spans in (wafers, combined))
         footer = max(95, (3 * base + 12 + label_lines * max(6, base - 2) * 1.2 + 8)
                      * self.figure.dpi / 72)
         header = ((base + 1) * 1.4 + 16) * self.figure.dpi / 72
@@ -1255,7 +1362,7 @@ class SequencePage(QWidget):
                     markersize=TREND_MARKER_SIZE,
                     markerfacecolor=color, label=label,
                 )
-                plain_matplotlib_y(target)
+                plain_matplotlib_y(target, self.plot_decimals)
                 return lines, values
 
             primary_color = (panel_source["color"]
@@ -1267,7 +1374,7 @@ class SequencePage(QWidget):
             legend_lines = list(primary_lines[:1])
             secondary_axes = []
             mixed_units = set()
-            for compare_index, comparison in enumerate(comparisons):
+            for comparison, secondary_color in zip(comparisons, self._comparison_colours(panel)):
                 compare_source, secondary = self._comparison_series(
                     panel, comparison
                 )
@@ -1284,7 +1391,6 @@ class SequencePage(QWidget):
                 )
                 if spec["mixed_units"]:
                     mixed_units.update((spec["unit"], spec["secondary_unit"]))
-                secondary_color = self._compare_color(compare_index)
                 target = ax
                 if spec["kind"] == "second-axis":
                     twin = ax.twinx()
@@ -1371,6 +1477,17 @@ class SequencePage(QWidget):
                     position, label = ticks[index]
                     text.set_position((position, 0))
                     text.set_text(label)
+            if wafers or combined:
+                offset = 3 * base + 12
+                levels = max((label.count("\n") + 1 for _, _, label in wafers), default=0)
+                if wafers:
+                    self._add_export_caption_row(ax, wafers, offset, base, wafer=True)
+                    for text in texts:
+                        text.set_transform(text.get_transform() + ScaledTranslation(
+                            0, -((base + 3) * levels + 5) / 72, self.figure.dpi_scale_trans))
+                if combined:
+                    base_levels = max((label.count("\n") + 1 for _, _, label in label_spans), default=1)
+                    self._add_export_caption_row(ax, combined, offset + (base + 3) * (levels + base_levels) + 10, base)
 
     def clear_interactive(self, message=None):
         self._single_curve_layout = None
@@ -1631,12 +1748,14 @@ class SequencePage(QWidget):
         comparisons = panel.get("comparisons", ())
         chosen = self._chosen_groups(panel, groups)
         widget = InteractivePlotWidget(background="w", auto_x_range=self.x_range)
+        widget.point_selection.data = getattr(self, 'data_point_edits', None)
+        widget.point_selection.scope = ('Trend', panel_source['name'] if panel_source else None, metric)
         widget.point_double_clicked.connect(lambda row: self._emit_point_double_clicked(widget, row))
         widget.setMinimumSize(360, 280)
         widget.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
-        widget.setToolTip("Ctrl+scroll to zoom · Drag a box to zoom · Right-drag to pan · "
+        widget.setToolTip("Ctrl+scroll to zoom · Ctrl+left-drag to zoom · Left-drag to select · Right-drag to pan · "
                           "Ordinary scrolling moves the page · "
-                          "Double-click a point to change Data selection · "
+                          "Double-click to remove · Shift+double-click to uncheck · "
                           "Double-click the background to fit this curve · Reset views restores all curves")
         plot = widget.getPlotItem()
         die_ticks = self._coordinate_ticks(chosen)
@@ -1695,14 +1814,13 @@ class SequencePage(QWidget):
                 plot, metric, primary_color, legend,
                 self._legend_label(panel_source, metric), chosen,
             )
-            for compare_index, comparison in enumerate(comparisons):
+            for comparison, secondary_color in zip(comparisons, self._comparison_colours(panel)):
                 compare_source, secondary = self._comparison_series(
                     panel, comparison
                 )
                 secondary_groups = self._series_groups(
                     compare_source, secondary, groups
                 )
-                secondary_color = self._compare_color(compare_index)
                 secondary_values = self._metric_values(
                     secondary, secondary_groups
                 )
@@ -1753,29 +1871,23 @@ class SequencePage(QWidget):
         axis.setPen(pg.mkPen("#30343b"))
         axis.setTextPen(pg.mkPen("#30343b"))
         if self.axis_groups:
-            # A second, linked axis carries the wafer name under each span,
-            # so the curve itself stays one continuous line.
-            wafer_axis = SpanLabelAxis(
-                label_spans, font=widget.font(),
-                optional_fields=not self.selection.get("show_group_labels", self.selection.get("preserve_group_order")),
-            )
-            wafer_axis.setStyle(tickLength=0, tickTextOffset=4, tickFont=widget.font())
-            wafer_axis.setPen(pg.mkPen(QColor(0, 0, 0, 0)))
-            wafer_axis.setTextPen(pg.mkPen("#5f6368"))
-            plot.layout.addItem(wafer_axis, 4, 1)
-            wafer_axis.linkToView(plot.getViewBox())
-            widget._wafer_axis = wafer_axis
-            wafer_axis.refresh()
+            edges = [(group["start"] - .5, group["stop"] + .5) for group in self.axis_groups]
+            wafers, combined = self._classification_spans(self.axis_groups, edges)
+            if wafers:
+                widget._group_wafer_axis = self._add_caption_axis(widget, wafers, 4, optional_fields=True)
+            widget._wafer_axis = self._add_caption_axis(
+                widget, label_spans, 5 if wafers else 4,
+                optional_fields=not self.selection.get("show_group_labels", self.selection.get("preserve_group_order")))
+            if combined:
+                widget._combined_caption_axis = self._add_caption_axis(widget, combined, 6)
         left = plot.getAxis("left")
         if not comparisons:
             left.setPen(pg.mkPen("#30343b"))
             left.setTextPen(pg.mkPen("#30343b"))
         left.setStyle(tickFont=widget.font())
-        plain_y_axes(widget)
+        plain_y_axes(widget, self.plot_decimals)
         all_curves = widget.listDataItems() + [item for view in widget.secondary_views for item in view.addedItems
                                               if isinstance(item, pg.PlotDataItem)]
-        if self.point_history is not None:
-            widget.add_point_edit_menu(self.point_history)
         set_plot_statistics(widget, [(item.name() or title, item.yData) for item in all_curves],
                             True)
         view = plot.getViewBox()

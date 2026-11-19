@@ -96,7 +96,7 @@ class MatchGroupTests(unittest.TestCase):
             self.assertEqual([model.data(model.index(row, 2)) for row in range(1, 7)],
                              ["Old", "Old", "Old", "New", "New", "New"])
             self.assertEqual([model.data(model.index(row, 3)) for row in range(1, 7)],
-                             ["Old", "Old", "Old", "New", "New", "New"])
+                             ["Old TestFlag 0"] * 3 + ["New TestFlag 0"] * 3)
         finally:
             controls.deleteLater()
             app.processEvents()
@@ -123,7 +123,7 @@ class MatchGroupTests(unittest.TestCase):
             window.run_analysis()
             self.assertEqual(window.result.group_plan.group_keys, ("Old:0", "Old:1"))
             self.assertTrue(window.group_settings_action.isEnabled())
-            self.assertFalse(window.order_card.isHidden())
+            self.assertTrue(window.group_settings_dialog.isAncestorOf(window.order_view))
             self.assertGreaterEqual(window.results_tabs.indexOf(window.group_plot_page), 0)
             self.assertGreaterEqual(window.results_tabs.indexOf(window.wafer_groups_widget), 0)
             self.assertGreater(len(window.group_plot_page.scopes), 0)
@@ -359,7 +359,7 @@ class MatchGroupTests(unittest.TestCase):
             controls.deleteLater()
             app.processEvents()
 
-    def test_order_starts_blank_and_has_only_paired_input_rows(self):
+    def test_order_starts_at_flag_zero_and_has_only_paired_input_rows(self):
         from PyQt6.QtWidgets import QApplication
         from metrology_app.match_group_ui import GroupControls
         app = QApplication.instance() or QApplication([])
@@ -372,25 +372,26 @@ class MatchGroupTests(unittest.TestCase):
             model = controls.order_model
             model.replace_matrix([["TestFlag", "", "", ""]] + [["", "", "", ""]] * 100)
             self.assertEqual(model.rowCount(), 7)
-            self.assertEqual([model.data(model.index(1, c)) for c in range(4)], ["", "", "", ""])
-            self.assertFalse(controls.names_button.isEnabled())
+            self.assertEqual([model.data(model.index(1, c)) for c in range(4)], ["0", "", "", ""])
+            self.assertTrue(controls.names_button.isEnabled())
+            self.assertEqual(controls.available_flags(), ["0", "1", "-1"])
             model.edit({(2, 0): "1"})
             self.assertEqual([model.data(model.index(2, c)) for c in range(4)],
                              ["1", "", "", ""])
             controls.enabled.setChecked(True)
             self.assertEqual([model.data(model.index(2, c)) for c in range(4)],
                              ["1", "TestFlag 1", "", "TestFlag 1"])
-            self.assertEqual(model.data(model.index(1, 1)), "")
+            self.assertEqual(model.data(model.index(1, 1)), "TestFlag 0")
             model.undo.undo()
-            self.assertEqual(model.data(model.index(2, 1)), "")
-            self.assertFalse(controls.names_button.isEnabled())
+            self.assertEqual(model.data(model.index(2, 1)), "TestFlag 0")
+            self.assertTrue(controls.names_button.isEnabled())
             controls.mark_enabled.setChecked(True)
             self.assertEqual(model.data(model.index(1, 2)), "Old")
         finally:
             controls.deleteLater()
             app.processEvents()
 
-    def test_head_names_dialog_uses_only_entered_flags_and_retains_saved_names(self):
+    def test_head_names_dialog_uses_available_test_flags_and_retains_saved_names(self):
         from PyQt6.QtCore import QTimer
         from PyQt6.QtWidgets import QApplication, QLabel, QLineEdit
         from metrology_app.match_group_ui import GroupControls
@@ -410,18 +411,26 @@ class MatchGroupTests(unittest.TestCase):
                              pd.DataFrame({"TestFlag": [1, "", 1]}))
             QTimer.singleShot(0, confirm)
             controls.names_button.click()
-            self.assertEqual(seen, [(["TestFlag 1"], ["Saved one"])])
+            self.assertEqual(seen[0],
+                             (["TestFlag 0", "TestFlag 1", "TestFlag -1"],
+                              ["Saved zero", "Saved one", "Saved unknown"]))
             self.assertEqual(controls.state["head_names"],
-                             {"0": "Saved zero", "1": "Renamed head", "-1": "Saved unknown"})
+                             {"0": "Renamed head", "1": "Saved one", "-1": "Saved unknown"})
             controls.order_model.edit({(4, 0): "-1"})
             QTimer.singleShot(0, confirm)
             controls.names_button.click()
-            self.assertEqual(seen[-1], (["TestFlag 1", "TestFlag -1"], ["Renamed head", "Saved unknown"]))
+            self.assertEqual(seen[-1],
+                             (["TestFlag 0", "TestFlag 1", "TestFlag -1"],
+                              ["Renamed head", "Saved one", "Saved unknown"]))
             controls.restore({"head_names": {"2": "Head two", "25": "Head twenty-five"}},
                              pd.DataFrame({"TestFlag": ["2", "25"]}))
             QTimer.singleShot(0, confirm)
             controls.names_button.click()
-            self.assertEqual(seen[-1], (["TestFlag 2", "TestFlag 25"], ["Head two", "Head twenty-five"]))
+            self.assertEqual(seen[-1],
+                             (["TestFlag 0", "TestFlag 1", "TestFlag -1",
+                               "TestFlag 2", "TestFlag 25"],
+                              ["TestFlag 0", "TestFlag 1", "Unknown",
+                               "Head two", "Head twenty-five"]))
         finally:
             controls.deleteLater()
             app.processEvents()
@@ -831,16 +840,16 @@ class MatchGroupTests(unittest.TestCase):
             self.assertNotIn("Import combined…", labels)
             self.assertNotIn("Clear filters / sort", labels)
             controls = window.group_controls
-            self.assertLess(dialog.width(), 650)
-            self.assertLess(dialog.height(), 520)
-            self.assertLess(controls.names_button.y(), controls.new_button.y())
+            self.assertTrue(dialog.table.isVisible())
+            self.assertGreater(dialog.table.height(), 150)
+            self.assertEqual(controls.names_button.y(), controls.new_button.y())
+            self.assertLess(controls.names_button.x(), controls.new_button.x())
+            self.assertLess(controls.new_button.x(), dialog.set_flags_button.x())
             self.assertLess(controls.new_button.y(), controls.order.y())
             self.assertLess(controls.order.y(), controls.group_order_button.y())
-            self.assertEqual(controls.names_button.x(), controls.new_button.x())
-            self.assertEqual(controls.names_button.x(), controls.order.x())
             self.assertEqual(controls.order.x(), controls.group_order_button.x())
             buttons = dialog.findChild(QDialogButtonBox)
-            self.assertIsNotNone(buttons.button(QDialogButtonBox.StandardButton.Cancel))
+            self.assertIsNotNone(buttons.button(QDialogButtonBox.StandardButton.Close))
             self.assertIs(window.group_controls.apply_button.parentWidget(), buttons)
             self.assertGreater(window.group_controls.apply_button.mapTo(dialog, window.group_controls.apply_button.rect().center()).y(),
                                window.group_controls.order.mapTo(dialog, window.group_controls.order.rect().center()).y())
@@ -1184,7 +1193,7 @@ class MatchGroupTests(unittest.TestCase):
             restored.deleteLater()
             app.processEvents()
 
-    def test_grouped_correlation_windows_keep_only_the_four_standard_tabs(self):
+    def test_grouped_correlation_windows_keep_all_standard_tabs(self):
         from PyQt6.QtWidgets import QApplication
         from metrology_app.matching_window import MatchingWindow
         app = QApplication.instance() or QApplication([])
@@ -1206,7 +1215,8 @@ class MatchGroupTests(unittest.TestCase):
                     children.append(child)
                     self.assertEqual(
                         [child.tabs.tabText(i) for i in range(child.tabs.count())],
-                        ["1. Ref Data", "2. Raw Data", "3. Correlation", "4. Trend"],
+                        ["1. Ref Data", "2. Raw Data", "3. Correlation", "4. Trend",
+                         "5. Wafer Mean / Sigma"],
                     )
                     self.assertGreaterEqual(
                         window.results_tabs.indexOf(window.group_plot_page), 0,
@@ -1249,10 +1259,12 @@ class MatchGroupTests(unittest.TestCase):
             # Old files may still contain the deleted page's state and tab index.
             snapshot.states["group_plots"] = {"drawn": [["Old:1", "P"]], "has_drawn": True}
             snapshot.states["ui"]["selection"]["group_plots"] = snapshot.states["group_plots"]
+            snapshot.states["ui"]["selection"].pop("wafer_stats_draw", None)
+            snapshot.states["ui"]["pages"].pop("wafer_statistics_page", None)
             snapshot.states["ui"]["tab"] = 4
             copy.restore_workspace(snapshot)
             app.processEvents()
-            self.assertEqual(copy.tabs.count(), 4)
+            self.assertEqual(copy.tabs.count(), 5)
             self.assertEqual(copy.tabs.currentIndex(), 3)
             self.assertEqual(copy.sequence_page.draw_state(), drawn)
             self.assertTrue(copy.sequence_page.ready, copy.sequence_page.status.text())
@@ -1263,7 +1275,7 @@ class MatchGroupTests(unittest.TestCase):
                 loaded.restore_workspace(load_workspace(path))
                 reopened = loaded.open_correlation_workspace()
                 app.processEvents()
-                self.assertEqual(reopened.tabs.count(), 4)
+                self.assertEqual(reopened.tabs.count(), 5)
                 self.assertEqual(reopened.sequence_page.draw_state(), drawn)
                 self.assertTrue(reopened.sequence_page.ready, reopened.sequence_page.status.text())
                 self.assertEqual(pd.to_numeric(reopened.sequence_page.groups[0]["frame"]["P Reference"]).tolist(), [8., 11., 14.])

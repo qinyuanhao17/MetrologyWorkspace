@@ -532,7 +532,11 @@ class SelectionDialog(QDialog):
         removed, new_spec = dialog.removed, None
         if accepted and not removed:
             try:
-                new_spec = {"column": column, **dialog.specification()}
+                specification = dialog.specification()
+                if specification:
+                    new_spec = {"column": column, **specification}
+                else:
+                    removed = True
             except ValueError as error:
                 self.status.setText(str(error))
         dialog.deleteLater()

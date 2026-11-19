@@ -104,14 +104,18 @@ def local_ui(ui, *, readonly=False):
             ui["selection"] = dict(ui["selection"])
         if "pages" in ui:
             ui["pages"] = dict(ui["pages"])
-            if "sequence_page" in ui["pages"]:
-                page = ui["pages"]["sequence_page"] = dict(ui["pages"]["sequence_page"])
-                if "controls" in page:
-                    page["controls"] = dict(page["controls"])
+            for page_name in ("sequence_page", "wafer_statistics_page"):
+                if page_name in ui["pages"]:
+                    page = ui["pages"][page_name] = dict(ui["pages"][page_name])
+                    if "controls" in page:
+                        page["controls"] = dict(page["controls"])
+    if ui.get("selection", {}).get("trend_axis_local") is True:
+        return ui
     for key in ("trend_axis_ratio", "trend_axis_mode"):
         ui.get("selection", {}).pop(key, None)
-    for key in ("axis_ratio", "axis_mode"):
-        ui.get("pages", {}).get("sequence_page", {}).get("controls", {}).pop(key, None)
+    for page_name in ("sequence_page", "wafer_statistics_page"):
+        for key in ("axis_ratio", "axis_mode"):
+            ui.get("pages", {}).get(page_name, {}).get("controls", {}).pop(key, None)
     return ui
 
 
@@ -197,7 +201,8 @@ def legacy_match_recovery(live, baseline):
     return accepted, children
 
 
-PAGE_NAMES = ("plot_page", "radius_page", "correlation_page", "sequence_page", "dynamic_page", "dynamic_trend")
+PAGE_NAMES = ("plot_page", "radius_page", "correlation_page", "sequence_page",
+              "wafer_statistics_page", "dynamic_page", "dynamic_trend")
 CONTROL_NAMES = ("x_column", "y_column", "diameter", "color_map", "opacity", "labels", "points",
                  "contour", "point_outline", "fill_edge", "shared", "scale_bar", "font_size",
                  "resolution", "columns", "min_rsq", "page_size", "axis_ratio", "axis_mode", "zoom", "expand_wafer_ids",
@@ -236,16 +241,18 @@ def analysis_state(window):
         saved = {"controls": controls}
         if hasattr(page, "parameter_filter"):
             saved["parameter_filter"] = page.parameter_filter.parameter
-        if hasattr(page, "selector"):
-            saved["boxes"] = [[wafer, metric] for wafer, metric in sorted(
-                page.selector.selected_cells(), key=str)]
-            saved["pending_draw"] = page.selector.pending_draw
+        selector_state = getattr(page, "selector_state", None)
+        if selector_state is not None or hasattr(page, "selector"):
+            cells, pending = (selector_state() if selector_state is not None else
+                              (page.selector.selected_cells(), page.selector.pending_draw))
+            saved["boxes"] = [[wafer, metric] for wafer, metric in sorted(cells, key=str)]
+            saved["pending_draw"] = pending
         if hasattr(page, "color_range"):
             saved["color_range"] = list(page.color_range.range())
         if name == "correlation_page":
             saved["page_index"] = page.page_index
             saved["axis_directions"] = page.axis_state()
-        if name == "sequence_page":
+        if name in ("sequence_page", "wafer_statistics_page"):
             saved["overlay"] = deepcopy(page.overlay)
             saved["source_overlay"] = [
                 {"source": source, "metric": metric,
@@ -324,7 +331,7 @@ def restore_analysis_state(window, state):
             page.color_range.set_colormap(colormaps[page.color_map.currentData()])
             page.color_range.set_range(*saved["color_range"])
             page.color_range.blockSignals(False)
-        if name == "sequence_page":
+        if name in ("sequence_page", "wafer_statistics_page"):
             page.overlay = page._normalise_overlay(saved.get("overlay", {}))
             page.source_overlay = page._normalise_source_overlay(saved.get("source_overlay", []))
             page._source_overlay_initialised = True
@@ -337,7 +344,8 @@ def restore_analysis_state(window, state):
             page.restore_axis_state(saved.get("axis_directions", []))
     selection = deepcopy(state.get("selection", {}))
     for name, field in (("plot_page", "map_draw"), ("radius_page", "radius_draw"),
-                        ("correlation_page", "correlation_draw"), ("sequence_page", "trend_draw")):
+                        ("correlation_page", "correlation_draw"), ("sequence_page", "trend_draw"),
+                        ("wafer_statistics_page", "wafer_stats_draw")):
         if state.get("pages", {}).get(name, {}).get("pending_draw") and field in selection:
             selection[field]["enabled"] = False
     window.restore_selection(selection)
@@ -359,7 +367,15 @@ def restore_analysis_state(window, state):
             page.refresh()
         if name == "plot_page":
             page.apply_overlay_visibility()
-    window.tabs.setCurrentIndex(min(max(0, int(state.get("tab", 0))), window.tabs.count() - 1))
+    tab_index = min(max(0, int(state.get("tab", 0))), window.tabs.count() - 1)
+    # Before the Wafer Mean / Sigma tab existed, index 4 was the deleted
+    # Group plots page. Preserve those files' previous Trend landing page.
+    if (tab_index == 4
+            and "wafer_statistics_page" not in state.get("pages", {})
+            and ("group_plots" in state
+                 or "group_plots" in state.get("selection", {}))):
+        tab_index = 3
+    window.tabs.setCurrentIndex(tab_index)
 
 
 def _comparison_json(state):
@@ -385,6 +401,15 @@ def _same_plain_state(first, second):
     if kind is dict and other is dict:
         if len(first) != len(second):
             return None
+        if len(first) == 2:
+            # Participation rows are two-field string records. Compare their
+            # ordered keys and values directly instead of making recursive calls.
+            (key1, value1), (key2, value2) = first.items()
+            (other_key1, other_value1), (other_key2, other_value2) = second.items()
+            if (type(key1) is type(other_key1) is type(key2) is type(other_key2) is str
+                    and key1 == other_key1 and key2 == other_key2
+                    and type(value1) is type(other_value1) is type(value2) is type(other_value2) is str):
+                return value1 == other_value1 and value2 == other_value2
         equal = True
         for (k1, v1), (k2, v2) in zip(first.items(), second.items()):
             if type(k1) is not str or type(k2) is not str or k1 != k2:
@@ -400,6 +425,11 @@ def _same_plain_state(first, second):
     if kind in (list, tuple) and other in (list, tuple):
         if len(first) != len(second):
             return None
+        # The box grids contain long arrays of nested source/parameter pairs.
+        # Comparing their checked JSON is faster than dispatching each pair
+        # through Python, and retains tuple/list equivalence and exact order.
+        if len(first) >= 256 and type(first[0]) in (list, tuple) and type(second[0]) in (list, tuple):
+            return _comparison_json(first) == _comparison_json(second)
         equal = True
         for a, b in zip(first, second):
             matched = a == b if type(a) is str and type(b) is str else _same_plain_state(a, b)

@@ -31,7 +31,8 @@ from PyQt6.QtWidgets import (
 from .appearance import fit_window_to_screen, style_titlebar
 from .settings import apply_theme as apply_window_theme, get_settings, theme_stylesheet
 from .sme_spectra import SpectrumFile, natural_key
-from .spectra_plots import HIGHLIGHT_COLOR
+from .appearance import SELECTION_HIGHLIGHT_COLOR, SELECTION_LINKED_COLOR
+from .spectra_plots import HIGHLIGHT_COLOR, test_flag_color
 
 TILE_WIDTH, TILE_HEIGHT = 420, 496
 GRID_MARGIN, GRID_SPACING = 12, 12
@@ -86,7 +87,11 @@ class _PointSelectionViewBox(pg.ViewBox):
         if event.isFinish():
             self.rbScaleBox.hide()
             rect = self.childGroup.mapRectFromParent(QRectF(event.buttonDownPos(), event.pos())).normalized()
-            self.rectangleSelected.emit(rect, event.modifiers())
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                if not rect.isEmpty():
+                    self.setRange(rect=rect, padding=0)
+            else:
+                self.rectangleSelected.emit(rect, event.modifiers())
         else:
             self.updateScaleBox(event.buttonDownPos(), event.pos())
 
@@ -102,6 +107,7 @@ class _DieLabel(pg.TextItem):
 class WaferPointPlot(QWidget):
     pointSelected = pyqtSignal(object, object)
     checkRequested = pyqtSignal(object, bool)
+    removeRequested = pyqtSignal(object)
     selectionMenuRequested = pyqtSignal(object)
 
     def __init__(self, wafer: str, parent=None, *, checked_label="checked", checked_color="#3E8BD8"):
@@ -138,7 +144,7 @@ class WaferPointPlot(QWidget):
         self.plot = pg.PlotWidget(viewBox=view)
         self.plot.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         self.plot.setFixedSize(400, 400)
-        self.plot.setToolTip("Left-drag to select points. Ctrl/Shift-drag adds points; click blank space to clear selection.")
+        self.plot.setToolTip("Left-drag to select points. Shift-drag adds points; Ctrl-drag zooms; click blank space to clear selection.")
         self.plot.scene().sigMouseClicked.connect(self._scene_clicked)
         self.plot.getPlotItem().hideButtons()
         self.plot.setMenuEnabled(False)
@@ -199,11 +205,22 @@ class WaferPointPlot(QWidget):
             antialias=True,
             size=20,
             symbol="o",
-            pen=pg.mkPen("#E69F00", width=2.4),
+            pen=pg.mkPen(SELECTION_HIGHLIGHT_COLOR, width=2.4),
             brush=pg.mkBrush(None),
         )
         self.selection.setEnabled(False)
         self.plot.addItem(self.selection)
+        self.preview = pg.ScatterPlotItem(
+            antialias=True,
+            size=20,
+            symbol="o",
+            pen=pg.mkPen(SELECTION_LINKED_COLOR, width=2.4),
+            brush=pg.mkBrush(None),
+        )
+        self.preview.setZValue(21)
+        self.preview.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+        self.preview.setEnabled(False)
+        self.plot.addItem(self.preview, ignoreBounds=True)
         flag = QPainterPath()
         flag.moveTo(5, -3)
         flag.lineTo(5, -12)
@@ -225,6 +242,7 @@ class WaferPointPlot(QWidget):
         self.wafer_diameter = 300
         self._selected_keys: set[str] = set()
         self._highlighted_keys: set[str] = set()
+        self._previewed_keys: set[str] = set()
         self._spot_keys: list[tuple[str, ...]] = []
         self._checked_keys = set()
         self._participating_keys = None
@@ -293,6 +311,7 @@ class WaferPointPlot(QWidget):
         self.scatter.setData(spots)
         self.set_checked({s.key for s in spectra} if checked_keys is None else checked_keys)
         self._update_selection(selected)
+        self._update_preview()
 
         radius = max(
             (
@@ -334,6 +353,12 @@ class WaferPointPlot(QWidget):
         if set(selected_keys) == self._selected_keys:
             return
         self._update_selection(set(selected_keys))
+
+    def set_previewed(self, keys):
+        keys = set(keys)
+        if keys != self._previewed_keys:
+            self._previewed_keys = keys
+            self._update_preview()
 
     def set_checked(self, checked_keys):
         self._checked_keys = set(checked_keys)
@@ -393,7 +418,7 @@ class WaferPointPlot(QWidget):
             # a mixed point shows both small flags rather than hiding a conflict.
             values = {current[key] for key in keys} - {0}
             for offset, value in enumerate(sorted(values)):
-                color = "#15803d" if value == 1 else "#dc2626" if value == -1 else "#6b7280"
+                color = test_flag_color(value)
                 if offset not in self._flag_symbols:
                     self._flag_symbols[offset] = self._flag_symbol.translated(offset * 8 / 48, 0)
                 points.append({"pos": position, "brush": pg.mkBrush(color),
@@ -423,6 +448,13 @@ class WaferPointPlot(QWidget):
         self.selection.setData(points)
         self._avoid_label_collisions(self._selected_keys)
         self._update_summary()
+
+    def _update_preview(self):
+        self.preview.setData([
+            {"pos": position}
+            for position, keys in zip(self._plot_positions, self._spot_keys)
+            if self._previewed_keys.intersection(keys)
+        ])
 
     @staticmethod
     def _point_tip(x, y, data):
@@ -454,7 +486,10 @@ class WaferPointPlot(QWidget):
             self.plot.setFocus()
             self.pointSelected.emit(keys, event.modifiers())
             if event.double():
-                self.checkRequested.emit(keys, not keys.issubset(self._checked_keys))
+                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                    self.checkRequested.emit(keys, False)
+                else:
+                    self.removeRequested.emit(keys)
 
     def _rectangle_selected(self, rect, modifiers):
         keys = {key for (x, y), members in zip(self._plot_positions, self._spot_keys)
@@ -499,11 +534,16 @@ class SpectraMapWindow(QMainWindow):
         fit_window_to_screen(self, (1360, 900), minimum=(500, 640))
         self._spectra: tuple[SpectrumFile, ...] = ()
         self._read_only = read_only
+        from .plotting.selection import DataPointEdits
+        self._chart_edits = DataPointEdits(self._change_plot_checks)
+        self._removed_map_keys = {}
         self._checked_keys: set[str] = set()
         self._participating_keys = None
         self._test_flags = {}
         self._group_labels = {}
         self._highlighted_keys = set()
+        self._previewed_keys = set()
+        self._linked_chart_edits = None
         self._flag_values = [0, 1, -1]
         self._selected_keys: set[str] = set()
         self._source_signature = None
@@ -729,10 +769,35 @@ class SpectraMapWindow(QMainWindow):
             for plot in self.wafer_plots.values():
                 plot.set_participating(participating)
 
+    def _change_plot_checks(self, keys, checked):
+        if self._read_only:
+            return set()
+        valid = {source.key for source in self._spectra}
+        changed = {key for key in keys & valid if (key in self._checked_keys) != checked}
+        if changed:
+            self.checks_changed.emit({key: checked for key in changed})
+        return changed
+
+    def _remove_map_points(self, wafer, keys):
+        self._removed_map_keys.setdefault(wafer, set()).update(keys)
+        self._refresh_map_point_mask(wafer)
+
+    def _restore_map_points(self, wafer):
+        self._removed_map_keys.pop(wafer, None)
+        self._refresh_map_point_mask(wafer)
+
+    def _refresh_map_point_mask(self, wafer):
+        plot = self.wafer_plots.get(wafer)
+        if plot is not None:
+            self._populate_wafer_plot(wafer, plot)
+
     def _point_check_requested(self, keys, checked):
         if self._read_only:
             return
-        self.checks_changed.emit({key: checked for key in keys})
+        if checked:
+            self._change_plot_checks(keys, True)
+        else:
+            self._chart_edits.uncheck(keys)
 
     def update_test_flags(self, flags, *, flag_values=None):
         if flag_values is not None:
@@ -753,6 +818,21 @@ class SpectraMapWindow(QMainWindow):
         self._highlighted_keys = set(keys)
         for plot in self.wafer_plots.values():
             plot.set_highlighted(self._highlighted_keys)
+
+    def bind_chart_preview(self, edits):
+        """Mirror Match/Trend hover-selection rows as yellow rings only."""
+        self._linked_chart_edits = edits
+        edits.add_preview_listener(self)
+
+    def set_chart_preview_rows(self, rows):
+        self.update_selection_preview({
+            f"source-row:{int(row)}" for row in rows
+        })
+
+    def update_selection_preview(self, keys):
+        self._previewed_keys = {str(key) for key in keys}
+        for plot in self.wafer_plots.values():
+            plot.set_previewed(self._previewed_keys)
 
     def select_spectrum_keys(self, keys):
         selected = {str(key) for key in keys}
@@ -875,31 +955,127 @@ class SpectraMapWindow(QMainWindow):
 
     def build_selection_menu(self, wafer=None):
         menu = QMenu(self)
+        menu.setObjectName("spectrumTreeMenu")
+        menu.setStyleSheet(
+            "QMenu#spectrumTreeMenu::separator { height: 1px; "
+            "background: palette(mid); margin: 5px 8px; }"
+        )
+        identity = wafer if wafer is not None else self._context_wafer
         if self._read_only:
             menu.addAction("Out-of-range result — read only").setEnabled(False)
             return menu
-        if self.selection_menu_factory is not None:
-            return self.selection_menu_factory(wafer if wafer is not None else self._context_wafer)
-        menu.addAction("Check Selected", self.check_selected_requested.emit).setEnabled(bool(self._selected_keys))
-        menu.addAction("Uncheck Selected", self.uncheck_selected_requested.emit).setEnabled(bool(self._selected_keys))
-        flags = menu.addMenu("Set Test Flag")
-        flags.setEnabled(bool(self._selected_keys))
-        for value in self._flag_values:
-            flags.addAction("0 (Fallback)" if value == 0 else str(value),
-                            lambda _checked=False, value=value:
-                            self.test_flags_changed.emit({key: value for key in self._selected_keys}))
-        identity = wafer if wafer is not None else self._context_wafer
-        for label, checked in (("Check Unselected", True), ("Uncheck Unselected", False)):
-            if not checked:
-                menu.addSeparator()
-            action = menu.addAction(label, lambda _=False, value=checked, source=identity:
-                                    self.set_unselected_checked(source, value))
-            action.setEnabled(bool(self._unselected_keys(identity)))
-            action.setToolTip("Applies only to unselected points in the wafer you right-clicked.")
+        owner = getattr(self.selection_menu_factory, "__self__", None)
+        all_keys = {source.key for source in self._spectra if source.has_map_point}
+        menu.addAction(
+            "Check All Spectra",
+            lambda: self.checks_changed.emit({key: True for key in all_keys}),
+        )
+        menu.addAction(
+            "Uncheck All Spectra",
+            lambda: self.checks_changed.emit({key: False for key in all_keys}),
+        )
         menu.addSeparator()
-        menu.addAction("Apply Check To Similar Wafer", lambda: self.apply_to_similar_wafer(identity)).setEnabled(identity is not None)
-        menu.addAction("Apply Flag to Similar Wafer", lambda: self.apply_flags_to_similar_wafer(identity)).setEnabled(identity is not None)
+        selected = set(self._selected_keys)
+        menu.addAction("Check Selected", lambda: self._change_plot_checks(selected, True)).setEnabled(bool(selected))
+        menu.addAction("Uncheck Selected", lambda: self._change_plot_checks(selected, False)).setEnabled(bool(selected))
+        unselected = self._unselected_keys(identity)
+        menu.addAction("Check Unselected", lambda: self.set_unselected_checked(identity, True)).setEnabled(bool(unselected))
+        menu.addAction("Uncheck Unselected", lambda: self.set_unselected_checked(identity, False)).setEnabled(bool(unselected))
+        menu.addAction("Restore Unchecked Selection", self._chart_edits.restore).setEnabled(bool(self._chart_edits.unchecked))
+        menu.addAction("Apply Check To Similar Wafer",
+                       lambda: self.apply_to_similar_wafer(identity)).setEnabled(identity is not None)
+
+        points = {source.key for source in self._spectra if source.has_map_point
+                  and (source.identity.wafer, source.identity.lot, source.identity.pad) == identity}
+        selected_points = selected & points
+        removed = set(self._removed_map_keys.get(identity, set()))
+        menu.addSeparator()
+        menu.addAction("Remove Selection",
+                       lambda: self._remove_map_points(identity, selected_points)).setEnabled(bool(selected_points))
+        menu.addAction("Restore Removed Selection",
+                       lambda: self._restore_map_points(identity)).setEnabled(bool(removed))
+        menu.addSeparator()
+        menu.addAction("Apply Remove to Uncheck",
+                       lambda: self._chart_edits.uncheck(removed, from_removed=True)).setEnabled(bool(removed))
+        menu.addAction("Restore Applied Unchecks",
+                       lambda: self._chart_edits.restore(from_removed=True)).setEnabled(
+                           bool(self._chart_edits.applied_unchecks))
+        menu.addSeparator()
+
+        baseline = getattr(owner, "baseline_spectrum", None)
+        set_baseline = getattr(owner, "set_selected_as_baseline", None)
+        clear_baseline = getattr(owner, "clear_baseline", None)
+        set_bsl = menu.addAction("Set as BSL")
+        set_bsl.setEnabled(callable(set_baseline) and len(selected) == 1)
+        if callable(set_baseline):
+            set_bsl.triggered.connect(set_baseline)
+        clear_bsl = menu.addAction("Clear BSL")
+        clear_bsl.setEnabled(callable(clear_baseline) and baseline is not None)
+        if callable(clear_baseline):
+            clear_bsl.triggered.connect(clear_baseline)
+
+        highlighted = set(getattr(owner, "highlighted_keys", self._highlighted_keys))
+        highlight = menu.addAction("Highlight")
+        highlight.setCheckable(True)
+        highlight.setChecked(bool(selected) and selected <= highlighted)
+        highlight.setEnabled(bool(selected))
+        if owner is not None and callable(getattr(owner, "highlight_selected_spectra", None)):
+            highlight.triggered.connect(owner.highlight_selected_spectra)
+        else:
+            highlight.triggered.connect(
+                lambda checked: self.update_highlights(self._highlighted_keys | selected if checked
+                                                       else self._highlighted_keys - selected))
+        clear_highlight = menu.addAction("Clear Highlight")
+        clear_highlight.setEnabled(bool(highlighted))
+        if owner is not None and callable(getattr(owner, "clear_highlights", None)):
+            clear_highlight.triggered.connect(owner.clear_highlights)
+        else:
+            clear_highlight.triggered.connect(lambda: self.update_highlights(set()))
+
+        group_options = getattr(owner, "group_options", None)
+        if group_options is not None and callable(getattr(group_options, "mark_menu", None)):
+            wafer_keys = {source.key for source in self._spectra
+                          if (source.identity.wafer, source.identity.lot, source.identity.pad) == identity}
+            group_options.mark_menu(menu, wafer_keys)
+        else:
+            menu.addMenu("Set Mark").setEnabled(False)
+        flags = menu.addMenu("Set Test Flag")
+        flags.setEnabled(bool(selected))
+        for value in self._flag_values:
+            flags.addAction(
+                "0 (Fallback)" if value == 0 else str(value),
+                lambda _checked=False, value=value:
+                self.test_flags_changed.emit({key: value for key in self._selected_keys}),
+            )
+        menu.addSeparator()
+        export = menu.addAction("Export Checked Spectra…")
+        exporter = getattr(owner, "choose_spectra_export", None)
+        if callable(exporter):
+            export.triggered.connect(exporter)
+            export.setEnabled(bool(self._checked_keys))
+        else:
+            export.setEnabled(False)
         return menu
+
+    def _add_map_point_actions(self, menu, wafer):
+        from .plotting.selection import add_selection_actions
+
+        if wafer is None:
+            return
+        flags = next((action for action in menu.actions()
+                      if action.menu() is not None and action.text() == "Set Test Flag"), None)
+        if flags is not None:
+            menu.removeAction(flags)
+        points = {s.key for s in self._spectra if s.has_map_point
+                  and (s.identity.wafer, s.identity.lot, s.identity.pad) == wafer}
+        add_selection_actions(menu, lambda: self._selected_keys & points,
+                              lambda: self._removed_map_keys.get(wafer, set()),
+                              lambda keys: self._remove_map_points(wafer, keys),
+                              lambda: self._restore_map_points(wafer), set,
+                              None if self._read_only else self._chart_edits)
+        if flags is not None:
+            menu.addSeparator()
+            menu.addAction(flags)
 
     def _unselected_keys(self, wafer):
         return {s.key for s in self._spectra if s.has_map_point
@@ -983,11 +1159,6 @@ class SpectraMapWindow(QMainWindow):
             if not self._pending_page_wafers:
                 return
             wafer = self._pending_page_wafers.pop(0)
-            spectra = tuple(
-                spectrum
-                for spectrum in self._spectra
-                if (spectrum.identity.wafer, spectrum.identity.lot, spectrum.identity.pad) == wafer
-            )
             title = " · ".join(part for part in wafer if part)
             plot = WaferPointPlot(title, checked_label="out of range" if self._read_only else "checked",
                                   checked_color="#dc2626" if self._read_only else "#3E8BD8")
@@ -997,17 +1168,9 @@ class SpectraMapWindow(QMainWindow):
                 plot.plot.setToolTip(plot.plot.toolTip() + '\nSelect points and type a configured TestFlag; press Enter or pause to apply.')
             plot.pointSelected.connect(self._points_selected)
             plot.checkRequested.connect(self._point_check_requested)
+            plot.removeRequested.connect(lambda keys, identity=wafer: self._remove_map_points(identity, keys))
             plot.selectionMenuRequested.connect(lambda position, identity=wafer: self._selection_menu_requested(position, identity))
-            plot.set_data(
-                spectra,
-                self._selected_keys,
-                scale_spectra=spectra,
-                checked_keys=self._checked_keys,
-            )
-            plot.set_test_flags(self._test_flags)
-            plot.set_highlighted(self._highlighted_keys)
-            plot.set_group_labels(self._group_labels)
-            plot.set_participating(self._participating_keys)
+            self._populate_wafer_plot(wafer, plot)
             index = len(self.wafer_plots)
             row, column = divmod(index, self._columns)
             self.grid.addWidget(plot, row, column)
@@ -1015,3 +1178,15 @@ class SpectraMapWindow(QMainWindow):
         if self._pending_page_wafers:
             self._page_build_timer.start()
 
+
+    def _populate_wafer_plot(self, wafer, plot):
+        spectra = tuple(spectrum for spectrum in self._spectra
+                        if (spectrum.identity.wafer, spectrum.identity.lot, spectrum.identity.pad) == wafer)
+        removed = self._removed_map_keys.get(wafer, ())
+        visible = tuple(source for source in spectra if source.key not in removed)
+        plot.set_data(visible, self._selected_keys, scale_spectra=spectra, checked_keys=self._checked_keys)
+        plot.set_test_flags(self._test_flags)
+        plot.set_highlighted(self._highlighted_keys)
+        plot.set_previewed(self._previewed_keys)
+        plot.set_group_labels(self._group_labels)
+        plot.set_participating(self._participating_keys)

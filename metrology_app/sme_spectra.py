@@ -11,6 +11,8 @@ import os
 import re
 import struct
 import zlib
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -902,11 +904,53 @@ def load_folder(
     return load_folders((folder,), progress=progress, cancelled=cancelled)
 
 
+def _read_sme(path):
+    try:
+        return parse_sme_file(path)
+    except Exception as error:
+        status = ("encrypted" if isinstance(error, EncryptedSME)
+                  else "unsupported" if isinstance(error, UnsupportedSME) else "error")
+        return LoadIssue(path, status, str(error))
+
+
+def _read_sme_in_order(paths, workers, cancelled):
+    """Bound read-ahead and preserve the scanner's stable file order."""
+    workers = min(workers, len(paths))
+    if workers < 2:
+        for path in paths:
+            if cancelled():
+                return
+            yield path, _read_sme(path)
+        return
+
+    remaining = iter(paths)
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="sme-read") as pool:
+        pending = deque()
+        for _ in range(workers):
+            if cancelled():
+                break
+            path = next(remaining)
+            pending.append((path, pool.submit(_read_sme, path)))
+        try:
+            while pending and not cancelled():
+                path, future = pending.popleft()
+                result = future.result()
+                if cancelled():
+                    break
+                yield path, result
+                if not cancelled() and (path := next(remaining, None)) is not None:
+                    pending.append((path, pool.submit(_read_sme, path)))
+        finally:
+            for _, future in pending:
+                future.cancel()
+
+
 def load_folders(
     folders: Iterable[Path],
     *,
     progress: Callable[[int, int, str], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
+    workers: int = 1,
 ) -> LoadResult:
     if progress:
         progress(0, 0, "Scanning spectrum folders…")
@@ -926,15 +970,12 @@ def load_folders(
         return LoadResult((), tuple(issues), True)
     if progress:
         progress(0, total, "Scanning spectrum folders…")
-    for index, path in enumerate(paths, 1):
-        if cancelled and cancelled():
-            return LoadResult(tuple(spectra), tuple(issues), True)
-        try:
-            spectra.append(parse_sme_file(path))
-        except Exception as error:
-            status = ("encrypted" if isinstance(error, EncryptedSME)
-                      else "unsupported" if isinstance(error, UnsupportedSME) else "error")
-            issues.append(LoadIssue(path, status, str(error)))
+    stopped = cancelled or (lambda: False)
+    for index, (path, record) in enumerate(_read_sme_in_order(paths, workers, stopped), 1):
+        if isinstance(record, LoadIssue):
+            issues.append(record)
+        else:
+            spectra.append(record)
         if progress:
             progress(index, total, path.name)
     return LoadResult(tuple(spectra), tuple(issues), bool(cancelled and cancelled()))

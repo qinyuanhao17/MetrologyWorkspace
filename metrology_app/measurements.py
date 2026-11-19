@@ -123,7 +123,7 @@ def detect_measurements(frame, wafer_column, group_columns=None, use_die_seq=Tru
     sequence = frame[seq_col] if seq_col else None
     columns = ([c for c in (wafer_column, lot_col, pad_col) if c] if group_columns is None
                else [c for c in group_columns if c in frame])
-    if not columns:
+    if not columns or frame.empty:
         return []
     signature = (wafer_column, tuple(columns), lot_col, pad_col, seq_col, use_die_seq)
     cache = _thread_cache()
@@ -133,16 +133,21 @@ def detect_measurements(frame, wafer_column, group_columns=None, use_die_seq=Tru
     # old cache merely because the pandas object has the same identity.
     metadata = pd.DataFrame({index: frame[column].fillna("").astype(str).str.strip().reset_index(drop=True)
                              for index, column in enumerate(columns)})
+    exact_die_values = None
     if seq_col:
-        metadata[len(columns)] = number(sequence).reset_index(drop=True)
+        parsed = number(sequence).reset_index(drop=True)
+        metadata[len(columns)] = parsed
+        if isinstance(parsed.dtype, np.dtype) and parsed.dtype.kind in "iu":
+            exact_die_values = parsed.to_numpy(copy=False)
     for index, (saved_signature, saved, measurements) in enumerate(cache):
         if signature == saved_signature and metadata.equals(saved):
             cache.insert(0, cache.pop(index))
             return [replace(measurement) for measurement in measurements]
-    identity = [frame[column].fillna("").astype(str).str.strip().tolist() for column in columns]
+    identity = [metadata[index].tolist() for index in range(len(columns))]
+    wafer_index = columns.index(wafer_column)
     buckets = {}
     for position, values in enumerate(zip(*identity)):
-        if values[columns.index(wafer_column)]:
+        if values[wafer_index]:
             buckets.setdefault(values, []).append(position)
     lots = {}
     for values in buckets:
@@ -170,7 +175,10 @@ def detect_measurements(frame, wafer_column, group_columns=None, use_die_seq=Tru
                 lines.append(f"Run {ordinal} (Die Seq restart)")
             details = [f"{column}: {fields[column] or '(blank)'}" for column in columns]
             details.append(f"Records: {len(rows)}")
-            if seq_col:
+            if exact_die_values is not None:
+                seq = np.unique(exact_die_values[list(rows)])
+                details.append(f"Die Seq: {seq[0]:g}–{seq[-1]:g} ({len(seq)} unique)")
+            elif seq_col:
                 seq = number(sequence.iloc[list(rows)]).dropna()
                 if len(seq):
                     details.append(f"Die Seq: {seq.min():g}–{seq.max():g} ({seq.nunique()} unique)")

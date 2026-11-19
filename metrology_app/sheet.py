@@ -9,6 +9,7 @@ from io import StringIO
 from itertools import chain, product
 from types import MappingProxyType
 
+import numpy as np
 import pandas as pd
 from PyQt6.QtCore import (
     QAbstractProxyModel, QAbstractTableModel, QEvent, QItemSelection, QItemSelectionModel, QModelIndex, Qt, pyqtSignal,
@@ -66,6 +67,28 @@ def clipboard_rows(text):
     except csv.Error:
         delimiter = "\t"
     return list(csv.reader(StringIO(text), delimiter=delimiter))
+
+
+def _literal_sheet_strings(frame):
+    """Format repeated floating-point cells once, preserving exact sheet text."""
+    floats = [i for i, dtype in enumerate(frame.dtypes) if dtype == np.dtype("float64")]
+    if len(floats) < 2 or len(frame) < 256:
+        return frame.fillna("").astype(str)
+    sample = frame.iloc[:128, floats].to_numpy().view(np.uint64)
+    if np.unique(sample).size * 2 > sample.size:
+        return frame.fillna("").astype(str)
+    # Factorize the bits so that 0.0 and -0.0 keep distinct spellings.
+    bits = frame.iloc[:, floats].to_numpy().view(np.uint64)
+    codes, values = pd.factorize(bits.ravel())
+    labels = pd.Series(values.view(np.float64)).fillna("").astype(str).to_numpy()
+    result = np.empty(frame.shape, dtype=object)
+    result[:, floats] = labels[codes].reshape(bits.shape)
+    other = sorted(set(range(len(frame.columns))) - set(floats))
+    if other:
+        result[:, other] = frame.iloc[:, other].fillna("").astype(str).to_numpy()
+    document = pd.DataFrame(result, index=frame.index, columns=frame.columns)
+    document.attrs = deepcopy(frame.attrs)
+    return document
 
 
 def nonempty_cell_bounds(items, row_positions=None):
@@ -668,7 +691,7 @@ class SheetModel(QAbstractTableModel):
             return
         literal_strings = (all(dtype == object for dtype in frame.dtypes)
             and pd.api.types.infer_dtype(frame.to_numpy(copy=False).ravel(),skipna=False) == 'string')
-        document = (frame if literal_strings else frame.fillna("").astype(str)).reset_index(drop=True)
+        document = (frame if literal_strings else _literal_sheet_strings(frame)).reset_index(drop=True)
         document.columns = [str(name) for name in document.columns]
         matrix = [list(document.columns)] + document.values.tolist() if len(document.columns) else []
         self._load_matrix(matrix, report_paste=report_paste,

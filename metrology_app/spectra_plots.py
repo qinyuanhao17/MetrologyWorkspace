@@ -20,8 +20,27 @@ from PyQt6.QtWidgets import (
 
 from .sme_spectra import M_COLS, ChannelKey, natural_key
 from .plotting.curve import cache_curve_image
+from .plotting.selection import BoxDrag, add_selection_actions
 
 HIGHLIGHT_COLOR = '#FF3D00'
+TEST_FLAG_FALLBACK_COLOR = "#6b7280"
+TEST_FLAG_OTHER_COLORS = (
+    "#7c3aed", "#d97706", "#0891b2", "#db2777",
+    "#4d7c0f", "#2563eb", "#c026d3", "#65a30d",
+)
+
+
+def test_flag_color(value):
+    """Stable semantic colours for built-ins and distinct colours for new flags."""
+    value = int(value)
+    if value == 1:
+        return "#15803d"
+    if value == -1:
+        return "#dc2626"
+    if value == 0:
+        return TEST_FLAG_FALLBACK_COLOR
+    index = (abs(value) - 2 + (len(TEST_FLAG_OTHER_COLORS) // 2 if value < 0 else 0))
+    return TEST_FLAG_OTHER_COLORS[index % len(TEST_FLAG_OTHER_COLORS)]
 
 
 @dataclass(frozen=True, slots=True)
@@ -372,6 +391,8 @@ class SpectrumPlotPanel(QWidget):
         self._batch_slots = {}
         self._tight_x_range = None
         self._selected_keys: set[str] = set()
+        self._removed_spectra: set[str] = set()
+        self.data_point_edits = None
         self._navigation_click = False
         self._foreground = QColor("#2b2730")
         self._plot_background = QColor("#ffffff")
@@ -429,6 +450,68 @@ class SpectrumPlotPanel(QWidget):
             self._sync_secondary()
         else:
             self.secondary = None
+        BoxDrag(self.plot, self._box_view, self._select_spectra_box, self._zoom_spectra_box, select_click=False)
+        menu = self.plot.getViewBox().getMenu(None)
+        actions = []
+
+        def populate():
+            for action in actions:
+                menu.removeAction(action)
+                action.deleteLater()
+            previous = set(menu.actions())
+            add_selection_actions(menu, lambda: self._selected_keys, lambda: self._removed_spectra,
+                                  self._remove_spectra, self._restore_spectra, set, self.data_point_edits)
+            actions[:] = [action for action in menu.actions() if action not in previous]
+        menu.aboutToShow.connect(populate)
+
+    def _box_view(self, point):
+        view = self.plot.getViewBox()
+        return view if view.sceneBoundingRect().contains(self.plot.mapToScene(point)) else None
+
+    def _select_spectra_box(self, _view, rect, modifiers):
+        scene = self.plot.mapToScene(rect).boundingRect()
+        keys = set()
+        for view, groups in ((self.plot.getViewBox(), self.groups), (self.secondary, self.secondary_groups)):
+            if view is None:
+                continue
+            a, b = view.mapSceneToView(scene.topLeft()), view.mapSceneToView(scene.bottomRight())
+            left, right = sorted((a.x(), b.x()))
+            bottom, top = sorted((a.y(), b.y()))
+            for group in groups:
+                for segment in group.segments:
+                    if np.any((segment.x >= left) & (segment.x <= right) &
+                              (segment.y >= bottom) & (segment.y <= top)):
+                        keys.update(segment.spectrum_keys or (segment.spectrum_key,))
+        if modifiers & Qt.KeyboardModifier.ShiftModifier:
+            keys |= self._selected_keys
+        self.spectraSelected.emit(keys)
+
+    def _zoom_spectra_box(self, _view, rect):
+        from PyQt6.QtCore import QRectF
+
+        scene = self.plot.mapToScene(rect).boundingRect()
+        for view in (self.plot.getViewBox(), self.secondary):
+            if view is not None:
+                a, b = view.mapSceneToView(scene.topLeft()), view.mapSceneToView(scene.bottomRight())
+                view.setRange(rect=QRectF(a, b).normalized(), padding=0)
+
+    def _remove_spectra(self, keys):
+        self._removed_spectra.update(keys)
+        self.set_curves(self._all_groups, secondary=self._all_secondary_groups,
+                        selected_keys=self._selected_keys - keys, hidden_keys=self._hidden_keys)
+
+    def _restore_spectra(self):
+        self._removed_spectra.clear()
+        self.set_curves(self._all_groups, secondary=self._all_secondary_groups,
+                        selected_keys=self._selected_keys, hidden_keys=self._hidden_keys)
+
+    def _without_removed(self, groups):
+        if not self._removed_spectra:
+            return groups
+        return [CurveGroup(group.key, group.color, tuple(
+            segment for segment in group.segments
+            if not self._removed_spectra.intersection(segment.spectrum_keys or (segment.spectrum_key,))))
+                for group in groups]
 
     def eventFilter(self, watched, event):
         if (watched in (self.plot,self.plot.viewport()) and event.type() == QEvent.Type.KeyPress
@@ -454,7 +537,15 @@ class SpectrumPlotPanel(QWidget):
             and event.type() == QEvent.Type.MouseButtonDblClick
             and event.button() == Qt.MouseButton.LeftButton
         ):
-            self.sigDoubleClicked.emit(self)
+            keys = self._pick_spectra(self.plot.mapToScene(event.position().toPoint()))
+            if keys:
+                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                    if self.data_point_edits is not None:
+                        self.data_point_edits.uncheck(keys)
+                else:
+                    self._remove_spectra(keys)
+            else:
+                self.sigDoubleClicked.emit(self)
             event.accept()
             return True
         return super().eventFilter(watched, event)
@@ -574,8 +665,8 @@ class SpectrumPlotPanel(QWidget):
             self._fit_x_range()
 
     def _visible_groups(self):
-        self.groups = [g for g in self._all_groups if g.key not in self._hidden_keys]
-        self.secondary_groups = [g for g in self._all_secondary_groups if g.key not in self._hidden_keys]
+        self.groups = [g for g in self._without_removed(self._all_groups) if g.key not in self._hidden_keys]
+        self.secondary_groups = [g for g in self._without_removed(self._all_secondary_groups) if g.key not in self._hidden_keys]
 
     def set_hidden_keys(self, keys):
         keys = set(keys)
@@ -601,6 +692,7 @@ class SpectrumPlotPanel(QWidget):
                                    (1, self.secondary, self._all_secondary_groups)):
             if view is None:
                 continue
+            groups = self._without_removed(groups)
             if groups and (len(groups) > 32 or self._batch_slots.get(axis)):
                 slots = self._batch_slots.get(axis, {})
                 if any(g.key not in slots for g in groups):
@@ -786,7 +878,14 @@ class SpectrumPlotPanel(QWidget):
         if (event.button() != Qt.MouseButton.LeftButton or event.double()
                 or event.isAccepted() or navigation_click):
             return
-        scene_position = event.scenePos()
+        keys = self._pick_spectra(event.scenePos())
+        if keys and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            keys ^= self._selected_keys
+        elif keys and event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            keys |= self._selected_keys
+        self.spectraSelected.emit(keys)
+
+    def _pick_spectra(self, scene_position):
         primary = self.plot.getPlotItem().vb
         best = None
         views = [(primary, self.groups)]
@@ -813,12 +912,7 @@ class SpectrumPlotPanel(QWidget):
                     distance = float(np.min(np.hypot(ax + t * dx, ay + t * dy)))
                     if best is None or distance < best[0]:
                         best = distance, segment.spectrum_keys or frozenset((segment.spectrum_key,))
-        keys = set(best[1]) if best is not None and best[0] <= 7 else set()
-        if keys and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-            keys ^= self._selected_keys
-        elif keys and event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-            keys |= self._selected_keys
-        self.spectraSelected.emit(keys)
+        return set(best[1]) if best is not None and best[0] <= 7 else set()
 
 
 class FloatingPlotWindow(QMainWindow):
@@ -838,6 +932,7 @@ class FloatingPlotWindow(QMainWindow):
             context_menu=source.context_menu,
         )
         self.setCentralWidget(self.panel)
+        self.panel.data_point_edits = source.data_point_edits
         self.panel.uncheckRequested.connect(source.uncheckRequested.emit)
         self.panel.apply_theme(source.palette())
         self.sync_from(source)

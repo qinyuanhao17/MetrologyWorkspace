@@ -1,6 +1,6 @@
 """Small widgets shared by more than one workspace."""
 
-from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtCore import QEvent, QObject, QPointF, Qt
 from PyQt6.QtGui import QWheelEvent
 from PyQt6.QtWidgets import QAbstractScrollArea, QApplication, QComboBox, QListWidget
 
@@ -48,4 +48,37 @@ class CheckableListWidget(QListWidget):
         super().mouseReleaseEvent(event)
 
 
-__all__ = ["CheckableListWidget", "ScrollSafeComboBox"]
+class LinkedVerticalScroll(QObject):
+    """Use Ctrl+wheel to align the vertical scroll progress of peer views."""
+
+    def __init__(self, parent, views):
+        super().__init__(parent)
+        self.views = {view.viewport(): view.verticalScrollBar() for view in views}
+        for viewport in self.views:
+            viewport.installEventFilter(self)
+
+    def eventFilter(self, viewport, event):
+        control = Qt.KeyboardModifier.ControlModifier
+        if (event.type() != QEvent.Type.Wheel or not event.modifiers() & control
+                or not (event.pixelDelta().y() or event.angleDelta().y())):
+            return False
+        peers = {view: bar for view, bar in self.views.items() if view.isVisible()}
+        if viewport not in peers:
+            return False
+        anchor = viewport if peers[viewport].maximum() > 0 else max(peers, key=lambda view: peers[view].maximum())
+        source = peers[anchor]
+        if source.maximum() == 0:
+            return False
+        scroll = QWheelEvent(QPointF(anchor.mapFromGlobal(event.globalPosition().toPoint())),
+                             event.globalPosition(), event.pixelDelta(), event.angleDelta(),
+                             event.buttons(), event.modifiers() & ~control, event.phase(), event.inverted())
+        QApplication.sendEvent(anchor, scroll)
+        progress = source.value() / source.maximum()
+        for bar in peers.values():
+            if bar is not source:
+                bar.setValue(round(progress * bar.maximum()))
+        event.accept()
+        return True
+
+
+__all__ = ["CheckableListWidget", "LinkedVerticalScroll", "ScrollSafeComboBox"]

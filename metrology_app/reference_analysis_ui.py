@@ -29,6 +29,7 @@ class ReferenceAnalysisPages(CorrelationWindow):
         self.setParent(tabs)
         self.hide()
         self.alignment = alignment
+        alignment.trend_page.data_point_edits = self._chart_edits
         self.measurement_floating_editor.owner = tabs.window()
         self.data_page = self.tabs.widget(1)
         controls = self.measurement_panel.layout().itemAt(0).layout()
@@ -48,6 +49,12 @@ class ReferenceAnalysisPages(CorrelationWindow):
         alignment.alignment_changed.connect(self.refresh_alignment)
         self.refresh_alignment()
         self.document.timer.stop()
+
+    def _change_chart_checks(self, rows, checked):
+        changed = super()._change_chart_checks(rows, checked)
+        if changed:
+            self.alignment.trend_page.refresh_point_checks(self.participating_positions(self._frame))
+        return changed
 
     def default_parameters(self, metrics):
         return [name for name in super().default_parameters(metrics) if name in self.reference_parameters]
@@ -77,6 +84,8 @@ class ReferenceAnalysisPages(CorrelationWindow):
             if name not in identity and not is_metadata_column(name)
         )
         self.set_table(frame, 'Aligned Reference', keep_local_selection=True)
+        if len(frame):
+            self.alignment.trend_page.refresh_point_checks(self.participating_positions(self._frame))
         for page in (self.plot_page, self.radius_page):
             for combo, column in zip((page.x_column, page.y_column), axes):
                 combo.setCurrentIndex(combo.findData(column))

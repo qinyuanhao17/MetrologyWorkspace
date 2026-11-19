@@ -6,7 +6,7 @@ from math import isfinite
 
 import pandas as pd
 from PyQt6.QtCore import QEvent, QSignalBlocker, Qt, QTimer, QSize, pyqtSignal
-from PyQt6.QtGui import QAction, QActionGroup, QKeySequence, QUndoStack
+from PyQt6.QtGui import QAction, QActionGroup, QKeySequence
 from PyQt6.QtWidgets import (
     QCheckBox, QDialog, QFileDialog, QFrame, QHBoxLayout, QHeaderView,
     QInputDialog, QLabel, QLayout, QLineEdit, QMainWindow, QMessageBox, QPushButton,
@@ -133,7 +133,9 @@ class MainWindow(QMainWindow):
         self._input_draw_pending = {}
         self._managed_close_handler = None
         self._local_selection_excluded = set()
-        self._point_history = QUndoStack(self)
+        from .plotting.selection import DataPointEdits
+        self._chart_edits = DataPointEdits(self._change_chart_checks, self._set_chart_flags,
+                                           self._chart_records, flag_values=self._test_flag_values)
         self._point_edit_target = None
         self._local_view = {"filters": [], "row_bools": [], "group_bools": [], "show": "all",
                             "search": "", "hide_excluded": False}
@@ -150,17 +152,16 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.build_data_page(), "1. Data")
         self.plot_page = PlotPage()
         self.plot_page.document_scoped = True
-        self.plot_page.scroll.setToolTip("Double-click a measured point to change Data selection.")
-        self.plot_page.scroll.map_point_double_clicked.connect(self._toggle_map_point)
-        self.plot_page.scroll.add_point_edit_menu(self._point_history)
+        self.plot_page.scroll.data_point_edits = self._chart_edits
+        self.plot_page.scroll.add_point_edit_menu()
+        self.plot_page.scroll.point_removal_handler = self._refresh_map_after_point_removal
         self.plot_page.draw_state_changed.connect(
             lambda _state: self.selection_changed.emit(self.selection_state())
         )
         self.tabs.addTab(self.plot_page, "2. Wafer Maps")
         self.radius_page = RadiusPage()
-        self.radius_page.scroll.setToolTip("Double-click a point to change Data selection.")
-        self.radius_page.scroll.point_double_clicked.connect(self._toggle_radius_point)
-        self.radius_page.scroll.add_point_edit_menu(self._point_history)
+        self.radius_page.scroll.data_point_edits = self._chart_edits
+        self.radius_page.scroll.add_point_edit_menu()
         self.radius_page.draw_state_changed.connect(
             lambda _state: self.selection_changed.emit(self.selection_state())
         )
@@ -169,7 +170,8 @@ class MainWindow(QMainWindow):
         outer.addWidget(self.tabs, 1)
         self.setCentralWidget(root)
         self.model.changed.connect(self.refresh_timer.start)
-        self.model.changed.connect(self._point_history.clear)
+        self.model.changed.connect(self.plot_page.scroll.clear_point_edits)
+        self.model.changed.connect(self.radius_page.scroll.clear_point_edits)
         self.model.changed.connect(self._refresh_table_sizes)
         self.model.undo.cleanChanged.connect(self.update_dirty)
         self.sheet.selectionModel().currentChanged.connect(self.current_cell)
@@ -300,7 +302,7 @@ class MainWindow(QMainWindow):
     def restore_workspace(self, snapshot):
         if snapshot.workspace_type != self.workspace_type:
             raise ValueError("This WKB belongs to a different tool.")
-        self._point_history.clear()
+        self._chart_edits.reset()
         excluded = snapshot.states.get("workbook_participation", [])
         if isinstance(excluded, dict):
             excluded = excluded.get("excluded", [])
@@ -1075,40 +1077,79 @@ class MainWindow(QMainWindow):
             return set(range(len(frame)))
         return set(i for i, key in enumerate(participation_source_keys(frame)) if key not in excluded)
 
-    def _toggle_map_point(self, cell, row):
-        if not self.plot_page.dirty and not self.plot_page.background_render_pending:
-            self._toggle_plot_row(row, cell, row)
-
-    def _toggle_radius_point(self, row):
-        if self.radius_page.ready and not self.radius_page.pending_input_refresh:
-            self._toggle_plot_row(row)
-
-    def _toggle_plot_row(self, row, widget=None, plot_row=None):
+    def _chart_records(self):
         from .match_groups import participation_source_keys
-        from .plotting.point_edits import PointRemoval
-        if (self.refresh_timer.isActive() or getattr(self, "_source_refresh_pending", False)
-                or self.model.duplicate_header_count()):
-            return
-        frame = self.model._analysis_view()
-        if not 0 <= row < len(frame):
-            return
-        exclusions = self._effective_selection_exclusions()
-        key = participation_source_keys(frame)[row]
-        exclusions.add(key)
-        view = self._workbook_selection_view if (self._workbook_selection_applies and
-                hasattr(self, "_workbook_selection_view")) else self._local_view
-        before = (set(self._local_selection_excluded), deepcopy(self._local_view), self._workbook_selection_applies)
-        after = (exclusions, deepcopy(view), False)
-        self._point_history.push(PointRemoval(self._apply_raw_point_removal, before, after, widget, plot_row))
 
-    def _apply_raw_point_removal(self, state, widget, row, removed):
-        excluded, view, follows_workbook = state
-        self._local_selection_excluded = set(excluded)
-        self._local_view = deepcopy(view)
-        self._workbook_selection_applies = follows_workbook
-        self.workbook_selection_action.setChecked(follows_workbook)
-        self.full_data_action.setChecked(not follows_workbook)
-        self._apply_point_participation(widget, row, removed, self._refresh_selection_scope)
+        return participation_source_keys(self.model._analysis_view())
+
+    def _change_chart_checks(self, rows, checked):
+        from .match_groups import participation_source_keys
+
+        if self.refresh_timer.isActive() or getattr(self, "_source_refresh_pending", False):
+            return set()
+        keys = participation_source_keys(self.model._analysis_view())
+        rows = {int(row) for row in rows if 0 <= row < len(keys)}
+        excluded = self._effective_selection_exclusions()
+        changed = {row for row in rows if (keys[row] in excluded) == checked}
+        if changed:
+            changed_keys = {keys[row] for row in changed}
+            view = self._workbook_selection_view if (self._workbook_selection_applies and
+                    hasattr(self, "_workbook_selection_view")) else self._local_view
+            self._apply_local_data_selection(excluded - changed_keys if checked else excluded | changed_keys,
+                                             deepcopy(view))
+        return changed
+
+    def _set_chart_flags(self, rows, value):
+        if self.refresh_timer.isActive() or getattr(self, "_source_refresh_pending", False):
+            return
+        self._write_chart_flags(rows, value)
+
+    def _test_flag_values(self):
+        from .match_groups import DEFAULT_FLAGS, flag_order, flag_value, normalized
+
+        frame = self.model._analysis_view()
+        column = next((name for name in frame.columns if normalized(name) == "testflag"), None)
+        values = list(DEFAULT_FLAGS)
+        if column is not None:
+            for value in frame[column].tolist():
+                try:
+                    values.append(flag_value(value))
+                except ValueError:
+                    continue
+        return [value for value in flag_order(values) if value]
+
+    def _write_chart_flags(self, rows, value):
+        owner = getattr(self, "_managed_owner", None)
+        if owner is not None and hasattr(owner, "set_child_chart_flags"):
+            if owner.set_child_chart_flags(self, rows, value):
+                return
+        self._write_sheet_flags(self.model, rows, value)
+
+    @staticmethod
+    def _write_sheet_flags(model, rows, value):
+        headers = tuple(model.source_headers())
+        column = next((i for i, name in enumerate(headers)
+                       if "".join(c for c in name.lower() if c.isalnum()) == "testflag"), len(headers))
+        count = len(model._analysis_view())
+        changes = {(int(row) + 1, column): value for row in rows if 0 <= row < count}
+        if changes and column == len(headers):
+            changes[0, column] = "TestFlag"
+        if changes:
+            model.edit(changes)
+
+    def _refresh_map_after_point_removal(self, panel, removed_rows):
+        if self.plot_page.result is None or self.plot_page.frame is None:
+            return
+        wafer = panel.source.get("wafer")
+        metric = panel.source.get("metric")
+        if wafer is None or metric is None:
+            return
+        self.plot_page.refresh_edited_map(
+            self.plot_page.frame,
+            self.plot_page.selection,
+            (wafer, metric),
+            excluded_rows=removed_rows,
+        )
 
     def _apply_point_participation(self, widget, row, removed, refresh):
         self._point_edit_target = (widget, row, removed) if widget is not None else None
@@ -1185,7 +1226,6 @@ class MainWindow(QMainWindow):
         if applies == self._workbook_selection_applies:
             self._refresh_selection_badge()
             return
-        self._point_history.clear()
         self._workbook_selection_applies = applies
         owner = getattr(self, "_managed_owner", None)
         apply_scope = getattr(owner, "apply_child_selection_scope", None) if owner else None
@@ -1217,7 +1257,6 @@ class MainWindow(QMainWindow):
                                       context=saved_view.get("context"))
 
     def _apply_data_selection_dialog(self, dialog):
-        self._point_history.clear()
         self._apply_local_data_selection(set(dialog.excluded), dialog.view_state())
 
     def _apply_local_data_selection(self, excluded, view):
@@ -1291,9 +1330,10 @@ class MainWindow(QMainWindow):
     def _publish_plot_inputs(self, frame, selection):
         if self._point_edit_target is not None:
             target = self._point_edit_target[0]
-            if isinstance(target, tuple) and self.plot_page.refresh_edited_map(frame, selection, target):
-                self.radius_page.selection = selection.copy()
-                return
+            if isinstance(target, tuple):
+                if self.plot_page.refresh_edited_map(frame, selection, target):
+                    self.radius_page.selection = selection.copy()
+                    return
         self.plot_page.set_input(frame, selection)
         self.radius_page.set_input(frame, selection)
 

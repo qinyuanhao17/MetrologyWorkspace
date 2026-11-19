@@ -172,17 +172,21 @@ class StorageV2Tests(unittest.TestCase):
         self.assertEqual(child.model.document_frame().iloc[0, col], "9.999")
         self.assertEqual(child.plot_page.font_size.currentText(), "14")
 
-    def test_shared_axis_change_is_parent_dirty_not_child_local_edit(self):
+    def test_local_axis_changes_save_without_updating_workbook_defaults(self):
         child = self.match.open_correlation_workspace()
-        self.match.save_workbook(self.folder / "project.mwkb")
-        self.match.set_second_axis_ratio(2.75)
-        self.match.set_trend_axis_mode("dual")
-        self.assertTrue(self.match.document.is_dirty())
-        self.assertFalse(child.document.is_dirty())
+        path = self.match.save_workbook(self.folder / "project.mwkb")
+        default_ratio = self.match.second_axis_ratio
+        child.sequence_page.restore_axis_ratio(2.75)
+        child.sequence_page.restore_axis_mode("dual")
+        self.assertTrue(child.document.is_dirty())
+        self.assertEqual(child.save_wkb(), path)
         with patch.object(QMessageBox, "question") as question:
             self.assertTrue(child.close())
             question.assert_not_called()
-        self.assertEqual(self.match.second_axis_ratio, 2.75)
+        reopened = self.match.open_correlation_workspace()
+        self.assertEqual(reopened.sequence_page.axis_ratio_limit(), 2.75)
+        self.assertEqual(reopened.sequence_page.axis_mode.currentData(), "dual")
+        self.assertEqual(self.match.second_axis_ratio, default_ratio)
 
     def test_failed_child_save_keeps_file_and_discard_baseline(self):
         child = self.match.open_stage_workspace("preview")
@@ -297,8 +301,8 @@ class StorageV2Tests(unittest.TestCase):
                 restored = factory()
                 try:
                     if kind == "correlation_trend":
-                        self.match.set_second_axis_ratio(2.75)
-                        self.match.set_trend_axis_mode("dual")
+                        child.sequence_page.restore_axis_ratio(2.75)
+                        child.sequence_page.restore_axis_mode("dual")
                         child.sequence_page.set_overlay("CD", "CD", "Reference", "Raw Data")
                     snapshot = child.workspace_snapshot()
                     saved = child.export_standalone_copy(self.folder / (kind + EXTENSIONS[kind]))

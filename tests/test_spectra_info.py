@@ -13,7 +13,7 @@ from tests.test_spectra_viewer import APP
 from metrology_app.spectra_viewer import SpectraViewerWindow
 from metrology_app.sme_spectra import LoadResult
 from PyQt6.QtTest import QTest
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QPoint, Qt, QTimer
 
 
 class SpectraInfoTests(unittest.TestCase):
@@ -72,6 +72,54 @@ class SpectraInfoTests(unittest.TestCase):
 
 
 class SpectraInfoWorkflowTests(unittest.TestCase):
+    def test_group_settings_matches_raw_order_copies_columns_and_updates_info_flags(self):
+        from metrology_app.matching_window import MatchingWindow
+
+        owner = MatchingWindow()
+        owner.document.force_close = True
+        self.addCleanup(owner.close)
+        raw, sources = SpectraInfoTests().sources()
+        owner.set_raw_frame(raw)
+        owner.set_reference_frame(pd.DataFrame({"Depth": ["8.100", "9.200"]}))
+        viewer = owner.open_spectra_workspace()
+        extra = make_spectrum(1, wafer="A")
+        viewer.apply_load_result(LoadResult((*sources, extra), ()), replace=True)
+        viewer.set_spectrum_checks({s.key: True for s in sources})
+        viewer.info_columns_configured = True
+        info = viewer.open_spectra_info()
+        options = viewer.group_options
+        dialog = options.open_settings()
+        table, model = dialog.table, options.details_model
+        APP.processEvents()
+
+        def column(index):
+            return [model.index(row, index).data() for row in range(model.rowCount())]
+
+        self.assertEqual(column(0), ["W1", "W1", "A"])
+        self.assertEqual(column(3), ["2", "1", "1"])
+        self.assertEqual(info.models[1].frame["Die Seq"].tolist(), [2, 1])
+        viewer.set_test_flags({sources[0].key: -1})
+        self.assertEqual(column(4), ["0", "-1", "0"])
+        viewer.test_flag_values.append(7)
+        self.assertTrue(model.setData(model.index(0, 4), "7"))
+        header = table.horizontalHeader()
+        position = QPoint(header.sectionViewportPosition(4) + 10, header.height() // 2)
+        QTest.mouseClick(header.viewport(), Qt.MouseButton.LeftButton, pos=position)
+        QTest.keyClick(table, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual(APP.clipboard().text().splitlines(), ["TestFlag", "7", "-1", "0"])
+        options.controls.apply_button.click()
+        QTest.qWait(20)
+        self.assertEqual(info.models[1].frame["Test Flag"].tolist(), [7, -1])
+
+        options.open_settings()
+        owner.set_raw_frame(raw.iloc[::-1].reset_index(drop=True))
+        QTest.qWait(20)
+        self.assertEqual(column(3), ["1", "2", "1"])
+        self.assertEqual(column(4), ["-1", "7", "0"])
+        viewer.set_spectra_info_source(None)
+        QTest.qWait(20)
+        self.assertEqual(column(0), ["A", "W1", "W1"])
+
     def test_open_info_tracks_workbook_reference_edits_without_manual_refresh(self):
         from metrology_app.matching_window import MatchingWindow
         owner = MatchingWindow()
@@ -197,7 +245,7 @@ class SpectraInfoWorkflowTests(unittest.TestCase):
         self.assertEqual(viewer._data_selection_view["filters"], view["filters"])
         self.assertEqual(viewer.spectra_info_button.objectName(), "primary")
 
-    def test_similar_wafer_check_and_flag_actions_are_independent(self):
+    def test_map_similar_wafer_action_changes_checks_without_flags(self):
         viewer = SpectraViewerWindow()
         viewer.document.force_close = True
         self.addCleanup(viewer.close)
@@ -209,10 +257,7 @@ class SpectraInfoWorkflowTests(unittest.TestCase):
         viewer.set_test_flags({sources[0].key: 1, sources[3].key: -1, sources[4].key: -1})
         maps = viewer.open_wafer_map()
         actions = {a.text(): a for a in maps.build_selection_menu(("W1", "L1", "P1")).actions()}
-        before = viewer.checked_spectra()
-        actions["Apply Flag to Similar Wafer"].trigger()
-        self.assertEqual(viewer.checked_spectra(), before)
-        self.assertEqual(viewer.test_flags, {sources[0].key: 1, sources[2].key: 1, sources[4].key: -1})
+        self.assertNotIn("Apply Flag to Similar Wafer", actions)
         flags = dict(viewer.test_flags)
         actions["Apply Check To Similar Wafer"].trigger()
         self.assertEqual(viewer.test_flags, flags)
@@ -388,6 +433,15 @@ class SpectraInfoWorkflowTests(unittest.TestCase):
         pixels = np.frombuffer(image.constBits().asstring(image.sizeInBytes()), dtype=np.uint8).reshape(image.height(), -1, 4)
         self.assertTrue(np.any(np.all(pixels[:, :, :3] == [21, 128, 61], axis=2)), "Green flag must be painted")
         self.assertTrue(np.any(np.all(pixels[:, :, :3] == [220, 38, 38], axis=2)), "Red flag must be painted")
+        viewer.test_flag_values.append(2)
+        viewer.set_test_flags({sources[0].key: 2})
+        maps.update_test_flags(viewer.test_flags, flag_values=viewer.test_flag_values)
+        self.assertEqual({p.brush().color().name() for p in plot.flag_markers.points()},
+                         {"#15803d", "#7c3aed"})
+        image = plot.grab().toImage().convertToFormat(QImage.Format.Format_RGBA8888)
+        pixels = np.frombuffer(image.constBits().asstring(image.sizeInBytes()), dtype=np.uint8).reshape(image.height(), -1, 4)
+        self.assertTrue(np.any(np.all(pixels[:, :, :3] == [124, 58, 237], axis=2)),
+                        "A newly added TestFlag must use a different flag colour")
         self.assertIs(next(iter(maps.wafer_plots.values())), plot)
         self.assertEqual(plot.plot.getViewBox().viewRange(), ranges)
         self.assertEqual(viewer.checked_spectra(), (sources[0],))

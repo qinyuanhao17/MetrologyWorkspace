@@ -829,8 +829,7 @@ class MatchingWindow(QMainWindow):
         self.group_controls = GroupControls(self)
         self._group_proxies = {"reference": ProjectedSheetModel(self.reference_model, self),
                                "preview": ProjectedSheetModel(self.raw_model, self),
-                               "final": ProjectedSheetModel(self.final_raw_model, self),
-                               "order": ProjectedSheetModel(self.group_controls.order_model, self)}
+                               "final": ProjectedSheetModel(self.final_raw_model, self)}
         self.preview_model = DataFrameModel(parent=self)
         self.final_model = DataFrameModel(parent=self)
         self.summary_model = DataFrameModel(parent=self)
@@ -1284,7 +1283,7 @@ class MatchingWindow(QMainWindow):
 
         # One explicit mode choice plus a decimal auto threshold. Plain menu
         # actions use a radio-style text marker instead of misleading boxes.
-        self.second_axis_menu = self.analysis_menu.addMenu("Trend Y axes")
+        self.second_axis_menu = QMenu("Trend Y axes", self)
         self.second_axis_actions = {}
         for mode, label in AXIS_MODE_LABELS.items():
             action = QAction(label, self)
@@ -1346,23 +1345,13 @@ class MatchingWindow(QMainWindow):
         labels_action = QWidgetAction(self.plot_labels_menu)
         labels_action.setDefaultWidget(labels_panel)
         self.plot_labels_menu.addAction(labels_action)
-        self.group_settings_dialog = QDialog(self, objectName="groupSettingsDialog")
-        self.group_settings_dialog.setWindowTitle("Group settings — Match Workbook")
-        self.group_settings_dialog.setSizeGripEnabled(True)
-        group_layout = QVBoxLayout(self.group_settings_dialog)
-        group_layout.setContentsMargins(20, 18, 20, 12)
-        group_layout.setSpacing(10)
-        group_scroll = QScrollArea()
-        group_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        group_scroll.setWidgetResizable(True)
-        group_scroll.setWidget(self.group_controls)
-        self.group_controls.layout().setAlignment(Qt.AlignmentFlag.AlignTop)
-        group_layout.addWidget(group_scroll, 1)
-        group_close = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
-        group_close.addButton(self.group_controls.apply_button, QDialogButtonBox.ButtonRole.ApplyRole)
-        group_close.rejected.connect(self.group_settings_dialog.reject)
-        group_layout.addWidget(group_close)
-        fit_window_to_screen(self.group_settings_dialog, (520, 360), minimum=(440, 320))
+        from .group_settings_ui import GroupSettingsDialog
+        self.group_settings_dialog = GroupSettingsDialog(
+            self, self.group_controls, "Group settings — Match Workbook",
+            hint="Edit TestFlag here, or select rows and click Set Test Flag. Head, Mark and Group are calculated.",
+            objectName="groupSettingsDialog")
+        self.order_view = self.group_settings_dialog.table
+        self.group_controls.attach_header(self.order_view, "order", column_offset=4)
 
         # Compatibility aliases for callers that previously enabled toolbar buttons.
         self.open_button = self.open_action
@@ -1407,7 +1396,8 @@ class MatchingWindow(QMainWindow):
                     continue
                 plot._identity_labels = options["trend"]
                 if result.group_plan.enabled:
-                    set_group_axes(plot, result, result.group_series(block["parameter"], trend=True),
+                    data = result.group_series(block["parameter"], block.get("group_key", "all"), trend=True)
+                    set_group_axes(plot, result, data,
                                    show_wafers=block.get("show_wafers"))
                 else:
                     axis = plot.getAxis("bottom")
@@ -1463,6 +1453,71 @@ class MatchingWindow(QMainWindow):
         plan = GroupPlan(raw, self.group_controls.flags_frame(), self.group_controls.state, reference)
         return export_script(selection_frame(plan), {"checked": list(plan.included_rows),
                              **selection_view(plan.state["data_selection"])})
+
+    def _chart_records(self):
+        from .match_groups import row_ids
+
+        stage = self.result_mode.currentText()
+        return tuple((stage, key) for key in row_ids(self._active_raw_frame()))
+
+    def _change_chart_checks(self, rows, checked):
+        from .match_groups import applied_state, missing_excluded_records, participation_ids, row_ids
+
+        raw = self._active_raw_frame()
+        previous = applied_state(self.group_controls.state)["data_selection"]
+        keys = row_ids(raw)
+        ids = participation_ids(raw, previous)
+        excluded = set((previous or {}).get("excluded", ()))
+        changed = {int(row) for row in rows if 0 <= row < len(keys) and (ids[row] in excluded) == checked}
+        if not changed:
+            return set()
+        records = [{"key": key, "id": identifier} for key, identifier in zip(keys, ids)]
+        records += missing_excluded_records(previous, records)
+        delta = {ids[row] for row in changed}
+        excluded = excluded - delta if checked else excluded | delta
+        selection = {**(previous or {}), "records": records, "excluded": sorted(excluded)}
+        for state in (self.group_controls.state, self.group_controls.state["applied"]):
+            state["data_selection"] = deepcopy(selection)
+        self.group_controls.refresh()
+        self._stage_sync_inputs = None
+        try:
+            self.run_analysis(apply_groups=False)
+        except ValueError as error:
+            self._set_status(str(error), warning=True)
+            self.sync_stage_windows()
+            self.document.refresh_identity()
+        return changed
+
+    def _set_chart_flags(self, rows, value):
+        self._edit_test_flags(rows, self, value)
+
+    def test_flag_values(self):
+        from .match_groups import DEFAULT_FLAGS, flag_order
+
+        return [value for value in flag_order((*DEFAULT_FLAGS, *self.group_controls.entered_flags()))
+                if value]
+
+    def open_test_flags(self):
+        model = self.order_view.model()
+        rows = {model.source_row(row) for selected in self.order_view.selectionModel().selection()
+                for row in range(selected.top(), selected.bottom() + 1)}
+        if rows:
+            self._edit_test_flags(rows, self.group_settings_dialog)
+        else:
+            QMessageBox.information(self.group_settings_dialog, "Set Test Flag", "Select one or more rows in the table.")
+
+    def _edit_test_flags(self, rows, parent, value=None):
+        if value is None:
+            from .plotting.selection import ask_test_flag
+
+            value = ask_test_flag(parent)
+        if value is None:
+            return
+        count = len(self._active_raw_frame())
+        if parent is self.group_settings_dialog:
+            count = max(count, self.group_controls.order_model.document_shape()[0])
+        self.group_controls.order_model.edit({(int(row) + 1, 0): value
+                                              for row in rows if 0 <= row < count})
 
     def select_analysis_data(self):
         from .match_groups import GroupPlan
@@ -1602,10 +1657,6 @@ class MatchingWindow(QMainWindow):
 
         inputs = QSplitter(Qt.Orientation.Horizontal)
         self.inputs_splitter = inputs
-        (self.order_card, self.order_view, self.order_source,
-         self.order_duplicate_banner) = self._table_card(
-            "Order", "-1 = Unknown; 0 and 1 use your head names. Blank = not provided.",
-            self.group_controls.order_model)
         (self.reference_card, self.reference_view, self.reference_source,
          self.reference_duplicate_banner) = self._table_card(
             "Reference", "Paste the prepared table first.", self.reference_model
@@ -1614,15 +1665,14 @@ class MatchingWindow(QMainWindow):
          self.raw_duplicate_banner) = self._table_card(
             "Raw Data", "Rows are matched to Reference from top to bottom.", self.raw_model
         )
-        inputs.addWidget(self.order_card)
         inputs.addWidget(self.reference_card)
         inputs.addWidget(self.raw_card)
-        inputs.setSizes([280, 570, 650])
+        inputs.setSizes([570, 650])
         inputs.setChildrenCollapsible(False)
         inputs.setMinimumHeight(280)
         from .floating_editor import FloatingEditor
         self.raw_floating_editor = FloatingEditor(self, self.raw_card, self.raw_view, inputs)
-        for card in (self.order_card, self.reference_card, self.raw_card):
+        for card in (self.reference_card, self.raw_card):
             card.setSizePolicy(
                 QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding
             )
@@ -1709,9 +1759,26 @@ class MatchingWindow(QMainWindow):
         layout.addWidget(self.setup_scroll, 1)
         self.absolute_bias.toggled.connect(self._bias_view_changed)
         self.percent_bias.toggled.connect(self._bias_view_changed)
-        for view, table in ((self.order_view, "order"), (self.reference_view, "reference"), (self.raw_view, "raw")):
+        for view, table in ((self.reference_view, "reference"), (self.raw_view, "raw")):
             self.group_controls.attach_header(view, table)
+        self.reference_view.verticalHeader().sectionDoubleClicked.connect(
+            lambda row: self._jump_parallel_row(self.reference_view, self.raw_view, row))
+        self.raw_view.verticalHeader().sectionDoubleClicked.connect(
+            lambda row: self._jump_parallel_row(self.raw_view, self.reference_view, row))
+        from .widgets import LinkedVerticalScroll
+        self._input_scroll_link = LinkedVerticalScroll(self, (self.reference_view, self.raw_view, self.order_view))
         return page
+
+    @staticmethod
+    def _jump_parallel_row(source, target, row):
+        model, target_model = source.model(), target.model()
+        if (model is None or target_model is None
+                or not 0 <= row < min(model.rowCount(), target_model.rowCount())):
+            return
+        source.selectRow(row)
+        target.selectRow(row)
+        source.scrollTo(model.index(row, 0), QAbstractItemView.ScrollHint.PositionAtCenter)
+        target.verticalScrollBar().setValue(source.verticalScrollBar().value())
 
     def _table_card(self, title, subtitle, model):
         card = QFrame(objectName="sheetCard")
@@ -1964,9 +2031,9 @@ class MatchingWindow(QMainWindow):
         plot.setLabel("bottom", bottom)
         plot.setLabel("left", left)
         plot.setToolTip(
-            "Ctrl+scroll to zoom · Drag a box to zoom · Right-drag to pan · "
+            "Ctrl+scroll to zoom · Left-drag to select · Ctrl+left-drag to zoom · Right-drag to pan · "
             "Ordinary scrolling moves the page · "
-            "Double-click to fit this plot"
+            "Double-click a point to remove · Shift+double-click to uncheck"
         )
         plot_item = plot.getPlotItem()
         plot_item.layout.setRowFixedHeight(0, _MatchPlotWidget.HEADER_HEIGHT)
@@ -2258,17 +2325,17 @@ class MatchingWindow(QMainWindow):
             rows = tuple(row for row in rows if row in included)
         mode = self.result_mode.currentText().lower()
         for name, view, source in (("reference", self.reference_view, self.reference_model),
-                                   (mode, self.raw_view, self.final_raw_model if mode == "final" else self.raw_model),
-                                   ("order", self.order_view, controls.order_model)):
+                                   (mode, self.raw_view, self.final_raw_model if mode == "final" else self.raw_model)):
             proxy = self._group_proxies[name]
             proxy.set_rows(rows)
             model = proxy if projected else source
             if view.model() is not model:
                 view.setModel(model)
+        order_rows = sorted(rows) if projected else range(max(len(controls.raw), controls.order_model.document_shape()[0]))
+        self.group_settings_dialog.set_rows(controls.raw, order_rows)
         self._refresh_table_sizes()
         self.group_settings_action.setEnabled(True)
         self.manage_groups_action.setEnabled(True)
-        self.order_card.setVisible(True)
         index = self.results_tabs.indexOf(self.group_plot_page)
         # Mark alone groups a workbook without TestFlags, so the tab follows the
         # resolved plan instead of the Head-groups switch.
@@ -2296,17 +2363,11 @@ class MatchingWindow(QMainWindow):
 
     def _refresh_table_sizes(self):
         from .sheet import table_size_text
-        plan = self.group_controls.plan
         raw = self.final_raw_model if self.result_mode.currentText().lower() == "final" else self.raw_model
         for label, view, source in (
-                (self.order_source, self.order_view, self.group_controls.order_model),
                 (self.reference_source, self.reference_view, self.reference_model),
                 (self.raw_source, self.raw_view, raw)):
-            if view is self.order_view:
-                rows = len(plan.raw) if plan is not None else max(source.document_shape()[0], raw.document_shape()[0])
-                columns = 4
-            else:
-                rows, columns = source.document_shape()
+            rows, columns = source.document_shape()
             projected = getattr(view.model(), "rows", None)
             visible = sum(0 < row <= rows for row in projected) if projected is not None else None
             label.setText(table_size_text(rows, columns, visible_rows=visible))
@@ -3561,6 +3622,7 @@ class MatchingWindow(QMainWindow):
             saved = deepcopy(state)
             saved.pop("trend_axis_ratio", None)
             saved.pop("trend_axis_mode", None)
+            saved.pop("trend_axis_local", None)
             self._correlation_selection_states[str(stage).lower()] = saved
             return
         states = (
@@ -4272,6 +4334,22 @@ class MatchingWindow(QMainWindow):
         frames.append(("Reference", self.reference_frame.iloc[allowed].reset_index(drop=True)))
         return frames
 
+    def set_child_chart_flags(self, workspace, rows, value):
+        from .match_groups import participation_source_keys
+
+        source = workspace.model._analysis_view()
+        parent = self._active_raw_frame()
+        if not getattr(workspace, "_copy_from_wkb", False) or self._stage_window_context.get(
+                workspace, ("", ""))[1] != self.result_mode.currentText().lower():
+            return False
+        positions = {key: row for row, key in enumerate(participation_source_keys(parent))}
+        keys = participation_source_keys(source)
+        selected = {keys[row] for row in rows if 0 <= row < len(keys)}
+        if not selected or not selected <= positions.keys():
+            return False
+        self.group_controls.order_model.edit({(positions[key] + 1, 0): value for key in selected})
+        return True
+
     def apply_child_selection_scope(self, workspace, *, refresh_source=True):
         """Choose participation without replacing manual or locked Map data."""
         context = self._stage_window_context.get(workspace)
@@ -4432,18 +4510,10 @@ class MatchingWindow(QMainWindow):
         setter(cards)
 
     def set_second_axis_ratio(self, ratio):
-        """Keep every open Trend window on the decimal auto threshold."""
+        """Restore the legacy Workbook default for unopened analyses."""
         self.second_axis_ratio = float(ratio)
         if self.second_axis_spin.value() != self.second_axis_ratio:
             self.second_axis_spin.setValue(self.second_axis_ratio)
-        for workspace in tuple(self._stage_windows):
-            context = self._stage_window_context.get(workspace)
-            if context is None or context[0] != "correlation":
-                continue
-            setter = getattr(workspace, "set_second_axis_ratio", None)
-            if not callable(setter):
-                continue
-            setter(self.second_axis_ratio)
 
     def set_trend_axis_mode(self, mode):
         """Use automatic, forced dual-axis, or forced single-axis plotting."""
@@ -4451,14 +4521,6 @@ class MatchingWindow(QMainWindow):
             return
         self.trend_axis_mode = mode
         self._refresh_axis_mode_menu()
-        for workspace in tuple(self._stage_windows):
-            context = self._stage_window_context.get(workspace)
-            if context is None or context[0] != "correlation":
-                continue
-            setter = getattr(workspace, "set_trend_axis_mode", None)
-            if not callable(setter):
-                continue
-            setter(mode)
 
     def _refresh_axis_mode_menu(self):
         for mode, action in self.second_axis_actions.items():
@@ -4467,13 +4529,16 @@ class MatchingWindow(QMainWindow):
         self.second_axis_spin.setEnabled(self.trend_axis_mode == "auto")
 
     def _offer_second_axis_settings(self, workspace):
-        """Both stages always use the workbook menu's shared axis policy."""
+        """Seed a child from legacy Workbook defaults before it owns a policy."""
+        if getattr(workspace, "_local_axis_policy_loaded", False):
+            return
         ratio_setter = getattr(workspace, "set_second_axis_ratio", None)
         mode_setter = getattr(workspace, "set_trend_axis_mode", None)
         if callable(ratio_setter):
             ratio_setter(self.second_axis_ratio)
         if callable(mode_setter):
             mode_setter(self.trend_axis_mode)
+            workspace._local_axis_policy_loaded = True
 
     @staticmethod
     def _workspace_views(workspace):
@@ -4855,6 +4920,7 @@ class MatchingWindow(QMainWindow):
             plan.row_groups,
             plan.labels,
             plan.group_keys,
+            tuple((spec["id"], spec["name"], tuple(spec["members"])) for spec in plan.state["combined_groups"]),
             plan.state["trend_order"],
             tuple(plan.state["show_wafer_groups"]),
             tuple(plan.identity_columns or ()),
@@ -5257,7 +5323,8 @@ class MatchingWindow(QMainWindow):
         grouped = result.group_plan.enabled
         collect = result is self.result and self._trend_collects_wafers()
         if data is None:
-            data = (result.group_series(parameter, trend=True, collect_wafers=collect)
+            data = (result.group_series(parameter, group.get("group_key", "all"), trend=True,
+                                        collect_wafers=collect)
                     if grouped or collect or result.group_plan.state["trend_order"] == "wafers"
                     else result.series(parameter))
         card = result.card(parameter)
@@ -5285,6 +5352,7 @@ class MatchingWindow(QMainWindow):
         source = result.group_plan.raw
         die_column = next((column for column in source if str(column).lower().replace(" ", "") == "dieseq"), None)
         dies_all = source[die_column].astype(str).to_numpy()[list(source_rows)].tolist() if die_column is not None else ["N/A"] * len(source_rows)
+        chart_rows = np.asarray(source_rows, dtype=int)[indices]
         group["annotation_data"] = (indices, dies_all, workbook.match_type)
         row = np.arange(1, len(data) + 1, dtype=float)[indices]
         reference = reference_all[indices]
@@ -5300,7 +5368,17 @@ class MatchingWindow(QMainWindow):
             f"{len(data):,} rows" if not display_note else display_note.removeprefix(" · ")
         )
         plots = group["plots"]
-        for plot in plots.values():
+        if not hasattr(self, "_chart_edits"):
+            from .plotting.selection import DataPointEdits
+            self._chart_edits = DataPointEdits(self._change_chart_checks, self._set_chart_flags,
+                                               self._chart_records, flag_values=self.test_flag_values)
+        for name, plot in plots.items():
+            plot.point_selection.set_data(
+                self._chart_edits,
+                ("Match Workbook", self.result_mode.currentText(), parameter,
+                 group.get("storage_key", "main"), name),
+            )
+            plot._combined_scope = "all" if result is self.result else group.get("group_key")
             plot._identity_labels = self._plot_label_options["trend"]
         try:
             measurement_spans = [] if grouped else result.measurement_spans(
@@ -5346,6 +5424,7 @@ class MatchingWindow(QMainWindow):
                 points = match_plot.plot(raw[valid], reference[valid], pen=None, symbol="o", symbolSize=5,
                                          symbolBrush=CORRELATION_POINT_COLOR, symbolPen=None)
             attach_point_hover(points, np.asarray(dies_all, dtype=object)[indices][valid])
+            match_plot.set_point_rows(points.scatter, chart_rows[valid])
             if valid.any() and np.isfinite(fit_card.slope) and np.isfinite(fit_card.intercept):
                 low, high = float(np.min(raw[valid])), float(np.max(raw[valid]))
                 x_line = np.array([low, high])
@@ -5362,6 +5441,7 @@ class MatchingWindow(QMainWindow):
             match_plot.set_match_heading(parameter, fit_text)
 
         group["trend_data"] = (row, reference, raw, card_value)
+        group["trend_rows"] = chart_rows
         if sequence_only:
             # Collected Wafer order: the observations are the same, so every
             # Trend and Bias curve keeps its identity while its ordinals move.
@@ -5418,6 +5498,12 @@ class MatchingWindow(QMainWindow):
                 pen=pg.mkPen("#8a8f98", width=1, style=Qt.PenStyle.DashLine),
             ), ignoreBounds=True)
             bias_percent_plot.setTitle("Bias %")
+        for name in ("bias", "bias-percent"):
+            plot = plots.get(name)
+            if plot is not None:
+                for curve in plot.listDataItems():
+                    if curve.xData is not None and len(curve.xData) == len(chart_rows):
+                        plot.set_point_rows(curve.scatter, chart_rows)
         header_height = max(_MatchPlotWidget.HEADER_HEIGHT,
                             *(getattr(plot, "_caption_header_height", 0) for plot in plots.values()))
         for primary_plot in plots.values():
@@ -5506,6 +5592,7 @@ class MatchingWindow(QMainWindow):
             else:
                 continue
             curve.setData(row, values)
+            trend_plot.set_point_rows(curve.scatter, group["trend_rows"])
 
     def _draw_bias_limit(self, parameter, group=None):
         group = group if group is not None else self.plot_groups.get(parameter)
@@ -5550,7 +5637,9 @@ class MatchingWindow(QMainWindow):
         workbook = group.get("workbook", self.workbook)
         if result.group_plan.enabled:
             mode = "global" if trend_plot.card_checkbox.isChecked() else "raw"
-            if data is not None:
+            if data is None:
+                data = result.group_series(parameter, group.get("group_key", "all"), trend=True, card_mode=mode)
+            else:
                 data = data.copy()
                 data["Trend value"] = data["Card Value"] if mode == "global" else data["Raw"]
             draw_group_trend(trend_plot, result, parameter, card_mode=mode,
@@ -5570,6 +5659,8 @@ class MatchingWindow(QMainWindow):
                                         (workbook.match_type, reference, "#ed7d31")):
                 trend_plot.plot(row, values, pen=pg.mkPen(color, width=TREND_LINE_WIDTH),
                     symbol="o", symbolSize=TREND_MARKER_SIZE, symbolBrush=color, symbolPen=None, name=name)
+        for curve in trend_plot.listDataItems():
+            trend_plot.set_point_rows(curve.scatter, group["trend_rows"])
         place_legend_above_frame(trend_plot)
         title = parameter
         trend_plot.setLabel("left", title)
@@ -5656,6 +5747,20 @@ class MatchingWindow(QMainWindow):
             curve = wafer_slope.plot(x[valid_slope], slope[valid_slope], pen=None,
                                     symbol="o", symbolSize=8, symbolBrush="#e09f3e", data=np.flatnonzero(valid_slope))
             curve.sigPointsClicked.connect(lambda _curve, points, _event: self._select_wafer(parameter, int(points[0].data()), toggle=True))
+        _source, measurements = self.result._measurement_groups()
+        source_rows = self.result.source_rows
+        for key, valid in (("wafer_r2", valid_r2), ("wafer_slope", valid_slope)):
+            chart = group[key]
+            curves = chart.listDataItems()
+            if curves and hasattr(self, "_chart_edits"):
+                chart.point_selection.set_data(
+                    self._chart_edits,
+                    ("Wafer metrics", self.result_mode.currentText(), parameter, key),
+                )
+                chart.set_point_rows(curves[0].scatter, [
+                    tuple(source_rows[row] for row in measurement.rows)
+                    for measurement, present in zip(measurements, valid) if present
+                ])
         wafer_r2.setTitle("Single-Wafer R²")
         wafer_slope.setTitle("Single-Wafer slope")
         for key in ("wafer_r2", "wafer_slope"):

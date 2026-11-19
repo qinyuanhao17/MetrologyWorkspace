@@ -7,7 +7,7 @@ from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import QGraphicsRectItem, QToolTip
 
-from .wafer_graphics import WaferPanel
+from .wafer_graphics import WaferPanel, paint_point_selection, panel_point_state
 from .plotting.identity_labels import measurement_caption
 
 
@@ -99,25 +99,46 @@ class RadiusPanel(pg.GraphicsObject):
             low, high = self.y_limits
             x = box.left()+(self.source["radius"]+limit)/(2*limit)*box.width()
             y = box.bottom()-(self.source["value"]-low)/(high-low)*box.height()
-            self.scatter.setData(x=x, y=y)
             self.zero.setData(x=[box.center().x()]*2, y=[box.top(), box.bottom()])
             self._pixel_positions = np.column_stack((x, y)) if len(x) else np.empty((0, 2))
+            self.refresh_point_visibility()
         self.update()
 
-    def _point_index(self, point):
+    def point_bounds(self):
+        return self.box
+
+    def has_source_rows(self):
+        return "source_rows" in self.source
+
+    def point_rows(self):
+        return self.source.get("source_rows", np.arange(len(self._pixel_positions)))
+
+    def refresh_point_visibility(self):
+        if self.scatter is None:
+            return
+        _, removed = panel_point_state(self)
+        points = self._pixel_positions
+        if removed:
+            points = points[~np.isin(self.point_rows(), tuple(removed))]
+        self.scatter.setData(x=points[:, 0], y=points[:, 1])
+
+    def _point_index(self, point, *, include_removed=False):
         if not len(self._pixel_positions):
             return None
         delta = self._pixel_positions - np.array([point.x(), point.y()])
         distances = np.einsum("ij,ij->i", delta, delta)
+        _selected, removed = panel_point_state(self)
+        if removed and not include_removed:
+            distances[np.isin(self.point_rows(), tuple(removed))] = np.inf
         index = int(distances.argmin())
         return index if distances[index] <= 10 * 10 else None
 
-    def point_row(self, point):
+    def point_row(self, point, *, include_removed=False):
         if not self.box.contains(point):
             return None
-        index = self._point_index(point)
-        if index is not None and "source_rows" in self.source:
-            return int(self.source["source_rows"][index])
+        index = self._point_index(point, include_removed=include_removed)
+        if index is not None:
+            return int(self.point_rows()[index])
         return None
 
     def hover_text(self, point):
@@ -163,6 +184,7 @@ class RadiusPanel(pg.GraphicsObject):
             painter.setFont(self.font(base))
             self.text(painter, "No valid samples", box)
             return
+        paint_point_selection(self, painter)
         detail = max(6, base-1)
         line = detail*1.45*100/72
         bottom = box.top()-5*100/72

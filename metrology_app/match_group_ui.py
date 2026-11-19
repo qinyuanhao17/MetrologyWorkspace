@@ -2,7 +2,6 @@
 from copy import copy, deepcopy
 from bisect import bisect_left, bisect_right
 from collections.abc import Mapping
-from itertools import chain
 from math import ceil
 import json
 from uuid import uuid4
@@ -11,19 +10,19 @@ import numpy as np
 import pandas as pd
 import pyqtgraph as pg
 from PyQt6.QtCore import QAbstractProxyModel, QEvent, QModelIndex, QPointF, QRectF, QSignalBlocker, QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QFontMetrics, QIcon, QPalette
+from PyQt6.QtGui import QColor, QDrag, QFontMetrics, QIcon, QPalette
 from PyQt6.QtWidgets import (
     QApplication, QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
-    QFrame, QHeaderView, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu,
+    QFrame, QGridLayout, QHeaderView, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu,
     QMessageBox, QPushButton, QScrollArea, QTableWidgetItem,
     QStyle, QStyledItemDelegate, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from .appearance import (TREND_LINE_WIDTH, TREND_MARKER_SIZE,
                          fit_window_to_screen, widget_to_qimage)
-from .match_groups import (GroupPlan, applied_state, copy_group_state, flag_order,
-                           flag_value, group_state, normalized, participation_ids,
-                           row_ids)
+from .match_groups import (DEFAULT_FLAGS, GroupPlan, applied_state, copy_group_state,
+                           filter_mask, flag_order, flag_value, group_state, normalized,
+                           participation_ids, row_ids)
 from .plotting import InteractivePlotWidget, place_legend_above_frame
 from .plotting.identity_labels import measurement_caption
 from .sheet import SheetModel, clipboard_rows, nonempty_cell_bounds, rectangular_cell_bounds
@@ -237,28 +236,14 @@ class OrderModel(SheetModel):
 
     def selection_bounds(self):
         if self._selection_bounds is None:
-            # Head/Mark/Group are visible calculated cells, not stored flags.
-            flags = ((key, value) for key, value in self.cells.items() if key[1] == 0)
             if type(self).data is not OrderModel.data:
-                rows = len(self.plan.raw) + 1 if self.plan is not None else 1
-                calculated = (((row, column), self.data(self.index(row, column)))
-                              for row in range(rows) for column in range(1, 4))
-                self._selection_bounds = nonempty_cell_bounds(chain(flags, calculated))
+                visible = (((row, column), self.data(self.index(row, column)))
+                           for row in range(self.rowCount()) for column in range(4))
+                self._selection_bounds = nonempty_cell_bounds(visible)
             else:
-                bounds = nonempty_cell_bounds(flags)
-                top, left, bottom = (min(0, bounds[0]), 0, bounds[2]) if bounds else (0, 1, 0)
-                if self.plan is not None:
-                    flagged = np.flatnonzero(np.asarray(self.plan.flags, dtype=bool))[::-1]
-                    for column in range(1, 4):
-                        visible_unflagged = ((column == 2 and self.plan.mark_enabled)
-                                             or (column == 3 and self.plan.mark_only))
-                        rows = range(len(self.plan.raw)-1, -1, -1) if visible_unflagged else flagged
-                        values = self.plan.order_frame.iloc[:, column].to_numpy(copy=False)
-                        for row in rows:
-                            if str(values[row]).strip():
-                                bottom = max(bottom, int(row)+1)
-                                break
-                self._selection_bounds = top, left, bottom, 3
+                # TestFlag displays a default 0 in every data row. The
+                # computed columns have headers even when all values are blank.
+                self._selection_bounds = 0, 0, self.rowCount() - 1, 3
         return self._selection_bounds
 
     def rowCount(self, parent=QModelIndex()):
@@ -329,6 +314,10 @@ class OrderModel(SheetModel):
                         return ""
                     return str(self.plan.order_frame.iat[row, index.column()])
                 return ""
+        if (index.isValid() and index.row() > 0 and index.column() == 0
+                and role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole, Qt.ItemDataRole.ToolTipRole)
+                and not str(self.cells.get((index.row(), 0), "")).strip()):
+            return "0"
         return super().data(index, role)
 
     def flags(self, index):
@@ -343,14 +332,81 @@ class OrderModel(SheetModel):
         # empty final-row marker used by ordinary source-table snapshots.
         extent = max(count, max((r for (r, c), value in self.cells.items()
                                  if c == 0 and str(value).strip()), default=0))
-        return pd.DataFrame({"TestFlag": [self.cells.get((r, 0), "") for r in range(1, extent + 1)]})
+        values = [self.cells.get((r, 0), "0") for r in range(1, extent + 1)]
+        return pd.DataFrame({"TestFlag": [value if str(value).strip() else "0" for value in values]})
+
+
+class _FilterValuePool(QListWidget):
+    received = pyqtSignal(object)
+
+    def __init__(self, name):
+        super().__init__()
+        self.setAccessibleName(name)
+        self.peer = None
+        self._drag_origin = None
+        self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.DragDrop)
+        self.setDragEnabled(False)
+
+    def mousePressEvent(self, event):
+        position = event.position().toPoint()
+        self._drag_origin = (position if event.button() == Qt.MouseButton.LeftButton
+                             and self.itemAt(position) is not None else None)
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._drag_origin is not None and self.peer is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            origin = self._drag_origin
+            delta = event.position().toPoint() - origin
+            if delta.manhattanLength() < QApplication.startDragDistance():
+                return
+            self._drag_origin = None
+            peer_center = self.peer.viewport().mapToGlobal(self.peer.viewport().rect().center())
+            peer_x = self.viewport().mapFromGlobal(peer_center).x()
+            # Qt handles range selection. Only a horizontal drag toward the
+            # other pool starts a transfer of the current selection.
+            if abs(delta.x()) > abs(delta.y()) and (peer_x - origin.x()) * delta.x() > 0:
+                self.startDrag(Qt.DropAction.MoveAction)
+                return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_origin = None
+        super().mouseReleaseEvent(event)
+
+    def selected_values(self):
+        return {item.data(Qt.ItemDataRole.UserRole) for item in self.selectedItems() if not item.isHidden()}
+
+    def startDrag(self, _supported_actions):
+        items = [item for item in self.selectedItems() if not item.isHidden()]
+        if items:
+            drag = QDrag(self)
+            drag.setMimeData(self.mimeData(items))
+            drag.exec(Qt.DropAction.MoveAction)
+            drag.deleteLater()
+
+    def dragEnterEvent(self, event):
+        if self.peer is not None and event.source() is self.peer:
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        self.dragEnterEvent(event)
+
+    def dropEvent(self, event):
+        if event.source() is self.peer and self.peer is not None:
+            self.received.emit(self.peer.selected_values())
+            event.acceptProposedAction()
+        else:
+            event.ignore()
 
 
 class ColumnFilterDialog(QDialog):
     def __init__(self, name, series, spec, parent):
         super().__init__(parent)
         self.setWindowTitle(f"Filter · {name}")
-        self.resize(400, 510)
+        self.resize(700, 510)
         layout = QVBoxLayout(self)
         form = QFormLayout()
         self.query = QLineEdit(str(spec.get("query", "")))
@@ -360,26 +416,60 @@ class ColumnFilterDialog(QDialog):
             form.addRow(label, field)
         layout.addLayout(form)
         self.search = QLineEdit(placeholderText="Find values (commas or spaces)…")
-        self.search.setToolTip('Separate search values with commas (, / ，) or spaces. Any matching value is shown.')
-        layout.addWidget(self.search)
-        actions = QHBoxLayout()
-        self.all_button, self.none_button = QPushButton("All"), QPushButton("None")
-        actions.addWidget(self.all_button)
-        actions.addWidget(self.none_button)
-        layout.addLayout(actions)
-        self.values = QListWidget()
-        unique = list(dict.fromkeys(series.fillna("").astype(str).str.strip()))
-        selected = spec.get("values")
-        for value in unique:
-            item = QListWidgetItem(value or "(blank)")
-            item.setData(Qt.ItemDataRole.UserRole, value)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Checked if selected is None or value in selected else Qt.CheckState.Unchecked)
-            self.values.addItem(item)
-        layout.addWidget(self.values)
+        self.search.setToolTip('Search available values. Separate terms with commas (, / ，) or spaces.')
+        self.available_pool = _FilterValuePool("Available Values")
+        self.filter_pool = _FilterValuePool("Filter Pool")
+        self.available_pool.peer = self.filter_pool
+        self.filter_pool.peer = self.available_pool
+        self.to_filter = QPushButton()
+        self.to_available = QPushButton()
+        pools = QGridLayout()
+        pools.addWidget(QLabel("Available Values"), 0, 0)
+        pools.addWidget(QLabel("Filter Pool"), 0, 2)
+        pools.addWidget(self.search, 1, 0)
+        pools.addWidget(self.available_pool, 2, 0)
+        pools.addWidget(self.filter_pool, 2, 2)
+        pools.setColumnStretch(0, 1)
+        pools.setColumnStretch(2, 1)
+        pools.setRowStretch(2, 1)
+        arrows = QVBoxLayout()
+        arrows.addStretch()
+        for button, icon, label in (
+                (self.to_filter, QStyle.StandardPixmap.SP_ArrowRight, "Move to Filter Pool"),
+                (self.to_available, QStyle.StandardPixmap.SP_ArrowLeft, "Move to Available Values")):
+            button.setIcon(button.style().standardIcon(icon))
+            button.setFixedWidth(42)
+            button.setAutoDefault(False)
+            button.setToolTip(label)
+            button.setAccessibleName(label)
+            arrows.addWidget(button)
+        arrows.addStretch()
+        pools.addLayout(arrows, 2, 1)
+        layout.addLayout(pools, 1)
+
+        labels = series.fillna("").astype(str).str.strip()
+        first = ~labels.duplicated()
+        self._series = series[first]
+        self._labels = labels[first].to_numpy()
+        self._value_filter = spec.get("values")
+        self._pool_values = None
+        try:
+            criteria = self._criteria()
+        except ValueError:
+            criteria = {}
+        self._update_pools(criteria)
+        for field in (self.query, self.minimum, self.maximum):
+            field.textChanged.connect(self._criteria_changed)
+        for source, destination, button in (
+                (self.available_pool, self.filter_pool, self.to_filter),
+                (self.filter_pool, self.available_pool, self.to_available)):
+            source.itemSelectionChanged.connect(self._update_arrows)
+            source.itemDoubleClicked.connect(
+                lambda item, target=destination: self._move_values({item.data(Qt.ItemDataRole.UserRole)}, target))
+            button.clicked.connect(
+                lambda _checked, pool=source, target=destination: self._move_values(pool.selected_values(), target))
+            destination.received.connect(lambda values, target=destination: self._move_values(values, target))
         self.search.textChanged.connect(self._find_values)
-        self.all_button.clicked.connect(lambda: self.check_visible(True))
-        self.none_button.clicked.connect(lambda: self.check_visible(False))
         self.removed = False
         if spec:
             remove = QPushButton("Remove filter", objectName="removeColumnFilter")
@@ -392,24 +482,64 @@ class ColumnFilterDialog(QDialog):
 
     def _find_values(self, text):
         terms = text.replace('，', ' ').replace(',', ' ').lower().split()
-        for i in range(self.values.count()):
-            item = self.values.item(i)
-            item.setHidden(bool(terms) and not any(term in item.text().lower() for term in terms))
+        with QSignalBlocker(self.available_pool):
+            for row in range(self.available_pool.count()):
+                item = self.available_pool.item(row)
+                hidden = bool(terms) and not any(term in item.text().lower() for term in terms)
+                item.setHidden(hidden)
+                if hidden:
+                    item.setSelected(False)
+        self._update_arrows()
+
+    def _update_arrows(self):
+        self.to_filter.setEnabled(bool(self.available_pool.selected_values()))
+        self.to_available.setEnabled(bool(self.filter_pool.selected_values()))
+
+    def _criteria_changed(self):
+        try:
+            criteria = self._criteria()
+        except ValueError:
+            return
+        self._value_filter = None
+        self._update_pools(criteria)
+
+    def _update_pools(self, criteria):
+        rule = {**criteria, "values": self._value_filter}
+        selected = set(self._labels[filter_mask(self._series, rule)]) if (
+            criteria or self._value_filter is not None) else set()
+        if selected == self._pool_values:
+            return
+        self._pool_values = selected
+        self.available_pool.clear()
+        self.filter_pool.clear()
+        for value in self._labels:
+            item = QListWidgetItem(value or "(blank)")
+            item.setData(Qt.ItemDataRole.UserRole, value)
+            pool = self.filter_pool if value in selected else self.available_pool
+            pool.addItem(item)
+        self._find_values(self.search.text())
+
+    def _move_values(self, values, destination):
+        if not values:
+            return
+        if destination is self.filter_pool:
+            selected = self._pool_values | values
+            self.search.clear()
+        else:
+            selected = self._pool_values - values
+        self._value_filter = [value for value in self._labels if value in selected] or None
+        for field in (self.query, self.minimum, self.maximum):
+            with QSignalBlocker(field):
+                field.clear()
+        self._update_pools({})
 
     def _remove(self):
         self.removed = True
         self.accept()
 
-    def check_visible(self, checked):
-        for i in range(self.values.count()):
-            item = self.values.item(i)
-            if not item.isHidden():
-                item.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
-
-    def specification(self):
-        selected = [self.values.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.values.count())
-                    if self.values.item(i).checkState() == Qt.CheckState.Checked]
-        output = {"query": self.query.text().strip(), "values": None if len(selected) == self.values.count() else selected}
+    def _criteria(self):
+        query = self.query.text().strip()
+        output = {"query": query} if query else {}
         for key, field in (("minimum", self.minimum), ("maximum", self.maximum)):
             if field.text().strip():
                 value = float(field.text())
@@ -417,6 +547,12 @@ class ColumnFilterDialog(QDialog):
                     raise ValueError("Filter bounds must be finite numbers.")
                 output[key] = value
         return output
+
+    def specification(self):
+        criteria = self._criteria()
+        if self._value_filter is not None:
+            criteria["values"] = self._value_filter
+        return criteria
 
 
 class GroupControls(QWidget):
@@ -426,6 +562,7 @@ class GroupControls(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.owner = parent
         self.state = group_state()
         self.state["data_selection"] = {"records": [], "excluded": []}
         self.state["applied"] = deepcopy(self.state)
@@ -565,7 +702,7 @@ class GroupControls(QWidget):
             self.status.setText(str(error))
             self.apply_button.setEnabled(False)
         self.order_model.set_plan(self.plan)
-        self.names_button.setEnabled(bool(self.entered_flags()))
+        self.names_button.setEnabled(bool(self.available_flags()))
         self.card.setEnabled(self.plan is not None and self.plan.enabled)
         self.new_button.setEnabled(self.state["mark_enabled"] and self.plan is not None)
 
@@ -603,6 +740,25 @@ class GroupControls(QWidget):
     def flags_frame(self):
         return self.order_model.flags_frame(max(len(self.raw), len(self.reference)))
 
+    def test_flag_values(self):
+        external = getattr(self.owner, "test_flag_values", ())
+        if callable(external):
+            external = ()
+        return [value for value in flag_order((*DEFAULT_FLAGS, *self.entered_flags(),
+                                               *(str(value) for value in external))) if value]
+
+    def set_test_flags(self, rows, value):
+        value = flag_value(value)
+        count = max(len(self.raw), len(self.reference))
+        self.order_model.edit({(int(row) + 1, 0): value
+                               for row in rows if 0 <= row < count})
+
+    def set_test_flag_assignments(self, assignments):
+        count = max(len(self.raw), len(self.reference))
+        self.order_model.edit({(int(row) + 1, 0): flag_value(value)
+                               for row, value in assignments.items()
+                               if 0 <= int(row) < count})
+
     def restore(self, state, flags=None):
         self._loading = True
         try:
@@ -629,22 +785,22 @@ class GroupControls(QWidget):
         self.state["sort"] = []
         self.change("filters", [])
 
-    def attach_header(self, view, table):
+    def attach_header(self, view, table, *, column_offset=0):
         header = view.horizontalHeader()
         header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         # Qt's own customContextMenuRequested delivery crashes on Windows when
         # the slot asks the header for the clicked column, so the menu is opened
         # from an event filter instead of from that signal.
-        self._header_tables[header] = (view, table)
+        self._header_tables[header] = (view, table, column_offset)
         header.installEventFilter(self)
         header.setToolTip("Right-click a column to filter or sort all three paired tables.")
 
     def eventFilter(self, watched, event):
         target = self._header_tables.get(watched)
         if target is not None and event.type() == QEvent.Type.ContextMenu:
-            view, table = target
+            view, table, column_offset = target
             point = event.pos()
-            self.column_menu(view, table, watched.logicalIndexAt(point), watched.mapToGlobal(point))
+            self.column_menu(view, table, watched.logicalIndexAt(point) - column_offset, watched.mapToGlobal(point))
             return True
         return super().eventFilter(watched, event)
 
@@ -694,7 +850,9 @@ class GroupControls(QWidget):
                     self.change("filters", specs)
                     return
                 try:
-                    specs.append({"table": table, "column": name, **dialog.specification()})
+                    specification = dialog.specification()
+                    if specification:
+                        specs.append({"table": table, "column": name, **specification})
                     self.change("filters", specs)
                 except ValueError as error:
                     QMessageBox.warning(self, "Invalid filter", str(error))
@@ -709,8 +867,13 @@ class GroupControls(QWidget):
                     pass  # Invalid cells still block Apply, but not correction of head names.
         return [flag for flag in flag_order(values) if flag]
 
+    def available_flags(self):
+        if not len(self.raw) and not len(self.reference):
+            return []
+        return list(self.test_flag_values())
+
     def edit_names(self):
-        flags = self.entered_flags()
+        flags = self.available_flags()
         if not flags:
             return
         dialog = QDialog(self)
@@ -1160,6 +1323,24 @@ def _group_boundary(plot, position, *, wafer=False):
     return line
 
 
+def _combined_captions(plan, groups, starts, scope):
+    memberships = {}
+    for spec in plan.state["combined_groups"]:
+        if scope in ("all", spec["id"]):
+            for member in spec["members"]:
+                memberships.setdefault(member, []).append(spec["name"])
+    captions = []
+    for start, end in zip(starts, starts[1:]):
+        label = "\n".join(memberships.get(groups[start], ())) if start < end else ""
+        if not label:
+            continue
+        if captions and captions[-1][1] == start + .5 and captions[-1][2] == label:
+            captions[-1] = (captions[-1][0], end + .5, label)
+        else:
+            captions.append((start + .5, end + .5, label))
+    return captions
+
+
 def set_group_axes(plot, result, data, *, show_wafers=None):
     """Group axes; None uses per-Group visibility, bool overrides scoped plots."""
     plan = result.group_plan
@@ -1169,6 +1350,7 @@ def set_group_axes(plot, result, data, *, show_wafers=None):
     starts = [0] + [i for i in range(1, len(groups)) if groups[i] != groups[i - 1]] + [len(groups)]
     spans = [(start + .5, end + .5, plan.label(groups[start], multiline=True))
              for start, end in zip(starts, starts[1:]) if start < end]
+    combined = [] if row_order else _combined_captions(plan, groups, starts, getattr(plot, "_combined_scope", None))
     wafer_spans, wafer_tooltips = [], []
     if row_order:
         spans = []
@@ -1203,6 +1385,7 @@ def set_group_axes(plot, result, data, *, show_wafers=None):
     die_values = plan.raw[die_column].to_numpy() if die_column else None
     die = [str(die_values[row]) if die_values is not None else str(row + 1) for row in rows]
     plot._group_tick_data = (die, spans, wafer_spans)
+    plot._combined_group_spans = combined
     for line in getattr(plot, "_group_boundaries", []):
         plot.removeItem(line)
         if hasattr(line, "contrast_halo"):
@@ -1256,6 +1439,18 @@ def set_group_axes(plot, result, data, *, show_wafers=None):
     axis.setToolTip("" if row_order else "Groups: " + " · ".join(label for _, _, label in spans))
     axis.setPen(pg.mkPen(QColor(0, 0, 0, 0)))
     axis.setTextPen(bottom.textPen())
+    combined_axis = getattr(plot, "_combined_group_axis", None)
+    if combined and combined_axis is None:
+        combined_axis = plot._combined_group_axis = GroupLabelAxis()
+        combined_axis.linkToView(plot.getViewBox())
+        plot.getPlotItem().layout.addItem(combined_axis, 6, 1)
+        combined_axis.setPen(pg.mkPen(QColor(0, 0, 0, 0)))
+    if combined_axis is not None:
+        combined_axis.setVisible(bool(combined))
+        combined_axis.setStyle(tickLength=0, tickFont=plot.font(), tickTextOffset=3)
+        combined_axis.setTextPen(bottom.textPen())
+        lines = max((label.count("\n") + 1 for _, _, label in combined), default=0)
+        combined_axis.setHeight(lines * QFontMetrics(plot.font()).height() + 8 if lines else 0)
     if not hasattr(plot, "_refresh_group_axis"):
         def refresh(*_):
             die, spans, wafer_spans = plot._group_tick_data
@@ -1264,7 +1459,14 @@ def set_group_axes(plot, result, data, *, show_wafers=None):
             source_low, source_high = spacing.inverse([low, high]) if spacing is not None else (low, high)
             if spacing is not None:
                 spans, wafer_spans = spacing.spans(spans), spacing.spans(wafer_spans)
-            for target, captions in ((plot._group_axis, spans), (plot._wafer_axis, wafer_spans)):
+            combined = plot._combined_group_spans
+            if spacing is not None:
+                combined = spacing.spans(combined)
+            combined_axis = getattr(plot, "_combined_group_axis", None)
+            label_axes = [(plot._group_axis, spans), (plot._wafer_axis, wafer_spans)]
+            if combined_axis is not None:
+                label_axes.append((combined_axis, combined))
+            for target, captions in label_axes:
                 target.boundaries = sorted({value for start, end, _ in captions for value in (start, end)})
                 target.update()
             width = max(1., plot.getViewBox().sceneBoundingRect().width())
@@ -1299,6 +1501,16 @@ def set_group_axes(plot, result, data, *, show_wafers=None):
                                      for line in label.splitlines())
                     labels.append(((start + end) / 2, text))
             plot._group_axis.setTicks([sparse(labels)])
+            if combined_axis is not None:
+                combined_labels = []
+                for start, end, label in combined:
+                    start, end = max(low, start), min(high, end)
+                    available = int((end - start) * scale - 8)
+                    if available >= 16:
+                        text = "\n".join(metrics.elidedText(line, Qt.TextElideMode.ElideMiddle, available)
+                                         for line in label.splitlines())
+                        combined_labels.append(((start + end) / 2, text))
+                combined_axis.setTicks([sparse(combined_labels)])
             wafer_labels = []
             for start, end, label in wafer_spans:
                 start, end = max(low, start), min(high, end)
@@ -1338,7 +1550,7 @@ def draw_group_trend(plot, result, parameter, key="all", card_mode="raw", *, gro
     # Boundaries annotate the ordinal sequence; only missing observations break it.
     groups = data["Group"].tolist()
     starts = [0] + [i for i in range(1, len(groups)) if groups[i] != groups[i - 1]] + [len(groups)]
-    plot.plot(x, data["Trend value"].to_numpy(float),
+    trend = plot.plot(x, data["Trend value"].to_numpy(float),
               pen=pg.mkPen("#5b9bd5", width=TREND_LINE_WIDTH),
               symbol="o", symbolSize=TREND_MARKER_SIZE, symbolBrush="#5b9bd5", symbolPen=None,
               name="PMISH", connect="finite")
@@ -1363,6 +1575,8 @@ def draw_group_trend(plot, result, parameter, key="all", card_mode="raw", *, gro
     plot._group_boundaries = boundaries
     die_column = next((c for c in plan.raw if normalized(c) == "dieseq"), None)
     rows = data["Source row"].tolist()
+    plot.set_point_rows(reference.scatter, rows)
+    plot.set_point_rows(trend.scatter, rows)
     die_values = plan.raw[die_column].to_numpy() if die_column else None
     die = [str(die_values[row]) if die_values is not None else str(row + 1) for row in rows]
     positions = np.unique(np.linspace(0, max(0, len(rows) - 1), min(24, len(rows)), dtype=int)) if rows else []
@@ -1464,7 +1678,7 @@ class CombinedGroupDialog(QDialog):
         fit_window_to_screen(self, (720, 620), minimum=(520, 460))
         self.plan = plan
         self.groups = deepcopy(plan.state["combined_groups"])
-        self.show_wafer_groups = set(plan.state["show_wafer_groups"])
+        self.show_wafer_groups = {key for key in plan.state["show_wafer_groups"] if not key.startswith("combined:")}
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Base Groups (fixed)", objectName="panelTitle"))
         self.members = _GroupTree(objectName="combinedGroupMembers")
@@ -1493,7 +1707,9 @@ class CombinedGroupDialog(QDialog):
         self.delete_button.clicked.connect(self.delete_group)
         row_header.addWidget(self.delete_button)
         layout.addLayout(row_header)
-        self.combined_list = _GroupTree(objectName="combinedGroupsList")
+        self.combined_list = QTreeWidget(objectName="combinedGroupsList")
+        self.combined_list.setHeaderLabel("Group")
+        self.combined_list.setRootIsDecorated(False)
         self.combined_list.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked | QAbstractItemView.EditTrigger.EditKeyPressed)
         for spec in self.groups:
             self._add_group_row(spec)
@@ -1515,11 +1731,10 @@ class CombinedGroupDialog(QDialog):
             self.load_group()
 
     def _add_group_row(self, spec):
-        item = QTreeWidgetItem([spec["name"], ""])
+        item = QTreeWidgetItem([spec["name"]])
         item.setData(0, Qt.ItemDataRole.UserRole, spec["id"])
         item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
         item.setSizeHint(0, QSize(0, 34))
-        self._set_wafer_checkbox(item, spec["id"])
         self.combined_list.addTopLevelItem(item)
         return item
 
@@ -1562,11 +1777,8 @@ class CombinedGroupDialog(QDialog):
                     item.setCheckState(0, Qt.CheckState.Checked if item.data(0, Qt.ItemDataRole.UserRole) in spec["members"] else Qt.CheckState.Unchecked)
 
     def edit_group(self, item, column):
-        if column == 1:
-            self._update_wafer_checkbox(item)
-        else:
-            spec = next(s for s in self.groups if s["id"] == item.data(0, Qt.ItemDataRole.UserRole))
-            spec["name"] = item.text(0)
+        spec = next(s for s in self.groups if s["id"] == item.data(0, Qt.ItemDataRole.UserRole))
+        spec["name"] = item.text(0)
         self.error.clear()
 
     def update_members(self, item, column):
@@ -1740,18 +1952,20 @@ class GroupPlotPage(QWidget):
             section_layout = self.parameter_sections[parameter].layout()
             position = 1 + [cell for cell in visible if cell[1] == parameter].index((key, parameter))
             label, rows = self.scopes[key]
-            show_wafers = key in self.result.group_plan.state["show_wafer_groups"]
+            show_wafer_groups = self.result.group_plan.state["show_wafer_groups"]
+            show_wafers = None if key.startswith("combined:") else key in show_wafer_groups
+            caption_settings = tuple(show_wafer_groups) if show_wafers is None else show_wafers
             if key not in scopes:
                 scopes[key] = self.result.plot_scope(rows, local_card=mode == "group", label=label)
                 scopes[key].group_plan.card_source_label = "Group Card" if mode == "group" else "All parameter plots Card"
             scoped = scopes[key]
-            data = scoped.group_series(parameter, trend=True, card_mode="global")
+            data = scoped.group_series(parameter, key, trend=True, card_mode="global")
             owner = self.workbook_window
             card_key = (self.result.result_mode, f"group-plots:{key}:{parameter}")
             trend_card = owner._trend_card_state.get(card_key, self.card.isChecked() or self.use_group_card.isChecked())
-            signature = (label, mode, trend_card, show_wafers, scoped.group_plan.state["trend_order"], scoped.group_plan.trend_spans(),
+            signature = (label, mode, trend_card, caption_settings, scoped.group_plan.state["trend_order"], scoped.group_plan.trend_spans(key),
                          owner._selected_bias_views(), owner.workbook.mappings, self.result.result_mode, self.result.match_type,
-                         tuple(owner._plot_label_options["trend"].items()) if show_wafers else ())
+                         tuple(owner._plot_label_options["trend"].items()) if caption_settings else ())
             previous = self._panels.get((key, parameter))
             if previous is not None and previous[1].equals(data) and previous[2] == signature:
                 section_layout.insertWidget(position, previous[0])
@@ -1776,7 +1990,7 @@ class GroupPlotPage(QWidget):
             panel = block["card"]
             heading = panel.layout().itemAt(0).layout().itemAt(0).widget()
             heading.setText(f"⋮⋮  {label}")
-            block.update(result=scoped, workbook=owner.workbook, group_scope=True,
+            block.update(result=scoped, workbook=owner.workbook, group_scope=True, group_key=key,
                          fit_card=scoped.plot_fits[parameter], show_wafers=show_wafers)
             for plot in block["plots"].values():
                 plot.clear()

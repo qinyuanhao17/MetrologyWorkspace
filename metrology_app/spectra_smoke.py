@@ -18,6 +18,7 @@ def run_spectra_smoke(shell, app, folder, report_path):
             raise ValueError("Release smoke test requires readable SME sources.")
         viewer = shell.open_component("spectra_viewer")
         viewer.apply_load_result(sources, replace=True)
+        viewer.check_all_spectra()
         mapping = viewer.open_wafer_map()
         deadline = time.monotonic() + 15
         while mapping._pending_page_wafers and time.monotonic() < deadline:
@@ -44,11 +45,11 @@ def run_spectra_smoke(shell, app, folder, report_path):
             raise ValueError("Native rectangle selection failed.")
         point = plot._plot_positions[0]
         position = plot.plot.mapFromScene(view.mapViewToScene(QPointF(*point)))
-        QTest.mouseDClick(plot.plot.viewport(), Qt.MouseButton.LeftButton, pos=position)
-        QTest.mouseRelease(plot.plot.viewport(), Qt.MouseButton.LeftButton, pos=position)
+        QTest.mouseDClick(plot.plot.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.ShiftModifier, pos=position)
+        QTest.mouseRelease(plot.plot.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.ShiftModifier, pos=position)
         app.processEvents()
         checked = {source.key for source in viewer.checked_spectra()}
-        if not set(plot._spot_keys[0]) <= checked:
+        if set(plot._spot_keys[0]) & checked:
             raise ValueError("Native double-click checkbox update failed.")
         state.update(title=mapping.windowTitle(), spectra=len(sources.spectra),
                      rectangle_selection=True, double_click_check=True,

@@ -48,10 +48,12 @@ def _text(value):
     return "" if pd.isna(value) else str(value).strip()
 
 
-def _raw_pairs(raw, spectra, required, verify_timestamp):
+def _raw_pairs(raw, spectra, required, verify_timestamp, *, coordinates=True):
     """Pair each selected SME once, retaining original Raw Data row positions."""
     columns = {normalized(c): c for c in raw}
-    names = ("waferid", "lotid", "padname", "dieseq", "fieldx", "fieldy")
+    names = ("waferid", "lotid", "padname", "dieseq")
+    if coordinates:
+        names += ("fieldx", "fieldy")
     missing = [name for name in names if name not in columns]
     if missing:
         raise ValueError("Raw Data is missing matching columns: " + ", ".join(missing))
@@ -67,7 +69,9 @@ def _raw_pairs(raw, spectra, required, verify_timestamp):
         identity = source.identity
         label = f"{identity.wafer} / {identity.lot} / {identity.pad} / Die {identity.die_seq} ({source.path.name})"
         key = (identity.wafer.strip(), identity.lot.strip(), identity.pad.strip(),
-               canonical_die(identity.die_seq), canonical_die(identity.field_x), canonical_die(identity.field_y))
+               canonical_die(identity.die_seq))
+        if coordinates:
+            key += (canonical_die(identity.field_x), canonical_die(identity.field_y))
         candidates = index.get(key, ())
         if not candidates:
             issues.append(f"No Raw Data match: {label}; check Wafer/Lot/PAD/Die/FIELD X/FIELD Y.")
@@ -83,6 +87,24 @@ def _raw_pairs(raw, spectra, required, verify_timestamp):
             continue
         pairs[candidates[0]].append(source)
     return sorted(pairs.items()), issues
+
+
+def group_rows_in_raw_order(raw, spectra, *, verify_timestamp=True):
+    """Project matched spectra onto Raw order and retain all remaining spectra."""
+    if raw is None or raw.empty or not raw.columns.is_unique or not spectra:
+        return None
+    columns = {normalized(column) for column in raw}
+    positions = {source.key: row for row, source in enumerate(spectra)}
+    try:
+        pairs, _ = _raw_pairs(raw, spectra, positions, verify_timestamp and "cursmefilepath" in columns,
+                              coordinates={"fieldx", "fieldy"} <= columns)
+    except ValueError:
+        return None
+    ordered = [positions[sources[0].key] for _, sources in pairs if len(sources) == 1]
+    if not ordered:
+        return None
+    matched = set(ordered)
+    return (*ordered, *(row for row in range(len(spectra)) if row not in matched))
 
 
 def build_spectra_info(raw, reference, spectra, *, checked_keys, visible_keys=None,

@@ -43,7 +43,7 @@ class SheetBoundsTests(unittest.TestCase):
         start = perf_counter()
         bounds = model.selection_bounds()
         self.assertLess(perf_counter()-start, .1)
-        self.assertEqual(bounds, (0, 0, 0, 3))
+        self.assertEqual(bounds, (0, 0, len(raw), 3))
 
     def test_random_visible_rectangles_match_literal_cells_after_edit_and_undo(self):
         rng = random.Random(20261020)

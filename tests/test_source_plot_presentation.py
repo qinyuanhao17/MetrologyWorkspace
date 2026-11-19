@@ -143,7 +143,7 @@ class SourcePlotPresentationTests(unittest.TestCase):
                 self.assertIn(secondary, widget.secondary_axes[0].labelText)
                 self.assertIn(primary, widget.secondary_axes[1].labelText)
                 self.assertEqual(widget.secondary_axes[1].tickStrings([1000001, 1000002], 1, 1),
-                                 ["1000001", "1000002"])
+                                 ["1000001.000", "1000002.000"])
         page.ensure_export_figure()
         labels = [axis.get_ylabel() for axis in page.figure.axes]
         self.assertTrue(any("Raw Data" in label and "EW" in label for label in labels))

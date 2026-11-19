@@ -38,6 +38,12 @@ def copy_selection(view, role=Qt.ItemDataRole.DisplayRole, *, cell_text=None):
     uniform = getattr(model, "uniform_selectable", False)
     output = StringIO()
     writer = csv.writer(output, delimiter="\t", lineterminator="\n")
+    if (getattr(view, "copy_headers_for_full_columns", False)
+            and top == 0 and bottom == model.rowCount() - 1):
+        writer.writerow([
+            model.headerData(column, Qt.Orientation.Horizontal, Qt.ItemDataRole.DisplayRole)
+            for column in range(left, right + 1)
+        ])
     for row in range(top, bottom + 1):
         if cell_text is not None:
             values = [cell_text(row, column) for column in range(left, right + 1)]

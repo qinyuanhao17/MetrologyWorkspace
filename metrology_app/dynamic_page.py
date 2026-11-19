@@ -301,6 +301,8 @@ class DynamicPage(QWidget):
         dark = get_settings().get("theme") == "dark"
         self._plot_background = "#17121d" if dark else "#f8f7fa"
         self._plot_foreground = "#cfc4d5" if dark else "#5f5965"
+        self._die_source_rows = {}
+        self._die_source_rows = {}
 
         self.results_splitter = QSplitter(Qt.Orientation.Vertical)
         self.results_splitter.setObjectName("dynamicResultsSplitter")
@@ -477,6 +479,9 @@ class DynamicPage(QWidget):
             self.message.show()
             return
 
+        self._die_source_rows = {}
+        for die, row in zip(prepared["Die Seq"], source_rows):
+            self._die_source_rows.setdefault(str(die), []).append(int(row))
         if len(parameters) > 1:
             self._add_comparison_plot(parameters, pivots)
         for index, parameter in enumerate(parameters):
@@ -537,11 +542,12 @@ class DynamicPage(QWidget):
         plot = InteractivePlotWidget(
             background=self._plot_background, frame_tick_length=3
         )
+        plot.point_selection.data = getattr(self, "data_point_edits", None)
         plot.setFixedSize(PLOT_WIDTH, PLOT_HEIGHT)
         plot.setLabel("bottom", "Die Seq")
         plot.setLabel("left", "3 Sigma (nm)")
         plot.setToolTip(
-            "Ctrl+scroll to zoom · Drag to pan · Ordinary scrolling moves the page"
+            "Ctrl+scroll to zoom · Left-drag to select · Ctrl+left-drag to zoom · Ordinary scrolling moves the page"
         )
         plot.getAxis("left").enableAutoSIPrefix(False)
         frame_pen = pg.mkPen(self._plot_foreground)
@@ -645,6 +651,7 @@ class DynamicPage(QWidget):
                 width=bar_width * 0.86, brush=pg.mkBrush(colour),
                 pen=pg.mkPen(colour, width=1),
             )
+            bars._selection_rows = [self._die_source_rows.get(str(die), []) for die, valid in zip(dies, finite) if valid]
             plot.addItem(bars)
             legend.addItem(bars, parameter)
             self.bar_items.append(bars)
@@ -660,6 +667,7 @@ class DynamicPage(QWidget):
             x=x[finite], height=sigma[finite], width=0.72,
             brush=pg.mkBrush(colour), pen=pg.mkPen(colour, width=1),
         )
+        bars._selection_rows = [self._die_source_rows.get(str(die), []) for die, valid in zip(dies, finite) if valid]
         plot.addItem(bars)
         self.bar_items.append(bars)
 

@@ -116,7 +116,7 @@ class DynamicTrendPage(QWidget):
         options.addWidget(self.columns)
         self.reset_button = QPushButton("Reset views")
         self.reset_button.setToolTip(
-            "Ctrl+scroll to zoom · Drag a box to zoom · Right-drag to pan.\n"
+            "Ctrl+scroll to zoom · Left-drag to select · Ctrl+left-drag to zoom · Right-drag to pan.\n"
             "Ordinary scrolling moves the page.\n"
             "Reset returns every curve to its original range."
         )
@@ -215,6 +215,8 @@ class DynamicTrendPage(QWidget):
                 parameter: cycle_trend(prepared, parameter)
                 for parameter in parameters
             }
+            self._trend_source_rows = {(float(cycle), str(die)): int(row)
+                                       for cycle, die, row in zip(prepared["Cycle"], prepared["Die Seq"], rows.index)}
         except ValueError as error:
             self.invalidate(str(error))
             return
@@ -292,9 +294,11 @@ class DynamicTrendPage(QWidget):
                             for parameter, names in self.comparisons.items() if parameter in series}
         for parameter, table in self.panel_specs:
             widget = InteractivePlotWidget(background="w", auto_x_range=self.x_range)
+            widget.point_selection.data = getattr(self, "data_point_edits", None)
+            widget.point_selection.scope = ("Dynamic Trend", parameter)
             widget.setMinimumSize(360, 280)
             widget.setToolTip(
-                "Ctrl+scroll to zoom · Drag a box to zoom · Right-drag to pan · "
+                "Ctrl+scroll to zoom · Left-drag to select · Ctrl+left-drag to zoom · Right-drag to pan · "
                 "Ordinary scrolling moves the page · "
                 "Double-click to fit this curve · Reset views restores all curves"
             )
@@ -399,6 +403,8 @@ class DynamicTrendPage(QWidget):
                 target = targets[name]
             item = self.plot_die(target, table, die)
             item.dynamic_series = (name, die)
+            positions = getattr(self, "_trend_source_rows", {})
+            widget.set_point_rows(item.scatter, [positions.get((float(cycle), str(die)), ()) for cycle in table.index])
             if index:
                 colour = DIE_COLOURS[(index + 4) % len(DIE_COLOURS)]
                 item.setPen(pg.mkPen(colour, width=TREND_LINE_WIDTH))

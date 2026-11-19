@@ -3,52 +3,130 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import Mock, patch
 
 import pandas as pd
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QPoint, QTimer, Qt
+from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
 from metrology_app.selection_script import export_script, import_script
 from metrology_app.data_selection import FrameSelectionDialog
+from metrology_app.match_group_ui import ColumnFilterDialog
 from metrology_app.spectra_export import export_spectra
 
 APP = QApplication.instance() or QApplication([])
 
 
+def pool_values(pool):
+    return [pool.item(row).data(Qt.ItemDataRole.UserRole)
+            for row in range(pool.count()) if not pool.item(row).isHidden()]
+
+
 class SelectionScriptTests(unittest.TestCase):
-    def test_find_filter_values_matches_comma_separated_terms_without_changing_checks(self):
-        from metrology_app.match_group_ui import ColumnFilterDialog
-        values = pd.Series(['A17','B28','A99','MiXeD',''])
-        dialog = ColumnFilterDialog('Wafer ID',values,{'values':['B28','A99']},None)
+    def test_find_values_limits_only_available_pool_and_clears_after_move(self):
+        values = pd.Series(["A17", "B28", "A99", "MiXeD", ""])
+        dialog = ColumnFilterDialog("Wafer ID", values, {"values": ["B28", "A99"]}, None)
         self.addCleanup(dialog.deleteLater)
-        def visible():
-            return [dialog.values.item(i).data(Qt.ItemDataRole.UserRole)
-                    for i in range(dialog.values.count()) if not dialog.values.item(i).isHidden()]
-        for query,expected in (('a17',['A17']),('a17 b28',['A17','B28']),
-                               ('a17\tMiXeD\nB28',['A17','B28','MiXeD']),
-                               (' a17, mixed， , b28 ',['A17','B28','MiXeD']),
-                               (' , ， ',values.tolist()),('   ',values.tolist()),
-                               ('unmatched,z',[]),('28',['B28']),('',values.tolist())):
+        for query, expected in (("a17 B28", ["A17"]), (" a17, mixed， , b28 ", ["A17", "MiXeD"]),
+                                (" , ， ", ["A17", "MiXeD", ""]), ("unmatched,z", []),
+                                ("28", []), ("", ["A17", "MiXeD", ""])):
             dialog.search.setText(query)
-            self.assertEqual(visible(),expected)
-            self.assertEqual(dialog.specification()['values'],['B28','A99'])
-        dialog.search.setText('a17, mixed，b28')
-        dialog.none_button.click()
-        self.assertEqual(dialog.specification()['values'],['A99'])
-        dialog.all_button.click()
-        self.assertEqual(dialog.specification()['values'],['A17','B28','A99','MiXeD'])
+            self.assertEqual(pool_values(dialog.available_pool), expected)
+            self.assertEqual(pool_values(dialog.filter_pool), ["B28", "A99"])
+        dialog.search.setText("a17,mixed")
+        dialog.available_pool.selectAll()
+        dialog.to_filter.click()
+        self.assertEqual(dialog.search.text(), "")
+        self.assertEqual(pool_values(dialog.available_pool), [""])
+        self.assertEqual(dialog.specification(), {"values": ["A17", "B28", "A99", "MiXeD"]})
+
+    def test_pool_moves_multiple_values_by_drop_and_single_values_by_double_click(self):
+        dialog = ColumnFilterDialog("Wafer ID", pd.Series(["A", "B", "C", "D"]), {}, None)
+        self.addCleanup(dialog.deleteLater)
+        self.addCleanup(dialog.close)
+        dialog.show()
+        APP.processEvents()
+        available, filtered = dialog.available_pool, dialog.filter_pool
+        self.assertEqual(pool_values(filtered), [])
+        self.assertEqual(dialog.specification(), {})
+        available.item(0).setSelected(True)
+        available.item(2).setSelected(True)
+        drop = Mock()
+        drop.source.return_value = available
+        filtered.dropEvent(drop)
+        drop.acceptProposedAction.assert_called_once()
+        self.assertEqual(pool_values(filtered), ["A", "C"])
+        self.assertEqual(pool_values(available), ["B", "D"])
+        item_at = filtered.visualItemRect(filtered.item(0)).center()
+        QTest.mouseClick(filtered.viewport(), Qt.MouseButton.LeftButton, pos=item_at)
+        QTest.mouseDClick(filtered.viewport(), Qt.MouseButton.LeftButton, pos=item_at)
+        self.assertEqual(pool_values(filtered), ["C"])
+        self.assertEqual(pool_values(available), ["A", "B", "D"])
+        filtered.selectAll()
+        dialog.to_available.click()
+        self.assertEqual(pool_values(available), ["A", "B", "C", "D"])
+        self.assertEqual(dialog.specification(), {})
+
+    def test_rule_populates_filter_pool_and_manual_move_uses_exact_values(self):
+        values = pd.Series(["1", "2", "12", "27", "A2", ""])
+        dialog = ColumnFilterDialog("CD", values, {}, None)
+        self.addCleanup(dialog.deleteLater)
+        dialog.query.setText("2")
+        self.assertEqual(pool_values(dialog.filter_pool), ["2", "12", "27", "A2"])
+        dialog.minimum.setText("3")
+        dialog.maximum.setText("20")
+        self.assertEqual(pool_values(dialog.filter_pool), ["12"])
+        self.assertEqual(dialog.specification(), {"query": "2", "minimum": 3, "maximum": 20})
+        dialog.search.setText("27")
+        dialog.available_pool.selectAll()
+        dialog.to_filter.click()
+        self.assertEqual(pool_values(dialog.filter_pool), ["12", "27"])
+        self.assertEqual(dialog.specification(), {"values": ["12", "27"]})
+
+    def test_dragging_up_or_down_selects_a_range_without_starting_transfer(self):
+        dialog = ColumnFilterDialog("Wafer ID", pd.Series(["A", "B", "C", "D", "E"]), {}, None)
+        self.addCleanup(dialog.deleteLater)
+        self.addCleanup(dialog.close)
+        dialog.show()
+        APP.processEvents()
+        available, filtered = dialog.available_pool, dialog.filter_pool
+
+        def drag(pool, first, last):
+            start = pool.visualItemRect(pool.item(first)).center()
+            end = pool.visualItemRect(pool.item(last)).center()
+            QTest.mousePress(pool.viewport(), Qt.MouseButton.LeftButton, pos=start)
+            QTest.mouseMove(pool.viewport(), end)
+            QTest.mouseRelease(pool.viewport(), Qt.MouseButton.LeftButton, pos=end)
+
+        drag(available, 1, 4)
+        self.assertEqual(available.selected_values(), {"B", "C", "D", "E"})
+        with patch.object(available, "startDrag") as start_drag:
+            start = available.visualItemRect(available.item(2)).center()
+            end = start + QPoint(40, 0)
+            QTest.mousePress(available.viewport(), Qt.MouseButton.LeftButton, pos=start)
+            QTest.mouseMove(available.viewport(), end)
+            start_drag.assert_called_once_with(Qt.DropAction.MoveAction)
+            self.assertEqual(available.selected_values(), {"B", "C", "D", "E"})
+            QTest.mouseRelease(available.viewport(), Qt.MouseButton.LeftButton, pos=end)
+        drag(available, 1, 4)
+        dialog.to_filter.click()
+        self.assertEqual(pool_values(filtered), ["B", "C", "D", "E"])
+        drag(filtered, 2, 0)
+        self.assertEqual(filtered.selected_values(), {"B", "C", "D"})
+        dialog.to_available.click()
+        self.assertEqual(pool_values(filtered), ["E"])
 
     def test_multiple_found_values_apply_and_transfer_as_a_selection_filter(self):
-        from PyQt6.QtCore import QTimer
         frame = pd.DataFrame({'Wafer ID':['W1','W2','W3']})
         dialog = FrameSelectionDialog(frame)
         self.addCleanup(dialog.close)
         self.addCleanup(dialog.deleteLater)
         def choose():
             finder = APP.activeModalWidget()
-            finder.none_button.click()
             finder.search.setText('W1 W3')
-            finder.all_button.click()
+            finder.available_pool.selectAll()
+            finder.to_filter.click()
             finder.accept()
         QTimer.singleShot(0,choose)
         dialog.add_filter('Wafer ID')
@@ -61,6 +139,17 @@ class SelectionScriptTests(unittest.TestCase):
         target.apply_selection_script(recipe)
         self.assertEqual(target.model.rows,[0,2])
         pd.testing.assert_frame_equal(dialog.model.frame,frame)
+
+        def clear_pool():
+            finder = APP.activeModalWidget()
+            finder.filter_pool.selectAll()
+            finder.to_available.click()
+            finder.accept()
+
+        QTimer.singleShot(0, clear_pool)
+        dialog.edit_filter("Wafer ID")
+        self.assertEqual(dialog.model.rows, [0, 1, 2])
+        self.assertEqual(dialog.filter_groups, [])
 
     def test_checked_row_modes_retain_filters_and_refresh_after_bulk_edits(self):
         frame = pd.DataFrame({"Wafer ID": ["W1", "W2", "W3"]})

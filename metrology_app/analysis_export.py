@@ -33,7 +33,7 @@ def capture_window(window):
         finish_sources()
     if getattr(window, "_source_refresh_pending", False):
         raise ValueError("The Workbook source update has not completed.")
-    for name in ("correlation_page", "sequence_page"):
+    for name in ("correlation_page", "sequence_page", "wafer_statistics_page"):
         page = getattr(window, name, None)
         finish = getattr(page, "finish_background_draw", None)
         if callable(finish):
@@ -67,6 +67,10 @@ def capture_window(window):
                 report["plots"].append({"sheet": "Correlation", "title": f"{fit.y_name} vs {fit.x_name}",
                     "x": fit.x_name, "y": fit.y_name, "series": series, "notes": "; ".join(notes)})
         page = window.sequence_page
+        _check_draw(page)
+        if page.ready:
+            report["plots"].extend(page.export_plot_data())
+        page = window.wafer_statistics_page
         _check_draw(page)
         if page.ready:
             report["plots"].extend(page.export_plot_data())

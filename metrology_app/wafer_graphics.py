@@ -22,16 +22,16 @@ from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QTransform
 from PyQt6.QtWidgets import QGraphicsView, QMenu, QToolTip
 
+from .appearance import SELECTION_HIGHLIGHT_COLOR
 from .plot import ValueLabels, contour_colour, display_colormap, map_statistics_text
 from .plotting.identity_labels import measurement_caption
+from .plotting.selection import BoxDrag, add_selection_actions
 
 PAGE_ZOOM_PERCENTAGES = (1, 2, 5, 10, 15, 25, 50, 75, 100, 125, 150, 175, 200, 250, 300)
 
 
 class StaticMapView(pg.GraphicsView):
     """A pyqtgraph scene with ordinary page scrollbars, never plot navigation."""
-    point_double_clicked = pyqtSignal(int)
-    map_point_double_clicked = pyqtSignal(object, int)
     def __init__(self):
         super().__init__(useOpenGL=False, background="white")
         self.setCentralItem(None)
@@ -39,31 +39,191 @@ class StaticMapView(pg.GraphicsView):
         self.autoPixelRange = False
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.data_point_edits = None
+        self.point_removal_handler = None
+        self._box_selection = {}
+        self._removed_rows = {}
+        self._removed_positions = {}
+        self._unchecked_positions = {}
+        BoxDrag(self, self._panel_at, self._select_panel_points, self._zoom_to_box)
+
+    @staticmethod
+    def _panel_key(panel):
+        return panel.source.get("wafer"), panel.source.get("metric")
+
+    def _panel_at(self, point):
+        scene = self.mapToScene(point)
+        return next((item for item in self.items(point)
+                     if hasattr(item, "point_rows") and item.point_bounds().contains(item.mapFromScene(scene))), None)
+
+    def _select_panel_points(self, panel, rect, modifiers):
+        area = panel.mapFromScene(self.mapToScene(rect)).boundingRect()
+        positions = panel._pixel_positions
+        rows = panel.point_rows()
+        if len(positions) != len(rows):
+            return
+        keep = ((positions[:, 0] >= area.left()) & (positions[:, 0] <= area.right())
+                & (positions[:, 1] >= area.top()) & (positions[:, 1] <= area.bottom()))
+        key = self._panel_key(panel)
+        picked = set(rows[keep]) - self._removed_rows.get(key, set())
+        if modifiers & Qt.KeyboardModifier.ShiftModifier:
+            picked |= self._box_selection.get(key, set())
+        self._box_selection[key] = picked
+        panel.update()
+
+    def _zoom_to_box(self, _panel, rect):
+        self.fitInView(self.mapToScene(rect).boundingRect(), Qt.AspectRatioMode.KeepAspectRatio)
+
+    def clear_point_edits(self):
+        self._box_selection.clear()
+        self._removed_rows.clear()
+        self._removed_positions.clear()
+        self._unchecked_positions.clear()
+
+    def _remove_panel_points(self, panel, rows):
+        key = self._panel_key(panel)
+        point_rows = panel.point_rows()
+        for row in rows:
+            index = np.flatnonzero(point_rows == row)
+            if len(index):
+                position = panel._pixel_positions[int(index[0])]
+                self._removed_positions[(key, int(row))] = self._relative_point(
+                    panel, QPointF(float(position[0]), float(position[1])))
+        self._removed_rows.setdefault(key, set()).update(rows)
+        self._box_selection.setdefault(key, set()).difference_update(rows)
+        if hasattr(panel, "refresh_point_visibility"):
+            panel.refresh_point_visibility()
+        panel.update()
+        self._notify_point_removal(panel)
+
+    def _restore_panel_points(self, panel, rows=None):
+        key = self._panel_key(panel)
+        if rows is None:
+            rows = set(self._removed_rows.get(key, ()))
+            self._removed_rows.pop(key, None)
+        else:
+            rows = set(rows)
+            removed = self._removed_rows.get(key)
+            if removed is not None:
+                removed.difference_update(rows)
+                if not removed:
+                    self._removed_rows.pop(key, None)
+        for row in rows:
+            self._removed_positions.pop((key, row), None)
+        if hasattr(panel, "refresh_point_visibility"):
+            panel.refresh_point_visibility()
+        panel.update()
+        self._notify_point_removal(panel)
+
+    def _notify_point_removal(self, panel):
+        if self.point_removal_handler is not None:
+            self.point_removal_handler(
+                panel, set(self._removed_rows.get(self._panel_key(panel), ())))
+
+    @staticmethod
+    def _relative_point(panel, point):
+        rect = panel.point_bounds()
+        return QPointF((point.x() - rect.left()) / max(rect.width(), 1),
+                       (point.y() - rect.top()) / max(rect.height(), 1))
+
+    def _remember_unchecked(self, panel, row, point):
+        point = panel.mapFromScene(self.mapToScene(point))
+        key = self._panel_key(panel)
+        record = self.data_point_edits.record_key(row)
+        if record is not None:
+            self._unchecked_positions[(key, record)] = self._relative_point(panel, point)
+
+    def _unchecked_at(self, panel, point):
+        if self.data_point_edits is None:
+            return None
+        key = self._panel_key(panel)
+        rect = panel.point_bounds()
+        for (panel_key, record), relative in tuple(self._unchecked_positions.items()):
+            if panel_key != key:
+                continue
+            if record not in self.data_point_edits.unchecked:
+                self._unchecked_positions.pop((panel_key, record), None)
+                continue
+            saved = QPointF(rect.left() + relative.x() * rect.width(),
+                            rect.top() + relative.y() * rect.height())
+            if (saved - point).manhattanLength() <= 12:
+                return record
+        return None
+
+    def _removed_at(self, panel, point):
+        key = self._panel_key(panel)
+        rect = panel.point_bounds()
+        for (panel_key, row), relative in tuple(self._removed_positions.items()):
+            if panel_key != key:
+                continue
+            saved = QPointF(rect.left() + relative.x() * rect.width(),
+                            rect.top() + relative.y() * rect.height())
+            if (saved - point).manhattanLength() <= 12:
+                return row
+        return None
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             position = event.position().toPoint()
-            point = self.mapToScene(position)
-            for item in self.items(position):
-                point_row = getattr(item, "point_row", None)
-                if point_row is not None:
-                    row = point_row(item.mapFromScene(point))
-                    if row is not None:
-                        event.accept()
-                        if isinstance(item, WaferPanel):
-                            self.map_point_double_clicked.emit((item.source["wafer"], item.source["metric"]), row)
+            panel = self._panel_at(position)
+            if panel is not None:
+                local = panel.mapFromScene(self.mapToScene(position))
+                row = panel.point_row(local, include_removed=True)
+                if row is not None:
+                    event.accept()
+                    if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                        if self.data_point_edits is not None and panel.has_source_rows():
+                            record = self.data_point_edits.record_key(row)
+                            if record in self.data_point_edits.unchecked:
+                                self.data_point_edits.restore_keys({record})
+                                self._unchecked_positions.pop((self._panel_key(panel), record), None)
+                            else:
+                                changed = self.data_point_edits.uncheck({row})
+                                if changed:
+                                    self._remember_unchecked(panel, row, position)
+                    else:
+                        if row in self._removed_rows.get(self._panel_key(panel), set()):
+                            self._restore_panel_points(panel, {row})
                         else:
-                            self.point_double_clicked.emit(row)
-                        return
+                            self._remove_panel_points(panel, {row})
+                    return
+                record = self._unchecked_at(panel, local)
+                if (record is not None and
+                        event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
+                    event.accept()
+                    self.data_point_edits.restore_keys({record})
+                    self._unchecked_positions.pop((self._panel_key(panel), record), None)
+                    return
+                row = self._removed_at(panel, local)
+                if row is not None:
+                    event.accept()
+                    self._restore_panel_points(panel, {row})
+                    return
         super().mouseDoubleClickEvent(event)
 
-    def add_point_edit_menu(self, history):
-        from .plotting.point_edits import add_point_edit_actions
+    def add_point_edit_menu(self):
         menu = QMenu(self)
         menu.setObjectName("pointEditMenu")
-        add_point_edit_actions(menu, history)
+
+        def show_menu(point):
+            menu.clear()
+            panel = self._panel_at(point)
+            if panel is None:
+                return
+            key = self._panel_key(panel)
+            add_selection_actions(menu, lambda: self._box_selection.get(key, set()),
+                lambda: self._removed_rows.get(key, set()),
+                lambda rows: self._remove_panel_points(panel, rows),
+                lambda: self._restore_panel_points(panel), set,
+                self.data_point_edits if panel.has_source_rows() else None)
+            menu.popup(self.viewport().mapToGlobal(point))
+
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.customContextMenuRequested.connect(lambda point: menu.popup(self.viewport().mapToGlobal(point)))
+        self.customContextMenuRequested.connect(show_menu)
+
+    def panel_point_state(self, panel):
+        key = self._panel_key(panel)
+        return self._box_selection.get(key, ()), self._removed_rows.get(key, ())
 
     def resizeEvent(self, event):
         # The page owns Fit-width; GraphicsView's default pixel-range reset
@@ -94,6 +254,28 @@ class StaticMapView(pg.GraphicsView):
         after = self.mapToScene(cursor)
         center = self.mapToScene(self.viewport().rect().center())
         self.centerOn(center + before - after)
+
+
+def panel_point_state(panel):
+    scene = panel.scene()
+    if scene is not None:
+        for view in scene.views():
+            if isinstance(view, StaticMapView):
+                return view.panel_point_state(panel)
+    return (), ()
+
+
+def paint_point_selection(panel, painter):
+    selected, removed = panel_point_state(panel)
+    if not selected:
+        return
+    painter.save()
+    painter.setPen(QPen(QColor(SELECTION_HIGHLIGHT_COLOR), 1.8))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    for row, position in zip(panel.point_rows(), panel._pixel_positions):
+        if row in selected and row not in removed:
+            painter.drawEllipse(QPointF(*position), 5, 5)
+    painter.restore()
 
 
 def colour_limits(scene):
@@ -282,20 +464,36 @@ class WaferPanel(pg.GraphicsObject):
         self._geometry_key = key
         self.update()
 
-    def _point_index(self, point):
+    def point_bounds(self):
+        return self.axis_rect
+
+    def has_source_rows(self):
+        layer = self.source.get("layer")
+        return layer is not None and "source_row" in layer
+
+    def point_rows(self):
+        layer = self.source.get("layer")
+        if layer is not None and "source_row" in layer:
+            return layer["source_row"].to_numpy(dtype=int)
+        return np.arange(len(self._pixel_positions))
+
+    def _point_index(self, point, *, include_removed=False):
         if not len(self._pixel_positions):
             return None
         delta = self._pixel_positions - np.array([point.x(), point.y()])
         distances = np.einsum("ij,ij->i", delta, delta)
+        _selected, removed = panel_point_state(self)
+        if removed and not include_removed:
+            distances[np.isin(self.point_rows(), tuple(removed))] = np.inf
         index = int(distances.argmin())
         return index if distances[index] <= 12 * 12 else None
 
-    def point_row(self, point):
+    def point_row(self, point, *, include_removed=False):
         if not self.axis_rect.contains(point):
             return None
-        index = self._point_index(point)
-        if index is not None and "source_row" in self.source["layer"]:
-            return int(self.source["layer"]["source_row"].iloc[index])
+        index = self._point_index(point, include_removed=include_removed)
+        if index is not None:
+            return int(self.point_rows()[index])
         return None
 
     def hover_text(self, point):
@@ -331,6 +529,40 @@ class WaferPanel(pg.GraphicsObject):
         QToolTip.hideText()
         super().hoverLeaveEvent(event)
 
+    def _paint_remaining_labels(self, painter, removed):
+        rows = self.point_rows()
+        for index, path in self._label_paths(self.drawn_indices):
+            if rows[index] not in removed:
+                painter.fillPath(path, QColor("#101820"))
+
+    def _label_paths(self, indices=None):
+        labels = self.value_labels
+        size = max(2 if self.font_size < 8 else 4.5, self.font_size * .55)
+        if len(self.values) > 100:
+            size = max(2 if self.font_size < 8 else 4.5, size - 1)
+        scale = size * 100/72
+        gap = max(1.5, scale * .12)
+        transform = self.data_transform()
+        boxes = _LabelBoxIndex() if indices is None else None
+        for index in range(len(labels.labels)) if indices is None else indices:
+            label, position = labels.labels[index], self.positions[index]
+            point = transform.map(QPointF(*position))
+            width = sum(labels._glyphs[c][1] for c in label) * scale
+            baseline = point.y() + (labels._top + .75) * scale
+            box = (point.x()-width/2-gap, baseline-labels._top*scale-gap,
+                   point.x()+width/2+gap, baseline+gap)
+            if boxes is not None and not boxes.add_if_clear(box):
+                continue
+            path = QPainterPath()
+            cursor = point.x() - width/2
+            for character in label:
+                glyph, advance = labels._glyphs[character]
+                if character not in self._glyph_paths:
+                    self._glyph_paths[character] = qt_path(glyph.vertices, glyph.codes)
+                path.addPath(QTransform(scale, 0, 0, -scale, cursor, baseline).map(self._glyph_paths[character]))
+                cursor += advance * scale
+            yield index, path
+
     def data_transform(self):
         options, rect = self.source["options"], self.axis_rect
         scale = rect.width() / (options.radius * 2)
@@ -350,30 +582,10 @@ class WaferPanel(pg.GraphicsObject):
             self.drawn_indices = list(template.drawn_indices)
             self._label_key = label_key
             return
-        size = max(2 if self.font_size < 8 else 4.5, self.font_size * .55)
-        if len(self.values) > 100:
-            size = max(2 if self.font_size < 8 else 4.5, size - 1)
-        scale = size * 100/72
-        gap = max(1.5, scale * .12)
-        transform = self.data_transform()
-        path, boxes, indices = QPainterPath(), _LabelBoxIndex(), []
-        for index, (label, position) in enumerate(zip(labels.labels, self.positions)):
-            point = transform.map(QPointF(*position))
-            width = sum(labels._glyphs[c][1] for c in label) * scale
-            # Mirror ValueLabels' baseline and overlap rule into Qt's Y-down space.
-            baseline = point.y() + (labels._top + .75) * scale
-            box = (point.x()-width/2-gap, baseline-labels._top*scale-gap,
-                   point.x()+width/2+gap, baseline+gap)
-            if not boxes.add_if_clear(box):
-                continue
+        path, indices = QPainterPath(), []
+        for index, label_path in self._label_paths():
+            path.addPath(label_path)
             indices.append(index)
-            cursor = point.x() - width/2
-            for character in label:
-                glyph, advance = labels._glyphs[character]
-                if character not in self._glyph_paths:
-                    self._glyph_paths[character] = qt_path(glyph.vertices, glyph.codes)
-                path.addPath(QTransform(scale, 0, 0, -scale, cursor, baseline).map(self._glyph_paths[character]))
-                cursor += advance * scale
         self.label_path, self.drawn_indices = path, indices
         self._label_key = label_key
 
@@ -463,23 +675,17 @@ class WaferPanel(pg.GraphicsObject):
         stats = map_statistics_text(self.values)
         self.text(painter, stats, QRectF(rect.left()-35, title_bottom-line, rect.width()+70, line))
         painter.save()
-        painter.setClipRect(rect)
         transform = self.data_transform()
         if options.contour:
+            painter.save()
+            painter.setClipRect(rect)
             self._prepare_contours()
             painter.setOpacity(.9)
             for path, colour in self.contours:
                 painter.setPen(QPen(QColor(colour), .5*100/72))
                 painter.drawPath(transform.map(path))
             painter.setOpacity(1)
-        if options.points:
-            diameter = np.sqrt(13 if options.point_outline else 5) * 100/72
-            painter.setPen(QPen(QColor("#f5f5f5"), .9*100/72) if options.point_outline else QPen(Qt.PenStyle.NoPen))
-            painter.setBrush(QColor("#101820"))
-            for position in self.positions:
-                painter.drawEllipse(transform.map(QPointF(*position)), diameter/2, diameter/2)
-        if options.labels:
-            painter.fillPath(self.label_path, QColor("#101820"))
+            painter.restore()
         painter.restore()
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(QPen(QColor("#343b45"), .8*100/72))
@@ -489,6 +695,30 @@ class WaferPanel(pg.GraphicsObject):
         self._paint_axes(painter)
         if options.show_colorbar:
             self._paint_bar(painter)
+        self._paint_measurements(painter, transform, options)
+
+    def _paint_measurements(self, painter, transform, options):
+        painter.save()
+        if options.points:
+            diameter = np.sqrt(13 if options.point_outline else 5) * 100/72
+            painter.setPen(QPen(QColor("#f5f5f5"), .9*100/72) if options.point_outline else QPen(Qt.PenStyle.NoPen))
+            painter.setBrush(QColor("#101820"))
+            _selected, removed = panel_point_state(self)
+            if removed:
+                visible = ~np.isin(self.point_rows(), tuple(removed))
+                positions = self.positions[visible]
+            else:
+                positions = self.positions
+            for position in positions:
+                painter.drawEllipse(transform.map(QPointF(*position)), diameter/2, diameter/2)
+        if options.labels:
+            _selected, removed = panel_point_state(self)
+            if not removed:
+                painter.fillPath(self.label_path, QColor("#101820"))
+            else:
+                self._paint_remaining_labels(painter, removed)
+        paint_point_selection(self, painter)
+        painter.restore()
 
     def _ticks(self, center, name):
         radius = self.source["options"].radius

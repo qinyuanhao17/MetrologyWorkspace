@@ -3,6 +3,7 @@ from dataclasses import dataclass, field, fields
 from html import escape
 from pathlib import Path
 
+import numpy as np
 import pyqtgraph as pg
 from PyQt6.QtCore import QEvent, Qt, QSize, QPoint, QSignalBlocker, pyqtSignal
 from PyQt6.QtGui import QPainter, QPen, QColor, QPainterPath
@@ -269,6 +270,10 @@ class ReferenceAlignmentPage(QWidget):
             pair.addWidget(combo, 1)
             sorting.addLayout(pair)
         sort = QPushButton('Apply sort'); sort.clicked.connect(self.apply_sort); sorting.addWidget(sort)
+        recover = QPushButton('Recover order')
+        recover.setToolTip('Restore the original row order of the current Ref and Raw tables.')
+        recover.clicked.connect(self.recover_sort)
+        sorting.addWidget(recover)
         draw = QPushButton('Plot XY Bias',objectName='primary'); draw.clicked.connect(self.draw); sorting.addWidget(draw)
         layout.addLayout(sorting)
         self.status = QLabel()
@@ -321,15 +326,23 @@ class ReferenceAlignmentPage(QWidget):
                           if not path.name.startswith('_') and path.suffix.lower() in extensions)
 
     def add_output_files(self, paths):
-        entries = []
-        for path in map(Path, paths):
+        entries, errors = [], []
+        for path in dict.fromkeys(Path(path).resolve() for path in paths):
             if path.suffix.casefold() != '.csv' or path.name.startswith(('_', '.')):
                 continue
+            if path not in self._datasets and path not in self._saved_output_frames:
+                try:
+                    self._saved_output_frames[path] = load_alignment_output(path)
+                except (ValueError, OSError) as error:
+                    errors.append(f'{path}\n{error}')
+                    continue
             prefixes = (path.name.upper(), path.parent.name.upper())
             vendor = next((name for name in ('NOVA', 'PMISH', 'KLA', 'CDSEM1')
                            if any(value.startswith(f'{name}_') for value in prefixes)), 'Ref')
             entries.append((path, vendor))
         self._add_outputs(entries)
+        if errors:
+            QMessageBox.warning(self, 'Cannot load Ref output', '\n\n'.join(errors))
 
     def choose_output_files(self, *_):
         paths = choose_files(self, 'Load Ref output CSV', 'Summary CSV files (*.csv)',
@@ -374,19 +387,25 @@ class ReferenceAlignmentPage(QWidget):
 
     def _add_outputs(self, entries, *, select=True):
         first = None
+        previous_count = self.output_picker.count()
+        indexes = {Path(self.output_picker.itemData(i)): i for i in range(previous_count)}
         with QSignalBlocker(self.output_picker), QSignalBlocker(self.trend_page.output_picker):
             for path, vendor in entries:
                 path = Path(path).resolve()
-                index = self.output_picker.findData(str(path))
-                if index < 0:
+                index = indexes.get(path)
+                if index is None:
                     index = self.output_picker.count()
                     self.output_picker.addItem(str(path), str(path))
                     self.output_picker.setItemData(index, str(path), Qt.ItemDataRole.ToolTipRole)
                     self._output_vendors[path] = vendor
+                    indexes[path] = index
                 if first is None:
                     first = index
         if first is not None and select:
+            active_path = self._dataset.path
             self._load_output(first)
+            if self.output_picker.count() != previous_count and self._dataset.path == active_path:
+                self.alignment_changed.emit()
 
     def _set_output_indexes(self, index):
         for picker in (self.output_picker, self.trend_page.output_picker):
@@ -427,6 +446,7 @@ class ReferenceAlignmentPage(QWidget):
             self._dataset = dataset
             self.sheet_stack.setCurrentWidget(dataset.sheets)
         self._set_output_indexes(index)
+        self.trend_page.source_output = path
         self._rebuild_wafer_lists(dataset.orders)
         if dataset.results:
             self.trend_page.show_results(dataset.results)
@@ -529,6 +549,17 @@ class ReferenceAlignmentPage(QWidget):
             self._invalidate(); self.status.setText('Both tables sorted within each wafer. Links retained; plot to compare the new row pairing.')
         except ValueError as error: self.status.setText(str(error)); self._invalidate()
 
+    def recover_sort(self):
+        changed = False
+        for sheet in (self.ref, self.raw):
+            order = sorted(range(len(sheet.source_rows)), key=sheet.source_rows.__getitem__)
+            if order != list(range(len(order))):
+                sheet.reorder(order)
+                changed = True
+        if changed:
+            self._invalidate()
+        self.status.setText('Original Ref and Raw row order restored. Wafer links retained.')
+
     def draw(self):
         try:
             self.status.setToolTip('')
@@ -538,6 +569,7 @@ class ReferenceAlignmentPage(QWidget):
                 self.links, ref_source_rows=self.ref.source_rows, raw_source_rows=self.raw.source_rows, notes=notes)
             if not self.results:
                 raise ValueError(notes[0] if notes else 'No aligned wafer points to plot.')
+            self.trend_page.source_output = self._dataset.path
             self.trend_page.show_results(self.results)
             message = f'{len(self.results)} linked wafer trends · Bias = Raw − Ref ({self.raw.columns().unit})'
             if notes:
@@ -571,6 +603,7 @@ class CoordinateTrendPage(QWidget):
         self.columns.currentIndexChanged.connect(self.relayout)
         tools.addWidget(self.columns)
         self._results = []
+        self._checked_positions = None
         self.order_buttons = {}
         self._order = 'sorted'
         for order, title in (('raw', 'Raw order'), ('ref', 'Ref order'), ('sorted', 'XY sort order')):
@@ -638,9 +671,24 @@ class CoordinateTrendPage(QWidget):
 
     def show_results(self, results):
         self._results = results
+        self._checked_positions = None
         for control in self.order_buttons.values():
             control.setEnabled(bool(results))
         self.set_order(self._order)
+
+    def refresh_point_checks(self, allowed):
+        self._checked_positions = set(allowed)
+        for plot in self.plots:
+            for curve in plot.listDataItems():
+                values = getattr(curve, "_xy_bias_values", None)
+                if values is None:
+                    continue
+                rows = curve.scatter._selection_rows
+                visible = np.array([row in allowed for row in rows])
+                plot.point_selection.masks.pop(curve, None)
+                curve.setData(x=curve.xData, y=np.where(visible, values, np.nan))
+                plot.point_selection.apply_saved(curve)
+            plot.point_selection.update_highlight()
 
     def set_order(self, order):
         self._order = order
@@ -649,6 +697,8 @@ class CoordinateTrendPage(QWidget):
         self._clear_plots()
         source = {'raw': 'Raw source row', 'ref': 'Ref source row'}.get(order)
         results = self._results
+        ordinals = {row: index for index, row in enumerate(sorted(
+                    row for _, _, frame in results for row in frame.get("Raw source row", ())))}
         if source:
             results = sorted(results, key=lambda result: result[2][source].min())
         for ref,raw,frame in results:
@@ -657,6 +707,7 @@ class CoordinateTrendPage(QWidget):
             unit = frame.attrs.get('unit','mm')
             from .spectra_plots import DecimalAxisItem
             plot = InteractivePlotWidget(background='white', axisItems={'left':DecimalAxisItem('left'), 'bottom':DecimalAxisItem('bottom')})
+            plot.point_selection.data = getattr(self, "data_point_edits", None)
             for name in ('left','bottom'):
                 axis = plot.getAxis(name)
                 axis.enableAutoSIPrefix(False)
@@ -667,13 +718,22 @@ class CoordinateTrendPage(QWidget):
             heading.setStyleSheet('color: #20242a; padding: 6px;')
             heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
             heading.setToolTip(title)
-            plot.setToolTip('Ctrl+scroll to zoom · Ordinary scrolling moves the page')
+            plot.setToolTip('Left-drag to select · Ctrl+left-drag to zoom')
             order_label = self.order_buttons[order].text()
             plot.setLabel('left',f'Bias ({unit})',color='#30343b'); plot.setLabel('bottom',f'Paired point ({order_label})',color='#30343b')
             plot.showGrid(x=False,y=True,alpha=.18); plot.addLegend(offset=None,labelTextColor='#333333')
             point = range(1, len(frame) + 1)
-            plot.plot(point,frame[f'Bias X ({unit})'].to_numpy(),pen=pg.mkPen('#0072B2',width=2),symbol='o',symbolSize=4,symbolPen='#0072B2',symbolBrush='#0072B2',name='X: Raw − Ref')
-            plot.plot(point,frame[f'Bias Y ({unit})'].to_numpy(),pen=pg.mkPen('#D55E00',width=2),symbol='t',symbolSize=4,symbolPen='#D55E00',symbolBrush='#D55E00',name='Y: Raw − Ref')
+            x_curve = plot.plot(point,frame[f'Bias X ({unit})'].to_numpy(),pen=pg.mkPen('#0072B2',width=2),symbol='o',symbolSize=4,symbolPen='#0072B2',symbolBrush='#0072B2',name='X: Raw − Ref')
+            y_curve = plot.plot(point,frame[f'Bias Y ({unit})'].to_numpy(),pen=pg.mkPen('#D55E00',width=2),symbol='t',symbolSize=4,symbolPen='#D55E00',symbolBrush='#D55E00',name='Y: Raw − Ref')
+            if "Raw source row" in frame:
+                rows = [ordinals[row] for row in frame["Raw source row"]]
+                plot.point_selection.scope = ("XY Bias", getattr(self, "source_output", None), ref, raw)
+                for curve in (x_curve, y_curve):
+                    curve._xy_bias_values = curve.yData.copy()
+                    if self._checked_positions is not None:
+                        visible = np.array([row in self._checked_positions for row in rows])
+                        curve.setData(x=curve.xData, y=np.where(visible, curve._xy_bias_values, np.nan))
+                    plot.set_point_rows(curve.scatter, rows)
             plot.addItem(pg.InfiniteLine(pos=0,angle=0,pen=pg.mkPen('#888888',style=Qt.PenStyle.DashLine)))
             place_legend_above_frame(plot)
             plot.getPlotItem().layout.setRowFixedHeight(0,28)

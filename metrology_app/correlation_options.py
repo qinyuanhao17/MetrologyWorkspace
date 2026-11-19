@@ -206,7 +206,10 @@ class CorrelationOptions(QObject):
             return
         if presentation_only:
             frame = owner._analysis_frame if owner._workbook_sources else owner._frame
-            owner.sequence_page.set_input(frame,owner._grouped_trend_selection(owner.selection))
+            selection = owner._grouped_trend_selection(owner.selection)
+            owner.sequence_page.set_input(frame, selection)
+            if hasattr(owner, "wafer_statistics_page"):
+                owner.wafer_statistics_page.set_input(frame, selection)
             owner.document.refresh_identity()
             return
         owner._group_result_cache = None
@@ -231,8 +234,9 @@ class CorrelationOptions(QObject):
         if self.is_wafer:
             self.owner.update_plan()
         else:
-            self.owner.sequence_page.set_identity_labels(
-                values if self.labels_enabled.isChecked() else {'pad':False,'lot':False})
+            values = values if self.labels_enabled.isChecked() else {'pad':False,'lot':False}
+            self.owner.sequence_page.set_identity_labels(values)
+            self.owner.wafer_statistics_page.set_identity_labels(values)
         self.owner.document.refresh_identity()
 
     def snapshot(self, *, readonly=False):

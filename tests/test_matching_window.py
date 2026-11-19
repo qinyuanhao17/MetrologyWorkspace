@@ -9,13 +9,14 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import numpy as np
 import pandas as pd
 import pyqtgraph as pg
-from PyQt6.QtCore import QCoreApplication, QEvent, QPoint, QPointF, Qt, QTimer
+from PyQt6.QtCore import QCoreApplication, QEvent, QItemSelectionModel, QPoint, QPointF, Qt, QTimer
 from PyQt6.QtGui import QFontMetrics, QImage, QWheelEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import (
-    QApplication, QCheckBox, QDoubleSpinBox, QFileDialog, QHeaderView, QLabel, QMessageBox, QPushButton,
+    QApplication, QCheckBox, QDoubleSpinBox, QFileDialog, QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton,
     QScrollArea, QSplitter, QTabBar, QTableView, QTabWidget, QToolButton,
 )
 
@@ -194,10 +195,142 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(window.result.group_plan.rows("New:"), tuple(range(6, 12)))
         self.assertEqual(window.result.card("CD").valid_pairs, 11)
 
-    def test_order_card_has_the_short_order_title(self):
-        titles = [label.text() for label in self.window.order_card.findChildren(QLabel)]
-        self.assertIn("Order", titles)
-        self.assertNotIn("Order / TestFlag", titles)
+    def test_order_table_shares_test_flags_from_group_settings_and_plots(self):
+        window = self.window
+        window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1", "W2", "W2"], "CD": [1., 2., 3.]}))
+        dialog = window.open_group_settings()
+        table = dialog.table
+        model = table.model()
+        self.assertEqual(window.inputs_splitter.count(), 2)
+        self.assertTrue(dialog.isAncestorOf(table))
+        self.assertEqual(model.headers, ("Wafer ID", "Lot ID", "PAD Name", "Die Seq",
+                                         "TestFlag", "Head", "Mark", "Group"))
+        self.assertEqual(dialog.set_flags_button.text(), "Set Test Flag…")
+        self.assertIsNone(dialog.set_flags_button.menu())
+        self.assertEqual([model.index(row, 4).data() for row in range(model.rowCount())],
+                         ["0", "0", "0"])
+        window.group_controls.change("sort", [{"table": "raw", "column": "Wafer ID", "descending": True}])
+        self.assertEqual([model.index(row, 0).data() for row in range(3)], ["W1", "W2", "W2"])
+        window._set_chart_flags({1}, "7")
+        self.assertEqual(model.index(1, 4).data(), "7")
+        def choose_flag():
+            from metrology_app.spectra_info_ui import TestFlagDialog
+            choice = APP.activeModalWidget()
+            self.assertIsInstance(choice, TestFlagDialog)
+            self.assertEqual(choice.flag_values(), [0, 1, -1, 7])
+            self.assertEqual(choice.group_picker.text(), "Wafer ID / Lot ID / PAD Name")
+            self.assertEqual(choice.tree.topLevelItemCount(), 2)
+            item = next(choice.tree.topLevelItem(index) for index in range(choice.tree.topLevelItemCount())
+                        if choice.tree.topLevelItem(index).text(0).startswith("W1"))
+            combo = choice.tree.itemWidget(item, 1)
+            combo.setCurrentIndex(combo.findData(1))
+            choice.accept()
+        QTimer.singleShot(0, choose_flag)
+        dialog.set_flags_button.click()
+        self.assertEqual([model.index(row, 4).data() for row in range(3)], ["1", "7", "0"])
+        table.setCurrentIndex(model.index(0, 4))
+        table.selectionModel().select(model.index(1, 4), QItemSelectionModel.SelectionFlag.Select)
+        APP.clipboard().setText("7\n-1")
+        QTest.keyClick(table, Qt.Key.Key_V, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual(window.group_controls.flags_frame()["TestFlag"].tolist(), ["7", "-1", "0"])
+
+    def test_group_details_identity_filters_keep_source_rows_and_can_be_cleared(self):
+        window = self.window
+        window.set_raw_frame(pd.DataFrame({
+            "Wafer ID": ["W1", "W1", "W2", "W2"],
+            "Lot ID": ["L1", "L2", "L1", "L2"],
+            "PAD Name": ["P1", "P1", "P2", "P2"],
+            "Die Seq": [1, 10, 2, 11],
+            "CD": [1., 2., 3., 4.],
+        }))
+        dialog = window.open_group_settings()
+        table = dialog.table
+        model = dialog.table.model()
+        self.assertEqual(model.distinct_values(3), ("1", "2", "10", "11"))
+        model.set_column_filter(0, {"W2"})
+        self.assertEqual(model.rowCount(), 2)
+        self.assertEqual([model.index(row, 0).data() for row in range(2)], ["W2", "W2"])
+        dialog.table.selectColumn(4)
+        QTest.keyClick(dialog.table, Qt.Key.Key_1)
+        self.assertEqual(window.group_controls.flags_frame()["TestFlag"].tolist(),
+                         ["0", "0", "1", "1"])
+        model.set_column_filter(1, {"L2"})
+        self.assertEqual(model.rowCount(), 1)
+        self.assertEqual(model.source_row(0), 3)
+        self.assertEqual(model.index(0, 3).data(), "11")
+        dialog.table.selectColumn(4)
+        QTest.keyClick(dialog.table, Qt.Key.Key_0)
+        self.assertEqual(window.group_controls.flags_frame()["TestFlag"].tolist(),
+                         ["0", "0", "1", "0"])
+        with patch.object(QMessageBox, "warning") as warning:
+            QTest.keyClick(dialog.table, Qt.Key.Key_5)
+        warning.assert_called_once()
+        self.assertEqual(window.group_controls.flags_frame()["TestFlag"].tolist(),
+                         ["0", "0", "1", "0"])
+        dialog.header_filters.position_buttons()
+        self.assertTrue(dialog.header_filters.buttons[0].isVisible())
+        model.clear_filters()
+        self.assertEqual(model.rowCount(), 4)
+        self.assertIsNone(model.filter_for(0))
+        table.selectColumn(0)
+        APP.clipboard().clear()
+        QTest.keyClick(table, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual(APP.clipboard().text().splitlines(),
+                         ["Wafer ID", "W1", "W1", "W2", "W2"])
+
+    def test_enter_in_testflag_editor_does_not_open_head_names(self):
+        window = self.window
+        window.set_raw_frame(pd.DataFrame({
+            "Wafer ID": ["W1"] * 2, "Lot ID": ["L1"] * 2,
+            "PAD Name": ["P1"] * 2, "Die Seq": [1, 2], "CD": [1., 2.],
+        }))
+        dialog = window.open_group_settings()
+        dialog.show()
+        APP.processEvents()
+        table = dialog.table
+        index = table.model().index(0, 4)
+        table.setCurrentIndex(index)
+        table.openPersistentEditor(index)
+        APP.processEvents()
+        editor = table.findChild(QLineEdit)
+        self.assertIsNotNone(editor)
+        opened = []
+        def close_modal():
+            modal = APP.activeModalWidget()
+            if modal is not None:
+                opened.append(modal.windowTitle())
+                modal.reject()
+        QTimer.singleShot(100, close_modal)
+        QTest.keyClick(editor, Qt.Key.Key_Return)
+        QTest.qWait(120)
+        self.assertEqual(opened, [])
+
+    def test_ctrl_wheel_links_input_tables_and_open_group_settings(self):
+        window = self.window
+        window.set_reference_frame(pd.DataFrame({"Reference": range(60)}))
+        window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"] * 60, "CD": range(60)}))
+        window.resize(1200, 800)
+        window.show()
+        window.open_group_settings()
+        APP.processEvents()
+        views = (window.reference_view, window.raw_view, window.order_view)
+        bars = [view.verticalScrollBar() for view in views]
+        viewport = views[0].viewport()
+        position = viewport.rect().center()
+
+        def wheel(modifiers):
+            APP.sendEvent(viewport, QWheelEvent(QPointF(position), QPointF(viewport.mapToGlobal(position)),
+                QPoint(), QPoint(0, -120), Qt.MouseButton.NoButton, modifiers,
+                Qt.ScrollPhase.NoScrollPhase, False))
+
+        self.assertTrue(all(bar.maximum() > 0 for bar in bars))
+        wheel(Qt.KeyboardModifier.NoModifier)
+        self.assertGreater(bars[0].value(), 0)
+        self.assertEqual([bar.value() for bar in bars[1:]], [0, 0])
+        wheel(Qt.KeyboardModifier.ControlModifier)
+        fraction = bars[0].value() / bars[0].maximum()
+        self.assertGreater(fraction, 0)
+        self.assertEqual([bar.value() for bar in bars[1:]], [round(fraction * bar.maximum()) for bar in bars[1:]])
 
     def test_linked_correlation_trend_names_each_group_once_without_wafer_metadata(self):
         window = self.window
@@ -573,7 +706,7 @@ class MatchingWindowTests(unittest.TestCase):
         window.percent_bias.setChecked(True)
         window.group_controls.restore({"enabled": True, "mark_enabled": False, "trend_order": "original",
             "head_names": {"0": "Head A", "1": "Head B"},
-            "show_wafer_groups": ["combined:ab"],
+            "show_wafer_groups": ["All:0", "All:1"],
             "combined_groups": [{"id": "combined:ab", "name": "A+B", "members": ["All:0", "All:1"]}]},
             pd.DataFrame({"TestFlag": [0, 0, 1, 1] * 2}))
         window.run_analysis()
@@ -604,20 +737,60 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertIn("Wafer ID: W1", page.plot_groups[("combined:ab", "CD")]["plots"]["trend"]._wafer_axis.toolTip())
 
     def test_input_table_footers_only_report_the_table_size(self):
-        """The Order, Reference and Raw footers drop the origin text and keep the size."""
+        """The Reference and Raw footers show the size; Order lives in Group settings."""
         window = self.window
         window._refresh_group_projection()
-        self.assertEqual(window.order_source.text(), "0 rows × 4 columns")
+        self.assertEqual(window.order_view.model().rowCount(), 0)
         window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7.]}), "Clipboard")
         window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"] * 3, "CD": [1., 2., 3.]}), "Clipboard")
         configure_match_fixture(window)
-        self.assertEqual(window.order_source.text(), "3 rows × 4 columns")
+        self.assertEqual(window.order_view.model().rowCount(), 3)
         self.assertEqual(window.reference_source.text(), "3 rows × 1 columns")
         self.assertEqual(window.raw_source.text(), "3 rows × 2 columns")
         self.assertEqual(window.mapping_size.text(), "1 rows × 13 columns")
-        self.assertNotIn("Clipboard", window.order_source.text())
         self.assertNotIn("Clipboard", window.reference_source.text())
         self.assertNotIn("Clipboard", window.raw_source.text())
+
+    def test_double_clicking_a_row_header_reveals_the_same_row_in_the_other_table(self):
+        window = self.window
+        rows = 120
+        window.set_reference_frame(pd.DataFrame({"Reference": range(rows)}))
+        window.set_raw_frame(pd.DataFrame({
+            "Wafer ID": [f"W{row // 3:03d}" for row in range(rows)],
+            "Die Seq": [row % 3 + 1 for row in range(rows)],
+            "CD": range(rows),
+        }))
+        window.resize(1500, 850)
+        window.show()
+        APP.processEvents()
+
+        window.raw_view.verticalHeader().sectionDoubleClicked.emit(70)
+        APP.processEvents()
+        self.assertEqual(window.reference_view.currentIndex().row(), 70)
+        self.assertEqual(window.raw_view.currentIndex().row(), 70)
+        self.assertEqual([index.row() for index in window.reference_view.selectionModel().selectedRows()], [70])
+        self.assertEqual([index.row() for index in window.raw_view.selectionModel().selectedRows()], [70])
+        self.assertEqual(
+            window.reference_view.verticalHeader().sectionViewportPosition(70),
+            window.raw_view.verticalHeader().sectionViewportPosition(70),
+        )
+        self.assertTrue(window.reference_view.visualRect(
+            window.reference_view.model().index(70, 0)).intersects(
+                window.reference_view.viewport().rect()))
+
+        window.reference_view.verticalHeader().sectionDoubleClicked.emit(25)
+        APP.processEvents()
+        self.assertEqual(window.raw_view.currentIndex().row(), 25)
+        self.assertEqual(window.reference_view.currentIndex().row(), 25)
+        self.assertEqual([index.row() for index in window.reference_view.selectionModel().selectedRows()], [25])
+        self.assertEqual([index.row() for index in window.raw_view.selectionModel().selectedRows()], [25])
+        self.assertEqual(
+            window.reference_view.verticalHeader().sectionViewportPosition(25),
+            window.raw_view.verticalHeader().sectionViewportPosition(25),
+        )
+        self.assertTrue(window.raw_view.visualRect(
+            window.raw_view.model().index(25, 0)).intersects(
+                window.raw_view.viewport().rect()))
 
     def test_paired_table_header_right_click_sorts_and_clears_without_crashing(self):
         """The header context menu runs from the event filter, not Qt's signal."""
@@ -633,14 +806,15 @@ class MatchingWindowTests(unittest.TestCase):
         window.run_analysis()
         window.resize(1400, 950)
         window.show()
+        window.open_group_settings()
         APP.processEvents()
 
         def choose(index):
             return patch.object(QMenu, "exec", lambda self, *args, **kwargs: self.actions()[index])
 
-        def right_click(header):
-            return QContextMenuEvent(QContextMenuEvent.Reason.Mouse, QPoint(10, 5),
-                                     header.mapToGlobal(QPoint(10, 5)))
+        def right_click(header, column=0):
+            point = QPoint(header.sectionViewportPosition(column) + 10, 5)
+            return QContextMenuEvent(QContextMenuEvent.Reason.Mouse, point, header.mapToGlobal(point))
 
         expected = []
         for table, view, name in (("order", window.order_view, "TestFlag"),
@@ -648,7 +822,7 @@ class MatchingWindowTests(unittest.TestCase):
                                   ("raw", window.raw_view, "Wafer ID")):
             header = view.horizontalHeader()
             with choose(0):
-                APP.sendEvent(header, right_click(header))
+                APP.sendEvent(header, right_click(header, 4 if table == "order" else 0))
                 APP.processEvents()
             expected.append({"table": table, "column": name, "descending": False})
             self.assertEqual(window.group_controls.state["sort"], expected)
@@ -657,7 +831,7 @@ class MatchingWindowTests(unittest.TestCase):
             "filters", [{"table": "order", "column": "TestFlag", "values": ["0"]}])
         with choose(3):
             APP.sendEvent(window.order_view.horizontalHeader(),
-                          right_click(window.order_view.horizontalHeader()))
+                          right_click(window.order_view.horizontalHeader(), 4))
             APP.processEvents()
         self.assertEqual(window.group_controls.state["filters"], [])
         self.assertEqual(window.group_controls.state["sort"], expected)
@@ -784,11 +958,13 @@ class MatchingWindowTests(unittest.TestCase):
                 dialog = APP.activeModalWidget()
                 try:
                     members = dialog.findChild(QTreeWidget, "combinedGroupMembers")
-                    trees = (members, dialog.findChild(QTreeWidget, "combinedGroupsList"))
-                    boxes = {tree.topLevelItem(i).data(0, Qt.ItemDataRole.UserRole): (tree, tree.topLevelItem(i))
-                             for tree in trees for i in range(tree.topLevelItemCount())}
-                    self.assertEqual(set(boxes), {"All:0", "All:1", "combined:ab"})
+                    boxes = {members.topLevelItem(i).data(0, Qt.ItemDataRole.UserRole):
+                             (members, members.topLevelItem(i))
+                             for i in range(members.topLevelItemCount())}
+                    self.assertEqual(set(boxes), {"All:0", "All:1"})
                     self.assertEqual({key for key, (_, item) in boxes.items() if item.checkState(1) == Qt.CheckState.Checked}, expected)
+                    self.assertEqual(dialog.findChild(QTreeWidget, "combinedGroupsList").columnCount(), 1,
+                                     "Combined Groups have no Show Wafer control")
                     before = [members.topLevelItem(i).checkState(0) for i in range(members.topLevelItemCount())]
                     for key in toggle:
                         tree, item = boxes[key]
@@ -808,16 +984,18 @@ class MatchingWindowTests(unittest.TestCase):
             window.manage_groups_action.trigger()
             self.assertEqual(errors, [])
             APP.processEvents()
-        edit_visibility(False, set(), ["All:0", "combined:ab"])
+        edit_visibility(False, set(), ["All:0"])
         self.assertNotIn("W1", original_block["plots"]["trend"]._group_axis.toolTip())
         self.assertEqual(window.plot_groups["CD"]["plots"]["trend"]._group_tick_data[2], [])
-        edit_visibility(True, set(), ["All:0", "combined:ab"])
+        edit_visibility(True, set(), ["All:0"])
         self.assertIs(page.plot_groups[("All:0", "CD")], original_block)
-        for key in ("All:0", "combined:ab"):
-            for name in ("trend", "bias", "bias-percent"):
-                plot = page.plot_groups[(key, "CD")]["plots"][name]
-                for text in ("Wafer ID: W1", "Lot ID: L1", "PAD Name: ARRAY"):
-                    self.assertIn(text, plot._wafer_axis.toolTip())
+        for name in ("trend", "bias", "bias-percent"):
+            plot = page.plot_groups[("All:0", "CD")]["plots"][name]
+            for text in ("Wafer ID: W1", "Lot ID: L1", "PAD Name: ARRAY"):
+                self.assertIn(text, plot._wafer_axis.toolTip())
+            combined_plot = page.plot_groups[("combined:ab", "CD")]["plots"][name]
+            self.assertIn("Wafer ID: W1", combined_plot._wafer_axis.toolTip())
+            self.assertNotIn("W3", combined_plot._wafer_axis.toolTip())
         self.assertEqual(page.plot_groups[("All:1", "CD")]["plots"]["trend"]._group_axis.toolTip(), "Groups: Head B")
         self.assertEqual(original_block["plots"]["bias"].listDataItems()[0].yData.tolist(), bias.tolist())
         for plot in window.plot_groups["CD"]["plots"].values():
@@ -829,11 +1007,13 @@ class MatchingWindowTests(unittest.TestCase):
         original_block["plots"]["trend"].card_checkbox.setChecked(False)
         self.assertIn("Wafer ID: W1", original_block["plots"]["trend"]._wafer_axis.toolTip())
         window.restore_workspace(window.workspace_snapshot())
-        edit_visibility(False, {"All:0", "combined:ab"}, ["All:0"])
-        edit_visibility(True, {"All:0", "combined:ab"}, ["All:0"])
+        edit_visibility(False, {"All:0"}, ["All:0"])
+        edit_visibility(True, {"All:0"}, [])
         plot = page.plot_groups[("All:0", "CD")]["plots"]["trend"]
         self.assertEqual(plot._group_axis.toolTip(), "Groups: Head A")
-        self.assertEqual(window.plot_groups["CD"]["plots"]["trend"]._group_tick_data[2], [])
+        overview = window.plot_groups["CD"]["plots"]["trend"]
+        self.assertEqual([text.split("\n")[0] for _, _, text in overview._group_tick_data[2]],
+                         ["W1", "W2"])
         self.assertIn("Wafer ID: W1", page.plot_groups[("combined:ab", "CD")]["plots"]["trend"]._wafer_axis.toolTip())
 
     def test_group_plots_default_axes_show_only_group_names_and_sparse_die_seq(self):
@@ -1699,8 +1879,18 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(errors, [])
         page = window.group_plot_page
         key = next(key for key in page.scopes if page.scope_label(key) == "Heads A+B")
+        overview = window.plot_groups["CD"]["plots"]["trend"]
+        self.assertEqual([label for _, _, label in overview._group_tick_data[1]],
+                         ["TestFlag 0", "TestFlag 1", "TestFlag 2"])
+        self.assertEqual([label for _, label in overview._combined_group_axis._tickLevels[0]],
+                         ["Heads A+B"])
+        self.assertEqual(len(overview.listDataItems()[0].xData), len(raw))
         page.use_group_card.setChecked(True)
         trend = page.plot_groups[(key, "CD")]["plots"]["trend"]
+        self.assertEqual([label for _, _, label in trend._group_tick_data[1]],
+                         ["TestFlag 0", "TestFlag 1"])
+        self.assertEqual([label for _, label in trend._combined_group_axis._tickLevels[0]],
+                         ["Heads A+B"])
         values = [float(value) for curve in trend.listDataItems()
                   if curve.name() == "PMISH" or curve.name() is None for value in curve.yData]
         self.assertEqual(values, [5.5, 8., 10.5, 5.5, 8., 10.5])
@@ -2289,7 +2479,8 @@ class MatchingWindowTests(unittest.TestCase):
                     workspace.tabs.tabText(index)
                     for index in range(workspace.tabs.count())
                 ],
-                ["1. Ref Data", "2. Raw Data", "3. Correlation", "4. Trend"],
+                ["1. Ref Data", "2. Raw Data", "3. Correlation", "4. Trend",
+                 "5. Wafer Mean / Sigma"],
             )
             self.assertEqual(list(workspace.raw_model.frame().columns),
                              list(self.raw().columns))
@@ -3466,6 +3657,70 @@ class MatchingWindowTests(unittest.TestCase):
             [[(1.0, "W1"), (2.0, "W2"), (3.0, "W3")]],
         )
 
+    def test_clicking_a_match_point_previews_the_same_row_across_match_and_bias(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
+        self.window.run_analysis()
+        self.window.resize(1500, 950)
+        self.window.show()
+        APP.processEvents()
+        plots = self.window.plot_groups["CD_Bot"]["plots"]
+        match = plots["match"]
+        point = match.listDataItems()[0].scatter.points()[1]
+        position = match.mapFromScene(match.listDataItems()[0].scatter.mapToScene(point.pos()))
+        QTest.mouseClick(match.viewport(), Qt.MouseButton.LeftButton, pos=position)
+        APP.processEvents()
+        for plot in plots.values():
+            self.assertGreater(len(plot.point_selection.preview.data)
+                               + len(plot.point_selection.highlight.data), 0)
+        self.assertTrue(match.point_selection.selected)
+        menu = plots["bias"].getViewBox().getMenu(None)
+        menu.aboutToShow.emit()
+        actions = {action.text(): action for action in menu.actions()}
+        self.assertFalse(actions["Remove Selection"].isEnabled())
+        self.assertTrue(actions["Uncheck Selection"].isEnabled())
+        self.assertFalse(actions["Set Test Flag"].isEnabled())
+        match_menu = match.getViewBox().getMenu(None)
+        match_menu.aboutToShow.emit()
+        match_actions = {action.text(): action for action in match_menu.actions()}
+        self.assertTrue(match_actions["Remove Selection"].isEnabled())
+        self.assertTrue(match_actions["Set Test Flag"].isEnabled())
+
+        blank = match.getViewBox().mapViewToScene(QPointF(0.1, 0.1))
+        QTest.mouseClick(match.viewport(), Qt.MouseButton.LeftButton,
+                         pos=match.mapFromScene(blank))
+        APP.processEvents()
+        self.assertFalse(match.point_selection.selected)
+        self.assertEqual(len(plots["match"].point_selection.preview.data), 0)
+        self.assertEqual(len(plots["bias"].point_selection.preview.data), 0)
+
+    def test_remove_selection_hides_markers_without_breaking_wkb_trend_line(self):
+        self.window.set_reference_frame(self.reference(), "Clipboard")
+        self.window.set_raw_frame(self.raw(), "Clipboard")
+        configure_match_fixture(self.window)
+        self.window.run_analysis()
+        self.window.resize(1500, 950)
+        self.window.show()
+        APP.processEvents()
+        trend = self.window.plot_groups["CD_Bot"]["plots"]["trend"]
+        source_curve = trend.listDataItems()[0]
+        point = source_curve.scatter.points()[1]
+        position = trend.mapFromScene(source_curve.scatter.mapToScene(point.pos()))
+        QTest.mouseClick(trend.viewport(), Qt.MouseButton.LeftButton, pos=position)
+        APP.processEvents()
+        curve, removed_index = next(iter(trend.point_selection.selected))
+        y_data = curve.yData.copy()
+        x_data = curve.xData.copy()
+        menu = trend.getViewBox().getMenu(None)
+        menu.aboutToShow.emit()
+        actions = {action.text(): action for action in menu.actions()}
+        actions["Remove Selection"].trigger()
+        APP.processEvents()
+        np.testing.assert_equal(curve.yData, np.delete(y_data, removed_index))
+        np.testing.assert_equal(curve.xData, np.delete(x_data, removed_index))
+        self.assertEqual(len(curve.scatter.points()), len(y_data) - 1)
+
     def test_final_bias_axes_fit_measurements_not_the_zero_reference_line(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.result_mode.setCurrentText("Final")
@@ -4161,97 +4416,56 @@ class MatchingWindowTests(unittest.TestCase):
             self.window._close_stage_windows()
             APP.processEvents()
 
-    def test_analysis_menu_owns_the_trend_axis_mode(self):
-        """The menu supplies a decimal threshold and two force modes."""
+    def test_correlation_analysis_menu_owns_separate_axis_policies(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Clipboard")
         configure_match_fixture(self.window)
         self.window.run_analysis()
-
-        self.assertEqual(self.window.trend_axis_mode, "auto")
-        self.assertEqual(self.window.second_axis_ratio, 10.0)
-        self.assertEqual(
-            [self.window.second_axis_actions[mode].text()
-             for mode in ("auto", "dual", "single")],
-            ["● Auto (median ratio)", "○ Always two Y axes",
-             "○ Always one Y axis"],
-        )
-        self.assertFalse(any(action.isCheckable()
-                             for action in self.window.second_axis_actions.values()))
-        self.assertEqual(self.window.second_axis_spin.decimals(), 3)
-
         workspace = self.window.open_correlation_workspace()
-        try:
-            page = workspace.sequence_page
-            # The menu owns the option, so the in-page control is hidden.
-            self.assertTrue(page.axis_mode.isHidden())
-            self.assertTrue(page.axis_ratio.isHidden())
-            self.assertEqual(page.axis_mode_value(), "auto")
-
-            self.window.second_axis_spin.setValue(2.75)
-            self.window.second_axis_actions["dual"].trigger()
-            APP.processEvents()
-            self.assertEqual(page.axis_ratio_limit(), 2.75)
-            self.assertEqual(page.axis_mode_value(), "dual")
-            self.assertEqual(
-                self.window.second_axis_actions["dual"].text(),
-                "● Always two Y axes",
-            )
-            self.window.second_axis_actions["single"].trigger()
-            APP.processEvents()
-
-            # The menu is saved once, separate from per-stage plotting choices.
-            state = self.window._correlation_selection_states["preview"]
-            self.assertNotIn("trend_axis_mode", state)
-            self.assertNotIn("trend_axis_ratio", state)
-            self.assertEqual(
-                self.window.current_workbook().trend_axis_settings,
-                {"mode": "single", "ratio": 2.75},
-            )
-
-            with tempfile.TemporaryDirectory() as folder:
-                path = Path(folder) / "second-axis.mwkb"
-                self.window.save_workbook(path)
-                self.window._close_stage_windows()
-                reopened = MatchingWindow()
-                try:
-                    reopened.load_workbook(path)
-                    self.assertEqual(reopened.trend_axis_mode, "single")
-                    self.assertEqual(reopened.second_axis_spin.value(), 2.75)
-                    restored = reopened.open_correlation_workspace()
-                    self.assertEqual(
-                        restored.sequence_page.axis_mode_value(), "single"
-                    )
-                    self.assertEqual(restored.sequence_page.axis_ratio_limit(), 2.75)
-                    # The menu shows the value the workbook carries.
-                    self.assertEqual(
-                        reopened.second_axis_actions["single"].text(),
-                        "● Always one Y axis",
-                    )
-                    reopened._close_stage_windows()
-                finally:
-                    reopened.close()
-                    reopened.deleteLater()
-                    APP.processEvents()
-        finally:
+        menus = {action.text(): action.menu() for action in workspace.analysis_menu.actions() if action.menu()}
+        self.assertEqual(set(menus), {"Trend Y Axes", "Mean/Sigma Y Axes"})
+        self.assertNotIn("Trend Y axes", [action.text() for action in self.window.analysis_menu.actions()])
+        trend, stats = workspace.sequence_page, workspace.wafer_statistics_page
+        self.assertTrue(trend.axis_mode.isHidden())
+        self.assertEqual(trend.axis_ratio.decimals(), 3)
+        trend.axis_ratio.setValue(2.75)
+        stats.axis_ratio.setValue(4.125)
+        for label, choice in (("Trend Y Axes", "Always one"), ("Mean/Sigma Y Axes", "Always two")):
+            next(action for action in menus[label].actions() if choice in action.text()).trigger()
+        workspace.plot_decimal_places.setValue(4)
+        self.assertEqual((trend.axis_mode_value(), stats.axis_mode_value()), ("single", "dual"))
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "second-axis.mwkb"
+            self.window.save_workbook(path)
             self.window._close_stage_windows()
-            APP.processEvents()
+            reopened = MatchingWindow()
+            try:
+                reopened.load_workbook(path)
+                restored = reopened.open_correlation_workspace()
+                self.assertEqual(restored.sequence_page.axis_mode_value(), "single")
+                self.assertEqual(restored.sequence_page.axis_ratio_limit(), 2.75)
+                self.assertEqual(restored.wafer_statistics_page.axis_mode_value(), "dual")
+                self.assertEqual(restored.wafer_statistics_page.axis_ratio_limit(), 4.125)
+                self.assertEqual(restored.plot_decimal_places.value(), 4)
+                reopened._close_stage_windows()
+            finally:
+                reopened.document.force_close = True
+                reopened.close()
+                reopened.deleteLater()
+                APP.processEvents()
 
-    def test_standalone_correlation_window_keeps_its_own_axis_mode_control(self):
-        """Without a Match Workbook the page keeps the control it always had."""
-        from metrology_app.correlation_window import CorrelationWindow
-
+    def test_standalone_correlation_window_uses_the_analysis_menu(self):
         workspace = CorrelationWindow()
         try:
-            self.assertFalse(workspace.sequence_page.axis_mode.isHidden())
-            self.assertFalse(workspace.sequence_page.axis_ratio.isHidden())
+            self.assertTrue(workspace.sequence_page.axis_mode.isHidden())
             self.assertEqual(workspace.sequence_page.axis_mode_value(), "auto")
-            workspace.set_second_axis_ratio(2.75, show_control=True)
-            workspace.set_trend_axis_mode("dual", show_control=True)
-            self.assertEqual(workspace.sequence_page.axis_mode_value(), "dual")
-            self.assertEqual(workspace.sequence_page.axis_ratio_limit(), 2.75)
-            self.assertFalse(workspace.sequence_page.axis_mode.isHidden())
+            self.assertEqual(workspace.plot_decimal_places.value(), 3)
+            self.assertEqual(
+                [action.text() for action in workspace.analysis_menu.actions() if action.menu()],
+                ["Trend Y Axes", "Mean/Sigma Y Axes"],
+            )
         finally:
+            workspace.document.force_close = True
             workspace.close()
             workspace.deleteLater()
             APP.processEvents()
@@ -4273,13 +4487,12 @@ class MatchingWindowTests(unittest.TestCase):
             workspace.deleteLater()
             APP.processEvents()
 
-    def test_axis_settings_are_shared_between_preview_and_final(self):
-        """Both open windows and later openings use the same saved policy."""
+    def test_axis_settings_are_independent_between_preview_and_final(self):
         self.window.set_reference_frame(self.reference(), "Clipboard")
         self.window.set_raw_frame(self.raw(), "Preview clipboard")
         configure_match_fixture(self.window)
         self.window.run_analysis()
-        self.window.second_axis_spin.setValue(2.75)
+        self.window.set_second_axis_ratio(2.75)
         self.window.set_trend_axis_mode("dual")
         preview = self.window.open_correlation_workspace()
         self.window.result_mode.setCurrentText("Final")
@@ -4288,32 +4501,13 @@ class MatchingWindowTests(unittest.TestCase):
         for workspace in (preview, final):
             self.assertEqual(workspace.sequence_page.axis_ratio_limit(), 2.75)
             self.assertEqual(workspace.sequence_page.axis_mode_value(), "dual")
-        self.window.set_trend_axis_mode("single")
+        final.sequence_page.restore_axis_mode("single")
+        final.sequence_page.restore_axis_ratio(4.125)
         self.window.result_mode.setCurrentText("Preview")
-        for workspace in (preview, final):
-            self.assertEqual(workspace.sequence_page.axis_mode_value(), "single")
+        self.assertEqual(preview.sequence_page.axis_mode_value(), "dual")
+        self.assertEqual(final.sequence_page.axis_mode_value(), "single")
+        self.assertEqual(final.sequence_page.axis_ratio_limit(), 4.125)
         self.window._close_stage_windows()
-
-        # Save a later menu edit without any child window to capture it.
-        self.window.set_second_axis_ratio(4.125)
-        self.window.set_trend_axis_mode("auto")
-        with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "shared-axis.mwkb"
-            self.window.save_workbook(path)
-            reopened = MatchingWindow()
-            try:
-                reopened.load_workbook(path)
-                for stage in ("Final", "Preview"):
-                    reopened.result_mode.setCurrentText(stage)
-                    workspace = reopened.open_correlation_workspace()
-                    self.assertEqual(workspace.sequence_page.axis_ratio_limit(), 4.125)
-                    self.assertEqual(workspace.sequence_page.axis_mode_value(), "auto")
-                    self.assertEqual(reopened.second_axis_spin.value(), 4.125)
-                reopened._close_stage_windows()
-            finally:
-                reopened.close()
-                reopened.deleteLater()
-                APP.processEvents()
 
     def test_workspace_card_checkbox_applies_the_parameter_cards(self):
         """The Data tab offers the workbook Card; off until the engineer asks."""

@@ -43,7 +43,177 @@ def map_fixture(wafers=2, metrics=5):
 
 
 class StaticWaferTests(unittest.TestCase):
-    def test_double_click_map_point_unchecks_the_source_row(self):
+    def test_radius_remove_hides_point_recalculates_stats_and_restores(self):
+        from metrology_app.window import MainWindow
+        window = MainWindow()
+        window.document.force_close = True
+        self.addCleanup(window.close)
+        self.addCleanup(window.radius_page.stop)
+        frame, _ = map_fixture(1, 1)
+        window.set_table(frame, "Raw Data")
+        window._set_checked_values(window.parameter_list, ["P0"])
+        window.update_plan()
+        page = window.radius_page
+        window.tabs.setCurrentWidget(page)
+        window.show()
+        page.selector.selectAll()
+        page.draw_plot()
+        APP.processEvents()
+        panel = page.radius_grid.panels[0]
+        source_index = page.radius_grid.panels.index(panel)
+        baseline = page._source_baselines[source_index]
+        row = int(panel.point_rows()[10])
+        before_stats = panel.source["stats"]
+        center = panel.mapToScene(QPointF(*panel._pixel_positions[10]))
+        position = page.scroll.mapFromScene(center)
+        QTest.mouseDClick(page.scroll.viewport(), Qt.MouseButton.LeftButton, pos=position)
+        APP.processEvents()
+        self.assertEqual(set(page.scroll.panel_point_state(panel)[1]), {row})
+        self.assertLess(len(panel.scatter.data["x"]), len(baseline["value"]))
+        self.assertNotEqual(panel.source["stats"], before_stats)
+
+        QTest.mouseDClick(page.scroll.viewport(), Qt.MouseButton.LeftButton, pos=position)
+        APP.processEvents()
+        self.assertFalse(page.scroll.panel_point_state(panel)[1])
+        self.assertEqual(len(panel.scatter.data["x"]), len(baseline["value"]))
+        self.assertEqual(panel.source["stats"], before_stats)
+
+    def test_radius_uncheck_refreshes_in_place_without_showing_select_maps(self):
+        from metrology_app.window import MainWindow
+        window = MainWindow()
+        window.document.force_close = True
+        self.addCleanup(window.close)
+        self.addCleanup(window.radius_page.stop)
+        frame, _ = map_fixture(1, 1)
+        window.set_table(frame, "Raw Data")
+        window._set_checked_values(window.parameter_list, ["P0"])
+        window.update_plan()
+        page = window.radius_page
+        window.tabs.setCurrentWidget(page)
+        window.show()
+        page.selector.selectAll()
+        page.draw_plot()
+        APP.processEvents()
+        self.assertIs(page.stack.currentWidget(), page.scroll)
+
+        window._chart_edits.uncheck({0})
+        self.assertIs(page.stack.currentWidget(), page.scroll)
+        QTest.qWait(180)
+        self.assertIs(page.stack.currentWidget(), page.scroll)
+        self.assertTrue(page.ready)
+
+    def test_edge_value_labels_are_painted_above_the_axis_frame_without_clipping(self):
+        frame = pd.DataFrame({
+            "Wafer ID": ["W1"] * 4,
+            "X mm": [140, 140, -140, 0],
+            "Y mm": [0, -20, 0, 120],
+            "P0": [1234.56789, 2222.3333, 3333.4444, 4444.5555],
+        })
+        selection = {"wafer_column": "Wafer ID", "wafers": ["W1"], "metrics": ["P0"]}
+        result = prepare_array(frame, selection, ArrayOptions(
+            "X mm", "Y mm", diameter=300, labels=True, points=True))
+        page = self.make_page(result)
+        page.show()
+        APP.processEvents()
+        panel = page.map_grid.panels[0]
+        rect, bounds, path = panel.axis_rect, panel.boundingRect(), panel.label_path
+        outside = None
+        for x in range(int(rect.right()) + 2, int(bounds.right())):
+            for y in range(int(bounds.top()), int(bounds.bottom()) + 1):
+                if path.contains(QPointF(x, y)):
+                    outside = QPointF(x, y)
+                    break
+            if outside is not None:
+                break
+        self.assertIsNotNone(outside)
+        image = QImage(int(np.ceil(bounds.width())) + 2,
+                       int(np.ceil(bounds.height())) + 2,
+                       QImage.Format.Format_ARGB32_Premultiplied)
+        image.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(image)
+        painter.translate(-bounds.left(), -bounds.top())
+        panel.paint(painter)
+        painter.end()
+        pixel = image.pixelColor(int(round(outside.x() - bounds.left())),
+                                 int(round(outside.y() - bounds.top())))
+        self.assertGreater(pixel.alpha(), 0)
+
+    def test_removed_map_point_is_excluded_from_recalculated_scene_and_restores(self):
+        from metrology_app.window import MainWindow
+        window = MainWindow()
+        window.document.force_close = True
+        self.addCleanup(window.close)
+        self.addCleanup(window.plot_page.stop)
+        frame, _ = map_fixture(1, 1)
+        window.set_table(frame, "Raw Data")
+        window._set_checked_values(window.parameter_list, ["P0"])
+        window.update_plan()
+        page = window.plot_page
+        window.tabs.setCurrentWidget(page)
+        window.show()
+        page.selector.selectAll()
+        page.draw_maps()
+        finish_graphics(page)
+        APP.processEvents()
+        panel = page.map_grid.panels[0]
+        row = int(panel.point_rows()[10])
+        center = panel.mapToScene(QPointF(*panel._pixel_positions[10]))
+        position = page.scroll.mapFromScene(center)
+        QTest.mouseDClick(page.scroll.viewport(), Qt.MouseButton.LeftButton, pos=position)
+        finish_graphics(page)
+        APP.processEvents()
+        panel = page.map_grid.panels[0]
+        self.assertNotIn(row, set(panel.point_rows()))
+        self.assertIn(row, window.participating_positions(frame))
+        self.assertIn(row, set(window.model._analysis_view().index))
+
+        QTest.mouseDClick(page.scroll.viewport(), Qt.MouseButton.LeftButton, pos=position)
+        finish_graphics(page)
+        APP.processEvents()
+        panel = page.map_grid.panels[0]
+        self.assertIn(row, set(panel.point_rows()))
+
+    def test_shift_double_click_toggles_uncheck_at_the_same_map_point(self):
+        from metrology_app.plotting.selection import DataPointEdits
+        from metrology_app.window import MainWindow
+        window = MainWindow()
+        window.document.force_close = True
+        self.addCleanup(window.close)
+        self.addCleanup(window.plot_page.stop)
+        frame, _ = map_fixture(1, 1)
+        window.set_table(frame, "Raw Data")
+        window._set_checked_values(window.parameter_list, ["P0"])
+        window.update_plan()
+        page = window.plot_page
+        window.tabs.setCurrentWidget(page)
+        window.show()
+        page.selector.selectAll()
+        page.draw_maps()
+        finish_graphics(page)
+        APP.processEvents()
+        panel = page.map_grid.panels[0]
+        excluded = set()
+        records = tuple(range(len(frame)))
+
+        def set_checked(rows, checked):
+            changed = rows & excluded if checked else rows - excluded
+            excluded.difference_update(changed) if checked else excluded.update(changed)
+            return changed
+
+        edits = DataPointEdits(set_checked, records=lambda: records)
+        page.scroll.data_point_edits = edits
+        center = panel.mapToScene(QPointF(*panel._pixel_positions[2]))
+        position = page.scroll.mapFromScene(center)
+        QTest.mouseDClick(page.scroll.viewport(), Qt.MouseButton.LeftButton,
+                          Qt.KeyboardModifier.ShiftModifier, pos=position)
+        self.assertEqual(excluded, {2})
+        self.assertIn(2, edits.unchecked)
+        QTest.mouseDClick(page.scroll.viewport(), Qt.MouseButton.LeftButton,
+                          Qt.KeyboardModifier.ShiftModifier, pos=position)
+        self.assertEqual(excluded, set())
+        self.assertFalse(edits.unchecked)
+
+    def test_map_remove_and_uncheck_removed_have_independent_restore(self):
         from PyQt6.QtWidgets import QMenu
         from metrology_app.match_groups import participation_source_keys
         from metrology_app.window import MainWindow
@@ -51,7 +221,7 @@ class StaticWaferTests(unittest.TestCase):
         window.document.force_close = True
         self.addCleanup(window.close)
         self.addCleanup(window.plot_page.stop)
-        frame, _ = map_fixture(1, 2)
+        frame, _ = map_fixture(2, 2)
         frame.loc[3, "P0"] = ""
         window.set_table(frame, "Raw Data")
         window._set_checked_values(window.parameter_list, ["P0", "P1"])
@@ -63,35 +233,38 @@ class StaticWaferTests(unittest.TestCase):
         page.draw_maps()
         finish_graphics(page)
         APP.processEvents()
-        panel, other = page.map_grid.panels
+        panel, other, *unrelated = page.map_grid.panels
         self.assertEqual(panel.source["layer"]["source_row"].iloc[3], 4)
         center = panel.mapToScene(QPointF(*panel._pixel_positions[3]))
-        with patch("metrology_app.plot_page.prepare_edited_maps", wraps=prepare_edited_maps) as prepare:
-            QTest.mouseDClick(page.scroll.viewport(), Qt.MouseButton.LeftButton,
-                              pos=page.scroll.mapFromScene(center))
-            finish_graphics(page)
-            prepare.assert_called_once()
-            self.assertEqual(set(prepare.call_args.args[0]), {(panel.source["wafer"], "P0")})
-        self.assertIs(page.map_grid.panels[1], other)
-        self.assertIsNot(page.map_grid.panels[0], panel)
-        self.assertNotIn(4, page.map_grid.panels[0].source["layer"]["source_row"].tolist())
-        self.assertIn(4, other.source["layer"]["source_row"].tolist())
-        dialog = window._data_selection_dialog()
-        keys = participation_source_keys(frame)
-        self.assertEqual(set(keys) - dialog.model.checked, {keys[4]})
-        dialog.deleteLater()
+        QTest.mouseDClick(page.scroll.viewport(), Qt.MouseButton.LeftButton,
+                          pos=page.scroll.mapFromScene(center))
+        self.assertEqual(set(page.scroll.panel_point_state(panel)[1]), {4})
+        self.assertFalse(page.scroll.panel_point_state(other)[1])
+        QTest.mouseDClick(page.scroll.viewport(), Qt.MouseButton.LeftButton,
+                          pos=page.scroll.mapFromScene(center))
+        self.assertFalse(page.scroll.panel_point_state(panel)[1])
+        QTest.mouseDClick(page.scroll.viewport(), Qt.MouseButton.LeftButton,
+                          pos=page.scroll.mapFromScene(center))
+        self.assertEqual(set(page.scroll.panel_point_state(panel)[1]), {4})
+        self.assertEqual(window.participating_positions(frame), set(range(len(frame))))
+        self.assertEqual(list(page.map_grid.panels[2:]), unrelated)
         menu = page.scroll.findChild(QMenu, "pointEditMenu")
+        page.scroll.customContextMenuRequested.emit(page.scroll.mapFromScene(center))
         actions = {action.text(): action for action in menu.actions()}
-        actions["Undo point removal"].trigger()
-        self.assertEqual(window.participating_positions(frame), set(range(len(frame))))
-        redo = next(action for action in menu.actions() if action.text() == "Redo point removal")
-        redo.trigger()
-        self.assertEqual(window.participating_positions(frame), set(range(len(frame))) - {4})
-        actions["Restore all removed points"].trigger()
-        self.assertEqual(window.participating_positions(frame), set(range(len(frame))))
+        self.assertNotIn("Link wafer maps to Data selection", actions)
+        self.assertTrue(actions["Apply Remove to Uncheck"].isEnabled())
+        actions["Apply Remove to Uncheck"].trigger()
+        menu.hide()
         finish_graphics(page)
-        self.assertIn(4, page.map_grid.panels[0].source["layer"]["source_row"].tolist())
-        self.assertIs(page.map_grid.panels[1], other)
+        self.assertEqual(window.participating_positions(frame), set(range(len(frame))) - {4})
+        page.scroll.customContextMenuRequested.emit(page.scroll.mapFromScene(center))
+        actions = {action.text(): action for action in menu.actions()}
+        actions["Restore Removed Selection"].trigger()
+        self.assertEqual(window.participating_positions(frame), set(range(len(frame))) - {4})
+        actions["Restore Applied Unchecks"].trigger()
+        menu.hide()
+        finish_graphics(page)
+        self.assertEqual(window.participating_positions(frame), set(range(len(frame))))
 
     def make_page(self, result):
         page = PlotPage()

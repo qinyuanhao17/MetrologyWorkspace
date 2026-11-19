@@ -134,6 +134,7 @@ class MapSelector(RangeSelectionTableWidget):
         selectable = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
         unselectable = ~selectable
         flag_variants = {}
+        alignment = int(Qt.AlignmentFlag.AlignCenter)
         # Notify the native view once after the complete box update, rather
         # than repeatedly clipping its selection for each flag/tooltip change.
         model_blocker = QSignalBlocker(self.model())
@@ -150,8 +151,8 @@ class MapSelector(RangeSelectionTableWidget):
                 item = None if new_item else self.item(row, col)
                 if new_item:
                     item = QTableWidgetItem(f"{metric}\n{name}")
-                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                if new_item or enabled != (cell in old_cells):
+                    item.setTextAlignment(alignment)
+                if not (new_item and enabled):
                     flags = item.flags()
                     if flags not in flag_variants:
                         flag_variants[flags] = (flags & unselectable, flags | selectable)

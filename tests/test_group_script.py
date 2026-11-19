@@ -36,7 +36,7 @@ class GroupScriptTests(unittest.TestCase):
             with self.subTest(text=text), self.assertRaises(ValueError):
                 controls.apply_group_script(text)
             self.assertEqual(controls.state,before)
-            self.assertEqual(list(controls.plan.flags),[''])
+            self.assertEqual(list(controls.plan.flags),['0'])
 
     def test_script_replaces_existing_mark_definitions_without_changing_live_spectra_until_apply(self):
         from tests.test_spectra_group_interactions import SpectraGroupInteractionTests

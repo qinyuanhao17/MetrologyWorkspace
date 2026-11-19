@@ -320,10 +320,11 @@ class ReferenceAlignmentTests(unittest.TestCase):
             page.raw.set_frame(pd.DataFrame({'Wafer ID': ['D2'], 'X(mm)': ['2.00'], 'Y(mm)': ['0']}))
             page.link_aligned()
             page.output_picker.setCurrentIndex(0)
+            paths[2].unlink()  # Unvisited output is already in the import snapshot.
             saved = original.save_reference(root / 'alignment')
             self.assertEqual(saved.suffix, '.ref')
             self.assertEqual(workspace_kind(saved), 'reference_summary')
-            for path in paths:
+            for path in paths[:2]:
                 path.unlink()
             restored.load_workspace(saved)
             restored_page = restored.alignment
@@ -344,6 +345,13 @@ class ReferenceAlignmentTests(unittest.TestCase):
             self.assertEqual(restored_page.ref.frame()['WaferID'].tolist(), ['R3', 'R3'])
             restored_page.output_picker.setCurrentIndex(0)
             pd.testing.assert_frame_equal(restored.analysis.model.document_frame(), expected)
+            self.assertEqual(restored_page.raw.source_rows, [3, 2])
+            links = restored_page.links.copy()
+            restored_page.recover_sort()
+            self.assertEqual(restored_page.links, links)
+            self.assertEqual(restored_page.raw.source_rows, [2, 3])
+            self.assertEqual(restored_page.raw.frame()['X(mm)'].tolist(), ['1.50', '2.50'])
+            self.assertFalse(restored_page.results)
 
     def test_loading_output_folders_adds_only_checked_summary_csvs(self):
         from unittest.mock import patch

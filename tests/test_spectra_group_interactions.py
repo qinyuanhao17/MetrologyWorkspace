@@ -145,17 +145,21 @@ class SpectraGroupInteractionTests(unittest.TestCase):
         viewer.set_analysis_mode('original')
         self.assertEqual(viewer.color_mode,'testflag')
 
-    def test_tree_and_map_share_actions_and_flag_entry_obeys_configured_values(self):
+    def test_die_map_menu_and_flag_entry_obey_configured_values(self):
         viewer, sources = self.viewer()
         viewer.select_spectrum_keys({sources[0].key})
         window = viewer.open_wafer_map()
         APP.processEvents()
-        tree = viewer.build_tree_menu()
         menu = window.build_selection_menu(('W1','L1','P1'))
-        labels = lambda m:{a.text() for a in m.actions() if not a.isSeparator()}
-        self.assertEqual(labels(tree), labels(menu))
-        self.assertTrue({'Set Test Flag','Set Mark','Highlight','Set as BSL',
-                         'Check Unselected','Apply Flag to Similar Wafer'} <= labels(menu))
+        self.assertEqual([a.text() for a in menu.actions() if not a.isSeparator()], [
+            "Check All Spectra", "Uncheck All Spectra",
+            "Check Selected", "Uncheck Selected", "Check Unselected", "Uncheck Unselected",
+            "Restore Unchecked Selection", "Apply Check To Similar Wafer",
+            "Remove Selection", "Restore Removed Selection",
+            "Apply Remove to Uncheck", "Restore Applied Unchecks",
+            "Set as BSL", "Clear BSL", "Highlight", "Clear Highlight", "Set Mark", "Set Test Flag",
+            "Export Checked Spectra…",
+        ])
         next(a for a in menu.actions() if a.text() == 'Highlight').trigger()
         self.assertEqual(viewer.highlighted_keys, {sources[0].key})
         plot = next(iter(window.wafer_plots.values())).plot

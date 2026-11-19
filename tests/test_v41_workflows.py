@@ -65,9 +65,10 @@ class V41Workflows(unittest.TestCase):
         window = self.match()
         before = window.workspace_snapshot().frames
         self.select(window, True)
-        for view in (window.order_view, window.reference_view, window.raw_view):
+        for view in (window.reference_view, window.raw_view):
             self.assertIsInstance(view.model(), ProjectedSheetModel)
             self.assertEqual(view.model().rowCount(), 4)
+        self.assertEqual(window.order_view.model().rowCount(), 3)
         proxy = window.raw_view.model()
         proxy.paste_cells({(1, 2): "91.000", (2, 2): "92.000"}, bounds=(1, 2, 2, 2))
         self.assertEqual(window.raw_model.cells[(1, 2)], "91.000")
@@ -80,12 +81,12 @@ class V41Workflows(unittest.TestCase):
     def test_hidden_table_captions_report_visible_and_total_rows(self):
         window = self.match()
         self.select(window, True)
-        for label, columns in ((window.order_source, 4), (window.reference_source, 1),
-                               (window.raw_source, 3)):
+        self.assertEqual(window.order_view.model().rowCount(), 3)
+        for label, columns in ((window.reference_source, 1), (window.raw_source, 3)):
             self.assertEqual(label.text(), f"3 visible / 6 rows × {columns} columns")
         self.select(window, False, exclude=False)
-        for label, columns in ((window.order_source, 4), (window.reference_source, 1),
-                               (window.raw_source, 3)):
+        self.assertEqual(window.order_view.model().rowCount(), 6)
+        for label, columns in ((window.reference_source, 1), (window.raw_source, 3)):
             self.assertEqual(label.text(), f"6 rows × {columns} columns")
 
     def test_partial_visible_paste_keeps_counts_and_unhide_restores_untouched_rows(self):
@@ -103,17 +104,18 @@ class V41Workflows(unittest.TestCase):
         window = self.match()
         window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"] * 4, "CD": [1, 2, 3, 4]}))
         self.assertEqual(window.raw_source.text(), "4 rows × 2 columns")
-        self.assertEqual(window.order_source.text(), "4 rows × 4 columns")
+        self.assertEqual(window.order_view.model().rowCount(), 4)
         window.raw_model.edit({(0, 2): "New parameter", (5, 2): "5.000"})
         self.assertEqual(window.raw_source.text(), "5 rows × 3 columns")
-        self.assertEqual(window.order_source.text(), "5 rows × 4 columns")
+        self.assertEqual(window.order_view.model().rowCount(), 5)
         window.raw_model.undo.undo()
         self.assertEqual(window.raw_source.text(), "4 rows × 2 columns")
 
-    def test_order_caption_keeps_actual_rows_when_a_draft_has_more_flags_than_raw(self):
+    def test_order_table_keeps_actual_rows_when_a_draft_has_more_flags_than_raw(self):
         window = self.match()
         window.group_controls.order_model.edit({(8, 0): "0"})
-        self.assertEqual(window.order_source.text(), "8 rows × 4 columns")
+        self.assertEqual(window.order_view.model().rowCount(), 8)
+        self.assertEqual(window.order_view.model().index(7, 4).data(), "0")
         self.assertEqual(window.raw_source.text(), "6 rows × 3 columns")
 
     def test_analysis_counts_include_blank_source_rows_and_survive_invalid_headers(self):
@@ -197,9 +199,12 @@ class V41Workflows(unittest.TestCase):
         proxy = window.raw_view.model()
         self.assertEqual([proxy.headerData(row, Qt.Orientation.Vertical) for row in range(5)],
                          ["1", "2", "4", "5", "7"])
-        for view in (window.order_view, window.reference_view, window.raw_view):
+        for view in (window.reference_view, window.raw_view):
             self.assertEqual(view.model().hidden_rows_before(2), (3, 3))
             self.assertEqual(view.model().hidden_rows_before(4), (6, 6))
+        order = window.order_view.model()
+        self.assertEqual([order.headerData(row, Qt.Orientation.Vertical) for row in range(4)],
+                         ["1", "3", "4", "6"])
         before = window.raw_model.document_frame()
         APP.clipboard().setText("91.000\n92.000\n93.000")
         window.raw_view.setCurrentIndex(proxy.index(1, 2))

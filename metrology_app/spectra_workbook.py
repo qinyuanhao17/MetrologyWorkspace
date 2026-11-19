@@ -30,7 +30,7 @@ def import_compression_threads(logical_cpus, preference="auto"):
     manual = tuple(range(2, count + 1, 2))
     if type(preference) is int and preference in manual:
         return preference, preference, manual
-    automatic = max(2, (count // 8) * 2) if manual else 1
+    automatic = manual[-1] if manual else 1
     return "auto", automatic, manual
 
 

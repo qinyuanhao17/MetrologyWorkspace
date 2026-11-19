@@ -20,9 +20,11 @@ class DynamicWindow(DataWorkspaceWindow):
         self.tabs.removeTab(2)
         self.tabs.removeTab(1)
         self.dynamic_page = DynamicPage()
+        self.dynamic_page.data_point_edits = self._chart_edits
         self.dynamic_page.set_data_model(self.model)
         self.tabs.addTab(self.dynamic_page, "2. Dynamic")
         self.dynamic_trend = DynamicTrendPage()
+        self.dynamic_trend.data_point_edits = self._chart_edits
         self.tabs.addTab(self.dynamic_trend, "3. Trend")
         self.refresh_timer.setInterval(50)
         self.update_plan()

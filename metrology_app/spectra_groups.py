@@ -150,10 +150,7 @@ class SpectraGroupOptions:
         with QSignalBlocker(self.enabled_action):
             self.enabled_action.setChecked(self.saved['enabled'])
         if self.dialog is not None:
-            frame,state,flags = materialized_groups(self.owner.catalog.spectra,self.saved,self.owner.test_flags)
-            state.pop('flags',None)  # The editable flag model is the single UI source.
-            self.controls.restore(state,flags)
-            self.controls.set_sources(pd.DataFrame(),frame)
+            self._load_details()
         self.owner.refresh_group_labels()
 
     def commit(self, saved, title, flags=None):
@@ -295,9 +292,9 @@ class SpectraGroupOptions:
             self.add_named_mark(self.owner._selected_keys,name.text(),append=append.isChecked())
         dialog.deleteLater()
 
-    def mark_menu(self, parent):
+    def mark_menu(self, parent, keys=None):
         menu = parent.addMenu('Set Mark')
-        keys = self.owner._selected_keys
+        keys = set(self.owner._selected_keys if keys is None else keys)
         menu.setEnabled(bool(keys))
         for spec in self.saved['definition']['mark_values']:
             menu.addAction(spec['name'],lambda _=False, mark=spec['id']:self.assign_mark(keys,mark))
@@ -311,17 +308,29 @@ class SpectraGroupOptions:
         if self.dialog is None:
             self.controls = GroupControls(self.owner)
             self.dialog = GroupSettingsDialog(self.owner,self.controls,'Group settings — Spectra Viewer',
-                trend=False,hint='Test Flag is shared with Spectra Info. Edit flags below, then Apply.')
+                trend=False, number_source_rows=False,
+                hint='Test Flag is shared with Spectra Info. Edit flags below, then Apply.')
             self.controls.apply_requested.connect(self.apply_settings)
             self.details = self.dialog.table
-        frame,state,flags = materialized_groups(self.owner.catalog.spectra,self.saved,self.owner.test_flags)
-        state.pop('flags',None)
-        self.controls.restore(state,flags)
-        self.controls.set_sources(pd.DataFrame(),frame)
-        self.details_model = self.dialog.set_rows(frame)
+        self._load_details()
         self.dialog.showNormal()
         self.dialog.raise_()
         return self.dialog
+
+    def _load_details(self):
+        self._detail_spectra = self.owner.catalog.spectra
+        frame,state,flags = materialized_groups(self._detail_spectra,self.saved,self.owner.test_flags)
+        state.pop('flags',None)
+        self.controls.restore(state,flags)
+        self.controls.set_sources(pd.DataFrame(),frame)
+        self.details_model = self.dialog.set_rows(frame, self.owner.spectra_group_rows())
+
+    def refresh_order(self):
+        if self.dialog is not None and self.dialog.isVisible():
+            if self._detail_spectra is not self.owner.catalog.spectra:
+                self._load_details()
+            else:
+                self.dialog.set_rows(self.controls.raw, self.owner.spectra_group_rows())
 
     def apply_settings(self):
         if self.controls.plan is None:

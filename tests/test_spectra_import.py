@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import QMessageBox
 
 from metrology_app import spectra_workbook
 from metrology_app.settings import SETTINGS_PATH, load_settings, save_settings
-from metrology_app.sme_spectra import LoadResult
+from metrology_app.sme_spectra import EncryptedSME, LoadResult, load_folders
 from metrology_app.spectra_viewer import SpectraLoadThread, SpectraViewerWindow
 from tests.test_spectra_viewer import make_spectrum
 
@@ -36,7 +36,7 @@ class SpectraImportTests(unittest.TestCase):
     def test_limits_and_preferences_follow_current_cpu_count(self):
         choose = spectra_workbook.import_compression_threads
         for cpus, automatic, ceiling in ((None, 1, 0), (1, 1, 0), (2, 2, 2),
-                                         (15, 2, 14), (16, 4, 16), (24, 6, 24)):
+                                         (15, 14, 14), (16, 16, 16), (24, 24, 24)):
             with self.subTest(cpus=cpus):
                 self.assertEqual(choose(cpus), ("auto", automatic, tuple(range(2, ceiling + 1, 2))))
                 for invalid in (3, 26, True, "4"):
@@ -55,7 +55,7 @@ class SpectraImportTests(unittest.TestCase):
                     patch("metrology_app.spectra_viewer.save_settings", side_effect=lambda data: save_settings(data, path)):
                 viewer = self.viewer()
                 combo = viewer.compression_threads_combo
-                self.assertEqual(combo.currentText(), "Auto (6 threads)")
+                self.assertEqual(combo.currentText(), "Auto (24 threads)")
                 self.assertEqual([combo.itemData(i) for i in range(1, combo.count())], list(range(2, 25, 2)))
                 combo.activated.emit(combo.findData(20))
                 first_import = SpectraLoadThread(folder, viewer)
@@ -63,10 +63,10 @@ class SpectraImportTests(unittest.TestCase):
                 self.assertEqual(self.viewer().compression_threads_combo.currentData(), 20)
                 combo.activated.emit(combo.findData("auto"))
                 self.assertEqual(first_import.compression_threads, 20)
-                self.assertEqual(SpectraLoadThread(folder, viewer).compression_threads, 6)
+                self.assertEqual(SpectraLoadThread(folder, viewer).compression_threads, 24)
                 combo.activated.emit(combo.findData(20))
             with patch("metrology_app.spectra_viewer.os.cpu_count", return_value=15):
-                self.assertEqual(self.viewer().compression_threads_combo.currentText(), "Auto (2 threads)")
+                self.assertEqual(self.viewer().compression_threads_combo.currentText(), "Auto (14 threads)")
             with patch("metrology_app.spectra_viewer.os.cpu_count", return_value=None):
                 combo = self.viewer().compression_threads_combo
                 self.assertEqual((combo.count(), combo.currentText()), (1, "Auto (1 thread)"))
@@ -113,7 +113,7 @@ class SpectraImportTests(unittest.TestCase):
         window = self.viewer()
         sources = (make_spectrum(1), make_spectrum(2))
 
-        def read(_folders, *, progress, cancelled):
+        def read(_folders, *, progress, cancelled, workers):
             progress(0, 2, "Scanning")
             progress(2, 2, "Read files")
             return LoadResult(sources, ())
@@ -132,6 +132,38 @@ class SpectraImportTests(unittest.TestCase):
                 self.wait_for_load(window)
                 self.assertEqual(reading.call_args_list[-1].args, (2, 2, "Read files"))
                 self.assertEqual([call.args for call in preparing.call_args_list], [(0, 2), (2, 2)])
+
+    def test_parallel_reads_preserve_order_and_stop_submitting_on_cancel(self):
+        stopped = Event()
+        started = []
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            for number in range(1, 9):
+                (root / f"{number}.sme").touch()
+
+            def read(path):
+                number = int(path.stem)
+                started.append(number)
+                if number == 3:
+                    raise EncryptedSME("encrypted")
+                return make_spectrum(number)
+
+            with patch("metrology_app.sme_spectra.parse_sme_file", side_effect=read):
+                sequential = load_folders((root,))
+                parallel = load_folders((root,), workers=4)
+                self.assertEqual([item.key for item in parallel.spectra],
+                                 [item.key for item in sequential.spectra])
+                self.assertEqual(parallel.issues, sequential.issues)
+                started.clear()
+                def stop_after_first(done, *_):
+                    if done == 1:
+                        stopped.set()
+
+                result = load_folders((root,), workers=4, cancelled=stopped.is_set,
+                                      progress=stop_after_first)
+            self.assertTrue(result.cancelled)
+            self.assertLessEqual(len(started), 4)
+            self.assertFalse(any(thread.name.startswith("sme-read") for thread in threads()))
 
     def test_cancel_stops_submission_and_drains_in_flight_jobs(self):
         sources = tuple(make_spectrum(index) for index in range(12))

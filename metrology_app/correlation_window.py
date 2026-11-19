@@ -7,11 +7,11 @@ from collections import Counter
 import numpy as np
 import pandas as pd
 from PyQt6.QtCore import QSignalBlocker, QSize, Qt
-from PyQt6.QtGui import QAction
+from PyQt6.QtGui import QAction, QActionGroup
 from PyQt6.QtWidgets import (
     QApplication, QCheckBox, QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel,
-    QLayout, QLineEdit, QMessageBox, QPushButton, QScrollArea, QSplitter, QTreeWidgetItem,
-    QVBoxLayout, QWidget,
+    QLayout, QLineEdit, QMessageBox, QPushButton, QScrollArea, QSpinBox, QSplitter, QTreeWidgetItem,
+    QVBoxLayout, QWidget, QWidgetAction,
 )
 
 from .appearance import help_title_label
@@ -20,6 +20,7 @@ from .data import inspect_table, read_table
 from .measurements import default_identity_columns, detect_measurements
 from .match_groups import GroupPlan, row_ids, participation_source_keys
 from .sequence_page import SequencePage
+from .wafer_statistics_page import WaferStatisticsPage
 from .sheet import DuplicateHeaderBanner, SheetModel, SheetView, clipboard_rows
 from .window import (
     CheckMenu, MainWindow as DataWorkspaceWindow, choices, label,
@@ -120,19 +121,23 @@ class CorrelationWindow(DataWorkspaceWindow):
         self.reference_page = self._build_reference_page()
         self.tabs.insertTab(0, self.reference_page, "1. Ref Data")
         self.reference_model.changed.connect(self.refresh_timer.start)
-        self.reference_model.changed.connect(self._point_history.clear)
         self.reference_model.changed.connect(self._refresh_table_sizes)
         self.reference_model.modelReset.connect(self._refresh_table_sizes)
         self.reference_model.metadata_locks_changed.connect(self.document.identity_timer.start)
         self.correlation_page = CorrelationPage()
-        self.correlation_page.point_history = self._point_history
+        self.correlation_page.data_point_edits = self._chart_edits
         self.correlation_page.axes_changed.connect(self.document.identity_timer.start)
         self.correlation_page.point_double_clicked.connect(self._toggle_correlation_point)
         self.tabs.addTab(self.correlation_page, "3. Correlation")
-        self.sequence_page = SequencePage()
-        self.sequence_page.point_history = self._point_history
+        self.sequence_page = SequencePage(defer_initial_input=True)
+        self.sequence_page.data_point_edits = self._chart_edits
         self.sequence_page.point_double_clicked.connect(self._toggle_correlation_point)
         self.tabs.addTab(self.sequence_page, "4. Trend")
+        self.wafer_statistics_page = WaferStatisticsPage()
+        self.wafer_statistics_page.data_point_edits = self._chart_edits
+        self.wafer_statistics_page.point_double_clicked.connect(self._toggle_correlation_point)
+        self.tabs.addTab(self.wafer_statistics_page, "5. Wafer Mean / Sigma")
+        self._build_chart_analysis_menu()
         from .correlation_options import CorrelationOptions
         self.display_options = CorrelationOptions(self)
         self.reference_selection_action = QAction("Ref Data selection…", self)
@@ -151,10 +156,63 @@ class CorrelationWindow(DataWorkspaceWindow):
         self.copy_reference_from_wkb_action.toggled.connect(self._copy_reference_changed)
         self.update_plan()
         self.sequence_page.document_scoped = True
+        self.wafer_statistics_page.document_scoped = True
         self.document.mark_clean()
 
     def workbook_copy_sources(self):
         return {"raw_data": self._copy_from_wkb, "reference_data": self._copy_reference_from_wkb}
+
+    def _build_chart_analysis_menu(self):
+        self.analysis_menu = self.menuBar().addMenu("Analysis")
+        for name, page in (("Trend Y Axes", self.sequence_page),
+                           ("Mean/Sigma Y Axes", self.wafer_statistics_page)):
+            menu = self.analysis_menu.addMenu(name)
+            page.set_axis_ratio_control_visible(False)
+            modes = QActionGroup(menu)
+            for index in range(page.axis_mode.count()):
+                if index == 1:
+                    row = QWidget(menu)
+                    layout = QHBoxLayout(row)
+                    layout.addWidget(QLabel("Median ratio >"))
+                    layout.addWidget(page.axis_ratio)
+                    page.axis_ratio.show()
+                    action = QWidgetAction(menu)
+                    action.setDefaultWidget(row)
+                    menu.addAction(action)
+                    menu.addSeparator()
+                mode = page.axis_mode.itemData(index)
+                action = menu.addAction({"auto": "Auto (median ratio)",
+                                         "dual": "Always two Y axes",
+                                         "single": "Always one Y axis"}[mode])
+                action.setCheckable(True)
+                modes.addAction(action)
+                action.setChecked(mode == page.axis_mode_value())
+                action.triggered.connect(lambda _checked, value=mode, target=page: target.restore_axis_mode(value))
+                page.axis_mode.currentIndexChanged.connect(
+                    lambda _index, choice=action, value=mode, target=page:
+                    choice.setChecked(target.axis_mode_value() == value))
+            page.axis_mode.currentIndexChanged.connect(lambda _index: self.document.identity_timer.start())
+            page.axis_ratio.valueChanged.connect(lambda _value: self.document.identity_timer.start())
+
+        action = QWidgetAction(self.analysis_menu)
+        row = QWidget(self.analysis_menu)
+        layout = QHBoxLayout(row)
+        layout.addWidget(QLabel("Plot decimal places"))
+        self.plot_decimal_places = QSpinBox(row)
+        self.plot_decimal_places.setRange(0, 10)
+        self.plot_decimal_places.setValue(3)
+        self.plot_decimal_places.valueChanged.connect(self._set_plot_decimals)
+        layout.addWidget(self.plot_decimal_places)
+        action.setDefaultWidget(row)
+        self.analysis_menu.addSeparator()
+        self.analysis_menu.addAction(action)
+
+    def _set_plot_decimals(self, value):
+        for page in (self.sequence_page, self.wafer_statistics_page):
+            page.plot_decimals = value
+            if page.ready:
+                page.draw_plot()
+        self.document.identity_timer.start()
 
     def configure_workbook_owner(self, owner, scope):
         super().configure_workbook_owner(owner, scope)
@@ -433,39 +491,62 @@ class CorrelationWindow(DataWorkspaceWindow):
                                       hide_excluded=view.get("hide_excluded", False))
         dialog.setWindowTitle("Data selection — Ref Data")
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            self._point_history.clear()
             self._reference_excluded = set(dialog.excluded)
             self._reference_selection_view = dialog.view_state()
             self.update_plan()
             self.document.refresh_identity()
         dialog.deleteLater()
 
+    def _chart_records(self):
+        raw = super()._chart_records()
+        if not self._workbook_sources:
+            return raw
+        reference = participation_source_keys(_available_source_frame(self.reference_model))
+        independent = self._independent_reference_rows() or (self._copy_reference_from_wkb and not self._copy_from_wkb)
+        ref = tuple(("Reference", key) for key in reference) if independent else raw[:len(reference)]
+        return (*ref, *raw)
+
+    def _chart_source_rows(self, rows):
+        if not self._workbook_sources:
+            return set(rows), set()
+        reference = _available_source_frame(self.reference_model)
+        split = len(reference)
+        independent = self._independent_reference_rows() or (self._copy_reference_from_wkb and not self._copy_from_wkb)
+        raw = {row - split for row in rows if row >= split}
+        ref = {row for row in rows if row < split}
+        return (raw, ref) if independent else (raw | ref, set())
+
+    def _change_chart_checks(self, rows, checked):
+        if not self._workbook_sources:
+            return super()._change_chart_checks(rows, checked)
+        raw, independent = self._chart_source_rows(rows)
+        reference = _available_source_frame(self.reference_model)
+        keys = participation_source_keys(reference)
+        before = set(self._reference_excluded)
+        changed = {row for row in independent if 0 <= row < len(keys)
+                   and (keys[row] in before) == checked}
+        updated = {keys[row] for row in changed}
+        if changed:
+            self._reference_excluded = before - updated if checked else before | updated
+        changed_raw = super()._change_chart_checks(raw, checked)
+        if changed and not changed_raw:
+            self.update_plan()
+            self.document.refresh_identity()
+        split = len(reference)
+        return changed | {row for row in rows
+                          if (row - split if row >= split else row) in changed_raw and row not in independent}
+
+    def _write_chart_flags(self, rows, value):
+        raw, reference = self._chart_source_rows(rows)
+        if raw:
+            super()._write_chart_flags(raw, value)
+        if reference:
+            self._write_sheet_flags(self.reference_model, reference, value)
+
     def _toggle_correlation_point(self, widget, row):
         if self.refresh_timer.isActive() or getattr(self, "_source_refresh_pending", False):
             return
-        if not self._workbook_sources:
-            self._toggle_plot_row(row, widget, row)
-            return
-        reference = _available_source_frame(self.reference_model)
-        if row >= len(reference):
-            self._toggle_plot_row(row - len(reference), widget, row)
-        elif self._independent_reference_rows() or (self._copy_reference_from_wkb and not self._copy_from_wkb):
-            from .plotting.point_edits import PointRemoval
-            key = participation_source_keys(reference)[row]
-            before = self._reference_excluded
-            after = before | {key}
-            self._point_history.push(PointRemoval(self._apply_ref_point_removal, before, after, widget, row))
-        else:
-            self._toggle_plot_row(row, widget, row)
-
-    def _apply_ref_point_removal(self, excluded, widget, row, removed):
-        self._reference_excluded = set(excluded)
-
-        def refresh():
-            self.update_plan()
-            self.document.refresh_identity()
-
-        self._apply_point_participation(widget, row, removed, refresh)
+        self._apply_point_participation(widget, row, True, lambda: self._chart_edits.uncheck({row}))
 
     def set_workbook_plot_labels(self, options):
         self.display_options.set_workbook_labels(options)
@@ -497,14 +578,15 @@ class CorrelationWindow(DataWorkspaceWindow):
                 (source, replacement, metric)
                 for source, key, metric in draw.get("cells", ())
                 for replacement in keys(source, key)))
-            page = ui.get("pages", {}).get("sequence_page", {})
-            boxes = []
-            for wafer, metric in page.get("boxes", ()):
-                if isinstance(wafer, (tuple, list)) and len(wafer) == 2:
-                    boxes.extend(((wafer[0], key), metric) for key in keys(*wafer))
-                else:
-                    boxes.append((wafer, metric))
-            page["boxes"] = list(dict.fromkeys(boxes))
+            for page_name in ("sequence_page", "wafer_statistics_page"):
+                page = ui.get("pages", {}).get(page_name, {})
+                boxes = []
+                for wafer, metric in page.get("boxes", ()):
+                    if isinstance(wafer, (tuple, list)) and len(wafer) == 2:
+                        boxes.extend(((wafer[0], key), metric) for key in keys(*wafer))
+                    else:
+                        boxes.append((wafer, metric))
+                page["boxes"] = list(dict.fromkeys(boxes))
         self.restore_workspace(snapshot)
 
     def _restore_reference_column_names(self, snapshot):
@@ -546,13 +628,13 @@ class CorrelationWindow(DataWorkspaceWindow):
         reference = selection.get("reference", {})
         if "metrics" in reference:
             reference["metrics"] = list(dict.fromkeys(aliases.get(name, name) for name in reference["metrics"]))
-        for field in ("correlation_draw", "trend_draw"):
+        for field in ("correlation_draw", "trend_draw", "wafer_stats_draw"):
             draw = selection.get(field, {})
             if "cells" in draw:
                 draw["cells"] = list(dict.fromkeys((source, key, metric(source, name))
                                                    for source, key, name in draw["cells"]))
         raw_columns = set(self.raw_model.document_frame().columns)
-        for field in ("correlation_page", "sequence_page"):
+        for field in ("correlation_page", "sequence_page", "wafer_statistics_page"):
             page = ui.get("pages", {}).get(field, {})
             if "boxes" in page:
                 page["boxes"] = [[wafer, metric(wafer[0], name)]
@@ -631,7 +713,13 @@ class CorrelationWindow(DataWorkspaceWindow):
         if not plan.enabled and plan.state["trend_order"] == "groups":
             return selection
         grouped = {**selection, "wafers": [], "groups": {}, "labels": {},
-                   "group_labels": {}, "available_cells": set()}
+                   "group_labels": {}, "combined_labels": {}, "wafer_caption_keys": set(),
+                   "available_cells": set()}
+        combined = {}
+        for spec in plan.state["combined_groups"]:
+            for member in spec["members"]:
+                combined.setdefault(member, []).append(spec["name"])
+        show_wafer = set(plan.state["show_wafer_groups"])
         metrics_by_key = {}
         for old_key, metric in selection["available_cells"]:
             metrics_by_key.setdefault(old_key, []).append(metric)
@@ -652,6 +740,10 @@ class CorrelationWindow(DataWorkspaceWindow):
                     grouped["groups"][key] = rows
                     grouped["labels"][key] = f"{name} · {span['label']}"
                     grouped["group_labels"][key] = group_labels[span["group"]]
+                    if span["group"] in show_wafer:
+                        grouped["wafer_caption_keys"].add(key)
+                    if span["group"] in combined:
+                        grouped["combined_labels"][key] = "\n".join(combined[span["group"]])
                     source_keys[name].append(key)
                     for metric in metrics_by_key.get(old_key, ()):
                         grouped["available_cells"].add((key, metric))
@@ -1148,12 +1240,12 @@ class CorrelationWindow(DataWorkspaceWindow):
     def set_second_axis_ratio(self, ratio, *, show_control=False):
         """Let the Match Workbook's Analysis menu drive the auto threshold."""
         self.sequence_page.restore_axis_ratio(ratio)
-        self.sequence_page.set_axis_ratio_control_visible(show_control)
+        self.wafer_statistics_page.restore_axis_ratio(ratio)
 
     def set_trend_axis_mode(self, mode, *, show_control=False):
         """Apply the Match Workbook's auto/dual/single axis policy."""
         self.sequence_page.restore_axis_mode(mode)
-        self.sequence_page.set_axis_ratio_control_visible(show_control)
+        self.wafer_statistics_page.restore_axis_mode(mode)
 
     def selection_state(self):
         """Return independent Ref/Raw choices plus both page draw states."""
@@ -1174,8 +1266,13 @@ class CorrelationWindow(DataWorkspaceWindow):
                 self.correlation_page
             ),
             "trend_draw": self._encoded_draw_state(self.sequence_page),
+            "wafer_stats_draw": self._encoded_draw_state(self.wafer_statistics_page),
             "trend_axis_ratio": self.sequence_page.axis_ratio_limit(),
             "trend_axis_mode": self.sequence_page.axis_mode_value(),
+            "trend_axis_local": True,
+            "mean_sigma_axis_ratio": self.wafer_statistics_page.axis_ratio_limit(),
+            "mean_sigma_axis_mode": self.wafer_statistics_page.axis_mode_value(),
+            "plot_decimal_places": self.plot_decimal_places.value(),
         }
 
     def _apply_selection_state(self, state):
@@ -1216,13 +1313,20 @@ class CorrelationWindow(DataWorkspaceWindow):
             return
         self._apply_selection_state(state)
         self.update_plan()
-        self.sequence_page.restore_axis_ratio(state.get("trend_axis_ratio"))
-        self.sequence_page.restore_axis_mode(state.get("trend_axis_mode", "auto"))
+        if state.get("trend_axis_local") or "trend_axis_mode" in state or "trend_axis_ratio" in state:
+            self._local_axis_policy_loaded = True
+            self.sequence_page.restore_axis_ratio(state.get("trend_axis_ratio"))
+            self.sequence_page.restore_axis_mode(state.get("trend_axis_mode", "auto"))
+            self.wafer_statistics_page.restore_axis_ratio(state.get("mean_sigma_axis_ratio", state.get("trend_axis_ratio")))
+            self.wafer_statistics_page.restore_axis_mode(state.get("mean_sigma_axis_mode", state.get("trend_axis_mode", "auto")))
+        decimals = state.get("plot_decimal_places", 3)
+        if type(decimals) is int and 0 <= decimals <= 10:
+            self.plot_decimal_places.setValue(decimals)
         # set_input queued automatic redraws of the old page choices. Saved
         # draw state supersedes them: Correlation processes Qt events while
         # fitting, which would otherwise run the Trend timer mid-restoration
         # and draw it again below with the actual saved boxes.
-        for page in (self.correlation_page, self.sequence_page):
+        for page in (self.correlation_page, self.sequence_page, self.wafer_statistics_page):
             page.input_refresh_timer.stop()
         # Earlier WKB draw states used match aliases for Raw parameters.
         legacy_raw_names = {} if state.get("source_parameter_names") else {
@@ -1233,6 +1337,9 @@ class CorrelationWindow(DataWorkspaceWindow):
         )
         self._restore_page_draw(self.sequence_page,
             self._decoded_draw_state(state.get("trend_draw"), legacy_raw_names)
+        )
+        self._restore_page_draw(self.wafer_statistics_page,
+            self._decoded_draw_state(state.get("wafer_stats_draw"), legacy_raw_names)
         )
 
     def closeEvent(self, event):
@@ -1250,6 +1357,9 @@ class CorrelationWindow(DataWorkspaceWindow):
         if hasattr(self, "sequence_page"):
             self.sequence_page.input_refresh_timer.stop()
             self.sequence_page.compare_timer.stop()
+        if hasattr(self, "wafer_statistics_page"):
+            self.wafer_statistics_page.input_refresh_timer.stop()
+            self.wafer_statistics_page.compare_timer.stop()
 
     def _rebuild_source_analysis(self):
         raw_analysis = _available_source_frame(self.raw_model)
@@ -1403,15 +1513,17 @@ class CorrelationWindow(DataWorkspaceWindow):
         trend_selection = self._grouped_trend_selection(selection)
         if self._point_edit_target is not None:
             widget, row, removed = self._point_edit_target
-            for page in (self.correlation_page, self.sequence_page):
+            for page in (self.correlation_page, self.sequence_page, self.wafer_statistics_page):
                 if widget in page.plot_widgets and page.ready and not page.background_render_pending:
                     self.correlation_page.set_point_selection(selection)
                     self.sequence_page.set_point_selection(trend_selection)
+                    self.wafer_statistics_page.set_point_selection(trend_selection)
                     if page.repaint_point(widget, row, removed):
                         return
                     break
         self.correlation_page.set_input(frame, selection)
         self.sequence_page.set_input(frame, trend_selection)
+        self.wafer_statistics_page.set_input(frame, trend_selection)
 
 
 __all__ = ["CorrelationWindow", "RAW_COLOR", "REFERENCE_COLOR"]

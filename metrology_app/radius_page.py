@@ -1,4 +1,5 @@
 """Signed-radius scatter plots using the selections from the Data tab."""
+from copy import deepcopy
 from io import BytesIO
 from pathlib import Path
 
@@ -136,6 +137,7 @@ class RadiusPage(QWidget):
         self._figure = Figure(figsize=(8, 6), dpi=100, facecolor="white")
         self._canvas = None
         self.scroll = StaticMapView()
+        self.scroll.point_removal_handler = self.refresh_point_removal
         self.scene = self.scroll.scene()
         self.radius_grid = RadiusGrid()
         self.scene.addItem(self.radius_grid)
@@ -305,21 +307,24 @@ class RadiusPage(QWidget):
                 selected = next((names[a] for a in aliases if a in names), None)
                 self.populate(combo, entries, selected)
         self.selector.set_array(selection["wafers"], selection["metrics"], selection.get("labels"))
-        self.invalidate()
-        if (self.has_drawn_once and not grid_changed
-                and not self.selector.pending_draw
-                and set(self.selector.selected_cells()) == set(self.drawn_cells)):
+        replay = (self.has_drawn_once and not grid_changed
+                  and not self.selector.pending_draw
+                  and set(self.selector.selected_cells()) == set(self.drawn_cells))
+        self.invalidate(preserve_plot=replay)
+        if replay:
             # Auto redraw only replays the last successful draw; a pending box
             # selection waits for the engineer to press Draw selected.
             self.queue_input_refresh()
 
-    def invalidate(self, *_):
-        self.ready = False
+    def invalidate(self, *_args, preserve_plot=False):
+        if not preserve_plot:
+            self.ready = False
         self.export_button.setEnabled(False)
         self.copy_button.setEnabled(False)
         self._export_dirty = True
         available = bool(self.selector.rowCount() and self.selector.columnCount())
-        self.stack.setCurrentWidget(self.selector_panel if available else self.empty)
+        if not preserve_plot:
+            self.stack.setCurrentWidget(self.selector_panel if available else self.empty)
         rows, columns = len(self.selection.get("wafers", [])), len(self.selection.get("metrics", []))
         count = len(self.selector.selected_cells())
         self.status.setText(
@@ -441,6 +446,7 @@ class RadiusPage(QWidget):
             width, height = columns * 460, rows * 420 + 30
             self.base_size = width, height
             self.plot_sources, self._shape = sources, (rows, columns)
+            self._source_baselines = deepcopy(sources)
             self._export_dirty = True
             self.radius_grid.set_result(sources, self._shape, base, self.identity_labels)
             self.ready = True
@@ -460,6 +466,34 @@ class RadiusPage(QWidget):
             self.export_button.setEnabled(False)
             self.copy_button.setEnabled(False)
             self.status.setText(str(error))
+
+    def refresh_point_removal(self, panel, removed_rows):
+        try:
+            index = self.radius_grid.panels.index(panel)
+        except ValueError:
+            return
+        if index >= len(self._source_baselines):
+            return
+        baseline = self._source_baselines[index]
+        if baseline.get("skip"):
+            return
+        removed = np.asarray(tuple(removed_rows), dtype=int)
+        keep = ~np.isin(np.asarray(baseline["source_rows"], dtype=int), removed)
+        updated = dict(baseline)
+        for key in ("radius", "value", "source_rows"):
+            updated[key] = np.asarray(baseline[key])[keep]
+        if "die" in baseline:
+            updated["die"] = [value for value, visible in zip(baseline["die"], keep) if visible]
+        values = updated["value"]
+        updated["stats"] = (
+            f"Min {values.min():.5g}   Max {values.max():.5g}   Mean {values.mean():.5g}"
+            if len(values) else "No valid samples"
+        )
+        if panel.update_source(updated):
+            panel.set_geometry(panel.box, panel.base, panel.identity_labels)
+            self.plot_sources[index] = updated
+            panel.refresh_point_visibility()
+            self._export_dirty = True
 
     def set_identity_labels(self, options):
         """Caption updates do not rebuild scatter points or alter box choices."""

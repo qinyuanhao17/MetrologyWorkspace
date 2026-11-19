@@ -388,7 +388,7 @@ class GroupPlan:
         if len(test_flags) > len(raw):
             raise ValueError("TestFlag has more rows than Raw Data. Keep the three tables row-aligned.")
         values = test_flags.iloc[:, 0].tolist() if len(test_flags.columns) else []
-        values += [""] * (len(raw) - len(values))
+        values += ["0"] * (len(raw) - len(values))
         selected = set(participation_rows(raw, self.state["data_selection"]))
         parsed_values = {}
         def parsed_flag(i, value):

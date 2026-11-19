@@ -208,6 +208,7 @@ def install(window, prepared):
     page.sheet_stack.setCurrentWidget(page._dataset.sheets)
     page._set_output_indexes(page.output_picker.findData(str(active)) if active is not None else -1)
     page._rebuild_wafer_lists(page._dataset.orders)
+    trend.source_output = active
     trend.show_results(page.results)
     page.alignment_changed.emit()
     window.tabs.setCurrentIndex(ui["tab"])

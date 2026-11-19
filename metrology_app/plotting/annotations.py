@@ -30,7 +30,9 @@ def set_plot_statistics(widget, series, enabled=True):
     curves = widget.listDataItems() + [item for view in widget.secondary_views
                                      for item in view.addedItems if isinstance(item, pg.PlotDataItem)]
     for item in curves:
-        scatter = item.scatter
+        scatter = getattr(item, "scatter", None)
+        if scatter is None:
+            continue
         if getattr(scatter, "_statistics_hover_hook", False):
             continue
         owner = ref(widget)
@@ -66,12 +68,29 @@ def attach_point_hover(item, dies):
     item.scatter.setPointData(dies)
 
 
-def plain_y_axes(widget):
+def value_formatter(value, decimals, *, scientific=False):
+    text = f"{value:.{decimals}{'e' if scientific else 'f'}}"
+    return text.removeprefix("-") if float(text) == 0 else text
+
+
+def plain_y_axes(widget, decimals=None):
     for name in ("left", "right"):
-        widget.getAxis(name).enableAutoSIPrefix(False)
+        axis = widget.getAxis(name)
+        axis.enableAutoSIPrefix(False)
+        axis.value_decimals = decimals
     for axis in widget.secondary_axes:
         axis.enableAutoSIPrefix(False)
+        axis.value_decimals = decimals
 
 
-def plain_matplotlib_y(axis):
-    axis.ticklabel_format(axis="y", style="plain", useOffset=False)
+def plain_matplotlib_y(axis, decimals=None):
+    if decimals is None:
+        axis.ticklabel_format(axis="y", style="plain", useOffset=False)
+        return
+    from matplotlib.ticker import FuncFormatter
+
+    def format_tick(value, _position):
+        locations = axis.yaxis.get_majorticklocs()
+        step = abs(locations[1] - locations[0]) if len(locations) > 1 else 0
+        return value_formatter(value, decimals, scientific=0 < step < 10 ** -decimals)
+    axis.yaxis.set_major_formatter(FuncFormatter(format_tick))

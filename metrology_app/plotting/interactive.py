@@ -8,6 +8,7 @@ from PyQt6.QtCore import QLineF, QPointF, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QWheelEvent
 from PyQt6.QtWidgets import QAbstractScrollArea, QApplication
 from .curve import ResponsivePlotDataItem
+from .selection import CurveSelection
 
 
 class _VerticalBoundaries(pg.GraphicsObject):
@@ -115,11 +116,17 @@ class _PlotViewBox(pg.ViewBox):
 
 class _ValueAxis(pg.AxisItem):
     """Unscaled Y axes show complete values, even on a large narrow range."""
+    value_decimals = None
 
     def tickStrings(self, values, scale, spacing):
         step = abs(spacing * scale)
         if self.autoSIPrefix or not isfinite(step) or step == 0:
             return super().tickStrings(values, scale, spacing)
+        if self.value_decimals is not None:
+            from .annotations import value_formatter
+            scientific = step < 10 ** -self.value_decimals
+            return [value_formatter(value * scale, self.value_decimals, scientific=scientific)
+                    for value in values]
         # A 0.25 or 2.5 tick step needs its fractional digit too. Ignore only
         # floating-point noise in the step, never round the source observations.
         places = min(324, max(0, -Decimal(f"{step:.12g}").as_tuple().exponent))
@@ -150,24 +157,25 @@ class InteractivePlotWidget(pg.PlotWidget):
         # overlap them and make some edges appear heavier than others.
         self.view_box.setBorder(None)
         self._frame_axes(frame_tick_length)
+        self.point_selection = CurveSelection(self)
+        self.point_selection.add_menu(view_box.getMenu(None))
 
     def set_point_rows(self, scatter, rows):
         if not hasattr(scatter, "_selection_rows"):
             self._selectable_points.append(scatter)
         scatter._selection_rows = rows
-
-    def add_point_edit_menu(self, history):
-        from .point_edits import add_point_edit_actions
-        for view in (self.view_box, *self.secondary_views):
-            menu = view.getMenu(None)
-            if menu is not None:
-                add_point_edit_actions(menu, history)
-                menu.addSeparator()
-                menu.setStyleSheet(menu.styleSheet() + "\nQMenu::separator {"
-                                   "height: 1px; background: palette(mid); margin: 4px 8px; }")
+        parent = scatter.parentItem()
+        item = parent if isinstance(parent, pg.PlotDataItem) else scatter
+        self.point_selection.apply_saved(item)
 
     def mouseDoubleClickEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton and self._selectable_points:
+        if (event.button() == Qt.MouseButton.LeftButton
+                and self.point_selection.view_at(event.position().toPoint()) is not None
+                and self.point_selection.double_click(event.position().toPoint(), event.modifiers())):
+            event.accept()
+            return
+        if (event.button() == Qt.MouseButton.LeftButton and self._selectable_points
+                and event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
             position = event.position().toPoint()
             cursor = self.mapToScene(position)
             if self.view_box.sceneBoundingRect().contains(cursor):
@@ -216,6 +224,7 @@ class InteractivePlotWidget(pg.PlotWidget):
         axis.linkToView(view)
         view.setXLink(self.view_box)
         self.secondary_views.append(view)
+        self.point_selection.add_menu(menu)
         self.secondary_axes.append(axis)
 
         def sync_geometry():

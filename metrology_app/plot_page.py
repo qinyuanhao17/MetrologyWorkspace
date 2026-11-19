@@ -477,20 +477,25 @@ class PlotPage(QWidget):
             # selection waits for the engineer to press Draw selected.
             self.queue_input_refresh()
 
-    def refresh_edited_map(self, frame, selection, cell):
+    def refresh_edited_map(self, frame, selection, cell, *, entire_wafer=False, excluded_rows=()):
         if self.result is None or self.frame is not frame or self.dirty:
             return False
-        source = next((scene for scene in self.result["scenes"] if not scene.get("skip")
-                       and (scene["wafer"], scene["metric"]) == cell), None)
-        if source is None:
+        wafer, metric = cell
+        sources = [scene for scene in self.result["scenes"] if not scene.get("skip")
+                   and scene["wafer"] == wafer and (entire_wafer or scene["metric"] == metric)]
+        if not sources:
             return False
         self.selection = selection.copy()
-        rows = tuple(selection["groups"].get(cell[0], ()))
+        rows = tuple(selection["groups"].get(wafer, ()))
+        excluded = {int(row) for row in excluded_rows}
+        rows = tuple(row for row in rows if int(row) not in excluded)
+        selected = frame.iloc[list(rows)].copy()
         settings = self.result["settings"]
-        # The other visible panels retain their shared colour range until a full redraw.
-        options = replace(settings, shared_scale=False, limits=source["options"].limits)
-        self._point_map_requests[cell] = (frame.iloc[list(rows)].copy(), rows, options,
-                                          source, source["options"].resolution)
+        # The visible panels retain their shared colour range until a full redraw.
+        for source in sources:
+            options = replace(settings, shared_scale=False, limits=source["options"].limits)
+            self._point_map_requests[(wafer, source["metric"])] = (
+                selected, rows, options, source, source["options"].resolution)
         if self._point_map_task is None:
             self._point_map_task = LatestTask(prepare_edited_maps, self._publish_edited_maps,
                                                 self._report_edited_map_error, self)
