@@ -415,6 +415,17 @@ class SheetModel(QAbstractTableModel):
         self.edit({(index.row(), index.column()): str(value)})
         return True
 
+    def clear_dense_extent(self, top, left, bottom, right):
+        """Clear a fully selected dense sheet with one exact Undo step."""
+        version = self.literal_version
+        if (type(self) is not SheetModel or version is None or self.clipboard_locks
+                or top != 0 or left != 0 or bottom < version.row_count
+                or right < len(version.headers) - 1):
+            return False
+        before = version.to_cells()
+        self.undo.push(CellEdit(self, dict.fromkeys(before, ""), before=before))
+        return True
+
     def edit(self, changes, *, document_rows=None):
         """Apply one undoable edit and return read-only original values.
 
@@ -576,13 +587,17 @@ class SheetModel(QAbstractTableModel):
 
     def _apply_cells(self, changes, *, bounds=None, document_rows=None, value_mode=None,
                      prepared_frames=None, table_version=None):
+        version = self.literal_version
+        clear_dense = (value_mode is False and version is not None
+                       and len(changes) == len(self.cells)
+                       and bounds == (0, 0, version.row_count, len(version.headers) - 1))
         if self._borrowed_frames:
             if table_version is None:
                 # An older internal snapshot may still read these buffers.
                 # General edits patch owned writable replacements instead.
                 self._frames = {name: frame.copy(deep=True) for name, frame in self._frames.items()}
             self._borrowed_frames = False
-        if table_version is None and isinstance(self.cells, VersionCells):
+        if not clear_dense and table_version is None and isinstance(self.cells, VersionCells):
             # General/unknown/structural edits keep the ordinary dictionary path.
             self.cells = TrackedCells(self.cells.copy(), changed=self._direct_cells_changed)
         if bounds is None:
@@ -620,7 +635,10 @@ class SheetModel(QAbstractTableModel):
             self.endInsertColumns()
         self._writing_cells = True
         try:
-            if table_version is not None:
+            if clear_dense:
+                # The Undo command already owns the original literals.
+                self.cells = TrackedCells(changed=self._direct_cells_changed)
+            elif table_version is not None:
                 self.cells = VersionCells(table_version, changed=self._direct_cells_changed)
                 self._frames.clear()
             elif isinstance(changes, ColumnChanges):
@@ -1530,6 +1548,8 @@ class SheetView(RangeSelectionTableView):
                           for r in self.selectionModel().selection()]
                 if len(bounds) == 1:
                     top, bottom, left, right = bounds[0]
+                    if type(model) is SheetModel and model.clear_dense_extent(top, left, bottom, right):
+                        return
                     changes = {(row, column): "" for row, column in model.cells
                                if top <= row <= bottom and left <= column <= right}
                 else:
