@@ -22,7 +22,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .array_plot import ArrayOptions, MAX_ARRAY_MAPS, draw_array, drawn_axes, prepare_array
+from .array_plot import ArrayOptions, MAX_ARRAY_MAPS, draw_array, drawn_axes, prepare_array, prepare_edited_maps
+from .background_task import LatestTask
 from .appearance import (COLOR_MAP_OPTIONS, MAX_COPY_PIXELS, MAX_EXPORT_PIXELS,
                          configure_resolution_combo, export_dpi, resolution_settings,
                          screen_render_scale)
@@ -100,6 +101,8 @@ class PlotPage(QWidget):
         self._fit_width_timer = QTimer(self, singleShot=True)
         self._fit_width_timer.timeout.connect(self._resize_fit_width)
         self.worker = None
+        self._point_map_task = None
+        self._point_map_requests = {}
         self.pending_fill_refresh = False
         self.pending_input_refresh = False
         self.page_intent = "canvas"
@@ -474,6 +477,47 @@ class PlotPage(QWidget):
             # selection waits for the engineer to press Draw selected.
             self.queue_input_refresh()
 
+    def refresh_edited_map(self, frame, selection, cell):
+        if self.result is None or self.frame is not frame or self.dirty:
+            return False
+        source = next((scene for scene in self.result["scenes"] if not scene.get("skip")
+                       and (scene["wafer"], scene["metric"]) == cell), None)
+        if source is None:
+            return False
+        self.selection = selection.copy()
+        rows = tuple(selection["groups"].get(cell[0], ()))
+        settings = self.result["settings"]
+        # The other visible panels retain their shared colour range until a full redraw.
+        options = replace(settings, shared_scale=False, limits=source["options"].limits)
+        self._point_map_requests[cell] = (frame.iloc[list(rows)].copy(), rows, options,
+                                          source, source["options"].resolution)
+        if self._point_map_task is None:
+            self._point_map_task = LatestTask(prepare_edited_maps, self._publish_edited_maps,
+                                                self._report_edited_map_error, self)
+        self._point_map_task.submit(self._point_map_requests.copy())
+        self.status.setText("Updating selected wafer map…")
+        return True
+
+    def _publish_edited_maps(self, updated):
+        if self.result is None or updated is None:
+            return
+        self._point_map_requests.clear()
+        settings = self.result["settings"]
+        for index, source in enumerate(self.result["scenes"]):
+            if source.get("skip"):
+                continue
+            scene = updated.get((source["wafer"], source["metric"]))
+            if scene is not None:
+                scene["options"] = replace(scene["options"], **self._style_values())
+                self.map_grid.replace_panel(index, scene, settings, self.identity_labels)
+                self.result["scenes"][index] = scene
+        self._export_dirty = True
+        self.status.setText(f"Updated {len(updated)} wafer map{'s' if len(updated) != 1 else ''}.")
+
+    def _report_edited_map_error(self, message):
+        self._point_map_requests.clear()
+        self.status.setText(f"Could not update the selected wafer map: {message}")
+
     def _update_captions(self):
         labels = self.selection.get('labels',{})
         if self.result is not None:
@@ -770,6 +814,7 @@ class PlotPage(QWidget):
 
     def _graphics_work_pending(self):
         return (self.worker is not None or self.pending_input_refresh
+                or (self._point_map_task is not None and self._point_map_task.busy)
                 or self._pending_render is not None or self.map_grid.render_pending
                 or any(timer.isActive() for timer in (self.input_refresh_timer, self.font_timer,
                                                        self.style_timer, self._page_refresh_timer)))
@@ -780,6 +825,9 @@ class PlotPage(QWidget):
         self._pending_render = None
         self._style_source = None
         self._presentation_fields.clear()
+        if self._point_map_task is not None:
+            self._point_map_task.cancel()
+            self._point_map_requests.clear()
         self.map_grid.cancel_render()
         for timer in (self.font_timer, self.style_timer, self.overlay_timer,
                       self._settle_timer, self._restore_scroll_timer):
@@ -1252,6 +1300,9 @@ class PlotPage(QWidget):
     def stop(self):
         self.revision += 1  # Invalidate results already queued on the GUI thread.
         self._cancel_background_draw()
+        if self._point_map_task is not None:
+            self._point_map_task.close()
+            self._point_map_task = None
         self.pending_input_refresh = False
         self.pending_fill_refresh = False
         self._pending_page_refresh = False

@@ -1,6 +1,6 @@
 # Metrology Workspace
 
-Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、光谱、径向图、相关性图和趋势图。主窗口提供 **Match Workbook**、**Wafer Map**、**Spectra Viewer**、**Correlation and Trend**、**Dynamic**、**AutoWeighting Writer** 和 **Reference Summary** 七个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例；窗口可命名、勾选随 WKB 保存。当前源码版本为 **v5.3.2**，见 [版本说明](docs/releases/v5.3.2.md)。Windows x64 Setup 见 [v5.3.2 发布页](https://github.com/qinyuanhao17/MetrologyWorkspace/releases/tag/v5.3.2)。历史版本标签保持不变。
+Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、光谱、径向图、相关性图和趋势图。主窗口提供 **Match Workbook**、**Wafer Map**、**Spectra Viewer**、**Correlation and Trend**、**Dynamic**、**AutoWeighting Writer** 和 **Reference Summarizer** 七个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例；窗口可命名、勾选随 WKB 保存。当前版本为 **v5.4.0**。Windows x64 Setup 见 [v5.4.0 发布页](https://github.com/qinyuanhao17/MetrologyWorkspace/releases/tag/v5.4.0)，改动见 [版本说明](docs/releases/v5.4.0.md)。
 
 v4.3.1 修复 Match Group / Wafer 导出中曲线、Wafer 标签和分界线不一致的问题：原生 Trend、Bias 与 Bias % 改为绑定单元格的 XY series，Show Wafer Group 的真实宽度会同步作用于数据；Wafer 标签保持各自 span 中心。单独 Group 页始终展示全部 Wafer，Match Wafer 改为不分页的一张完整图，数值轴只保留一个 Die Seq 标题，并在每个 Wafer 内按可用宽度生成密集刻度。完整 Undo、宽表粘贴/删除和多窗口阶段切换仍可能等待，不能把局部提速理解为整体流畅度全部达标。
 
@@ -22,9 +22,9 @@ python main.py
 
 主窗口通常以约 1180 × 820 的尺寸居中打开；在小屏幕或高缩放比例下，会按任务栏以上的可用空间自动缩小。分析窗口依次错开，窗口变小时仍可通过滚动条查看内容。
 
-程序启动后不会自动打开分析工具。点击左侧的 **Match Workbook**、**Wafer Map**、**Spectra Viewer**、**Correlation and Trend**、**Dynamic**、**AutoWeighting Writer** 或 **Reference Summary** 即可新建窗口。**Reference Summary** 支持 NOVA、PMISH、KLA 和 CDSEM1 文件批量汇总，Summary 页只显示文件数、保留行数、通道或 MP 数、问题摘要及输出文件，不展示 100 行数据预览。右侧 Activity 保留本次会话的窗口与文件事件，横跨主窗口底部的 Log 会记录 Python 运行环境、错误，以及 WKB 打开和保存位置，便于调试；上下区域可拖动调整，实际拖动后的 Log 高度会在正常关闭时保存并在下次启动恢复。Shell 不显示重复的全局 Close all、Ready、绿色状态点或空闲 `No tools open` 文本。Log 使用 Cascadia Mono、Consolas 等系统等宽字体，随 Light/Dark 主题切换背景，并以蓝色、琥珀色和红色区分 INFO、WARNING、ERROR 标签。
+程序启动后不会自动打开分析工具。点击左侧的 **Match Workbook**、**Wafer Map**、**Spectra Viewer**、**Correlation and Trend**、**Dynamic**、**AutoWeighting Writer** 或 **Reference Summarizer** 即可新建窗口。**Reference Summarizer** 支持 NOVA、PMISH、KLA 和 CDSEM1 文件批量汇总，Summary 页只显示文件数、保留行数、通道或 MP 数、问题摘要及输出文件，不展示 100 行数据预览。右侧 Activity 保留本次会话的窗口与文件事件，横跨主窗口底部的 Log 会记录 Python 运行环境、错误，以及 WKB 打开和保存位置，便于调试；上下区域可拖动调整，实际拖动后的 Log 高度会在正常关闭时保存并在下次启动恢复。Shell 不显示重复的全局 Close all、Ready、绿色状态点或空闲 `No tools open` 文本。Log 使用 Cascadia Mono、Consolas 等系统等宽字体，随 Light/Dark 主题切换背景，并以蓝色、琥珀色和红色区分 INFO、WARNING、ERROR 标签。
 
-Reference Summary 现有三页：**Summary** 汇总源文件；**Wafer Alignment** 自动载入 Ref，并可在 Raw Data 表内 Ctrl+V 粘贴、整片拖动、一对一链接及按 Field 或绝对 XY 稳定排序；**XY Bias Trends** 仅绘已链接的晶圆。Ref 坐标先换算到 Raw 所选单位，再计算 Raw − Ref。点数不同、缺失 XY 或未指定单位会提示，不截断或虚构坐标。Trend 默认两列，普通滚轮滚页，Ctrl＋滚轮缩放；Choose folders 支持多选并去重扫描路径。
+**Reference Summarizer** 的 Summary 页支持多选文件夹、递归去重扫描和逐个勾选源文件。Wafer Alignment 可加载当前或历史汇总 CSV，支持粘贴、拖动、一对一链接和坐标排序。XY Bias 将 Ref 坐标换算成 Raw 的单位后计算 Raw − Ref。点数不同时只比较唯一匹配的 Field X/Y 测点。XY Bias 默认三列，普通滚轮滚页，Ctrl＋滚轮缩放。Data 和四个绘图页随当前 Ref output 更新，使用成功对齐的记录及 Raw 的 wafer 信息和绝对 XY。File 菜单可保存和打开 SQLite `.ref` 工作区。
 
 四种 Vendor 均支持 `.csv`、`.xlsx`、`.xlsm`，Excel 只读取第一张 Sheet。CDSEM1 每个源文件独立处理，只保留 `ACD_No=CD`；缺少 `Wafer_ID` 或 `Lot_ID` 时输出空白，不生成身份。无 Wafer ID 的源文件须确认只有一片晶圆。MP 名称、大小写及首次出现顺序保持原样；缺失 MP/Chip 坐标或同 Chip＋MP 测量冲突会报错，完全重复行忽略 SourceRow 后去重。CD Pivot 保留 Common 11 列和每个 MP 的 34 列，另输出 CD Results、Checks 和 Results CSV。命令行可用 `python main.py --vendor CDSEM1 --files "C:\Data\cd_sem_ref.xlsx"`，可加 `--output-parent` 指定输出位置。见 [定向验收记录](docs/validation/reference-input-formats-2026-11-12.md)；本轮按要求未跑全量测试。
 

@@ -1,7 +1,7 @@
 """Prepare row-by-wafer arrays; keep numerical work independent of Qt."""
 from concurrent.futures import ThreadPoolExecutor
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 import pandas as pd
@@ -34,7 +34,8 @@ class ArrayOptions:
     point_decimals: int = 2
 
 
-def prepare_array(frame, selection, options, progress=lambda *_: None, cancelled=lambda: False):
+def prepare_array(frame, selection, options, progress=lambda *_: None, cancelled=lambda: False,
+                  *, grid_resolution=None):
     wafers, metrics = selection["wafers"], selection["metrics"]
     if not wafers or not metrics:
         raise ValueError("Select at least one wafer and one parameter in the Data tab.")
@@ -49,10 +50,11 @@ def prepare_array(frame, selection, options, progress=lambda *_: None, cancelled
     if options.diameter is not None and (not np.isfinite(options.diameter) or options.diameter <= 0):
         raise ValueError("Diameter must be a finite positive number, or Auto.")
     if "groups" in selection:
-        parts = {key: frame.iloc[list(selection["groups"][key])] for key in wafers}
+        part_rows = {key: np.asarray(selection["groups"][key], dtype=int) for key in wafers}
     else:
         ids = frame[selection["wafer_column"]].astype(str).str.strip()
-        parts = {key: frame[ids == key] for key in wafers}
+        part_rows = {key: np.flatnonzero(ids == key) for key in wafers}
+    parts = {key: frame.iloc[positions] for key, positions in part_rows.items()}
     rows = pd.concat([parts[key] for key in wafers if key in {w for w, _ in selected}])
     points = pd.DataFrame({"x": number(rows[options.x]), "y": number(rows[options.y])}).dropna().drop_duplicates()
     if points.empty:
@@ -75,7 +77,8 @@ def prepare_array(frame, selection, options, progress=lambda *_: None, cancelled
                        if name in names), None)
     # Small arrays can afford a near screen-resolution grid, which keeps the
     # displayed surface crisp; large arrays fall back to the cheaper grid.
-    grid_resolution = 400 if len(selected) <= 12 else 300 if len(selected) <= 48 else 200
+    if grid_resolution is None:
+        grid_resolution = 400 if len(selected) <= 12 else 300 if len(selected) <= 48 else 200
     for wafer in wafers:
         part = parts[wafer]
         for metric in metrics:
@@ -85,7 +88,7 @@ def prepare_array(frame, selection, options, progress=lambda *_: None, cancelled
                 scenes.append({"wafer": wafer, "metric": metric, "skip": True, "error": ""})
                 continue
             fields = {"x": number(part[options.x]), "y": number(part[options.y]),
-                      "value": number(part[metric])}
+                      "value": number(part[metric]), "source_row": part_rows[wafer]}
             if die_column is not None:
                 # Carry the source identifier through exactly the same invalid
                 # coordinate/value mask as the measured points, not row numbers.
@@ -181,6 +184,29 @@ def prepare_array(frame, selection, options, progress=lambda *_: None, cancelled
         size_summary = f"Manual diameter {options.diameter:g} coordinate units"
     return {"scenes": scenes, "shape": (len(wafers), len(metrics)), "settings": options,
             "geometry": geometry, "selected_count": len(selected), "size_summary": size_summary}
+
+
+def prepare_edited_maps(requests, cancelled):
+    """Recompute only the requested map cells and preserve source-row identities."""
+    updated = {}
+    for (wafer, metric), (frame, rows, options, source, resolution) in requests.items():
+        if cancelled():
+            return None
+        selection = {"wafers": [wafer], "metrics": [metric], "groups": {wafer: range(len(frame))},
+                     "labels": {wafer: source["label"]},
+                     "caption_fields": {wafer: source.get("caption_fields")}}
+        try:
+            result = prepare_array(frame, selection, options, cancelled=cancelled, grid_resolution=resolution)
+        except ValueError as error:
+            updated[(wafer, metric)] = dict(source, error=str(error))
+            continue
+        if result is None:
+            return None
+        scene, = result["scenes"]
+        layer = scene["layer"]
+        layer["source_row"] = np.asarray(rows, dtype=int)[layer["source_row"].to_numpy(dtype=int)]
+        updated[(wafer, metric)] = scene
+    return updated
 
 
 def drawn_axes(wafers, metrics, cells):

@@ -127,7 +127,7 @@ def create_default_registry():
         return ReferenceSummaryWindow()
 
     registry.register(ComponentSpec(
-        "reference_summary", "Reference Summary",
+        "reference_summary", "Reference Summarizer",
         "Consolidate NOVA, PMISH, KLA, or CDSEM1 reference exports with checks and provenance.",
         "Reference tools", create_reference_summary,
     ))

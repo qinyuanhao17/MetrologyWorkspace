@@ -136,9 +136,10 @@ def open_group_script(controls):
         def apply_script(self):
             try:
                 controls.apply_group_script(self.editor.toPlainText())
-                self.message.setText('Script applied to the draft. Use Apply in Group settings to accept it.')
             except ValueError as error:
                 self.message.setText(str(error))
+            else:
+                self.accept()
 
     if getattr(controls,'script_dialog',None) is None:
         controls.script_dialog = GroupScriptDialog()

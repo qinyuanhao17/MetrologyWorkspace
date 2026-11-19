@@ -1,11 +1,12 @@
 """Compact classification editor shared by analytical windows."""
 import re
 from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt
-from PyQt6.QtWidgets import (QDialog, QDialogButtonBox, QLabel, QTableView,
+from PyQt6.QtWidgets import (QDialog, QDialogButtonBox, QLabel,
                             QVBoxLayout, QHBoxLayout, QSizePolicy, QHeaderView, QPushButton)
 
 from .appearance import fit_window_to_screen
 from .match_groups import normalized
+from .table_selection import RangeSelectionTableView
 
 
 class GroupDetailsModel(QAbstractTableModel):
@@ -85,7 +86,7 @@ class GroupSettingsDialog(QDialog):
         layout.addWidget(controls)
         note = QLabel(hint,objectName='hint')
         layout.addWidget(note)
-        self.table = QTableView()
+        self.table = RangeSelectionTableView()
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setDefaultSectionSize(32)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)

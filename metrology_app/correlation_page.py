@@ -4,7 +4,7 @@ The visible grid is PyQtGraph so every variable pair zooms and pans on its own;
 Matplotlib stays behind the Export / Copy PNG buttons as the print backend.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from copy import deepcopy
 from html import escape
 from itertools import combinations
@@ -55,6 +55,7 @@ class LinearFit:
     slope: float
     intercept: float
     rsquared: float
+    row_positions: np.ndarray | None = None
 
 
 @dataclass(slots=True)
@@ -99,7 +100,7 @@ def fit_numeric_pair(frame, x_name, y_name):
     return _fit_numeric_values(x, y, x_name, y_name)
 
 
-def _fit_numeric_values(x, y, x_name, y_name, model=None, *, moments=None):
+def _fit_numeric_values(x, y, x_name, y_name, model=None, *, moments=None, row_positions=None):
     """Fit already-converted arrays while preserving the public frame seam."""
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
@@ -107,6 +108,8 @@ def _fit_numeric_values(x, y, x_name, y_name, model=None, *, moments=None):
     if not (type(model) is LinearModel and not x.flags.writeable
             and not y.flags.writeable and paired.all()):
         x, y = x[paired], y[paired]
+        if row_positions is not None and len(row_positions) != len(x):
+            row_positions = row_positions[paired]
     if len(x) < 3:
         raise ValueError("fewer than 3 paired numeric points")
     # Batch callers already supplied the ordinary, unweighted LinearModel.
@@ -143,7 +146,7 @@ def _fit_numeric_values(x, y, x_name, y_name, model=None, *, moments=None):
     residual = float(np.square(y - predicted).sum())
     total = float(np.square(y - y.mean()).sum())
     rsquared = 1 - residual / total if total > 0 else float("nan")
-    return LinearFit(x_name, y_name, x, y, predicted, slope, intercept, rsquared)
+    return LinearFit(x_name, y_name, x, y, predicted, slope, intercept, rsquared, row_positions)
 
 
 def _numeric_moments(values, cache):
@@ -171,7 +174,22 @@ def swap_fit_axes(fit):
         return SourcePairFit(fit.y_name, fit.x_name, tuple(
             SourceFit(source.name, source.color, swap_fit_axes(source.fit)) for source in fit.sources),
             tuple(reversed(fit.parameter_keys)))
-    return _fit_numeric_values(fit.y, fit.x, fit.y_name, fit.x_name)
+    return _fit_numeric_values(fit.y, fit.x, fit.y_name, fit.x_name, row_positions=fit.row_positions)
+
+
+def _fit_without_points(fit, removed):
+    if isinstance(fit, SourcePairFit):
+        return replace(fit, sources=tuple(replace(source, fit=_fit_without_points(source.fit, removed))
+                                          for source in fit.sources))
+    if fit.row_positions is None or not removed:
+        return fit
+    keep = ~np.isin(fit.row_positions, tuple(removed))
+    rows, x, y = fit.row_positions[keep], fit.x[keep], fit.y[keep]
+    try:
+        return _fit_numeric_values(x, y, fit.x_name, fit.y_name, LinearModel(), row_positions=rows)
+    except ValueError:
+        return replace(fit, x=x, y=y, row_positions=rows, predicted=np.full(len(x), np.nan),
+                       slope=np.nan, intercept=np.nan, rsquared=np.nan)
 
 
 def _owned_numeric_columns(frame, metrics):
@@ -198,9 +216,10 @@ def _selected_numeric(numeric, name, positions, selection, cache):
 class _CommonPopulationFits:
     """Call-local OLS coefficients for one proven finite observation population."""
 
-    def __init__(self, names, vectors, stats, covariance):
+    def __init__(self, names, vectors, stats, covariance, row_positions):
         self.positions = {name: position for position, name in enumerate(names)}
         self.vectors, self.stats, self.covariance = vectors, stats, covariance
+        self.row_positions = row_positions
         # Keep the existing residual definition, including its centered total,
         # rather than deriving R² by subtracting nearly equal matrix energies.
         self.totals = [float(np.square(stat[1]).sum()) for stat in stats]
@@ -214,7 +233,7 @@ class _CommonPopulationFits:
         residual = float(np.square(y - predicted).sum())
         total = self.totals[j]
         return LinearFit(x_name, y_name, x, y, predicted, slope, intercept,
-                         1 - residual / total if total > 0 else float('nan'))
+                         1 - residual / total if total > 0 else float('nan'), self.row_positions)
 
 
 def _common_population_fits(numeric, metrics, groups, cells, source_rows=None):
@@ -253,7 +272,8 @@ def _common_population_fits(numeric, metrics, groups, cells, source_rows=None):
         if not (np.isfinite(slopes).all()
                 and np.isfinite(means[None, :] - slopes * means[:, None]).all()):
             return None
-    return _CommonPopulationFits(metrics, vectors, stats, covariance)
+    return _CommonPopulationFits(metrics, vectors, stats, covariance,
+                                 np.arange(len(vectors[0])) if positions is None else positions)
 
 
 def pairwise_linear_fits(frame, metrics, groups=None, cells=None, *, cancelled=None):
@@ -273,6 +293,7 @@ def pairwise_linear_fits(frame, metrics, groups=None, cells=None, *, cancelled=N
     common = _common_population_fits(numeric, metrics, groups, cells)
     model = LinearModel()
     row_cache, vector_cache, moments = {}, {}, {}
+    all_rows = np.arange(len(frame)) if common is None and (groups is None or cells is None) else None
     for x_name, y_name in combinations(metrics, 2):
         if cancelled is not None and cancelled():
             raise InterruptedError("Correlation update cancelled")
@@ -290,7 +311,8 @@ def pairwise_linear_fits(frame, metrics, groups=None, cells=None, *, cancelled=N
         x = _selected_numeric(numeric, x_name, positions, selected_keys, vector_cache)
         y = _selected_numeric(numeric, y_name, positions, selected_keys, vector_cache)
         try:
-            fits.append(_fit_numeric_values(x, y, x_name, y_name, model, moments=moments))
+            fits.append(_fit_numeric_values(x, y, x_name, y_name, model, moments=moments,
+                                            row_positions=all_rows if positions is None else positions))
         except ValueError as error:
             errors.append((x_name, y_name, str(error)))
     fits.sort(key=lambda fit: fit.rsquared if np.isfinite(fit.rsquared) else -np.inf, reverse=True)
@@ -328,7 +350,7 @@ def source_pairwise_linear_fits(frame, metrics, sources, groups, cells, *, cance
                     fit = _fit_numeric_values(
                         _selected_numeric(numeric, x_name, positions, selected_keys, vector_cache),
                         _selected_numeric(numeric, y_name, positions, selected_keys, vector_cache),
-                        x_name, y_name, model, moments=moments,
+                        x_name, y_name, model, moments=moments, row_positions=positions,
                     )
             except ValueError as error:
                 errors.append((source["name"], x_name, y_name, str(error)))
@@ -345,7 +367,7 @@ def source_pairwise_linear_fits(frame, metrics, sources, groups, cells, *, cance
     source_labels = {"Reference": "REF", "Raw Data": "RAW"}
     for left, right in combinations(sources, 2):
         if len(left["rows"]) != len(right["rows"]):
-            raise ValueError("Cross-source correlation requires row-aligned source tables.")
+            continue
         selected = {}
         for source in (left, right):
             for name in metrics:
@@ -367,8 +389,10 @@ def source_pairwise_linear_fits(frame, metrics, sources, groups, cells, *, cance
                 labels = tuple(f"{source_labels.get(source['name'], source['name'])} · {name}"
                                for source, name in ((left, x_name), (right, y_name)))
                 try:
-                    fit = _fit_numeric_values(numeric[x_name][[x_rows[i] for i in indices]],
-                                              numeric[y_name][[y_rows[i] for i in indices]], *labels, model)
+                    x_positions = np.asarray([x_rows[i] for i in indices], dtype=int)
+                    y_positions = np.asarray([y_rows[i] for i in indices], dtype=int)
+                    fit = _fit_numeric_values(numeric[x_name][x_positions], numeric[y_name][y_positions],
+                                              *labels, model, row_positions=y_positions)
                 except ValueError as error:
                     errors.append((left["name"], x_name, right["name"], y_name, str(error)))
                     continue
@@ -382,9 +406,12 @@ def source_pairwise_linear_fits(frame, metrics, sources, groups, cells, *, cance
 
 class CorrelationPage(QWidget):
     axes_changed = pyqtSignal()
+    point_double_clicked = pyqtSignal(object, int)
 
     def __init__(self):
         super().__init__(objectName="correlationPage")
+        self.point_history = None
+        self._point_input_pending = False
         settings = get_settings()
         self.frame = pd.DataFrame()
         self.selection = {}
@@ -624,6 +651,42 @@ class CorrelationPage(QWidget):
                 and self.selector.selected_cells()):
             self.input_refresh_timer.start()
 
+    def set_point_selection(self, selection):
+        self.selection = selection.copy()
+        self._point_input_pending = self.has_drawn_once
+
+    def repaint_point(self, widget, row, removed):
+        for index, key in enumerate(self._visible_panel_keys):
+            entry = self._panel_cache[key]
+            if entry["widget"] is not widget:
+                continue
+            rows = entry.setdefault("removed_points", set())
+            if not removed and row not in rows:
+                return False  # A complete redraw may already have consumed the new selection.
+            if removed:
+                rows.add(row)
+            else:
+                rows.discard(row)
+            fit = _fit_without_points(self.oriented_fit(entry["original"]), rows)
+            rank = self.page_index * int(self.page_size.currentText()) + index + 1
+            self._update_render_panel(entry, fit, rank, int(self.font_size.currentText()))
+            self.home_views[index:index + 1] = [entry["home"]]
+            self._export_dirty = True
+            self._copy_image = self._copy_dpi = None
+            return True
+        return False
+
+    def _clear_point_preview(self):
+        self._point_input_pending = False
+        for entry in self._panel_cache.values():
+            entry.pop("removed_points", None)
+
+    def _refresh_point_input(self):
+        if not self._point_input_pending:
+            return False
+        self.redraw_keeping_page()
+        return True
+
     def selector_changed(self):
         """Changed fit boxes wait for the explicit Draw selected click."""
         self.invalidate(preserve_panels=getattr(self, "_updating_input", False))
@@ -649,6 +712,7 @@ class CorrelationPage(QWidget):
             self.stack.setCurrentWidget(self.interactive_scroll)
 
     def invalidate(self, *, preserve_panels=False):
+        self._clear_point_preview()
         self._cancel_background_draw()
         self.input_refresh_timer.stop()
         self.update_timer.stop()
@@ -777,7 +841,7 @@ class CorrelationPage(QWidget):
         self._reversed_fits.clear()
         self.skipped_count = len(errors)
         if not self.all_fits:
-            self._background_draw_error("No selected pair has enough varying numeric data for a linear fit.")
+            self._background_draw_error(self.no_fit_message())
             return
         self.drawn_metrics, self.drawn_cells = list(metrics), set(cells)
         self.has_drawn_once = True
@@ -807,6 +871,7 @@ class CorrelationPage(QWidget):
         super().closeEvent(event)
 
     def draw_plot(self):
+        self._clear_point_preview()
         self._cancel_background_draw()
         self.input_refresh_timer.stop()
         self.update_timer.stop()
@@ -851,7 +916,7 @@ class CorrelationPage(QWidget):
                 )
             self.skipped_count = len(errors)
             if not self.all_fits:
-                raise ValueError("No selected pair has enough varying numeric data for a linear fit.")
+                raise ValueError(self.no_fit_message())
             self.drawn_metrics = list(drawn_metrics)
             self.drawn_cells = set(cells)
             self.has_drawn_once = True
@@ -880,6 +945,10 @@ class CorrelationPage(QWidget):
         updates = self._pending_updates
         self._pending_updates = set()
         if not updates or not self.all_fits:
+            return
+        if self._point_input_pending and "filter" in updates:
+            self.user_page = 0
+        if self._refresh_point_input():
             return
         if "filter" in updates:
             self.user_page = 0
@@ -968,8 +1037,10 @@ class CorrelationPage(QWidget):
         elif cache_key in self._visible_panel_keys:
             index = self._visible_panel_keys.index(cache_key)
             rank = self.page_index * int(self.page_size.currentText()) + index + 1
-            self.update_panel_direction(self._panel_cache[cache_key], updated, rank, base)
-            self.home_views[index:index + 1] = [self._panel_cache[cache_key]["home"]]
+            entry = self._panel_cache[cache_key]
+            updated = _fit_without_points(updated, entry.get("removed_points", ()))
+            self.update_panel_direction(entry, updated, rank, base)
+            self.home_views[index:index + 1] = [entry["home"]]
         self._export_dirty = True
         self._copy_image = self._copy_dpi = None
         self.axes_changed.emit()
@@ -991,6 +1062,7 @@ class CorrelationPage(QWidget):
         for (points, line), source, previous_source in zip(cached["items"], values, previous_values):
             if not (np.array_equal(previous_source.x, source.x) and np.array_equal(previous_source.y, source.y)):
                 points.setData(source.x, source.y)
+            widget.set_point_rows(getattr(points, "scatter", points), source.row_positions)
             order = np.argsort(source.x)
             x, y = source.x[order], source.predicted[order]
             if not (np.array_equal(line.xData, x) and np.array_equal(line.yData, y)):
@@ -1005,6 +1077,8 @@ class CorrelationPage(QWidget):
     def set_parameter_filter(self, _parameter):
         if self.ready:
             self.page_index = self.user_page = 0
+            if self._refresh_point_input():
+                return
             self.render_fits()
             self.update_fit_status()
 
@@ -1025,12 +1099,19 @@ class CorrelationPage(QWidget):
         self.previous_page.setEnabled(self.page_index > 0)
         self.next_page.setEnabled(bool(pages and self.page_index + 1 < pages))
 
+    def alignment_notice(self):
+        lengths = {len(source["rows"]) for source in self.selection.get("sources", ())}
+        return " Cross-source fits require equal Ref and Raw row counts." if len(lengths) > 1 else ""
+
+    def no_fit_message(self):
+        return "No selected pair has enough varying numeric data for a linear fit." + self.alignment_notice()
+
     def update_fit_status(self):
         fits = self.display_fits()
         if not fits:
             self.status.setText(
                 f"No correlation for the selected parameters passes R² > {self.min_rsq.value():.2f} "
-                "with the current drawn measurements."
+                "with the current drawn measurements." + self.alignment_notice()
             )
             return
         size = int(self.page_size.currentText())
@@ -1048,10 +1129,11 @@ class CorrelationPage(QWidget):
         self.status.setText(
             f"{pair_summary} · {len(fits)} / {len(self.all_fits)} fits pass "
             f"R² > {self.min_rsq.value():.2f} · highest R² first · "
-            f"showing {start}–{end} of {len(fits)}{skipped}"
+            f"showing {start}–{end} of {len(fits)}{skipped}" + self.alignment_notice()
         )
 
     def set_page(self, index):
+        self._refresh_point_input()
         pages = self.page_count()
         if not self.ready or not pages:
             return
@@ -1066,6 +1148,8 @@ class CorrelationPage(QWidget):
     def change_page_size(self, *_):
         self.page_index = 0
         self.user_page = 0
+        if self._refresh_point_input():
+            return
         if self.ready:
             self.render_fits()
             self.update_fit_status()
@@ -1245,16 +1329,17 @@ class CorrelationPage(QWidget):
 
     @staticmethod
     def panel_heading(fit, rank, base):
+        def fit_details(values):
+            if not np.isfinite(values.rsquared):
+                return f"Fit unavailable · n {len(values.x)}"
+            return (f"y = {values.slope:.5g}x {values.intercept:+.5g}   "
+                    f"R² {values.rsquared:.5f}   n {len(values.x)}")
+
         if isinstance(fit, SourcePairFit):
-            lines = []
-            for source in fit.sources:
-                values = source.fit
-                lines.append(f"{source.name}: y = {values.slope:.5g}x "
-                             f"{values.intercept:+.5g}   R² {values.rsquared:.5f}   n {len(values.x)}")
+            lines = [f"{source.name}: {fit_details(source.fit)}" for source in fit.sources]
             details = "<br>".join(escape(line) for line in lines)
         else:
-            details = escape(f"y = {fit.slope:.5g}x {fit.intercept:+.5g}   "
-                             f"R² {fit.rsquared:.5f}   n {len(fit.x)}   rank {rank}")
+            details = escape(f"{fit_details(fit)}   rank {rank}")
         return (f"<b>{escape(fit.y_name)} vs {escape(fit.x_name)}</b><br>"
                 f"<span style='font-size:{max(7, base - 1)}pt'>{details}</span>")
 
@@ -1443,10 +1528,14 @@ class CorrelationPage(QWidget):
         if sip.isdeleted(self) or sip.isdeleted(owner):
             widget.deleteLater()
             raise RuntimeError('Correlation rendering cancelled')
+        widget.point_double_clicked.connect(lambda row: self._emit_point_double_clicked(widget, row))
+        if self.point_history is not None:
+            widget.add_point_edit_menu(self.point_history)
         widget.setMinimumSize(180, 310)
         widget.setToolTip("Ctrl+scroll to zoom · Drag a box to zoom · Right-drag to pan · "
                           "Ordinary scrolling moves the page · "
-                          "Double-click to fit this plot · Reset views restores all plots")
+                          "Double-click a point to change Data selection · "
+                          "Double-click the background to fit this plot · Reset views restores all plots")
         plot = widget.getPlotItem()
         plot.setTitle(None)   # the QLabel above the plot owns the heading
         plot.showGrid(x=True, y=True, alpha=.18)
@@ -1493,6 +1582,7 @@ class CorrelationPage(QWidget):
                     name=f"{source.name} points",
                 )
                 plot.addItem(points)
+                widget.set_point_rows(points.scatter, values.row_positions)
                 order = np.argsort(values.x)
                 line = plot.plot(
                     values.x[order], values.predicted[order],
@@ -1504,6 +1594,7 @@ class CorrelationPage(QWidget):
             points = pg.ScatterPlotItem(fit.x, fit.y, size=5, symbol="o", pen=None,
                                        brush=pg.mkBrush(point_color))
             plot.addItem(points)
+            widget.set_point_rows(points, fit.row_positions)
             order = np.argsort(fit.x)
             line = pg.PlotDataItem(fit.x[order], fit.predicted[order],
                                    pen=pg.mkPen(fit_color, width=2))
@@ -1521,6 +1612,10 @@ class CorrelationPage(QWidget):
             axis.setStyle(tickFont=widget.font())
         return {"widget": widget, "panel": container, "heading": heading,
                                   "fit": fit, "original": original, "items": items, "home": None, "swap_button": swap_button}
+
+    def _emit_point_double_clicked(self, widget, row):
+        if self.ready and not self.background_render_pending:
+            self.point_double_clicked.emit(widget, row)
 
     def remember_home_views(self):
         """Store the view each plot was drawn with, so Reset views can restore it exactly."""
@@ -1574,6 +1669,7 @@ class CorrelationPage(QWidget):
             self.status.setText(f"PNG output: {dpi} dpi. This setting does not change the on-screen plots.")
 
     def export_png(self):
+        self._refresh_point_input()
         if not self.ready or not self.display_fits():
             return
         self.ensure_export_figure()
@@ -1600,6 +1696,7 @@ class CorrelationPage(QWidget):
             QApplication.restoreOverrideCursor()
 
     def export_all_pages(self):
+        self._refresh_point_input()
         if not self.ready or not self.display_fits():
             return
         self._finish_interactive_render()
@@ -1639,6 +1736,7 @@ class CorrelationPage(QWidget):
             QApplication.restoreOverrideCursor()
 
     def copy_png(self):
+        self._refresh_point_input()
         if not self.ready or not self.display_fits():
             return
         self._finish_interactive_render()

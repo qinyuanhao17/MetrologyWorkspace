@@ -4,14 +4,15 @@ import re
 
 from PyQt6.QtCore import Qt, QSignalBlocker
 from PyQt6.QtWidgets import (QApplication, QDialog, QDialogButtonBox, QFileDialog,
-                            QHeaderView, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
-                            QMenu, QPushButton, QTabWidget, QTableView, QTreeWidget, QTreeWidgetItem,
+                            QHeaderView, QHBoxLayout, QLabel, QLineEdit, QListWidgetItem,
+                            QMainWindow, QMessageBox, QMenu, QPushButton, QTabWidget, QTreeWidget, QTreeWidgetItem,
                             QVBoxLayout, QWidget)
 
 from .appearance import fit_window_to_screen
 from .settings import apply_theme
 from .table_clipboard import attach_copy_feedback
-from .widgets import ScrollSafeComboBox
+from .table_selection import RangeSelectionTableView
+from .widgets import CheckableListWidget, ScrollSafeComboBox
 
 
 class SpectraInfoWindow(QMainWindow):
@@ -65,8 +66,9 @@ class SpectraInfoWindow(QMainWindow):
         layout.addLayout(tools)
         self.tabs = QTabWidget()
         self.models, self.tables = [], []
+        self.column_picker = None
         for tab, title in enumerate(("Spectra Info", "With Test Flag", "XY")):
-            table = QTableView()
+            table = RangeSelectionTableView()
             model = InfoModel(parent=self)
             table.setModel(model)
             table.setAlternatingRowColors(True)
@@ -102,9 +104,11 @@ class SpectraInfoWindow(QMainWindow):
             import pandas as pd
             self.result = None
             frames, problems = (pd.DataFrame(), pd.DataFrame(), pd.DataFrame()), (str(error),)
+        self.source_columns = [tuple(frame.columns) for frame in frames]
         for tab, (model, table, frame) in enumerate(zip(self.models, self.tables, frames)):
             frame = frame.drop(columns=list(self.viewer.info_deleted_columns[tab]), errors="ignore")
-            model.set_frame(frame)
+            if not model.frame.equals(frame):
+                model.set_frame(frame)
             signature = "|".join(frame.columns)
             if table.property("spectraInfoColumns") != signature:
                 widths = {"Time": 185, "Die Seq": 70, "Tool SN": 90, "Type": 90,
@@ -136,10 +140,66 @@ class SpectraInfoWindow(QMainWindow):
             names = [frame.columns[i] for i in columns]
             menu.addAction("Delete Column" if len(names) == 1 else "Delete Columns",
                            lambda: self.viewer.delete_info_columns(tab, names))
-            menu.addSeparator()
+        hidden = self.viewer.info_deleted_columns[tab]
+        if hidden:
+            restore = menu.addMenu("Restore Columns")
+            restore.addAction("Restore All Columns", lambda: self.viewer.restore_info_columns(tab, hidden))
+            restore.addSeparator()
+            for name in sorted(hidden, key=str.casefold):
+                restore.addAction(name, lambda _checked=False, column=name: self.viewer.restore_info_columns(tab, (column,)))
+        menu.addAction("Choose Columns…", self.open_column_picker)
+        menu.addSeparator()
         menu.addAction(self.undo_action)
         menu.addAction(self.redo_action)
         return menu
+
+    def open_column_picker(self):
+        if self.column_picker is not None:
+            self.column_picker.raise_()
+            return self.column_picker
+        dialog = self.column_picker = QDialog(self, objectName="spectraInfoColumnPicker")
+        dialog.setWindowTitle("Choose Spectra Info columns")
+        layout = QVBoxLayout(dialog)
+        tabs = QTabWidget()
+        lists = []
+        for tab, columns in enumerate(self.source_columns):
+            choices = CheckableListWidget()
+            hidden = self.viewer.info_deleted_columns[tab]
+            for name in dict.fromkeys(columns):
+                item = QListWidgetItem(name)
+                item.setCheckState(Qt.CheckState.Unchecked if name in hidden else Qt.CheckState.Checked)
+                choices.addItem(item)
+            tabs.addTab(choices, self.tabs.tabText(tab))
+            lists.append(choices)
+        tabs.setCurrentIndex(self.tabs.currentIndex())
+        layout.addWidget(tabs)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
+        buttons.addButton("Apply", QDialogButtonBox.ButtonRole.AcceptRole)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        def finished(code):
+            self.column_picker = None
+            if code == QDialog.DialogCode.Accepted:
+                hidden = [set(names) for names in self.viewer.info_deleted_columns]
+                for tab, choices in enumerate(lists):
+                    for row in range(choices.count()):
+                        item = choices.item(row)
+                        if item.checkState() == Qt.CheckState.Checked:
+                            hidden[tab].discard(item.text())
+                        else:
+                            hidden[tab].add(item.text())
+                self.viewer.set_info_columns(hidden)
+            if not self.viewer.info_columns_configured:
+                self.viewer.info_columns_configured = True
+                self.viewer.stateChanged.emit()
+            dialog.deleteLater()
+
+        dialog.finished.connect(finished)
+        fit_window_to_screen(dialog, (540, 495), minimum=(350, 300))
+        dialog.open()
+        return dialog
 
     def edit_flag(self, row, value):
         if self.problems or self.result is None or not 0 <= row < len(self.result.spectrum_keys):

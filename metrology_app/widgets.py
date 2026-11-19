@@ -1,8 +1,8 @@
 """Small widgets shared by more than one workspace."""
 
-from PyQt6.QtCore import QPointF
+from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtGui import QWheelEvent
-from PyQt6.QtWidgets import QAbstractScrollArea, QApplication, QComboBox
+from PyQt6.QtWidgets import QAbstractScrollArea, QApplication, QComboBox, QListWidget
 
 
 class ScrollSafeComboBox(QComboBox):
@@ -35,4 +35,17 @@ class ScrollSafeComboBox(QComboBox):
         event.setAccepted(forwarded.isAccepted())
 
 
-__all__ = ["ScrollSafeComboBox"]
+class CheckableListWidget(QListWidget):
+    """Click anywhere on an enabled checkable row to toggle it once."""
+    def mouseReleaseEvent(self, event):
+        item = self.itemAt(event.position().toPoint())
+        flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable
+        if event.button() == Qt.MouseButton.LeftButton and item is not None and (item.flags() & flags) == flags:
+            state = Qt.CheckState.Unchecked if item.checkState() == Qt.CheckState.Checked else Qt.CheckState.Checked
+            item.setCheckState(state)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+
+__all__ = ["CheckableListWidget", "ScrollSafeComboBox"]

@@ -23,6 +23,60 @@ class SpectraGroupInteractionTests(unittest.TestCase):
         controls.apply_group_script(script)
         controls.apply_button.click()
         self.assertEqual(viewer.test_flags, {sources[0].key: 12, sources[1].key: -12})
+        self.assertFalse(dialog.isVisible())
+
+    def test_multiple_import_folders_share_a_persisted_filter_and_color_level(self):
+        from dataclasses import replace
+        from pathlib import Path, PureWindowsPath
+        from tempfile import TemporaryDirectory
+        from time import monotonic
+        from unittest.mock import patch
+
+        viewer, _ = self.viewer()
+        viewer.apply_load_result(LoadResult((), ()), replace=True, allow_empty_replace=True)
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            left, right = root / "L1" / "First", root / "L1" / "Second"
+            for subfolder in (left, right):
+                subfolder.mkdir(parents=True)
+                (subfolder / "measurement.sme").touch()
+
+            def parse(path):
+                return replace(make_spectrum(1 if path.parent == left else 2),
+                               path=path, key=str(path).casefold())
+
+            with patch("metrology_app.sme_spectra.parse_sme_file", side_effect=parse) as reader:
+                viewer.start_loading([left, right, root / "L1"], replace=True)
+                deadline = monotonic() + 5
+                while viewer._loader is not None and monotonic() < deadline:
+                    QTest.qWait(5)
+                self.assertIsNone(viewer._loader)
+                self.assertEqual(reader.call_count, 2)
+            viewer.check_all_spectra()
+            viewer.group_by_combo.setCurrentIndex(viewer.group_by_combo.findData("folder"))
+            viewer.set_color_mode("folder")
+            shared = PureWindowsPath(str(root.resolve() / "L1"))
+            expected_path = str(shared)
+            combo = viewer.folder_level_combo
+            self.assertEqual([combo.itemText(i) for i in range(combo.count())],
+                             list(map(str, (shared, *shared.parents))))
+            self.assertEqual(viewer.tree.topLevelItemCount(), 1)
+            self.assertEqual(viewer.tree.topLevelItem(0).text(0), expected_path)
+            group, = viewer.plot_panels["S"].groups
+            self.assertEqual(group.key.category_value, expected_path)
+            self.assertEqual(len(group.segments), 2)
+
+            snapshot = viewer.workspace_snapshot()
+            combo.setCurrentIndex(1)
+            viewer.restore_workspace(snapshot)
+            self.assertEqual(combo.currentData(), expected_path)
+            self.assertEqual(viewer.tree.topLevelItem(0).text(0), expected_path)
+            self.assertEqual(len(viewer.plot_panels["S"].groups), 1)
+            sources = viewer.catalog.spectra[:1]
+            viewer.apply_load_result(LoadResult(sources, ()), replace=True, folders=(left,))
+            single = PureWindowsPath(str(left.resolve()))
+            self.assertEqual([combo.itemText(i) for i in range(combo.count())],
+                             list(map(str, (single, *single.parents))))
 
     def test_click_point_then_enter_multi_digit_flag_and_reject_invalid_prefix(self):
         from PyQt6.QtCore import QPointF

@@ -14,7 +14,7 @@ import zlib
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 import numpy as np
 from .file_paths import filesystem_path
@@ -897,14 +897,33 @@ def load_folder(
     progress: Callable[[int, int, str], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
 ) -> LoadResult:
+    if not filesystem_path(Path(folder).resolve()).is_dir():
+        raise ValueError("Spectrum folder does not exist")
+    return load_folders((folder,), progress=progress, cancelled=cancelled)
+
+
+def load_folders(
+    folders: Iterable[Path],
+    *,
+    progress: Callable[[int, int, str], None] | None = None,
+    cancelled: Callable[[], bool] | None = None,
+) -> LoadResult:
     if progress:
         progress(0, 0, "Scanning spectrum folders…")
-    paths = scan_sme_files(folder, cancelled=cancelled)
+    paths = {}
     spectra: list[SpectrumFile] = []
     issues: list[LoadIssue] = []
+    for folder in dict.fromkeys(Path(folder).resolve() for folder in folders):
+        if cancelled and cancelled():
+            return LoadResult((), tuple(issues), True)
+        try:
+            for path in scan_sme_files(folder, cancelled=cancelled):
+                paths.setdefault(path, None)
+        except (OSError, ValueError) as error:
+            issues.append(LoadIssue(folder, "error", str(error)))
     total = len(paths)
     if cancelled and cancelled():
-        return LoadResult((), (), True)
+        return LoadResult((), tuple(issues), True)
     if progress:
         progress(0, total, "Scanning spectrum folders…")
     for index, path in enumerate(paths, 1):
@@ -979,12 +998,17 @@ class SpectrumCatalog:
             )
         return self._ordered
 
-    def grouped(self, group_by: str = "wafer") -> dict:
-        if group_by not in SPECTRUM_GROUP_FIELDS:
+    def grouped(self, group_by: str = "wafer", *, folder_key=None) -> dict:
+        if group_by == "folder" and folder_key is not None:
+            fields = ("folder",)
+        elif group_by in SPECTRUM_GROUP_FIELDS:
+            fields = SPECTRUM_GROUP_FIELDS[group_by]
+        else:
             raise ValueError(f"Unknown spectrum grouping: {group_by}")
-        fields = SPECTRUM_GROUP_FIELDS[group_by]
 
         def values(spectrum):
+            if group_by == "folder":
+                return (folder_key(spectrum),)
             identity = spectrum.identity
             return tuple(identity.die_seq if field == "die" else getattr(identity, field)
                          for field in fields)

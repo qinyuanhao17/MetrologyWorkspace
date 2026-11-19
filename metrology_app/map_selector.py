@@ -1,11 +1,12 @@
 """Selectable wafer × parameter boxes, using native spreadsheet selection."""
 from PyQt6.QtCore import QItemSelection, QItemSelectionModel, QSignalBlocker, Qt, pyqtSignal
-from PyQt6.QtWidgets import QAbstractItemView, QHeaderView, QTableWidget, QTableWidgetItem
+from PyQt6.QtWidgets import QAbstractItemView, QHeaderView, QTableWidgetItem
 
 from .table_clipboard import attach_copy_feedback
+from .table_selection import RangeSelectionTableWidget
 
 
-class MapSelector(QTableWidget):
+class MapSelector(RangeSelectionTableWidget):
     changed = pyqtSignal()
 
     def __init__(self):

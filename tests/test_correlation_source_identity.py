@@ -3,21 +3,177 @@ import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pandas as pd
-from PyQt6.QtCore import QPoint, Qt
+from PyQt6.QtCore import QPoint, QPointF, Qt
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
 from metrology_app.correlation_window import CorrelationWindow
 from metrology_app.matching_window import MatchingWindow
+from metrology_app.matching import ParameterMapping
 
 APP = QApplication.instance() or QApplication([])
 
 
 class CorrelationSourceIdentityTests(unittest.TestCase):
+    def test_raw_paste_gives_unequal_source_curves_nonoverlapping_wafer_spans(self):
+        window = self.window
+        reference = pd.DataFrame({'Wafer ID': ['W1'] * 3 + ['W2'] * 3,
+                                  'Die Seq': [1, 2, 3] * 2, 'CD': range(6)})
+        raw = pd.DataFrame({'Wafer ID': ['W1'] * 5 + ['W2'] * 5 + ['W3'] * 5,
+                            'Die Seq': list(range(1, 6)) * 3,
+                            'CD': range(15), 'Depth': range(20, 35)})
+        window.set_table(raw.iloc[:10], 'Raw Data')
+        window.set_reference_table(reference)
+        page = window.sequence_page
+        page.selector.selectAll()
+        page.draw_plot()
+        QApplication.clipboard().setText(raw.to_csv(sep='\t', index=False))
+        window.raw_sheet.paste(replace=True)
+        window.tabs.setCurrentWidget(page)
+        window.check_all(window.wafer_list, True)
+        page.selector.selectAll()
+        page.draw_plot()
+
+        self.assertTrue(page.ready, page.status.text())
+        self.assertEqual([(group['start'], group['stop']) for group in page.axis_groups],
+                         [(0, 4), (5, 9), (10, 14)])
+        self.assertEqual(page.x_range, (-.5, 14.5))
+        self.assertEqual([(group['start'], group['stop']) for group in page.groups
+                          if group['source']['name'] == 'Reference'], [(0, 2), (5, 7)])
+        correlation = window.correlation_page
+        correlation.min_rsq.setValue(0)
+        correlation.selector.selectAll()
+        correlation.draw_plot()
+        self.assertTrue(correlation.ready, correlation.status.text())
+        self.assertEqual([fit.parameter_keys for fit in correlation.all_fits],
+                         [(("Raw Data", "CD"), ("Raw Data", "Depth"))])
+        self.assertIn("equal Ref and Raw row counts", correlation.status.text())
+
+    def test_double_click_targets_original_correlation_row_after_missing_values(self):
+        from metrology_app.match_groups import participation_source_keys
+        window = self.window
+        raw = pd.DataFrame({'Wafer ID': ['W1'] * 5, 'Die Seq': [5, 4, 3, 2, 1],
+                            'CD': ['1', '', '3', '4', '5'], 'Depth': ['3', '5', '8', '11', '15']})
+        window.set_table(raw, 'Raw Data')
+        window.show()
+        page = window.correlation_page
+        window.tabs.setCurrentWidget(page)
+        page.selector.selectAll()
+        page.start_draw()
+        APP.processEvents()
+        plot, = page.plot_widgets
+        scatter = plot.listDataItems()[0]
+        self.double_click(plot, scatter, 3, 8)
+
+        dialog = window._data_selection_dialog()
+        keys = participation_source_keys(raw)
+        self.assertEqual(set(keys) - dialog.model.checked, {keys[2]})
+        dialog.model.set_checked_range(2, 2, Qt.CheckState.Checked)
+        dialog.accept()
+        window._apply_data_selection_dialog(dialog)
+        self.assertEqual(window.participating_positions(raw), set(range(len(raw))))
+        dialog.deleteLater()
+
+    def test_double_click_trend_reference_point_keeps_unequal_raw_table_checked(self):
+        window = self.window
+        raw = pd.DataFrame({'Wafer ID': ['W1'] * 5, 'Die Seq': [5, 4, 3, 2, 1], 'CD': range(5)})
+        reference = raw.iloc[:3].assign(CD=[24, 32, 45])
+        window.set_table(raw, 'Raw Data')
+        window.set_reference_table(reference)
+        window.show()
+        page = window.sequence_page
+        window.tabs.setCurrentWidget(page)
+        page.selector.selectAll()
+        page.draw_plot()
+        APP.processEvents()
+        plot = page.plot_widgets[0]
+        other = page.plot_widgets[1]
+        other_data = other.listDataItems()[0].yData.copy()
+        item, = plot.listDataItems()
+        original = item.yData.copy()
+        self.double_click(plot, item.scatter, item.xData[0], item.yData[0])
+
+        self.assertEqual(window._table_participating_positions("reference", reference), {0, 1})
+        self.assertEqual(window.participating_positions(raw), set(range(len(raw))))
+        self.assertIs(page.stack.currentWidget(), page.interactive_scroll)
+        self.assertEqual(page.plot_widgets, [plot, other])
+        self.assertEqual(item.yData.tolist(), original[1:].tolist())
+        self.assertEqual(other.listDataItems()[0].yData.tolist(), other_data.tolist())
+        restored = CorrelationWindow()
+        self.addCleanup(self.close_window, restored)
+        restored.restore_workspace(window.workspace_snapshot())
+        self.assertEqual(restored._table_participating_positions("reference", reference), {0, 1})
+
+        menu = plot.getViewBox().getMenu(None)
+        actions = {action.text(): action for action in menu.actions()}
+        self.assertIn("View All", actions)
+        actions["Undo point removal"].trigger()
+        self.assertEqual(item.yData.tolist(), original.tolist())
+        self.assertEqual(window._table_participating_positions("reference", reference), {0, 1, 2})
+        redo = next(action for action in menu.actions() if action.text() == "Redo point removal")
+        redo.trigger()
+        self.assertEqual(item.yData.tolist(), original[1:].tolist())
+        actions["Restore all removed points"].trigger()
+        self.assertEqual(item.yData.tolist(), original.tolist())
+        self.assertIs(page.stack.currentWidget(), page.interactive_scroll)
+
+    def test_removing_points_only_repaints_clicked_correlation_charts_and_undo_restores_them(self):
+        from unittest.mock import patch
+        window = self.window
+        raw = pd.DataFrame({'Wafer ID': ['W1'] * 5, 'Die Seq': [5, 4, 3, 2, 1],
+                            'CD': range(5), 'Depth': [0, 3, 5, 8, 12], 'Etch': [2, 4, 5, 10, 13]})
+        window.set_table(raw, 'Raw Data')
+        window.show()
+        page = window.correlation_page
+        window.tabs.setCurrentWidget(page)
+        page.min_rsq.setValue(0)
+        page.selector.selectAll()
+        page.start_draw()
+        APP.processEvents()
+        first, second, third = page.plot_widgets
+        plots = [first, second, third]
+        data = [plot.listDataItems()[0].getData() for plot in plots]
+
+        with patch.object(page, "draw_plot", wraps=page.draw_plot) as draw:
+            for plot, index in [(first, 1), (second, 3)]:
+                item = plot.listDataItems()[0]
+                x, y = item.getData()
+                self.double_click(plot, item, x[index], y[index])
+            QTest.qWait(170)
+            self.assertIs(page.stack.currentWidget(), page.interactive_scroll)
+            self.assertEqual(page.plot_widgets, plots)
+            self.assertEqual([len(plot.listDataItems()[0].getData()[0]) for plot in plots], [4, 4, 5])
+            self.assertEqual(window.participating_positions(raw), {0, 2, 4})
+            menu = first.getViewBox().getMenu(None)
+            undo = next(action for action in menu.actions() if action.text() == "Undo point removal")
+            undo.trigger()
+            self.assertEqual([len(plot.listDataItems()[0].getData()[0]) for plot in plots], [4, 5, 5])
+            reset = next(action for action in menu.actions() if action.text() == "Restore all removed points")
+            reset.trigger()
+            self.assertEqual(window.participating_positions(raw), set(range(len(raw))))
+            draw.assert_not_called()
+        for plot, (x, y) in zip(plots, data):
+            restored_x, restored_y = plot.listDataItems()[0].getData()
+            self.assertEqual(restored_x.tolist(), x.tolist())
+            self.assertEqual(restored_y.tolist(), y.tolist())
+
+    @staticmethod
+    def double_click(plot, scatter, x, y):
+        position = plot.mapFromScene(scatter.mapToScene(QPointF(x, y)))
+        QTest.mouseDClick(plot.viewport(), Qt.MouseButton.LeftButton, pos=position)
+
+    @staticmethod
+    def close_window(window):
+        window.document.force_close = True
+        window.close()
+        window.deleteLater()
+        APP.processEvents()
+
     def test_corrected_vendor_identity_uses_current_three_wafer_spans(self):
         from metrology_app.sequence_data import prepare_sequence_groups
         raw = pd.DataFrame({'Wafer ID': ['W1'] * 3 + ['W2'] * 3 + ['W3'] * 3,
@@ -71,10 +227,7 @@ class CorrelationSourceIdentityTests(unittest.TestCase):
         })
 
     def tearDown(self):
-        self.window.document.force_close = True
-        self.window.close()
-        self.window.deleteLater()
-        APP.processEvents()
+        self.close_window(self.window)
 
     def test_ref_only_edits_refresh_wafer_recognition_and_grouping_menu(self):
         w = self.window
@@ -171,8 +324,7 @@ class CorrelationSourceIdentityTests(unittest.TestCase):
             parent.match_type.setCurrentText("NOVA")
             parent.set_reference_frame(pd.DataFrame({"CD": ["2", "4", "6"]}))
             parent.set_raw_frame(self.raw)
-            parent.mapping_table.cellWidget(0, 3).setCurrentText("CD")
-            parent.mapping_table.item(0, 0).setCheckState(Qt.CheckState.Checked)
+            parent._populate_mappings([ParameterMapping("CD", "CD", "CD")])
             parent.run_analysis()
             child = parent.open_correlation_workspace()
             manual = self.raw.assign(**{"Wafer ID": ["REF1"] * 3})
@@ -203,6 +355,85 @@ class CorrelationSourceIdentityTests(unittest.TestCase):
                     window.close()
                     window.deleteLater()
             APP.processEvents()
+
+    def test_match_workbook_ref_copy_is_independent_and_follows_parent_selection(self):
+        from metrology_app.match_groups import row_ids
+
+        parent = MatchingWindow()
+        self.addCleanup(self.close_window, parent)
+        parent.set_reference_frame(pd.DataFrame({"Ref CD": ["1.00", "2.00", "3.00"]}))
+        parent.set_raw_frame(self.raw)
+        child = parent.open_correlation_workspace()
+        self.assertFalse(child.copy_reference_from_wkb_action.isChecked())
+        self.assertNotIn(child.reference_selection_action, child.data_menu.actions())
+        self.assertFalse(child.reference_selection_action.isVisible())
+        self.assertTrue(child.reference_model.document_frame().empty)
+
+        child.copy_from_wkb_action.setChecked(False)
+        child.set_table(self.raw.iloc[:1].assign(**{"Wafer ID": ["Independent"]}), "Manual Raw")
+        manual_raw = child.raw_model.document_frame()
+        keys = row_ids(parent.raw_frame)
+        selection = {"records": [{"key": key, "id": str(i)} for i, key in enumerate(keys)],
+                     "excluded": ["1"], "hide_excluded": True}
+        for state in (parent.group_controls.state, parent.group_controls.state["applied"]):
+            state["data_selection"] = selection
+        child.copy_reference_from_wkb_action.setChecked(True)
+        self.assertTrue(child.copy_reference_from_wkb_action.isChecked())
+        copied = child.reference_model.document_frame()
+        self.assertEqual(copied["Ref CD"].tolist(), ["1.00", "2.00", "3.00"])
+        self.assertEqual(child._table_participating_positions("reference", copied), {0, 2})
+        self.assertFalse(child.reference_selection_action.isVisible())
+        self.assertTrue(child.workbook_selection_action.isEnabled())
+        pd.testing.assert_frame_equal(child.raw_model.document_frame(), manual_raw)
+
+        parent.set_reference_frame(pd.DataFrame({"Ref CD": ["4.00", "5.00", "6.00"]}))
+        parent.sync_stage_windows()
+        self.assertEqual(child.reference_model.document_frame()["Ref CD"].tolist(), ["4.00", "5.00", "6.00"])
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "linked-ref.mwkb"
+            parent.save_workbook(path)
+            restored = MatchingWindow()
+            self.addCleanup(self.close_window, restored)
+            restored.load_workbook(path)
+            reopened = restored.open_correlation_workspace()
+            self.assertTrue(reopened.copy_reference_from_wkb_action.isChecked())
+            self.assertFalse(reopened.copy_from_wkb_action.isChecked())
+            pd.testing.assert_frame_equal(reopened.raw_model.document_frame(), manual_raw)
+            self.assertEqual(reopened.reference_model.document_frame()["Ref CD"].tolist(),
+                             ["4.00", "5.00", "6.00"])
+            reopened.copy_reference_from_wkb_action.setChecked(False)
+            restored.set_reference_frame(pd.DataFrame({"Ref CD": ["7", "8", "9"]}))
+            restored.sync_stage_windows()
+            self.assertEqual(reopened.reference_model.document_frame()["Ref CD"].tolist(),
+                             ["4.00", "5.00", "6.00"])
+
+    def test_explicit_mapping_rows_survive_saved_workbook_source_replacement(self):
+        parent = MatchingWindow()
+        self.addCleanup(self.close_window, parent)
+        parent.set_reference_frame(pd.DataFrame({"CD": ["1", "2", "3"], "Unmapped": ["7"] * 3}))
+        parent.set_raw_frame(self.raw)
+        self.assertEqual(parent.mapping_table.rowCount(), 0)
+        with patch("metrology_app.matching_window.QInputDialog.getItem", return_value=("CD", True)):
+            parent.mapping_add_button.click()
+        self.assertEqual(parent.mapping_table.rowCount(), 1)
+        parent.mapping_table.cellWidget(0, 3).setCurrentText("CD")
+        parent.mapping_table.item(0, 0).setCheckState(Qt.CheckState.Checked)
+        original = parent._mapping_state()
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "manual-mapping.mwkb"
+            parent.save_workbook(path)
+            restored = MatchingWindow()
+            self.addCleanup(self.close_window, restored)
+            restored.load_workbook(path)
+            self.assertEqual(restored._mapping_state(), original)
+            restored.set_reference_frame(pd.DataFrame({"New Reference": ["10"] * 3}))
+            restored.set_raw_frame(self.raw.rename(columns={"CD": "New Raw"}))
+            self.assertEqual(restored._mapping_state(), original)
+            self.assertFalse(restored.analyze_button.isEnabled())
+            restored.set_reference_frame(pd.DataFrame({"CD": ["11"] * 3, "New Reference": ["10"] * 3}))
+            restored.set_raw_frame(self.raw)
+            self.assertEqual(restored._mapping_state(), original)
+            self.assertTrue(restored.analyze_button.isEnabled())
 
     def test_ref_and_raw_grouping_menus_remain_open_after_repeated_check_changes(self):
         w = self.window

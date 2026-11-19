@@ -1,0 +1,80 @@
+{
+  "original": {
+    "folder": "D:\\spectra",
+    "logical_cpus": 16,
+    "sme_files": 4809,
+    "sme_bytes": 782829634,
+    "runs": [
+      {
+        "mode": "serial",
+        "workers": 1,
+        "prepare_seconds": 13.539758400002029,
+        "viewer_seconds": 29.233677700001863,
+        "spectra": 3123,
+        "issues": 1686,
+        "embedded_records": 3123,
+        "record_sha256": "6845667056d11a2172ad757f1a4d7bfa2444721abb8bb13d9cd86aac7d89a7f8"
+      }
+    ]
+  },
+  "comparison": {
+    "folder": "D:\\spectra",
+    "logical_cpus": 16,
+    "sme_files": 4809,
+    "sme_bytes": 782829634,
+    "runs": [
+      {
+        "mode": "auto",
+        "workers": 4,
+        "prepare_seconds": 4.941315999996732,
+        "viewer_seconds": 18.048462399994605,
+        "spectra": 3123,
+        "issues": 1686,
+        "issue_statuses": {
+          "encrypted": 1686
+        },
+        "embedded_records": 3123,
+        "record_sha256": "6845667056d11a2172ad757f1a4d7bfa2444721abb8bb13d9cd86aac7d89a7f8"
+      },
+      {
+        "mode": "serial",
+        "workers": 1,
+        "prepare_seconds": 13.59902389999479,
+        "viewer_seconds": 27.217390799996792,
+        "spectra": 3123,
+        "issues": 1686,
+        "issue_statuses": {
+          "encrypted": 1686
+        },
+        "embedded_records": 3123,
+        "record_sha256": "6845667056d11a2172ad757f1a4d7bfa2444721abb8bb13d9cd86aac7d89a7f8"
+      },
+      {
+        "mode": "serial",
+        "workers": 1,
+        "prepare_seconds": 13.688478500000201,
+        "viewer_seconds": 27.94819429999916,
+        "spectra": 3123,
+        "issues": 1686,
+        "issue_statuses": {
+          "encrypted": 1686
+        },
+        "embedded_records": 3123,
+        "record_sha256": "6845667056d11a2172ad757f1a4d7bfa2444721abb8bb13d9cd86aac7d89a7f8"
+      },
+      {
+        "mode": "auto",
+        "workers": 4,
+        "prepare_seconds": 5.196613899999647,
+        "viewer_seconds": 19.03927900000417,
+        "spectra": 3123,
+        "issues": 1686,
+        "issue_statuses": {
+          "encrypted": 1686
+        },
+        "embedded_records": 3123,
+        "record_sha256": "6845667056d11a2172ad757f1a4d7bfa2444721abb8bb13d9cd86aac7d89a7f8"
+      }
+    ]
+  }
+}

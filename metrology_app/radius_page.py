@@ -376,9 +376,9 @@ class RadiusPage(QWidget):
     def _parts(self):
         wafers = self.selection.get("wafers", [])
         if "groups" in self.selection:
-            return {key: self.frame.iloc[list(self.selection["groups"][key])] for key in wafers}
+            return {key: np.asarray(self.selection["groups"][key], dtype=int) for key in wafers}
         ids = self.frame[self.selection["wafer_column"]].astype(str).str.strip()
-        return {key: self.frame[ids == key] for key in wafers}
+        return {key: np.flatnonzero(ids == key) for key in wafers}
 
     def draw_plot(self):
         self.pending_input_refresh = False
@@ -419,9 +419,9 @@ class RadiusPage(QWidget):
                         sources.append({"skip": True})
                         continue
                     drawn += 1
-                    part = parts[wafer]
+                    part = self.frame.iloc[parts[wafer]]
                     frame = pd.DataFrame({"x": number(part[x_name]), "y": number(part[y_name]),
-                                          "value": number(part[metric])})
+                                          "value": number(part[metric]), "source_row": parts[wafer]})
                     if die_column is not None:
                         frame["die"] = part[die_column].fillna("").astype(str).to_numpy()
                     data = frame.dropna(subset=["x", "y", "value"])
@@ -435,6 +435,7 @@ class RadiusPage(QWidget):
                     sources.append({"wafer":wafer,"metric": metric, "label": labels.get(wafer, wafer),
                                     "caption_fields": self.selection.get("caption_fields",{}).get(wafer),
                                     "radius": radius, "value": data.value.to_numpy(float),
+                                    "source_rows": data.source_row.to_numpy(int),
                                     "die": data["die"].tolist() if "die" in data else [""] * len(data),
                                     "limit": limit, "unit": unit, "color": color, "stats": stats})
             width, height = columns * 460, rows * 420 + 30

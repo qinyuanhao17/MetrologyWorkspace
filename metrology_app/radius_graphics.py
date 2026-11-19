@@ -54,7 +54,7 @@ class RadiusPanel(pg.GraphicsObject):
         # Cache comparisons must describe the previous draw even if a caller
         # later reuses its dict or edits an array in place.
         owned = dict(source)
-        for key in ("radius", "value"):
+        for key in ("radius", "value", "source_rows"):
             if key in owned:
                 owned[key] = np.array(owned[key], copy=True)
         if "die" in owned:
@@ -104,14 +104,26 @@ class RadiusPanel(pg.GraphicsObject):
             self._pixel_positions = np.column_stack((x, y)) if len(x) else np.empty((0, 2))
         self.update()
 
-    def hover_text(self, point):
-        """Nearest source die showing its value and signed radius."""
-        if self.scatter is None or not len(self._pixel_positions):
+    def _point_index(self, point):
+        if not len(self._pixel_positions):
             return None
         delta = self._pixel_positions - np.array([point.x(), point.y()])
         distances = np.einsum("ij,ij->i", delta, delta)
         index = int(distances.argmin())
-        if distances[index] > 10 * 10:
+        return index if distances[index] <= 10 * 10 else None
+
+    def point_row(self, point):
+        if not self.box.contains(point):
+            return None
+        index = self._point_index(point)
+        if index is not None and "source_rows" in self.source:
+            return int(self.source["source_rows"][index])
+        return None
+
+    def hover_text(self, point):
+        """Nearest source die showing its value and signed radius."""
+        index = self._point_index(point)
+        if index is None:
             return None
         source = self.source
         die = str(source.get("die", [""] * len(source["value"]))[index] or "").strip()

@@ -6,10 +6,10 @@ from collections import Counter
 
 import numpy as np
 import pandas as pd
-from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtCore import QSignalBlocker, QSize, Qt
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
-    QApplication, QCheckBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
+    QApplication, QCheckBox, QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel,
     QLayout, QLineEdit, QMessageBox, QPushButton, QScrollArea, QSplitter, QTreeWidgetItem,
     QVBoxLayout, QWidget,
 )
@@ -92,6 +92,8 @@ class CorrelationWindow(DataWorkspaceWindow):
     workspace_type = "correlation_trend"
 
     def __init__(self):
+        self._copy_reference_from_wkb = False
+        self._workbook_reference_rows = ()
         self._workbook_sources = ()
         self._source_mappings = ()
         self._analysis_frame = pd.DataFrame()
@@ -103,6 +105,8 @@ class CorrelationWindow(DataWorkspaceWindow):
         self._group_plan = None
         self._group_result_cache = None
         self.display_options = None
+        self._reference_excluded = set()
+        self._reference_selection_view = {}
         super().__init__()
         self.setWindowTitle("Correlation and Trend")
         self.raw_model = self.model
@@ -116,45 +120,101 @@ class CorrelationWindow(DataWorkspaceWindow):
         self.reference_page = self._build_reference_page()
         self.tabs.insertTab(0, self.reference_page, "1. Ref Data")
         self.reference_model.changed.connect(self.refresh_timer.start)
+        self.reference_model.changed.connect(self._point_history.clear)
         self.reference_model.changed.connect(self._refresh_table_sizes)
         self.reference_model.modelReset.connect(self._refresh_table_sizes)
         self.reference_model.metadata_locks_changed.connect(self.document.identity_timer.start)
         self.correlation_page = CorrelationPage()
+        self.correlation_page.point_history = self._point_history
         self.correlation_page.axes_changed.connect(self.document.identity_timer.start)
+        self.correlation_page.point_double_clicked.connect(self._toggle_correlation_point)
         self.tabs.addTab(self.correlation_page, "3. Correlation")
         self.sequence_page = SequencePage()
+        self.sequence_page.point_history = self._point_history
+        self.sequence_page.point_double_clicked.connect(self._toggle_correlation_point)
         self.tabs.addTab(self.sequence_page, "4. Trend")
         from .correlation_options import CorrelationOptions
         self.display_options = CorrelationOptions(self)
+        self.reference_selection_action = QAction("Ref Data selection…", self)
+        self.reference_selection_action.triggered.connect(self.open_reference_selection)
+        self.data_menu.insertAction(self.copy_wkb_selection_action, self.reference_selection_action)
+        self._refresh_table_sizes()
         self.copy_from_wkb_action.setText("Copy Raw Data from WKB")
         self.copy_from_wkb_action.setToolTip(
             "Copy Raw Data from the owning Match Workbook and follow its changes. "
-            "Ref Data is manual and is never copied, cleared or replaced by this choice.")
+            "The Ref copy is controlled separately.")
+        self.copy_reference_from_wkb_action = QAction("Copy Ref from WKB", self, checkable=True)
+        actions = self.data_menu.actions()
+        self.data_menu.insertAction(actions[actions.index(self.copy_from_wkb_action) + 1],
+                                    self.copy_reference_from_wkb_action)
+        self.copy_reference_from_wkb_action.setVisible(False)
+        self.copy_reference_from_wkb_action.toggled.connect(self._copy_reference_changed)
         self.update_plan()
         self.sequence_page.document_scoped = True
         self.document.mark_clean()
 
     def workbook_copy_sources(self):
-        """Reference measurements belong to this analysis, even with linked Raw."""
-        return {"raw_data": self._copy_from_wkb, "reference_data": False}
+        return {"raw_data": self._copy_from_wkb, "reference_data": self._copy_reference_from_wkb}
 
-    def set_workbook_sources(self, raw, mappings, mode="Preview"):
+    def configure_workbook_owner(self, owner, scope):
+        super().configure_workbook_owner(owner, scope)
+        self.copy_reference_from_wkb_action.setVisible(True)
+        self.data_menu.removeAction(self.reference_selection_action)
+        self.reference_selection_action.setVisible(False)
+
+    def set_copy_reference_from_wkb(self, checked):
+        self._copy_reference_from_wkb = bool(checked)
+        with QSignalBlocker(self.copy_reference_from_wkb_action):
+            self.copy_reference_from_wkb_action.setChecked(checked)
+        self._update_workbook_selection_actions(self.copy_from_wkb_action.isEnabled())
+
+    def _copy_reference_changed(self, checked):
+        owner = getattr(self, "_managed_owner", None)
+        if owner is None:
+            self.set_copy_reference_from_wkb(False)
+        else:
+            owner.set_child_reference_copy(self, checked)
+
+    def workbook_reference_frame(self, reference, raw):
+        if not reference.empty and len(reference) == len(raw):
+            self._workbook_reference_rows = participation_source_keys(raw)
+            reference = _aligned_reference_frame(reference, raw)
+        else:
+            self._workbook_reference_rows = ()
+        if self.reference_model.clipboard_locks and not reference.empty:
+            reference = self.reference_model.merge_clipboard_frame(reference)
+        return reference
+
+    def set_workbook_reference(self, reference):
+        if not self.reference_model.matches_document(reference):
+            if not self.reference_model.update_headers(reference):
+                self.reference_model.load(reference)
+            self._rebuild_source_analysis()
+            self.refresh_timer.stop()
+
+    def set_workbook_sources(self, raw, mappings, mode="Preview", *, reference=None):
         if self.raw_model.clipboard_locks:
             raw = self.raw_model.merge_clipboard_frame(raw)
+        existing_reference = self.reference_model._document_view()
+        if reference is not None and not self.reference_model.matches_document(reference):
+            self._prepared_group_result = None
+            prepared = getattr(self.raw_model, '_linked_prepared_load', None)
+            if prepared is not None and 'value_changes' in prepared:
+                self.raw_model._linked_prepared_load = None
         prepared = getattr(self.raw_model, '_linked_prepared_load', None)
         if prepared is not None and 'value_changes' in prepared:
             self.raw_model._linked_prepared_load = None
             if self._set_workbook_values(raw, mappings, mode, prepared):
                 return
-        reference = self.reference_model._document_view()
-        if not reference.empty and len(reference) != len(raw):
+        if reference is None and not existing_reference.empty and len(existing_reference) != len(raw):
             # Keep the manual Reference literally intact. A changed Raw row
             # count cannot establish new cross-table pairs on its behalf.
             self.set_table(raw, f"{mode} Raw Data", keep_local_selection=True)
             self._refresh_table_sizes()
             self._populate_reference_choices()
             return
-        self.set_sources(reference, raw, mappings, mode, align_reference=False)
+        self.set_sources(existing_reference if reference is None else reference, raw, mappings, mode,
+                         align_reference=False)
 
     def _linked_value_context(self):
         numeric = tuple(self.parameter_list.topLevelItem(i).text(0)
@@ -206,7 +266,8 @@ class CorrelationWindow(DataWorkspaceWindow):
             return
         with self.input_update():
             self.set_table(pd.DataFrame(), "Manual Raw Data")
-        self._workbook_selection_applies = False
+        if not self._copy_reference_from_wkb:
+            self._workbook_selection_applies = False
         self.set_copy_from_wkb(False)
         self._use_workbook_data = False
         self._independent_data = True
@@ -297,11 +358,114 @@ class CorrelationWindow(DataWorkspaceWindow):
 
     def workspace_snapshot(self, *, include_drafts=False, readonly=False):
         snapshot = super().workspace_snapshot(include_drafts=include_drafts, readonly=readonly)
+        snapshot.states["ui"]["copy_reference_from_wkb"] = self._copy_reference_from_wkb
+        selection = snapshot.states["data_selection"]
+        if self._reference_excluded:
+            selection["reference_excluded"] = sorted(self._reference_excluded)
+        if self._reference_selection_view:
+            selection["reference_view"] = (self._reference_selection_view if readonly
+                                          else deepcopy(self._reference_selection_view))
         if self._match_groups:
             snapshot.states["match_groups"] = self._match_groups if readonly else deepcopy(self._match_groups)
         if self.display_options is not None:
             snapshot.states['correlation_display'] = self.display_options.snapshot()
         return snapshot
+
+    def restore_workspace(self, snapshot):
+        ui = snapshot.states.get("ui", {})
+        self.set_copy_reference_from_wkb(isinstance(ui, dict) and ui.get("copy_reference_from_wkb") is True)
+        selection = snapshot.states.get("data_selection", {})
+        if not isinstance(selection, dict):
+            selection = {}
+        excluded = selection.get("reference_excluded", [])
+        view = selection.get("reference_view", {})
+        if not isinstance(excluded, list) or any(not isinstance(key, str) for key in excluded):
+            raise ValueError("Invalid Ref Data selection.")
+        if not isinstance(view, dict):
+            raise ValueError("Invalid Ref Data selection view.")
+        self._reference_excluded = set(excluded)
+        self._reference_selection_view = deepcopy(view)
+        super().restore_workspace(snapshot)
+
+    def _independent_reference_rows(self):
+        if not hasattr(self, "reference_model"):
+            return False
+        reference_rows, _ = self.reference_model.document_shape()
+        raw_rows, _ = self.raw_model.document_shape()
+        return bool(reference_rows and reference_rows != raw_rows)
+
+    def _refresh_table_sizes(self):
+        super()._refresh_table_sizes()
+        if hasattr(self, "reference_selection_action"):
+            self.reference_selection_action.setVisible(
+                getattr(self, "_managed_owner", None) is None and self._independent_reference_rows())
+
+    def _table_selection_hidden(self, name):
+        if name == "reference" and self._independent_reference_rows():
+            return self._reference_selection_view.get("hide_excluded", False)
+        return super()._table_selection_hidden(name)
+
+    def _table_participating_positions(self, name, frame):
+        if name == "reference" and self._copy_reference_from_wkb and (
+                self._workbook_reference_rows and len(frame) == len(self._workbook_reference_rows)):
+            excluded = getattr(self, "_participation_excluded", set()) if self._workbook_selection_applies else set()
+            local = self._reference_excluded
+            keys = participation_source_keys(frame) if local else (None,) * len(frame)
+            return {row for row, (parent_key, key) in enumerate(zip(self._workbook_reference_rows, keys))
+                    if parent_key not in excluded and key not in local}
+        if name == "reference" and self._independent_reference_rows():
+            if not self._reference_excluded:
+                return set(range(len(frame)))
+            return {row for row, key in enumerate(participation_source_keys(frame))
+                    if key not in self._reference_excluded}
+        return super()._table_participating_positions(name, frame)
+
+    def open_reference_selection(self):
+        from .data_selection import FrameSelectionDialog
+        frame = _available_source_frame(self.reference_model)
+        if frame.empty or not self._independent_reference_rows():
+            return
+        view = self._reference_selection_view
+        dialog = FrameSelectionDialog(frame, self._reference_excluded, self,
+                                      filters=view.get("filters"), row_bools=view.get("row_bools"),
+                                      group_bools=view.get("group_bools"), show=view.get("show", "all"),
+                                      search=view.get("search", ""), context=view.get("context"),
+                                      hide_excluded=view.get("hide_excluded", False))
+        dialog.setWindowTitle("Data selection — Ref Data")
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._point_history.clear()
+            self._reference_excluded = set(dialog.excluded)
+            self._reference_selection_view = dialog.view_state()
+            self.update_plan()
+            self.document.refresh_identity()
+        dialog.deleteLater()
+
+    def _toggle_correlation_point(self, widget, row):
+        if self.refresh_timer.isActive() or getattr(self, "_source_refresh_pending", False):
+            return
+        if not self._workbook_sources:
+            self._toggle_plot_row(row, widget, row)
+            return
+        reference = _available_source_frame(self.reference_model)
+        if row >= len(reference):
+            self._toggle_plot_row(row - len(reference), widget, row)
+        elif self._independent_reference_rows() or (self._copy_reference_from_wkb and not self._copy_from_wkb):
+            from .plotting.point_edits import PointRemoval
+            key = participation_source_keys(reference)[row]
+            before = self._reference_excluded
+            after = before | {key}
+            self._point_history.push(PointRemoval(self._apply_ref_point_removal, before, after, widget, row))
+        else:
+            self._toggle_plot_row(row, widget, row)
+
+    def _apply_ref_point_removal(self, excluded, widget, row, removed):
+        self._reference_excluded = set(excluded)
+
+        def refresh():
+            self.update_plan()
+            self.document.refresh_identity()
+
+        self._apply_point_participation(widget, row, removed, refresh)
 
     def set_workbook_plot_labels(self, options):
         self.display_options.set_workbook_labels(options)
@@ -1151,10 +1315,6 @@ class CorrelationWindow(DataWorkspaceWindow):
         self._refresh_table_projection()
         if not self._workbook_sources:
             super().update_plan()
-            if hasattr(self, "correlation_page"):
-                self.correlation_page.set_input(self._frame, self.selection)
-            if hasattr(self, "sequence_page"):
-                self.sequence_page.set_input(self._frame, self.selection)
             return
         reference_wafers = set(self.selected(self.reference_wafer_list))
         raw_wafers = set(self.selected(self.wafer_list))
@@ -1218,17 +1378,34 @@ class CorrelationWindow(DataWorkspaceWindow):
         allowed = self.participating_positions(raw)
         # Shared exclusions are row-aligned only when both tables have the
         # same extent. An empty Raw table must not exclude every Ref row.
-        reference_allowed = (allowed if len(raw) == split else
-                             self.participating_positions(reference))
+        reference_allowed = (allowed if len(raw) == split and
+                             (self._copy_from_wkb or not self._copy_reference_from_wkb) else
+                             self._table_participating_positions("reference", reference))
         self.selection["groups"] = {key: tuple(row for row in rows
             if (row in reference_allowed if key[0] == "Reference" else row - split in allowed))
             for key, rows in self.selection["groups"].items()}
-        self.correlation_page.set_input(self._analysis_frame, self.selection)
-        self.sequence_page.set_input(self._analysis_frame, self._grouped_trend_selection(self.selection))
+        self._publish_plot_inputs(self._analysis_frame, self.selection)
         self.statusBar().showMessage(
             f"{len(wafers)} measurement sets selected    ·    "
             f"{len(metrics)} parameters selected"
         )
+
+    def _publish_plot_inputs(self, frame, selection):
+        if not hasattr(self, "sequence_page"):
+            super()._publish_plot_inputs(frame, selection)
+            return
+        trend_selection = self._grouped_trend_selection(selection)
+        if self._point_edit_target is not None:
+            widget, row, removed = self._point_edit_target
+            for page in (self.correlation_page, self.sequence_page):
+                if widget in page.plot_widgets and page.ready and not page.background_render_pending:
+                    self.correlation_page.set_point_selection(selection)
+                    self.sequence_page.set_point_selection(trend_selection)
+                    if page.repaint_point(widget, row, removed):
+                        return
+                    break
+        self.correlation_page.set_input(frame, selection)
+        self.sequence_page.set_input(frame, trend_selection)
 
 
 __all__ = ["CorrelationWindow", "RAW_COLOR", "REFERENCE_COLOR"]

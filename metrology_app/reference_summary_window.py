@@ -5,12 +5,11 @@ import csv
 from dataclasses import dataclass
 from pathlib import Path
 
-from PyQt6.QtCore import QThread, Qt, QUrl, pyqtSignal
+from PyQt6.QtCore import QSignalBlocker, QThread, Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QAction, QDesktopServices, QKeySequence
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
-    QDialog,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -19,8 +18,6 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QListView,
-    QTreeView,
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
@@ -36,7 +33,9 @@ from .appearance import fit_window_to_screen, help_title_label
 from .cdsem1 import merge_cdsem1
 from .reference_merge import merge, scan_reference_files
 from .reference_input import SOURCE_EXTENSIONS
+from .file_dialogs import choose_files, choose_folders
 from .file_paths import filesystem_path
+from .widgets import CheckableListWidget
 
 
 VENDOR_DETAILS = {
@@ -61,33 +60,6 @@ VENDOR_DETAILS = {
         "description": "Read CSV or only the first sheet of Excel, keep ACD_No=CD, and export one workbook per source. Missing IDs stay blank; sources without Wafer_ID must contain a single wafer.",
     },
 }
-
-
-class _SourceFoldersDialog(QFileDialog):
-    """Qt's directory browser with multi-selection and no navigation on Accept."""
-
-    def __init__(self, parent, title):
-        super().__init__(parent,title)
-        self.setOption(QFileDialog.Option.DontUseNativeDialog,True)
-        self.setOption(QFileDialog.Option.ShowDirsOnly,True)
-        self.setFileMode(QFileDialog.FileMode.Directory)
-        self.folders = ()
-        for view in self.findChildren(QListView) + self.findChildren(QTreeView):
-            if view.objectName() in ('listView','treeView'):
-                view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-
-    def accept(self):
-        selected = []
-        for view in self.findChildren(QListView) + self.findChildren(QTreeView):
-            if view.objectName() not in ('listView','treeView'):
-                continue
-            model = view.model()
-            if hasattr(model,'filePath'):
-                selected.extend(model.filePath(index) for index in view.selectionModel().selectedRows(0))
-        paths = selected or self.selectedFiles()
-        self.folders = tuple(dict.fromkeys(Path(path).resolve() for path in paths if Path(path).is_dir()))
-        if self.folders:
-            QDialog.accept(self)
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,10 +168,12 @@ def _metric(title: str):
 class ReferenceSummaryWindow(QMainWindow):
     """Select vendor exports, run in the background, and review a compact report."""
 
+    workspace_type = "reference_summary"
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("referenceSummaryWindow")
-        self.setWindowTitle("Reference Summary")
+        self.setWindowTitle("Reference Summarizer")
         fit_window_to_screen(self, (1180, 790), minimum=(900, 620))
         self.files: tuple[Path, ...] = ()
         self.output_parent: Path | None = None
@@ -210,6 +184,15 @@ class ReferenceSummaryWindow(QMainWindow):
         self._vendor_changed()
         from .settings import apply_theme
         apply_theme(self)
+        from .workspace_document import WkbDocument
+        self.document = WkbDocument(self)
+        self.alignment.alignment_changed.connect(self.document.identity_timer.start)
+        self.source_list.itemChanged.connect(lambda *_: self.document.identity_timer.start())
+        self.output_path.textChanged.connect(lambda *_: self.document.identity_timer.start())
+        self.tabs.currentChanged.connect(lambda *_: self.document.identity_timer.start())
+        for button in self.trend_page.order_buttons.values():
+            button.clicked.connect(lambda *_: self.document.identity_timer.start())
+        self.document.mark_clean()
 
     @property
     def vendor_name(self):
@@ -230,20 +213,86 @@ class ReferenceSummaryWindow(QMainWindow):
         split.setSizes([430, 680])
         outer.addWidget(split, 1)
         from .reference_alignment_ui import ReferenceAlignmentPage, CoordinateTrendPage
+        from .reference_analysis_ui import ReferenceAnalysisPages
         self.tabs = QTabWidget()
         self.tabs.addTab(root, '1. Summary')
         self.trend_page = CoordinateTrendPage()
         self.alignment = ReferenceAlignmentPage(self.trend_page)
         self.tabs.addTab(self.alignment, '2. Wafer Alignment')
-        self.tabs.addTab(self.trend_page, '3. XY Bias Trends')
-        self.alignment.plotted.connect(lambda: self.tabs.setCurrentIndex(2))
+        self.tabs.addTab(self.trend_page, '3. XY Bias')
         self.setCentralWidget(self.tabs)
+        self.analysis = ReferenceAnalysisPages(self.tabs, self.alignment)
+        self.alignment.plotted.connect(lambda: self.tabs.setCurrentIndex(2))
+        self.file_menu = self.menuBar().addMenu("File")
+        self.open_reference_action = self.file_menu.addAction("Open Reference Workspace…")
+        self.open_reference_action.setShortcut("Ctrl+O")
+        self.open_reference_action.triggered.connect(self.open_reference_dialog)
+        self.save_reference_action = self.file_menu.addAction("Save Reference Workspace")
+        self.save_reference_action.setShortcut("Ctrl+S")
+        self.save_reference_action.triggered.connect(self.save_wkb)
+        self.save_reference_as_action = self.file_menu.addAction("Save Reference Workspace As…")
+        self.save_reference_as_action.setShortcut("Ctrl+Shift+S")
+        self.save_reference_as_action.triggered.connect(lambda: self.save_wkb(save_as=True))
 
         cancel_action = QAction(self)
         cancel_action.setShortcut(QKeySequence(Qt.Key.Key_Escape))
         cancel_action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
         cancel_action.triggered.connect(self.cancel)
         self.addAction(cancel_action)
+
+    def workspace_snapshot(self):
+        from .reference_workspace import snapshot
+        return snapshot(self)
+
+    def restore_workspace(self, snapshot):
+        from .reference_workspace import install, prepare
+        install(self, prepare(snapshot))
+
+    def save_reference(self, path=None, *, save_as=False):
+        from .reference_workspace import cache_available_outputs
+        if self.worker is not None:
+            raise ValueError("Wait for the current summary to finish.")
+        cache_available_outputs(self.alignment)
+        return self.document.save(path, save_as=save_as)
+
+    def save_wkb(self, *, save_as=False):
+        try:
+            return self.save_reference(save_as=save_as)
+        except (OSError, ValueError) as error:
+            QMessageBox.warning(self, "Cannot save Reference Workspace", str(error))
+            return None
+
+    def load_workspace(self, path):
+        from .reference_workspace import install, prepare
+        from .workspace_store import file_revision, load_workspace
+        if self.worker is not None:
+            raise ValueError("Wait for the current summary to finish.")
+        draft = load_workspace(path, expected_type=self.workspace_type)
+        prepared = prepare(draft)
+        if not self.document.confirm_close():
+            return None
+        if draft.revision != file_revision(path):
+            draft = load_workspace(path, expected_type=self.workspace_type)
+            prepared = prepare(draft)
+        if "recovery" in draft.states:
+            self.document.recover(path, draft)
+            return draft
+        install(self, prepared)
+        self.document.path = Path(path).resolve()
+        self.document.revision = draft.revision
+        self.document.untrusted_recovery = False
+        self.document.mark_clean()
+        self.document.remember_recent()
+        return draft
+
+    def open_reference_dialog(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Open Reference Workspace", str(self.document.path or ""),
+                                              "Reference workspaces (*.ref);;Backups (*.bak)")
+        if path:
+            try:
+                self.load_workspace(path)
+            except (KeyError, OSError, TypeError, ValueError) as error:
+                QMessageBox.warning(self, "Cannot open Reference Workspace", str(error))
 
     def _build_source_panel(self):
         panel = QFrame(objectName="panel")
@@ -272,9 +321,10 @@ class ReferenceSummaryWindow(QMainWindow):
 
         self.source_summary = QLabel("No source files selected", objectName="accent")
         layout.addWidget(self.source_summary)
-        self.source_list = QListWidget(objectName="referenceSourceList")
+        self.source_list = CheckableListWidget(objectName="referenceSourceList")
         self.source_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.source_list.setMinimumHeight(130)
+        self.source_list.itemChanged.connect(self._update_source_selection)
         layout.addWidget(self.source_list, 1)
 
         output_row = QHBoxLayout()
@@ -383,40 +433,54 @@ class ReferenceSummaryWindow(QMainWindow):
             key=lambda path: str(path).casefold(),
         ))
         self.files = unique
-        self.source_list.clear()
-        for path in unique:
-            item = QListWidgetItem(path.name)
-            item.setToolTip(str(path))
-            self.source_list.addItem(item)
-        noun = "source file"
-        self.source_summary.setText(
-            f"{len(unique)} {noun}{'' if len(unique) == 1 else 's'} selected"
-            if unique else "No source files selected"
-        )
+        with QSignalBlocker(self.source_list):
+            self.source_list.clear()
+            for path in unique:
+                item = QListWidgetItem(str(path))
+                item.setToolTip(str(path))
+                item.setCheckState(Qt.CheckState.Checked)
+                self.source_list.addItem(item)
         if unique and self.output_parent is None:
             # The first selected file is a safe writable default; a common path
             # can otherwise collapse to a drive root when folders differ.
             self.output_parent = unique[0].parent
         self.output_path.setText(str(self.output_parent) if self.output_parent else "")
-        self.status.setText("Ready to summarize." if unique else "Choose source files to begin.")
         self._clear_result()
+        self._update_source_selection()
+
+    def selected_source_files(self):
+        return tuple(path for index, path in enumerate(self.files)
+                     if self.source_list.item(index).checkState() == Qt.CheckState.Checked)
+
+    def _update_source_selection(self, *_):
+        selected = len(self.selected_source_files())
+        total = len(self.files)
+        if total and selected != total:
+            self.source_summary.setText(f"{selected} / {total} source files selected")
+        elif selected:
+            self.source_summary.setText(f"{selected} source {'file' if selected == 1 else 'files'} selected")
+        else:
+            self.source_summary.setText("No source files selected")
+        if self.report is None:
+            self.status.setText("Ready to summarize." if selected else "Choose source files to begin.")
         self._update_actions()
 
     def choose_files(self):
         detail = VENDOR_DETAILS[self.vendor_name]
-        paths, _ = QFileDialog.getOpenFileNames(
-            self, f"Choose {self.vendor_name} source files", "", detail["filter"],
+        paths = choose_files(
+            self, f"Choose {self.vendor_name} source files", detail["filter"],
+            directory=self.files[0].parent if self.files else self.output_parent,
         )
         if paths:
             self.output_parent = None
             self.set_source_files(paths)
 
     def choose_folder(self):
-        dialog = _SourceFoldersDialog(self,f"Choose {self.vendor_name} source folders")
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        folders = choose_folders(self, f"Choose {self.vendor_name} source folders", directory=self.output_parent)
+        if not folders:
             return
         try:
-            self.set_source_folders(dialog.folders)
+            self.set_source_folders(folders)
         except Exception as error:
             QMessageBox.warning(self, "Cannot scan folders", str(error))
 
@@ -441,24 +505,28 @@ class ReferenceSummaryWindow(QMainWindow):
 
     def _update_actions(self):
         busy = self.worker is not None
+        for action in (self.open_reference_action, self.save_reference_action, self.save_reference_as_action):
+            action.setEnabled(not busy)
         self.vendor.setEnabled(not busy)
         self.files_button.setEnabled(not busy)
         self.folder_button.setEnabled(not busy)
-        self.run_button.setEnabled(bool(self.files and self.output_parent) and not busy)
+        self.source_list.setEnabled(not busy)
+        self.run_button.setEnabled(bool(self.selected_source_files() and self.output_parent) and not busy)
         self.cancel_button.setEnabled(busy)
 
     def run(self):
-        if self.worker is not None or not self.files or self.output_parent is None:
+        selected = self.selected_source_files()
+        if self.worker is not None or not selected or self.output_parent is None:
             return
         self._clear_result()
-        request = ReferenceSummaryRequest(self.vendor_name, self.files, self.output_parent)
+        request = ReferenceSummaryRequest(self.vendor_name, selected, self.output_parent)
         worker = self.worker = _SummaryWorker(request, self)
         worker.progress.connect(self._progress)
         worker.completed.connect(self._completed)
         worker.failed.connect(self._failed)
         worker.cancelled.connect(self._cancelled)
         worker.finished.connect(self._worker_finished)
-        self.progress.setRange(0, max(1, len(self.files)))
+        self.progress.setRange(0, max(1, len(selected)))
         self.progress.setValue(0)
         self.status.setText(f"Starting {self.vendor_name} summary…")
         self._update_actions()
@@ -470,8 +538,11 @@ class ReferenceSummaryWindow(QMainWindow):
         self.status.setText(message)
 
     def _completed(self, report):
-        self.report = report
         self.alignment.set_report(report)
+        self._show_report(report)
+
+    def _show_report(self, report):
+        self.report = report
         result = report.result
         self.progress.setRange(0, 1)
         self.progress.setValue(1)
@@ -500,12 +571,13 @@ class ReferenceSummaryWindow(QMainWindow):
             self.issue_summary.setPlainText("\n".join(report.issue_lines))
         else:
             self.issue_summary.setPlainText("No issues reported")
+        self.document.identity_timer.start()
 
     def _failed(self, message):
         self.status.setText("Summary failed. No incomplete output was published.")
         self.progress.setRange(0, 1)
         self.progress.setValue(0)
-        QMessageBox.warning(self, "Reference Summary failed", message)
+        QMessageBox.warning(self, "Reference Summarizer failed", message)
 
     def _cancelled(self):
         self.status.setText("Cancelled. No incomplete output was published.")
@@ -541,6 +613,14 @@ class ReferenceSummaryWindow(QMainWindow):
             self.cancel()
             event.ignore()
             return
+        if not self.document.confirm_close():
+            event.ignore()
+            return
+        self.analysis.document.force_close = True
+        if not self.analysis.close():
+            event.ignore()
+            return
+        self.document.closed()
         super().closeEvent(event)
 
 

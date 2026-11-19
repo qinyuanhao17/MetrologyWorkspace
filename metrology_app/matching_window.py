@@ -53,7 +53,6 @@ from PyQt6.QtWidgets import (
     QStyledItemDelegate,
     QStyleOptionViewItem,
     QTableView,
-    QTableWidget,
     QTableWidgetItem,
     QTabBar,
     QTabWidget,
@@ -84,7 +83,7 @@ from .settings import (
 )
 from .sheet import DuplicateHeaderBanner, SheetModel, SheetView, column_letter
 from .table_clipboard import attach_copy_feedback
-from .table_selection import RangeSelectionTableView
+from .table_selection import RangeSelectionTableView, RangeSelectionTableWidget
 from .widgets import ScrollSafeComboBox
 from .workspace_store import EXTENSIONS, MATCH_FILTER, WorkspaceSnapshot, file_revision, file_stamp, load_workspace, save_workspace, workspace_path
 from .workspace_document import WkbDocument, commit_editors, local_snapshot, local_ui, recovery_decision, recovery_directory, writable_path
@@ -1483,7 +1482,11 @@ class MatchingWindow(QMainWindow):
             self._selection_columns_missing = set()
             self.group_controls.refresh()
             self._stage_sync_inputs = None
-            self.run_analysis(apply_groups=False)
+            if self._analysis_workspace_workbook() is None:
+                self.sync_stage_windows()
+                self.document.refresh_identity()
+            else:
+                self.run_analysis(apply_groups=False)
         except ValueError as error:
             QMessageBox.warning(self, "Cannot select analysis data", str(error))
 
@@ -1654,7 +1657,7 @@ class MatchingWindow(QMainWindow):
         self.analyze_button.clicked.connect(self._run_analysis_clicked)
         heading.addWidget(self.analyze_button)
         mapping_layout.addLayout(heading)
-        self.mapping_table = QTableWidget(0, 13)
+        self.mapping_table = RangeSelectionTableWidget(0, 13)
         attach_copy_feedback(self.mapping_table)
         self.mapping_table.setHorizontalHeaderLabels([
             "Use", "Parameter", "Reference column", "Raw Data column",
@@ -2133,15 +2136,6 @@ class MatchingWindow(QMainWindow):
         # Reference eligibility is rechecked on its edits. When candidates and
         # both schemas are unchanged, value edits cannot change mapping controls.
         if not same_mapping_controls:
-            if name != "reference" and changed and any(row == 0 for row, _ in changed):
-                for mapping in mapping_state:
-                    if mapping["raw_column"] in frame.columns:
-                        continue
-                    reference = mapping["reference_column"]
-                    base = reference[:-len(" Reference")].strip() if reference.lower().endswith(" reference") else reference
-                    candidates = {column for column in (reference, base) if column in frame.columns}
-                    if len(candidates) == 1:
-                        mapping["raw_column"] = candidates.pop()
             self._populate_mappings(mapping_state)
         controls = self.group_controls
         # With unchanged dimensions and no row projection/pending settings,
@@ -2329,10 +2323,6 @@ class MatchingWindow(QMainWindow):
         self._auto_run_pending = False
         self.set_reference_frame(reference, "Combined clipboard")
         self.set_raw_frame(raw, "Combined clipboard", report_paste=True)
-        explicit = [ParameterMapping(str(column), str(column), str(column)) for column in reference
-                    if column in raw and pd.to_numeric(reference[column], errors="coerce").notna().any()]
-        if explicit:
-            self._populate_mappings(explicit)
         state = copy_group_state(self.group_controls.state)
         self.group_controls.restore(state, flags)
         self.group_controls.flags_changed()
@@ -2361,7 +2351,8 @@ class MatchingWindow(QMainWindow):
             kind, _stage = context
             follows = kind == "correlation" or (kind == "map" and (
                 self._workspace_data_follows_workbook() or getattr(child, "_copy_from_wkb", False)))
-            if follows and getattr(child, "_copy_from_wkb", True):
+            if follows and (getattr(child, "_copy_from_wkb", True)
+                            or getattr(child, "_copy_reference_from_wkb", False)):
                 self._set_child_refresh_pending(child, True)
         self._analysis_current = False
         self._group_only_pending = False
@@ -2561,11 +2552,9 @@ class MatchingWindow(QMainWindow):
         return table_size_text(len(frame), len(frame.columns))
 
     def _populate_mappings(self, selected=None):
-        selected_rows = _mapping_choice_rows(selected)
+        rows = _mapping_choice_rows(selected)
         raw_frame = self._active_raw_frame()
         self._mapping_schema = (tuple(self.reference_frame.columns), tuple(raw_frame.columns))
-        suggestions = MatchWorkbook.suggest_mappings(self.reference_frame, raw_frame)
-        suggestion_by_reference = {mapping.reference_column: mapping for mapping in suggestions}
         numeric_columns = set(inspect_table(self.reference_frame)[2])
         reference_columns = [
             str(column)
@@ -2574,10 +2563,6 @@ class MatchingWindow(QMainWindow):
             or str(column).strip().lower().endswith(" reference")
         ]
         self._mapping_candidates = tuple(reference_columns)
-        reference_columns = [column for column in reference_columns if column not in self._removed_mapping_columns]
-        rows = [state for state in selected_rows if state["reference_column"] in reference_columns]
-        present = {state["reference_column"] for state in rows}
-        rows.extend({"reference_column": column} for column in reference_columns if column not in present)
         self.mapping_table.blockSignals(True)
         self.mapping_table.setRowCount(len(rows))
         for row, mapping_state in enumerate(rows):
@@ -2587,22 +2572,6 @@ class MatchingWindow(QMainWindow):
                 if reference_column.strip().lower().endswith(" reference")
                 else reference_column.strip()
             )
-            suggestion = suggestion_by_reference.get(reference_column)
-            configured = bool(
-                mapping_state
-                and (
-                    mapping_state.get("checked")
-                    or mapping_state.get("raw_column")
-                    or mapping_state.get("name", default_name) != default_name
-                )
-            )
-            if not configured and suggestion is not None and mapping_state.get("auto_suggest", True):
-                mapping_state = {
-                    **(mapping_state or {}),
-                    "checked": True,
-                    "name": suggestion.name,
-                    "raw_column": suggestion.raw_column,
-                }
             mapping_state = {
                 "checked": False,
                 "name": default_name,
@@ -2632,8 +2601,10 @@ class MatchingWindow(QMainWindow):
             raw_picker.addItems([str(column) for column in raw_frame.columns])
             requested_raw = mapping_state["raw_column"]
             raw_picker.setProperty("requestedRawColumn", requested_raw)
-            if requested_raw in raw_frame.columns:
-                raw_picker.setCurrentText(requested_raw)
+            if requested_raw and requested_raw not in raw_frame.columns:
+                raw_picker.addItem(requested_raw)
+                raw_picker.setItemData(raw_picker.count() - 1, "Column missing from Raw Data.", Qt.ItemDataRole.ToolTipRole)
+            raw_picker.setCurrentText(requested_raw)
             raw_picker.setToolTip(
                 "Choose a Raw Data column for this Reference parameter."
             )
@@ -2694,14 +2665,16 @@ class MatchingWindow(QMainWindow):
         if not accepted:
             return
         state = self._mapping_state()
+        base = column[:-len(" Reference")].strip() if column.strip().lower().endswith(" reference") else column.strip()
+        name = base
         if column in present:
-            base = column[:-len(" Reference")].strip() if column.strip().lower().endswith(" reference") else column.strip()
             names = {row["name"] for row in state}
             number = 2
             while f"{base} {number}" in names:
                 number += 1
-            state.append({"reference_column": column, "checked": False,
-                          "name": f"{base} {number}", "raw_column": "", "auto_suggest": False})
+            name = f"{base} {number}"
+        state.append({"reference_column": column, "checked": False,
+                      "name": name, "raw_column": "", "auto_suggest": False})
         self._removed_mapping_columns.discard(column)
         self._populate_mappings(state)
         self._analysis_input_changed()
@@ -2793,6 +2766,8 @@ class MatchingWindow(QMainWindow):
             name = self.mapping_table.item(row, 1).text().strip()
             reference_column = self.mapping_table.item(row, 2).text()
             raw_column = self.mapping_table.cellWidget(row, 3).currentText()
+            if reference_column not in self.reference_frame.columns:
+                raise ValueError(f"Reference column is missing: {reference_column}.")
             if not raw_column or raw_column not in raw_frame.columns:
                 raise ValueError(f"Choose a Raw Data column for {reference_column}.")
             cell = self.mapping_table.cellWidget(row, 10)
@@ -3044,10 +3019,11 @@ class MatchingWindow(QMainWindow):
                 item = self.mapping_table.item(row, 0)
                 picker = self.mapping_table.cellWidget(row, 3)
                 if item and item.checkState() == Qt.CheckState.Checked:
-                    if picker and picker.currentText() in raw_frame.columns:
+                    reference = self.mapping_table.item(row, 2)
+                    if (reference is not None and reference.text() in self.reference_frame.columns
+                            and picker and picker.currentText() in raw_frame.columns):
                         has_mapping = True
                     else:
-                        reference = self.mapping_table.item(row, 2)
                         if reference is not None:
                             missing_mapping_columns.append(reference.text())
         has_mapping = has_mapping and not missing_mapping_columns
@@ -3098,7 +3074,7 @@ class MatchingWindow(QMainWindow):
             warning = True
         elif missing_mapping_columns:
             message = (
-                "Choose a Raw Data column for: "
+                "Check the source columns for these mappings: "
                 + ", ".join(missing_mapping_columns)
                 + "."
             )
@@ -3369,24 +3345,28 @@ class MatchingWindow(QMainWindow):
         workspace._managed_scope = scope
         workspace._workbook_selection_applies = self._saved_workspace_selection_applies("correlation", stage, scope)
         book = self._analysis_workspace_workbook()
-        manual_new = self._workspace_states.get(scope, {}).get("data_override") and "ui" not in self._workspace_states[scope]
+        saved = self._workspace_states.get(scope, {})
+        copy_reference = saved.get("ui", {}).get("copy_reference_from_wkb", False)
+        manual_new = saved.get("data_override") and "ui" not in saved
         if manual_new:
             workspace.set_table(pd.DataFrame(), "Manual Raw Data")
             workspace.set_reference_table(pd.DataFrame(), "Manual Ref Data")
-        elif book is None:
-            # No row-identity borrowing when the sources are not paired.
-            workspace.set_table(raw, f"{mode} Raw Data")
-            reference = self.reference_frame if "ui" in self._workspace_states.get(scope, {}) else pd.DataFrame()
-            workspace.set_reference_table(reference, f"{mode} Reference")
         else:
             reference, scoped_raw = self._child_correlation_frames(workspace, book=book)
-            prepared = getattr(getattr(workspace, 'raw_model', None), '_linked_prepared_load', None)
-            if prepared is not None and 'load_frame' in prepared:
-                scoped_raw = prepared['load_frame']
-            if ("ui" not in self._workspace_states.get(scope, {})
-                    or len(reference) != len(scoped_raw)):
-                reference = pd.DataFrame()
-            workspace.set_sources(reference, scoped_raw, self.selected_mappings(), mode)
+            if hasattr(workspace, "workbook_reference_frame"):
+                reference = (workspace.workbook_reference_frame(reference, scoped_raw)
+                             if copy_reference else pd.DataFrame())
+                if book is None:
+                    workspace.set_table(scoped_raw, f"{mode} Raw Data")
+                    if copy_reference:
+                        workspace.set_workbook_reference(reference)
+                else:
+                    workspace.set_sources(reference, scoped_raw, book.mappings, mode, align_reference=False)
+            elif book is not None:
+                workspace.set_sources(pd.DataFrame(), scoped_raw, self.selected_mappings(), mode)
+            else:
+                workspace.set_table(raw, f"{mode} Raw Data")
+                workspace.set_reference_table(pd.DataFrame(), f"{mode} Reference")
         if book is not None and not manual_new and hasattr(workspace, "set_workbook_groups"):
             workspace.set_workbook_groups(book)
         self._bind_workspace_selection(workspace, "correlation", stage)
@@ -3478,7 +3458,9 @@ class MatchingWindow(QMainWindow):
         if not source_context_ready:
             transaction = getattr(workspace, 'input_update', nullcontext) if kind == 'map' else nullcontext
             with transaction():
-                if book is not None and hasattr(workspace, "set_workbook_participation"):
+                if kind == "correlation" and hasattr(workspace, "workbook_copy_sources"):
+                    self._set_correlation_participation(workspace, book)
+                elif book is not None and hasattr(workspace, "set_workbook_participation"):
                     workspace.set_workbook_participation(book)
                 if kind == 'map' and book is not None and hasattr(workspace,'set_workbook_groups'):
                     workspace.set_workbook_groups(book)
@@ -3507,11 +3489,14 @@ class MatchingWindow(QMainWindow):
                 # Manual Reference storage sets data_override even when Raw
                 # remains linked. Its checkbox, not that whole-window legacy
                 # flag, owns current Workbook classifications on restoration.
-                if (kind == "correlation" and saved["ui"].get("copy_from_wkb", True)
+                if (kind == "correlation" and (saved["ui"].get("copy_from_wkb", True)
+                        or saved["ui"].get("copy_reference_from_wkb", False))
                         and callable(restore_linked)):
                     restore_linked(snapshot)
                 else:
                     workspace.restore_workspace(snapshot)
+                if kind == "correlation" and hasattr(workspace, "workbook_copy_sources"):
+                    self._set_correlation_participation(workspace, book)
             self._workspace_states.setdefault(scope, {})["window"] = metadata
             if kind == "correlation":
                 self._offer_second_axis_settings(workspace)
@@ -3524,8 +3509,9 @@ class MatchingWindow(QMainWindow):
                     workspace.restore_workspace(recovered["draft"])
                     workspace._use_workbook_data = bool(recovered.get("follow_source"))
                     workspace.document.baseline = deepcopy(recovered["baseline"])
-                    if (kind in ("map", "correlation") and book is not None
-                            and getattr(workspace, "_copy_from_wkb", False)):
+                    if (kind in ("map", "correlation") and
+                            (getattr(workspace, "_copy_from_wkb", False)
+                             or getattr(workspace, "_copy_reference_from_wkb", False))):
                         # Recovery may freeze a linked table while a newer
                         # Workbook version is still being prepared. Compare
                         # against its own accepted source before reconnecting;
@@ -3737,7 +3723,8 @@ class MatchingWindow(QMainWindow):
         """Keep the small-source shortcut only when its drawn pages are light."""
         for child in self._stage_windows:
             context = self._stage_window_context.get(child)
-            if context is None or not getattr(child, '_copy_from_wkb', True):
+            if context is None or not (getattr(child, '_copy_from_wkb', True)
+                                       or getattr(child, '_copy_reference_from_wkb', False)):
                 continue
             kind, _stage = context
             if kind == 'correlation':
@@ -3807,7 +3794,7 @@ class MatchingWindow(QMainWindow):
                 options['value_baseline'] = baseline() if follows and sparse and callable(baseline) else None
             descriptors.append((id(child), kind, stage, follows,
                                 bool(getattr(child.model, "clipboard_locks", ())), options))
-            if follows:
+            if follows or getattr(child, "_copy_reference_from_wkb", False):
                 self._set_child_refresh_pending(child, True)
                 child.statusBar().showMessage("Updating from Match Workbook…")
         self._linked_update_pending = True
@@ -3985,7 +3972,8 @@ class MatchingWindow(QMainWindow):
             self._syncing_stage_windows = False
 
     def _refresh_stage_workspace(self, workspace, kind, stage, *, reset_data=False, book=None):
-        if kind == "correlation" and not reset_data and self._active_raw_frame().empty:
+        if (kind == "correlation" and not reset_data and self._active_raw_frame().empty
+                and not getattr(workspace, "_copy_reference_from_wkb", False)):
             # A parent Cut can leave Raw temporarily blank before replacement.
             # Keep the last linked data and choices, as Map does for invalid input.
             return
@@ -4002,8 +3990,8 @@ class MatchingWindow(QMainWindow):
             if book is not None and kind != "correlation" and hasattr(workspace, 'set_workbook_participation'):
                 workspace.set_workbook_participation(book)
             self._commit_stage_workspace(workspace, kind, stage, reset_data=reset_data, book=book)
-            if book is not None and kind == "correlation" and hasattr(workspace, 'set_workbook_participation'):
-                workspace.set_workbook_participation(book)
+            if kind == "correlation" and hasattr(workspace, 'set_workbook_participation'):
+                self._set_correlation_participation(workspace, book)
             restored_pages = set(getattr(workspace, "_input_draw_pending", ()))
         if previous_groups != getattr(workspace, "selection", {}).get("groups", {}):
             # Participation can remove a whole wafer without changing its source
@@ -4025,24 +4013,25 @@ class MatchingWindow(QMainWindow):
     def _commit_stage_workspace(self, workspace, kind, stage, *, reset_data, book):
         """Push the current workbook tables into one open analysis window."""
         source_policy = workspace.workbook_copy_sources() if kind == "correlation" and hasattr(workspace, "workbook_copy_sources") else None
-        if (not reset_data and hasattr(workspace, "copy_from_wkb_action")
+        if source_policy is not None:
+            self._detach_edited_correlation_sources(workspace, reset_raw=reset_data)
+            source_policy = workspace.workbook_copy_sources()
+            if not reset_data and not any(source_policy.values()):
+                return
+        elif (not reset_data and hasattr(workspace, "copy_from_wkb_action")
                 and not workspace._copy_from_wkb):
             return  # Manual input is never replenished by a parent refresh.
-        if hasattr(workspace, "document") and not reset_data:
+        if source_policy is None and hasattr(workspace, "document") and not reset_data:
             baseline = workspace.document.baseline
             if baseline is not None:
                 # Compare tables immediately; copying the unrelated Group/UI
                 # state here adds work for every linked analysis window.
                 current_frames = workspace._workspace_source_frames(readonly=True)
                 source_frames = getattr(workspace, "_workbook_source_frames", baseline.frames)
-                if source_policy is not None:
-                    source_frames = {name: frame for name, frame in source_frames.items() if source_policy.get(name)}
                 if any(not current_frames.get(name, pd.DataFrame()).equals(frame)
                        for name, frame in source_frames.items()):
                     workspace._independent_data = True
                     workspace._use_workbook_data = False
-                    if source_policy is not None:
-                        workspace.set_copy_from_wkb(False)
                     workspace.document.refresh_identity()
                     return  # Never overwrite the child's unsaved measurement draft.
             if (source_policy is None and self._workspace_states.get(getattr(workspace, "_managed_scope", f"{kind}.{stage}"), {}).get("data_override")
@@ -4066,6 +4055,9 @@ class MatchingWindow(QMainWindow):
                         recreated.append(source)
             reference, scoped_raw = self._child_correlation_frames(workspace, book=book)
             if source_policy is not None:
+                reference = (workspace.workbook_reference_frame(reference, scoped_raw)
+                             if source_policy["reference_data"] else None)
+            if source_policy is not None and (reset_data or (source_policy["raw_data"] and not scoped_raw.empty)):
                 old_raw = workspace.raw_model._document_view()
                 if saved is not None and old_raw.shape == scoped_raw.shape:
                     # Value/Card/Group changes cannot rename an unchanged
@@ -4087,7 +4079,9 @@ class MatchingWindow(QMainWindow):
                     mappings = self.selected_mappings()
                 except ValueError:
                     mappings = ()  # Raw copying does not depend on a fitted Card.
-                workspace.set_workbook_sources(scoped_raw, mappings, str(stage).title())
+                workspace.set_workbook_sources(scoped_raw, mappings, str(stage).title(), reference=reference)
+            elif source_policy is not None:
+                workspace.set_workbook_reference(reference)
             else:
                 workspace.set_sources(reference, scoped_raw, self.selected_mappings(), str(stage).title())
             if book is not None and hasattr(workspace, "set_workbook_groups"):
@@ -4152,16 +4146,84 @@ class MatchingWindow(QMainWindow):
             # Parent-driven table refreshes are not child edits. Keep draft
             # configuration intact while advancing the table-only baseline.
             current_frames = workspace._workspace_source_frames(readonly=True)
-            accepted_link = workspace.document.baseline.states.get("ui", {}).get("copy_from_wkb", True)
+            accepted = workspace.document.baseline.states.get("ui", {})
             for name, frame in current_frames.items():
+                accepted_link = (accepted.get("copy_reference_from_wkb", False) if name == "reference_data"
+                                 else accepted.get("copy_from_wkb", True))
                 if source_policy is None or (source_policy.get(name) and accepted_link):
                     workspace.document.baseline.frames[name] = frame.copy(deep=True)
-            workspace._workbook_source_frames = deepcopy(current_frames)
+            workspace._workbook_source_frames = {
+                name: frame.copy(deep=True) for name, frame in current_frames.items()
+                if source_policy is None or source_policy.get(name)
+            }
+
+    @staticmethod
+    def _detach_edited_correlation_sources(workspace, *, reset_raw=False):
+        baseline = workspace.document.baseline
+        if baseline is None:
+            return
+        installed = getattr(workspace, "_workbook_source_frames", baseline.frames)
+        current = workspace._workspace_source_frames(readonly=True)
+        changed = False
+        for name, follows in workspace.workbook_copy_sources().items():
+            if not follows or (name == "raw_data" and reset_raw):
+                continue
+            if not current[name].equals(installed.get(name, baseline.frames.get(name, pd.DataFrame()))):
+                if name == "raw_data":
+                    workspace.set_copy_from_wkb(False)
+                else:
+                    workspace.set_copy_reference_from_wkb(False)
+                changed = True
+        if changed:
+            workspace._independent_data = True
+            workspace._use_workbook_data = False
+            workspace.document.refresh_identity()
 
     def _child_correlation_frames(self, workspace, *, book=None):
         """Complete editor sources; participation and visibility are separate."""
         raw = self._active_raw_frame()
         return self.reference_frame, raw
+
+    def _set_correlation_participation(self, workspace, book):
+        if book is not None:
+            workspace.set_workbook_participation(book)
+        elif hasattr(workspace, "workbook_copy_sources"):
+            from .input_planning import prepare_source_participation
+            from .match_groups import applied_state
+            raw = self._active_raw_frame()
+            selection = applied_state(self.group_controls.state)["data_selection"]
+            workspace._install_workbook_participation(prepare_source_participation(raw, selection), raw)
+
+    def set_child_reference_copy(self, workspace, checked):
+        """Attach or detach Ref without changing the child's Raw table."""
+        if workspace not in self._stage_window_context:
+            workspace.set_copy_reference_from_wkb(False)
+            return
+        if checked:
+            raw = self._active_raw_frame()
+            try:
+                reference = workspace.workbook_reference_frame(self.reference_frame, raw)
+            except ValueError as error:
+                workspace.set_copy_reference_from_wkb(False)
+                QMessageBox.warning(workspace, "Cannot copy Ref from WKB", str(error))
+                return
+            with workspace.input_update():
+                if not workspace._copy_from_wkb:
+                    workspace._workbook_selection_applies = True
+                workspace.set_copy_reference_from_wkb(True)
+                workspace._reference_excluded.clear()
+                workspace.set_workbook_reference(reference)
+                self._set_correlation_participation(workspace, self._analysis_workspace_workbook())
+            baseline = workspace.document.baseline
+            if baseline is not None:
+                installed = getattr(workspace, "_workbook_source_frames", baseline.frames)
+                workspace._workbook_source_frames = {
+                    **installed, "reference_data": workspace.reference_model.document_frame()
+                }
+        else:
+            workspace.set_copy_reference_from_wkb(False)
+            workspace._refresh_selection_scope()
+        workspace.document.refresh_identity()
 
     def child_selection_context(self, workspace):
         """Order / Reference frames shown in a child's own Data selection."""
@@ -4207,6 +4269,10 @@ class MatchingWindow(QMainWindow):
         context = self._stage_window_context.get(workspace)
         if context is None:
             return False
+        if context[0] == "correlation" and hasattr(workspace, "workbook_copy_sources"):
+            self._set_correlation_participation(workspace, self._analysis_workspace_workbook())
+            workspace.document.refresh_identity()
+            return True
         if not refresh_source:
             book = self._analysis_workspace_workbook()
             if book is not None:
@@ -4473,20 +4539,11 @@ class MatchingWindow(QMainWindow):
             override = not reset_data and bool(prior.get("data_override") or edited)
             source_policy = workspace.workbook_copy_sources() if kind == "correlation" and hasattr(workspace, "workbook_copy_sources") else None
             if source_policy is not None:
-                if source_policy.get("raw_data") and baseline is not None:
-                    source_frames = getattr(workspace, "_workbook_source_frames", baseline.frames)
-                    previous_raw = source_frames.get("raw_data", baseline.frames.get("raw_data", pd.DataFrame()))
-                    if not draft.frames.get("raw_data", pd.DataFrame()).equals(previous_raw):
-                        # Saving can be the first operation after a local Raw
-                        # edit. Detach here too, before omitting linked tables
-                        # from the WKB, or that edit would be lost on reopen.
-                        workspace._use_workbook_data = False
-                        workspace._independent_data = True
-                        workspace.set_copy_from_wkb(False)
-                        draft.states["ui"]["copy_from_wkb"] = False
-                        source_policy = workspace.workbook_copy_sources()
-                # Save manual Reference independently of linked Raw, including
-                # an intentionally empty Reference in a newly created window.
+                self._detach_edited_correlation_sources(workspace)
+                source_policy = workspace.workbook_copy_sources()
+                draft.states["ui"]["copy_from_wkb"] = source_policy["raw_data"]
+                draft.states["ui"]["copy_reference_from_wkb"] = source_policy["reference_data"]
+                # Persist each editable source independently.
                 reset_data = False
                 override = True
             if reset_data:

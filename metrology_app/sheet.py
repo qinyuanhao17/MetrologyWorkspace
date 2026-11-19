@@ -1191,8 +1191,11 @@ class SheetView(RangeSelectionTableView):
     table_pasted = pyqtSignal()
     paste_report_changed = pyqtSignal()
 
-    def __init__(self, model, *, metadata_locks=False):
+    def __init__(self, model, *, metadata_locks=False, read_only=False):
         super().__init__()
+        self.read_only = read_only
+        if read_only:
+            self.setEditTriggers(self.EditTrigger.NoEditTriggers)
         self._paste_source = None
         self.keyboard_editing = False
         self.clipboard_outline = ClipboardRangeOutline(self)
@@ -1471,7 +1474,12 @@ class SheetView(RangeSelectionTableView):
             self.keyboard_editing = False
 
     def _handle_key_press(self, event):
-        if event.key() == Qt.Key.Key_L and event.modifiers() == Qt.KeyboardModifier.ControlModifier:
+        if self.read_only:
+            if event.matches(QKeySequence.StandardKey.Copy):
+                self.copy()
+            else:
+                super().keyPressEvent(event)
+        elif event.key() == Qt.Key.Key_L and event.modifiers() == Qt.KeyboardModifier.ControlModifier:
             self.toggle_column_lock()
         elif (event.key() == Qt.Key.Key_V
                 and event.modifiers() == (Qt.KeyboardModifier.ControlModifier

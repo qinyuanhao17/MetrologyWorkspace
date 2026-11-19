@@ -39,6 +39,7 @@ DEFAULTS = {
     "recovery_interval_seconds": 120,
     "shell_splitter_sizes": None,
     "recent_wkbs": [],
+    "spectra_import_compression_threads": "auto",
     "trend_overlay": {},
     "trend_source_overlay": None,
 }

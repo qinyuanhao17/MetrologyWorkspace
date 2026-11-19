@@ -18,7 +18,7 @@ import pyqtgraph as pg
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 from matplotlib.transforms import ScaledTranslation
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFontMetricsF, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
@@ -121,6 +121,8 @@ def sampled_ticks(groups, tick_step, extent, panel_pixels):
 class SequencePage(QWidget):
     """One line-and-marker curve per selected numeric parameter."""
 
+    point_double_clicked = pyqtSignal(object, int)
+
     def __init__(self):
         super().__init__(objectName="sequencePage")
         settings = get_settings()
@@ -146,6 +148,8 @@ class SequencePage(QWidget):
         self.base_size = (1100, 650)
         self.wafer_column = None
         self.die_column = None
+        self.point_history = None
+        self._point_input_pending = False
         self.compare_timer = QTimer(self)
         self.compare_timer.setSingleShot(True)
         self.compare_timer.setInterval(140)
@@ -376,6 +380,54 @@ class SequencePage(QWidget):
                 and self.selector.selected_cells()):
             self.input_refresh_timer.start()
 
+    def set_point_selection(self, selection):
+        self.selection = selection.copy()
+        self._point_input_pending = self.has_drawn_once
+
+    def repaint_point(self, widget, row, removed):
+        curves = widget.listDataItems() + [item for view in widget.secondary_views for item in view.addedItems
+                                          if isinstance(item, pg.PlotDataItem)]
+        updated = False
+        for item in curves:
+            baseline = getattr(item, "_point_edit_baseline", None)
+            if baseline is None:
+                rows = getattr(item.scatter, "_selection_rows", None)
+                if not removed or rows is None or row not in rows:
+                    continue
+                x = item.xData
+                saved = getattr(item, "_wafer_ordinals", None)
+                if saved is not None and x is saved[1]:
+                    x = saved[0]
+                baseline = (x, item.yData, tuple(item.opts["data"]), rows, set())
+                item._point_edit_baseline = baseline
+            x, y, dies, rows, exclusions = baseline
+            if row not in rows or (not removed and row not in exclusions):
+                continue
+            if removed:
+                exclusions.add(row)
+            else:
+                exclusions.discard(row)
+            keep = ~np.isin(rows, tuple(exclusions))
+            ordinals = x[keep]
+            spacing = getattr(widget, "_wafer_spacing", None)
+            display = spacing.forward(ordinals) if spacing is not None else ordinals
+            labels = [die for die, include in zip(dies, keep) if include]
+            item.setData(x=display, y=y[keep], data=labels)
+            attach_point_hover(item, labels)
+            item._wafer_ordinals = (ordinals, item.xData)
+            widget.set_point_rows(item.scatter, rows[keep])
+            updated = True
+        if updated:
+            set_plot_statistics(widget, [(item.name() or widget.getAxis("left").labelText, item.yData)
+                                         for item in curves], True)
+            self._export_dirty = True
+            self._copy_image = self._copy_dpi = None
+        return updated
+
+    def _refresh_point_input(self):
+        if self._point_input_pending:
+            self.draw_plot()
+
     def selector_changed(self):
         """Changed curve boxes wait for the explicit Draw selected click."""
         self.invalidate(preserve_plot=getattr(self, "_updating_input", False))
@@ -387,6 +439,7 @@ class SequencePage(QWidget):
         self.stack.setCurrentWidget(self.selector_panel if available else self.empty)
 
     def invalidate(self, *, preserve_plot=False):
+        self._point_input_pending = False
         self._cancel_background_draw()
         self.input_refresh_timer.stop()
         self.parameter_filter.set_parameters(
@@ -412,7 +465,8 @@ class SequencePage(QWidget):
         if not available:
             self.empty.clear()
             self.stack.setCurrentWidget(self.empty)
-        else:
+        elif not (preserve_plot and self.plot_host is not None and not self.selector.pending_draw
+                  and self.stack.currentWidget() is self.interactive_scroll):
             self.stack.setCurrentWidget(self.selector_panel)
         count = len(self.selector.selected_cells())
         self.summary.setText(f"{count} / {rows * columns} selected  ·  {rows} × {columns}")
@@ -936,6 +990,7 @@ class SequencePage(QWidget):
             task.close()
 
     def draw_plot(self, *_, prepared=None, background_render=False):
+        self._point_input_pending = False
         self._cancel_background_draw()
         self.input_refresh_timer.stop()
         self._numeric_columns = prepared["numeric"] if prepared is not None else {}
@@ -971,8 +1026,9 @@ class SequencePage(QWidget):
             self.view_groups = used or groups
             axis_groups = {}
             for group in self.view_groups:
-                key = group["key"][1] if group["source"] is not None else group["key"]
-                axis_groups.setdefault(key, group)
+                key = group["span_key"]
+                if key not in axis_groups or group["stop"] > axis_groups[key]["stop"]:
+                    axis_groups[key] = group
             self.axis_groups = sorted(axis_groups.values(), key=lambda group: group["start"])
             self.x_range = (
                 min(group["start"] for group in self.axis_groups) - .5,
@@ -1483,7 +1539,9 @@ class SequencePage(QWidget):
             values = self._metric_values(panel["metric"], chosen)
             item, = items
             if not (np.array_equal(item.xData, positions) and np.array_equal(item.yData, values, equal_nan=True)):
-                item.setData(x=positions, y=values)
+                item.setData(x=positions, y=values, data=None)
+            item._point_edit_baseline = None
+            self._attach_curve_points(widget, item, chosen)
             set_plot_statistics(widget, [(item.name() or widget.getAxis("left").labelText, values)], True)
             view = widget.getViewBox()
             view.autoRange(padding=HOME_PADDING)
@@ -1573,11 +1631,13 @@ class SequencePage(QWidget):
         comparisons = panel.get("comparisons", ())
         chosen = self._chosen_groups(panel, groups)
         widget = InteractivePlotWidget(background="w", auto_x_range=self.x_range)
+        widget.point_double_clicked.connect(lambda row: self._emit_point_double_clicked(widget, row))
         widget.setMinimumSize(360, 280)
         widget.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
         widget.setToolTip("Ctrl+scroll to zoom · Drag a box to zoom · Right-drag to pan · "
                           "Ordinary scrolling moves the page · "
-                          "Double-click to fit this curve · Reset views restores all curves")
+                          "Double-click a point to change Data selection · "
+                          "Double-click the background to fit this curve · Reset views restores all curves")
         plot = widget.getPlotItem()
         die_ticks = self._coordinate_ticks(chosen)
         plot.setAxisItems({"bottom": DieSequenceAxis(die_ticks, font=widget.font())})
@@ -1611,8 +1671,7 @@ class SequencePage(QWidget):
                 symbolBrush=pg.mkBrush(color), name=label,
             )
             target.addItem(item)
-            attach_point_hover(item, [die if group.get("coordinate_label") != "Row Number" else None
-                                     for group in curve_groups for die in group["frame"]["__die"]])
+            self._attach_curve_points(widget, item, curve_groups)
             item.rendering_changed.connect(widget._render_status_changed)
             if legend is not None and target is not plot:
                 legend.addItem(item, label)
@@ -1715,6 +1774,8 @@ class SequencePage(QWidget):
         plain_y_axes(widget)
         all_curves = widget.listDataItems() + [item for view in widget.secondary_views for item in view.addedItems
                                               if isinstance(item, pg.PlotDataItem)]
+        if self.point_history is not None:
+            widget.add_point_edit_menu(self.point_history)
         set_plot_statistics(widget, [(item.name() or title, item.yData) for item in all_curves],
                             True)
         view = plot.getViewBox()
@@ -1738,6 +1799,17 @@ class SequencePage(QWidget):
     def restore_page_scroll(self, value):
         """Put the panel list back where the engineer left it."""
         self.interactive_scroll.verticalScrollBar().setValue(int(value))
+
+    @staticmethod
+    def _attach_curve_points(widget, item, groups):
+        attach_point_hover(item, [die if group.get("coordinate_label") != "Row Number" else None
+                                 for group in groups for die in group["frame"]["__die"]])
+        widget.set_point_rows(item.scatter, np.concatenate([group["source_positions"] for group in groups])
+                              if groups else None)
+
+    def _emit_point_double_clicked(self, widget, row):
+        if self.ready and not self.background_render_pending:
+            self.point_double_clicked.emit(widget, row)
 
     def remember_home_views(self):
         """Store the view each curve was drawn with, so Reset views can restore it."""
@@ -1824,6 +1896,7 @@ class SequencePage(QWidget):
                                 "This setting does not change the on-screen curves.")
 
     def export_png(self):
+        self._refresh_point_input()
         if not self.ready:
             return
         self.ensure_export_figure()
@@ -1846,6 +1919,7 @@ class SequencePage(QWidget):
             QApplication.restoreOverrideCursor()
 
     def copy_png(self):
+        self._refresh_point_input()
         if not self.ready:
             return
         _scale, requested = resolution_settings(self.resolution)

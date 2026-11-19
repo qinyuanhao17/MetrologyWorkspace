@@ -590,7 +590,8 @@ class MainWindow(QMainWindow):
                     return None
             component_id = {"match_workbook": "card_matching", "wafer_map": "wafer_map",
                             "dynamic": "dynamic_analysis", "correlation_trend": "correlation_analysis",
-                            "auto_weighting": "auto_weighting_writer", "spectra_viewer": "spectra_viewer"}[kind]
+                            "auto_weighting": "auto_weighting_writer", "spectra_viewer": "spectra_viewer",
+                            "reference_summary": "reference_summary"}[kind]
             if kind == "match_workbook":
                 component = self.launch_match_workbook(path)
                 if component is None:

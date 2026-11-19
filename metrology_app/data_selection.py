@@ -671,7 +671,7 @@ class SelectionScriptDialog(QDialog):
         except ValueError as error:
             self.message.setText(str(error))
             return
-        self.message.setText("Script applied to this selection. Use Apply in Data selection to accept it.")
+        self.accept()
 
 
 def selection_frame(plan):

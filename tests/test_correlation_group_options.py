@@ -34,6 +34,7 @@ class CorrelationGroupOptionsTests(unittest.TestCase):
         controls.restore({'enabled':True,'head_names':{'1':'Head A','2':'Head B'},'trend_order':'groups'},
                          pd.DataFrame({'TestFlag':[1,2,1,2]}))
         controls.apply_button.click()
+        self.assertFalse(self.window.display_options.dialog.isVisible())
         page = self.draw()
         self.assertTrue(self.window._group_plan.enabled)
         self.assertEqual([label for _,_,label in page.plot_widgets[0]._wafer_axis.spans],['Head A','Head B'])
@@ -72,11 +73,13 @@ class CorrelationGroupOptionsTests(unittest.TestCase):
         self.assertEqual(restored.sequence_page.identity_labels,{'pad':False,'lot':True})
 
     def test_workbook_child_can_detach_groups_and_labels_without_changing_its_parent(self):
+        from metrology_app.matching import ParameterMapping
         from metrology_app.matching_window import MatchingWindow
         owner = MatchingWindow(); owner.document.force_close = True
         self.addCleanup(owner.close)
         owner.set_reference_frame(self.reference)
         owner.set_raw_frame(self.raw)
+        owner._populate_mappings([ParameterMapping('CD', 'CD Reference', 'CD')])
         owner.group_controls.restore({'enabled':True,'head_names':{'1':'Parent A','2':'Parent B'},'trend_order':'groups'},
                                     pd.DataFrame({'TestFlag':[1,2,1,2]}))
         owner.run_analysis()

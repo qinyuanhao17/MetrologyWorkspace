@@ -1,4 +1,4 @@
-"""Non-interactive pyqtgraph wafer array using the existing prepared surfaces.
+"""PyQtGraph wafer array using the existing prepared surfaces.
 
 No interpolation, sampling, colour limits or source records are changed here.
 Qt draws the static annotations in batches; ImageItem owns the colour fields.
@@ -20,7 +20,7 @@ from matplotlib.ticker import MaxNLocator, ScalarFormatter
 from PyQt6 import sip
 from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QTransform
-from PyQt6.QtWidgets import QGraphicsView, QToolTip
+from PyQt6.QtWidgets import QGraphicsView, QMenu, QToolTip
 
 from .plot import ValueLabels, contour_colour, display_colormap, map_statistics_text
 from .plotting.identity_labels import measurement_caption
@@ -30,6 +30,8 @@ PAGE_ZOOM_PERCENTAGES = (1, 2, 5, 10, 15, 25, 50, 75, 100, 125, 150, 175, 200, 2
 
 class StaticMapView(pg.GraphicsView):
     """A pyqtgraph scene with ordinary page scrollbars, never plot navigation."""
+    point_double_clicked = pyqtSignal(int)
+    map_point_double_clicked = pyqtSignal(object, int)
     def __init__(self):
         super().__init__(useOpenGL=False, background="white")
         self.setCentralItem(None)
@@ -37,6 +39,31 @@ class StaticMapView(pg.GraphicsView):
         self.autoPixelRange = False
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            position = event.position().toPoint()
+            point = self.mapToScene(position)
+            for item in self.items(position):
+                point_row = getattr(item, "point_row", None)
+                if point_row is not None:
+                    row = point_row(item.mapFromScene(point))
+                    if row is not None:
+                        event.accept()
+                        if isinstance(item, WaferPanel):
+                            self.map_point_double_clicked.emit((item.source["wafer"], item.source["metric"]), row)
+                        else:
+                            self.point_double_clicked.emit(row)
+                        return
+        super().mouseDoubleClickEvent(event)
+
+    def add_point_edit_menu(self, history):
+        from .plotting.point_edits import add_point_edit_actions
+        menu = QMenu(self)
+        menu.setObjectName("pointEditMenu")
+        add_point_edit_actions(menu, history)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(lambda point: menu.popup(self.viewport().mapToGlobal(point)))
 
     def resizeEvent(self, event):
         # The page owns Fit-width; GraphicsView's default pixel-range reset
@@ -255,14 +282,26 @@ class WaferPanel(pg.GraphicsObject):
         self._geometry_key = key
         self.update()
 
-    def hover_text(self, point):
-        """Nearest measured die and value under the cursor, or None."""
-        if not len(self.positions) or not len(self._pixel_positions):
+    def _point_index(self, point):
+        if not len(self._pixel_positions):
             return None
         delta = self._pixel_positions - np.array([point.x(), point.y()])
         distances = np.einsum("ij,ij->i", delta, delta)
         index = int(distances.argmin())
-        if distances[index] > 12 * 12:
+        return index if distances[index] <= 12 * 12 else None
+
+    def point_row(self, point):
+        if not self.axis_rect.contains(point):
+            return None
+        index = self._point_index(point)
+        if index is not None and "source_row" in self.source["layer"]:
+            return int(self.source["layer"]["source_row"].iloc[index])
+        return None
+
+    def hover_text(self, point):
+        """Nearest measured die and value under the cursor, or None."""
+        index = self._point_index(point)
+        if index is None:
             return None
         row = self.source["layer"].iloc[index]
         die = str(row.get("die", "") or "").strip()
@@ -715,6 +754,17 @@ class WaferMapGrid(pg.GraphicsObject):
         for index, panel in enumerate(self.panels):
             panel.identity_labels = identity_labels
             panel.set_geometry(boxes[index], font_size)
+
+    def replace_panel(self, index, source, settings, identity_labels):
+        old = self.panels[index]
+        panel = WaferPanel(source, settings, self)
+        panel.status_callback = self.status_callback
+        panel.identity_labels = identity_labels
+        panel.set_geometry(old.box, old.font_size)
+        self.panels[index] = panel
+        old.setParentItem(None)
+        self.scene().removeItem(old)
+        old.deleteLater()
 
     @property
     def valid_count(self):

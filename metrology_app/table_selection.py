@@ -1,7 +1,8 @@
 """Range-based Qt notifications for models whose valid cells are all selectable."""
-from PyQt6.QtCore import QItemSelection, QModelIndex, Qt
+from PyQt6.QtCore import QItemSelection, QItemSelectionModel, QModelIndex, QPersistentModelIndex, Qt
 from PyQt6.QtGui import QCursor
-from PyQt6.QtWidgets import QApplication, QAbstractItemView, QHeaderView, QStyle, QStyleOptionHeader, QTableView
+from PyQt6.QtWidgets import (QApplication, QAbstractItemView, QComboBox, QHeaderView,
+                            QStyle, QStyleOptionHeader, QTableView, QTableWidget)
 
 
 class RangeSelectionHeader(QHeaderView):
@@ -82,7 +83,85 @@ class RangeSelectionHeader(QHeaderView):
                                     else QStyleOptionHeader.SortIndicator.SortUp)
 
 
-class RangeSelectionTableView(QTableView):
+_DIRECTIONS = {Qt.Key.Key_Up: (-1, 0), Qt.Key.Key_Down: (1, 0),
+               Qt.Key.Key_Left: (0, -1), Qt.Key.Key_Right: (0, 1)}
+
+
+class _ExcelRangeKeys:
+    """Extend rectangular selections to data boundaries with Ctrl+Shift+Arrow."""
+
+    def mousePressEvent(self, event):
+        self._excel_range = None
+        super().mousePressEvent(event)
+
+    def keyPressEvent(self, event):
+        modifiers = event.modifiers() & ~Qt.KeyboardModifier.KeypadModifier
+        direction = _DIRECTIONS.get(event.key())
+        if modifiers == (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier) and direction:
+            if self._extend_excel_range(*direction):
+                event.accept()
+                return
+        if event.key() not in (Qt.Key.Key_Control, Qt.Key.Key_Shift):
+            self._excel_range = None
+        super().keyPressEvent(event)
+
+    def _populated_cell(self, index):
+        if not index.flags() & Qt.ItemFlag.ItemIsSelectable:
+            return False
+        widget = self.indexWidget(index)
+        if isinstance(widget, QComboBox):
+            return widget.currentText() != ""
+        value = index.data(Qt.ItemDataRole.DisplayRole)
+        return ((value is not None and value != "")
+                or index.data(Qt.ItemDataRole.CheckStateRole) is not None)
+
+    def _extend_excel_range(self, row_step, column_step):
+        index = self.currentIndex()
+        if not index.isValid() or self.selectionMode() == QAbstractItemView.SelectionMode.NoSelection:
+            return False
+        model = self.model()
+        parent = index.parent()
+        row, column = index.row(), index.column()
+        vertical = bool(row_step)
+        step = row_step or column_step
+        start = row if vertical else column
+        count = model.rowCount(parent) if vertical else model.columnCount(parent)
+        hidden = self.isRowHidden if vertical else self.isColumnHidden
+        positions = range(start + step, count if step > 0 else -1, step)
+        cells = (model.index(position if vertical else row, column if vertical else position, parent)
+                 for position in positions if not hidden(position))
+        first = next(cells, None)
+        if first is None:
+            return True
+        target = first
+        if self._populated_cell(index) and self._populated_cell(first):
+            for cell in cells:
+                if not self._populated_cell(cell):
+                    break
+                target = cell
+        elif not self._populated_cell(first):
+            for cell in cells:
+                target = cell
+                if self._populated_cell(cell):
+                    break
+
+        previous = getattr(self, "_excel_range", None)
+        anchor = previous[0] if previous is not None and previous[1] == index and previous[0].isValid() else index
+        top, bottom = sorted((anchor.row(), target.row()))
+        left, right = sorted((anchor.column(), target.column()))
+        selection = QItemSelection(model.index(top, left, parent), model.index(bottom, right, parent))
+        self.selectionModel().setCurrentIndex(target, QItemSelectionModel.SelectionFlag.NoUpdate)
+        self.selectionModel().select(selection, QItemSelectionModel.SelectionFlag.ClearAndSelect)
+        self._excel_range = QPersistentModelIndex(anchor), QPersistentModelIndex(target)
+        self.scrollTo(target)
+        return True
+
+
+class RangeSelectionTableWidget(_ExcelRangeKeys, QTableWidget):
+    """QTableWidget with the same data-boundary navigation as model-based tables."""
+
+
+class RangeSelectionTableView(_ExcelRangeKeys, QTableView):
     def __init__(self, parent=None, **kwargs):
         super().__init__(parent, **kwargs)
         for orientation in (Qt.Orientation.Horizontal, Qt.Orientation.Vertical):

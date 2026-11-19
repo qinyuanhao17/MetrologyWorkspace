@@ -15,7 +15,7 @@ from PyQt6.QtGui import QColor, QFontMetrics, QIcon, QPalette
 from PyQt6.QtWidgets import (
     QApplication, QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
     QFrame, QHeaderView, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu,
-    QMessageBox, QPushButton, QScrollArea, QTableWidget, QTableWidgetItem,
+    QMessageBox, QPushButton, QScrollArea, QTableWidgetItem,
     QStyle, QStyledItemDelegate, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -1067,7 +1067,8 @@ class GroupControls(QWidget):
         dialog.setWindowTitle("Assign combined-table columns")
         dialog.resize(640, 600)
         layout = QVBoxLayout(dialog)
-        table = QTableWidget(len(matrix[0]), 2)
+        from .table_selection import RangeSelectionTableWidget
+        table = RangeSelectionTableWidget(len(matrix[0]), 2)
         attach_copy_feedback(table)
         table.setHorizontalHeaderLabels(["Source column", "Destination"])
         pickers = []

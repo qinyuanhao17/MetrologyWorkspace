@@ -1,5 +1,6 @@
 """Literal-row wafer alignment, explicit coordinate units and paired Bias trends."""
 from dataclasses import dataclass
+import os
 from pathlib import Path
 
 import numpy as np
@@ -77,49 +78,141 @@ def coordinate_row_order(frame, columns, basis="field", primary="x", ascending=(
             for row in numeric.iloc[list(rows)].sort_values(sort_columns, ascending=list(ascending), kind="stable").index]
 
 
-def coordinate_bias(ref, raw, ref_columns, raw_columns, links, *, ref_source_rows=None, raw_source_rows=None):
-    """Compare explicit one-to-one links in Raw units; reject dropped points."""
+def _field_positions(frame, columns, rows):
+    x, y = columns.field_x, columns.field_y
+    if not x or not y or x == y or x not in frame or y not in frame:
+        return {}
+    coordinates = frame[[x, y]].iloc[list(rows)].apply(pd.to_numeric, errors="coerce")
+    values = coordinates.to_numpy(float)
+    unique = np.isfinite(values).all(axis=1) & ~coordinates.duplicated(keep=False).to_numpy()
+    return {tuple(pair): row for pair, row, valid in zip(values, rows, unique) if valid}
+
+
+def _absolute_xy(label, frame, columns, rows, source_rows):
+    data = frame[[columns.x, columns.y]].iloc[list(rows)].apply(pd.to_numeric, errors="coerce").to_numpy(float)
+    invalid = np.flatnonzero(~np.isfinite(data).all(axis=1))
+    if len(invalid):
+        lines = ', '.join(str(source_rows[rows[i]]) for i in invalid[:5])
+        raise ValueError(f"{label}: missing/non-finite {columns.x} / {columns.y} at source rows {lines}. "
+                         "Field indices cannot replace absolute XY.")
+    return data
+
+
+def paired_wafer_rows(ref, raw, ref_columns, raw_columns, links, *, notes=None):
+    if len(set(links.values())) != len(links):
+        raise ValueError("Wafer links must be one-to-one.")
+    ref_groups, raw_groups = wafer_groups(ref, ref_columns), wafer_groups(raw, raw_columns)
+    for ref_key, raw_key in links.items():
+        if ref_key not in ref_groups or raw_key not in raw_groups:
+            raise ValueError("A linked wafer no longer exists; rebuild the link.")
+    reverse_links = {raw_key: ref_key for ref_key, raw_key in links.items()}
+    for raw_key in raw_groups:
+        if raw_key not in reverse_links:
+            continue
+        ref_key = reverse_links[raw_key]
+        rr, dr = ref_groups[ref_key], raw_groups[raw_key]
+        pair_label = f"{' / '.join(filter(None, ref_key))} ↔ {' / '.join(filter(None, raw_key))}"
+        if len(rr) != len(dr):
+            mismatch = f"{pair_label}: Ref {len(rr)} rows, Raw {len(dr)} rows."
+            if notes is None:
+                raise ValueError(f"{mismatch} Counts must match.")
+            ref_fields = _field_positions(ref, ref_columns, rr)
+            raw_fields = _field_positions(raw, raw_columns, dr)
+            pairs = [(ref_fields[field], row) for field, row in raw_fields.items() if field in ref_fields]
+            if not pairs:
+                notes.append(f"{mismatch} No unique matching Field X/Y points.")
+                continue
+            notes.append(f"{mismatch} Comparing {len(pairs)} uniquely matched Field X/Y points.")
+            rr, dr = zip(*pairs)
+        yield ref_key, raw_key, rr, dr
+
+
+def coordinate_bias(ref, raw, ref_columns, raw_columns, links, *,
+                    ref_source_rows=None, raw_source_rows=None, notes=None):
+    """Compare explicit wafer links; with notes, retain independently comparable pairs."""
     scales = {"mm": 1., "µm": .001, "um": .001, "nm": .000001}
     for label, frame, columns in (("Ref", ref, ref_columns), ("Raw", raw, raw_columns)):
         if columns.unit not in scales:
             raise ValueError(f"{label}: choose the coordinate unit (mm, µm or nm).")
         if not columns.x or not columns.y or columns.x == columns.y or columns.x not in frame or columns.y not in frame:
             raise ValueError(f"{label}: choose distinct absolute X/Y coordinate columns; Field indices are not physical coordinates.")
-    if len(set(links.values())) != len(links):
-        raise ValueError("Wafer links must be one-to-one.")
-    ref_groups, raw_groups = wafer_groups(ref, ref_columns), wafer_groups(raw, raw_columns)
     ref_source_rows = list(range(2, len(ref) + 2)) if ref_source_rows is None else ref_source_rows
     raw_source_rows = list(range(2, len(raw) + 2)) if raw_source_rows is None else raw_source_rows
-    results = []
-    for ref_key, raw_key in links.items():
-        if ref_key not in ref_groups or raw_key not in raw_groups:
-            raise ValueError("A linked wafer no longer exists; rebuild the link.")
-    reverse_links = {raw_key: ref_key for ref_key, raw_key in links.items()}
     unit = 'µm' if raw_columns.unit == 'um' else raw_columns.unit
-    for raw_key in raw_groups:
-        if raw_key not in reverse_links:
+    results = []
+    for ref_key, raw_key, rr, dr in paired_wafer_rows(ref, raw, ref_columns, raw_columns, links, notes=notes):
+        try:
+            ref_xy = _absolute_xy("Ref", ref, ref_columns, rr, ref_source_rows)
+            raw_xy = _absolute_xy("Raw", raw, raw_columns, dr, raw_source_rows)
+        except ValueError as error:
+            if notes is None:
+                raise
+            notes.append(f"{' / '.join(filter(None, ref_key))} ↔ {' / '.join(filter(None, raw_key))}: {error}")
             continue
-        ref_key = reverse_links[raw_key]
-        rr, dr = ref_groups[ref_key], raw_groups[raw_key]
-        if len(rr) != len(dr):
-            raise ValueError(f"{' / '.join(ref_key)} ↔ {' / '.join(raw_key)}: Ref {len(rr)} rows, Raw {len(dr)} rows. Counts must match.")
-        coords = []
-        for label,frame,rows,columns,source_rows in (("Ref",ref,rr,ref_columns,ref_source_rows), ("Raw",raw,dr,raw_columns,raw_source_rows)):
-            data = frame[[columns.x, columns.y]].iloc[list(rows)].apply(pd.to_numeric, errors="coerce").to_numpy(float)
-            if not np.isfinite(data).all():
-                invalid = np.flatnonzero(~np.isfinite(data).all(axis=1))
-                lines = ', '.join(str(source_rows[rows[i]]) for i in invalid[:5])
-                raise ValueError(f"{label}: missing/non-finite {columns.x} / {columns.y} at source rows {lines}. Field indices cannot replace absolute XY; no points were dropped.")
-            coords.append(data * (scales[columns.unit] / scales[raw_columns.unit]))
+        ref_xy = ref_xy * (scales[ref_columns.unit] / scales[raw_columns.unit])
         result = pd.DataFrame({
             "Point": np.arange(1, len(rr) + 1), "Ref source row": [ref_source_rows[r] for r in rr],
-            "Raw source row": [raw_source_rows[r] for r in dr], f"Ref X ({unit})": coords[0][:, 0],
-            f"Raw X ({unit})": coords[1][:, 0], f"Bias X ({unit})": coords[1][:, 0] - coords[0][:, 0],
-            f"Ref Y ({unit})": coords[0][:, 1], f"Raw Y ({unit})": coords[1][:, 1],
-            f"Bias Y ({unit})": coords[1][:, 1] - coords[0][:, 1]})
+            "Raw source row": [raw_source_rows[r] for r in dr], f"Ref X ({unit})": ref_xy[:, 0],
+            f"Raw X ({unit})": raw_xy[:, 0], f"Bias X ({unit})": raw_xy[:, 0] - ref_xy[:, 0],
+            f"Ref Y ({unit})": ref_xy[:, 1], f"Raw Y ({unit})": raw_xy[:, 1],
+            f"Bias Y ({unit})": raw_xy[:, 1] - ref_xy[:, 1]})
         result.attrs['unit'] = unit
         results.append((ref_key,raw_key,result))
     return results
+
+
+def aligned_reference_data(ref, raw, raw_columns, results, ref_source_rows, raw_source_rows):
+    """Build the derived Data tab and a full-length, Raw-indexed clipboard table."""
+    ref_positions = {source: index for index, source in enumerate(ref_source_rows)}
+    raw_positions = {source: index for index, source in enumerate(raw_source_rows)}
+    pairs = sorted(
+        (d, raw_positions[d], ref_positions[r])
+        for _, _, result in results
+        for r, d in zip(result['Ref source row'], result['Raw source row'])
+    )
+    source_rows, raw_positions, ref_positions = zip(*pairs) if pairs else ((), (), ())
+    raw_values = raw.iloc[list(raw_positions)].reset_index(drop=True)
+    ref_values = ref.iloc[list(ref_positions)].reset_index(drop=True)
+    names = {compact(column): column for column in raw}
+    unit = raw_columns.unit
+    axes = tuple(f'{axis}({unit})' if unit else f'Absolute {axis}' for axis in ('X', 'Y'))
+    metadata = {
+        'Wafer ID': raw_columns.wafer, 'Lot ID': raw_columns.lot or names.get('lotno'),
+        'Tool SN': names.get('toolsn', names.get('toolserialnumber')),
+        'PAD Name': raw_columns.pad,
+        'Die Seq': next((names[key] for key in ('dieseq', 'diesequence', 'diesequenceno', 'dieid') if key in names), None),
+        'FIELD X': raw_columns.field_x, 'FIELD Y': raw_columns.field_y,
+        axes[0]: raw_columns.x, axes[1]: raw_columns.y,
+    }
+    prefix = pd.DataFrame({label: raw_values[source] if source in raw_values else ''
+                           for label, source in metadata.items()}, index=raw_values.index)
+    reserved = set(prefix) | set(ref_values)
+    identity_aliases = {compact(label) for label in prefix} | {
+        'wafer', 'waferno', 'lot', 'lotno', 'pad', 'diesequence', 'diesequenceno', 'dieid',
+    }
+    display_names = {}
+    for column in ref_values:
+        name = column
+        if compact(name) in identity_aliases:
+            while name in reserved or name in display_names.values():
+                name = f'Ref {name}'
+        display_names[column] = name
+    clipboard = ref_values.set_axis(list(source_rows)).reindex(sorted(raw_source_rows), fill_value='')
+    return pd.concat([prefix, ref_values.rename(columns=display_names)], axis=1), clipboard, axes
+
+
+def scan_alignment_outputs(folders):
+    """Find measurement CSVs, omitting generated reports and unfinished runs."""
+    paths = set()
+    for folder in folders:
+        source = Path(folder).resolve()
+        root = filesystem_path(source)
+        for directory, subfolders, names in os.walk(root):
+            subfolders[:] = [name for name in subfolders if not name.startswith('.')]
+            parent = source / Path(directory).relative_to(root)
+            paths.update(parent / name for name in names
+                         if not name.startswith(('_', '.')) and Path(name).suffix.casefold() == '.csv')
+    return sorted(paths, key=lambda path: str(path).casefold())
 
 
 def load_alignment_output(path):

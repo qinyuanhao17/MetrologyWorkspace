@@ -13,7 +13,7 @@ from PyQt6.QtTest import QTest
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 
-from metrology_app.array_plot import ArrayOptions, draw_array, prepare_array
+from metrology_app.array_plot import ArrayOptions, draw_array, prepare_array, prepare_edited_maps
 from metrology_app.plot_page import PlotPage
 
 
@@ -43,6 +43,56 @@ def map_fixture(wafers=2, metrics=5):
 
 
 class StaticWaferTests(unittest.TestCase):
+    def test_double_click_map_point_unchecks_the_source_row(self):
+        from PyQt6.QtWidgets import QMenu
+        from metrology_app.match_groups import participation_source_keys
+        from metrology_app.window import MainWindow
+        window = MainWindow()
+        window.document.force_close = True
+        self.addCleanup(window.close)
+        self.addCleanup(window.plot_page.stop)
+        frame, _ = map_fixture(1, 2)
+        frame.loc[3, "P0"] = ""
+        window.set_table(frame, "Raw Data")
+        window._set_checked_values(window.parameter_list, ["P0", "P1"])
+        window.update_plan()
+        page = window.plot_page
+        window.tabs.setCurrentWidget(page)
+        window.show()
+        page.selector.selectAll()
+        page.draw_maps()
+        finish_graphics(page)
+        APP.processEvents()
+        panel, other = page.map_grid.panels
+        self.assertEqual(panel.source["layer"]["source_row"].iloc[3], 4)
+        center = panel.mapToScene(QPointF(*panel._pixel_positions[3]))
+        with patch("metrology_app.plot_page.prepare_edited_maps", wraps=prepare_edited_maps) as prepare:
+            QTest.mouseDClick(page.scroll.viewport(), Qt.MouseButton.LeftButton,
+                              pos=page.scroll.mapFromScene(center))
+            finish_graphics(page)
+            prepare.assert_called_once()
+            self.assertEqual(set(prepare.call_args.args[0]), {(panel.source["wafer"], "P0")})
+        self.assertIs(page.map_grid.panels[1], other)
+        self.assertIsNot(page.map_grid.panels[0], panel)
+        self.assertNotIn(4, page.map_grid.panels[0].source["layer"]["source_row"].tolist())
+        self.assertIn(4, other.source["layer"]["source_row"].tolist())
+        dialog = window._data_selection_dialog()
+        keys = participation_source_keys(frame)
+        self.assertEqual(set(keys) - dialog.model.checked, {keys[4]})
+        dialog.deleteLater()
+        menu = page.scroll.findChild(QMenu, "pointEditMenu")
+        actions = {action.text(): action for action in menu.actions()}
+        actions["Undo point removal"].trigger()
+        self.assertEqual(window.participating_positions(frame), set(range(len(frame))))
+        redo = next(action for action in menu.actions() if action.text() == "Redo point removal")
+        redo.trigger()
+        self.assertEqual(window.participating_positions(frame), set(range(len(frame))) - {4})
+        actions["Restore all removed points"].trigger()
+        self.assertEqual(window.participating_positions(frame), set(range(len(frame))))
+        finish_graphics(page)
+        self.assertIn(4, page.map_grid.panels[0].source["layer"]["source_row"].tolist())
+        self.assertIs(page.map_grid.panels[1], other)
+
     def make_page(self, result):
         page = PlotPage()
         self.addCleanup(page.deleteLater)

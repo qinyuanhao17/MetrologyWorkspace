@@ -89,6 +89,7 @@ class SpectraInfoEditTests(unittest.TestCase):
         viewer, raw, sources = self.viewer()
         info = viewer.open_spectra_info()
         original = info.table_frame()
+        info.column_picker.accept()
         info.build_column_menu(0, original.columns.get_loc('Lot ID')).actions()[0].trigger()
         info.activateWindow()
         info.tables[0].setFocus()
@@ -120,6 +121,41 @@ class SpectraInfoEditTests(unittest.TestCase):
             self.assertIn('Lot ID', reopened.models[1].frame)
             self.assertEqual(restored.test_flags, {sources[0].key:1})
             self.assertFalse(restored.undo_action.isEnabled())
+
+    def test_first_column_picker_and_restored_columns_follow_workbook_edits(self):
+        from PyQt6.QtWidgets import QTabWidget
+        from metrology_app.matching_window import MatchingWindow
+        owner = MatchingWindow()
+        owner.document.force_close = True
+        self.addCleanup(owner.close)
+        raw, sources = fixtures.SpectraInfoTests().sources()
+        owner.set_raw_frame(raw)
+        owner.set_reference_frame(pd.DataFrame({'Depth': ['8.1', '9.2'], 'Width': ['10.1', '11.2']}))
+        viewer = owner.open_spectra_workspace()
+        viewer.apply_load_result(LoadResult(sources, ()), replace=True)
+        viewer.check_all_spectra()
+        info = viewer.open_spectra_info()
+        picker = info.column_picker
+        self.assertTrue(picker.isVisible())
+        choices = picker.findChild(QTabWidget).widget(0)
+        depth = next(choices.item(i) for i in range(choices.count()) if choices.item(i).text() == 'Depth')
+        depth.setCheckState(Qt.CheckState.Unchecked)
+        picker.accept()
+        self.assertNotIn('Depth', info.models[0].frame)
+        self.assertIn('Depth', info.models[1].frame)
+        self.assertIsNone(viewer.open_spectra_info().column_picker)
+
+        owner.reference_model.edit({(1, 0): '42.125', (1, 1): '99.125'})
+        QTest.qWait(30)
+        self.assertNotIn('Depth', info.models[0].frame)
+        self.assertEqual(info.models[0].frame.Width.iloc[0], '99.125')
+        menu = info.build_column_menu(0, -1)
+        restore = next(action.menu() for action in menu.actions() if action.text() == 'Restore Columns')
+        next(action for action in restore.actions() if action.text() == 'Depth').trigger()
+        self.assertEqual(info.models[0].frame.Depth.iloc[0], '42.125')
+        owner.reference_model.edit({(1, 0): '72.250'})
+        QTest.qWait(30)
+        self.assertEqual(info.models[0].frame.Depth.iloc[0], '72.250')
 
     def test_all_tabs_share_raw_and_default_order_and_flag_edit_refreshes_both_directions(self):
         viewer, raw, sources = self.viewer()

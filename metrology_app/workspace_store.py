@@ -19,16 +19,18 @@ import tempfile
 from .workspace_frames import StoredFrame, FrameSource, read_frame, check_frame
 
 FORMAT_VERSION = 1
-WORKSPACE_TYPES = {"match_workbook", "wafer_map", "dynamic", "correlation_trend", "auto_weighting", "spectra_viewer"}
-EXTENSIONS = {"match_workbook": ".mwkb", "wafer_map": ".wmap", "dynamic": ".wdyn", "correlation_trend": ".wct", "auto_weighting": ".waw", "spectra_viewer": ".spec"}
+WORKSPACE_TYPES = {"match_workbook", "wafer_map", "dynamic", "correlation_trend", "auto_weighting", "spectra_viewer", "reference_summary"}
+EXTENSIONS = {"match_workbook": ".mwkb", "wafer_map": ".wmap", "dynamic": ".wdyn", "correlation_trend": ".wct", "auto_weighting": ".waw", "spectra_viewer": ".spec", "reference_summary": ".ref"}
 WORKSPACE_LABELS = {"match_workbook": "Match Workbook", "wafer_map": "Wafer Map / Radius",
-                    "dynamic": "Dynamic", "correlation_trend": "Correlation and Trend", "auto_weighting": "AutoWeighting Writer", "spectra_viewer": "Spectra Viewer"}
-WORKSPACE_FILTER = "Metrology workspaces (*.mwkb *.wkb *.wmap *.wdyn *.wct *.waw *.spec *.bak);;Backups (*.bak)"
+                    "dynamic": "Dynamic", "correlation_trend": "Correlation and Trend", "auto_weighting": "AutoWeighting Writer", "spectra_viewer": "Spectra Viewer",
+                    "reference_summary": "Reference Summarizer"}
+WORKSPACE_FILTER = "Metrology workspaces (*.mwkb *.wkb *.wmap *.wdyn *.wct *.waw *.spec *.ref *.bak);;Backups (*.bak)"
 MATCH_FILTER = "Match Workbook (*.mwkb *.wkb *.bak);;Backups (*.bak)"
 _UNCHECKED = object()
 REQUIRED_FRAMES = {"match_workbook": {"reference", "raw"}, "wafer_map": {"input_data"},
                    "dynamic": {"input_data"}, "correlation_trend": {"reference_data", "raw_data"},
-                   "auto_weighting": {"parameters", "steps"}, "spectra_viewer": {"spectra"}}
+                   "auto_weighting": {"parameters", "steps"}, "spectra_viewer": {"spectra"},
+                   "reference_summary": set()}
 
 
 @dataclass

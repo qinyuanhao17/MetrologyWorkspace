@@ -1869,6 +1869,7 @@ class CorrelationTests(unittest.TestCase):
             self.assertNotIn("叠加对比…", texts)
             self.assertNotIn("解除对比", texts)
             self.assertIn("View All", texts)
+            self.assertTrue(native.actions()[texts.index("Restore all removed points") + 1].isSeparator())
         finally:
             window.model.undo.setClean()
             window.close()

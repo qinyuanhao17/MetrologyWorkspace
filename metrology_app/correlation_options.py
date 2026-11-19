@@ -173,6 +173,8 @@ class CorrelationOptions(QObject):
             owner._match_groups = self.context(None)
             owner._rebuild_source_analysis()
         owner.document.refresh_identity()
+        if self.dialog is not None and self.dialog.isVisible():
+            self.dialog.accept()
         return True
 
     def copy_groups(self):

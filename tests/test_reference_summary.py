@@ -120,17 +120,20 @@ class ReferenceSummaryTests(unittest.TestCase):
 
     def test_registered_window_uses_compact_summary_without_measurement_preview(self):
         registry = create_default_registry()
-        self.assertEqual(registry.get("reference_summary").title, "Reference Summary")
+        self.assertEqual(registry.get("reference_summary").title, "Reference Summarizer")
         window = registry.create("reference_summary")
         try:
             self.assertIsInstance(window, ReferenceSummaryWindow)
+            self.assertTrue(window.windowTitle().startswith("Reference Summarizer"))
             self.assertEqual(
                 [window.vendor.itemText(index) for index in range(window.vendor.count())],
                 ["NOVA", "PMISH", "KLA", "CDSEM1"],
             )
             self.assertEqual(window.tabs.widget(0).findChildren(QTableView), [])
             self.assertEqual(window.tabs.widget(0).findChildren(QTableWidget), [])
-            self.assertEqual(window.tabs.count(), 3)
+            self.assertEqual([window.tabs.tabText(i) for i in range(2, window.tabs.count())],
+                             ["3. XY Bias", "4. Data", "5. Correlation",
+                              "6. Trend", "7. WaferMap", "8. Radius Plot"])
             self.assertIn(
                 "intentionally not previewed",
                 next(label for label in window.findChildren(QLabel)
@@ -163,6 +166,63 @@ class ReferenceSummaryTests(unittest.TestCase):
             window.close()
             window.deleteLater()
             APP.processEvents()
+
+    def test_scanned_folders_offer_checkboxes_and_run_only_checked_files(self):
+        from time import monotonic
+        from PyQt6.QtCore import QPoint, Qt
+        from PyQt6.QtTest import QTest
+        from unittest.mock import patch
+
+        window = ReferenceSummaryWindow()
+        try:
+            with tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                folders = [root / name for name in ('A', 'B')]
+                paths = []
+                for subfolder in folders:
+                    subfolder.mkdir()
+                    path = subfolder / 'reference.csv'
+                    path.write_text('WaferID,CD\nW1,10\n')
+                    paths.append(path.resolve())
+                with patch('metrology_app.reference_summary_window.choose_folders',
+                           return_value=(*folders, root)):
+                    window.choose_folder()
+                self.assertEqual(window.selected_source_files(), tuple(paths))
+                window.show()
+                APP.processEvents()
+                row = window.source_list.visualItemRect(window.source_list.item(0))
+                position = QPoint(row.left() + 80, row.center().y())
+                for check in (False, True, False):
+                    QTest.mouseClick(window.source_list.viewport(), Qt.MouseButton.LeftButton, pos=position)
+                    self.assertEqual(paths[0] in window.selected_source_files(), check)
+                self.assertEqual(window.selected_source_files(), (paths[1],))
+                window.run()
+                deadline = monotonic() + 5
+                while window.worker is not None and monotonic() < deadline:
+                    QTest.qWait(10)
+                self.assertIsNone(window.worker)
+                self.assertEqual(window.report.request.files, (paths[1],))
+        finally:
+            window.close()
+            window.deleteLater()
+            APP.processEvents()
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows native folder dialog')
+    def test_native_folder_dialog_enables_multiple_filesystem_folders(self):
+        import ctypes
+        from unittest.mock import patch
+        from metrology_app import windows_folder_dialog as dialog
+
+        def cancel(instance, owner):
+            flags = ctypes.c_uint32()
+            dialog._invoke(instance, 10, (ctypes.POINTER(ctypes.c_uint32),), ctypes.byref(flags))
+            expected = dialog.FOS_PICKFOLDERS | dialog.FOS_ALLOWMULTISELECT | dialog.FOS_FORCEFILESYSTEM
+            self.assertEqual(flags.value & expected, expected)
+            return dialog.CANCELLED
+
+        with tempfile.TemporaryDirectory() as folder, patch.object(dialog, '_show', side_effect=cancel) as show:
+            self.assertEqual(dialog.choose_windows_folders(0, 'Load folders', folder), ())
+            show.assert_called_once()
 
     def test_nova_summary_keeps_rows_and_removes_duplicate_header_and_lbh(self):
         with tempfile.TemporaryDirectory() as folder:

@@ -85,26 +85,32 @@ def prepare_sequence_groups(frame, selection, cells, wafer_column, die_column):
     ordered_frame = frame.iloc[all_positions].copy(deep=False)
     ordered_frame["__die"] = die[all_positions]
     wafer_values = frame[wafer_column].fillna("").astype(str).str.strip().to_numpy()
-    offset = 0
+    span_lengths = {}
+    span_keys = []
     for key, source_positions in ordered_parts:
-        ordered = ordered_frame.iloc[offset:offset + len(source_positions)].copy(deep=False)
-        offset += len(source_positions)
         source = source_by_key.get(key)
-        # Ref and Raw are row-aligned tables. The same measurement must
-        # occupy the same span in both sources, not overlap other wafers.
         span_key = (_source_span_key(key, source, identity_values, source_positions)
                     if source is not None and not selection.get('preserve_group_order') else
                     key[1] if source is not None else key)
-        if span_key not in spans:
-            spans[span_key] = cursor
-            cursor += len(ordered)
+        span_lengths[span_key] = max(span_lengths.get(span_key, 0), len(source_positions))
+        span_keys.append(span_key)
+    # A short Ref series may share a wafer with a much longer Raw series.
+    # Reserve the full span before positioning either series or the next wafer.
+    for span_key, length in span_lengths.items():
+        spans[span_key] = cursor
+        cursor += length
+    offset = 0
+    for (key, source_positions), span_key in zip(ordered_parts, span_keys):
+        ordered = ordered_frame.iloc[offset:offset + len(source_positions)].copy(deep=False)
+        offset += len(source_positions)
+        source = source_by_key.get(key)
         start = spans[span_key]
         positions = np.arange(start, start + len(ordered), dtype=float)
         current_wafer = identity_values[source['name']][0] if source and source['name'] in identity_values else wafer_values
         wafer_id = next((current_wafer[row] for row in source_positions if current_wafer[row]), "")
         if not wafer_id:
             wafer_id = str(labels.get(key, key)).splitlines()[0]
-        groups.append({"key": key, "wafer": wafer_id, "frame": ordered,
+        groups.append({"key": key, "span_key": span_key, "wafer": wafer_id, "frame": ordered,
                        "coordinate_label": coordinate_labels.get(
                            (source or {}).get("name"),
                            "Die Seq" if die_column is not None else "Row Number"),

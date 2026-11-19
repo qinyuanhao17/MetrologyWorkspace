@@ -6,7 +6,7 @@ from math import isfinite
 
 import pandas as pd
 from PyQt6.QtCore import QEvent, QSignalBlocker, Qt, QTimer, QSize, pyqtSignal
-from PyQt6.QtGui import QAction, QActionGroup, QKeySequence
+from PyQt6.QtGui import QAction, QActionGroup, QKeySequence, QUndoStack
 from PyQt6.QtWidgets import (
     QCheckBox, QDialog, QFileDialog, QFrame, QHBoxLayout, QHeaderView,
     QInputDialog, QLabel, QLayout, QLineEdit, QMainWindow, QMessageBox, QPushButton,
@@ -133,6 +133,8 @@ class MainWindow(QMainWindow):
         self._input_draw_pending = {}
         self._managed_close_handler = None
         self._local_selection_excluded = set()
+        self._point_history = QUndoStack(self)
+        self._point_edit_target = None
         self._local_view = {"filters": [], "row_bools": [], "group_bools": [], "show": "all",
                             "search": "", "hide_excluded": False}
         self._workbook_selection_applies = True
@@ -148,11 +150,17 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.build_data_page(), "1. Data")
         self.plot_page = PlotPage()
         self.plot_page.document_scoped = True
+        self.plot_page.scroll.setToolTip("Double-click a measured point to change Data selection.")
+        self.plot_page.scroll.map_point_double_clicked.connect(self._toggle_map_point)
+        self.plot_page.scroll.add_point_edit_menu(self._point_history)
         self.plot_page.draw_state_changed.connect(
             lambda _state: self.selection_changed.emit(self.selection_state())
         )
         self.tabs.addTab(self.plot_page, "2. Wafer Maps")
         self.radius_page = RadiusPage()
+        self.radius_page.scroll.setToolTip("Double-click a point to change Data selection.")
+        self.radius_page.scroll.point_double_clicked.connect(self._toggle_radius_point)
+        self.radius_page.scroll.add_point_edit_menu(self._point_history)
         self.radius_page.draw_state_changed.connect(
             lambda _state: self.selection_changed.emit(self.selection_state())
         )
@@ -161,6 +169,7 @@ class MainWindow(QMainWindow):
         outer.addWidget(self.tabs, 1)
         self.setCentralWidget(root)
         self.model.changed.connect(self.refresh_timer.start)
+        self.model.changed.connect(self._point_history.clear)
         self.model.changed.connect(self._refresh_table_sizes)
         self.model.undo.cleanChanged.connect(self.update_dirty)
         self.sheet.selectionModel().currentChanged.connect(self.current_cell)
@@ -291,6 +300,7 @@ class MainWindow(QMainWindow):
     def restore_workspace(self, snapshot):
         if snapshot.workspace_type != self.workspace_type:
             raise ValueError("This WKB belongs to a different tool.")
+        self._point_history.clear()
         excluded = snapshot.states.get("workbook_participation", [])
         if isinstance(excluded, dict):
             excluded = excluded.get("excluded", [])
@@ -479,7 +489,8 @@ class MainWindow(QMainWindow):
 
     def _update_workbook_selection_actions(self, available):
         has_copy = hasattr(self, "copy_from_wkb_action")
-        enabled = available and (self.workspace_type == "wafer_map" or not has_copy or self._copy_from_wkb)
+        enabled = available and (self.workspace_type == "wafer_map" or not has_copy or self._copy_from_wkb
+                                 or getattr(self, "_copy_reference_from_wkb", False))
         for action in (self.workbook_selection_action, self.full_data_action):
             action.setVisible(bool(getattr(self, "_managed_owner", None)) if has_copy else available)
             action.setEnabled(enabled)
@@ -615,6 +626,7 @@ class MainWindow(QMainWindow):
         self.recognize()
 
     def build_sheet_card(self):
+        derived = getattr(self, "derived_table", False)
         card = QFrame(objectName="sheetCard")
         layout = QVBoxLayout(card)
         layout.setContentsMargins(16, 15, 16, 12)
@@ -622,7 +634,7 @@ class MainWindow(QMainWindow):
         heading = QHBoxLayout()
         heading.addWidget(help_title_label(
             "Measurement table",
-            "Row 1 = headers · Ctrl+V pastes cells.",
+            "Row 1 = headers." if derived else "Row 1 = headers · Ctrl+V pastes cells.",
         ))
         heading.addStretch()
         for title, handler, shortcut in (
@@ -631,10 +643,11 @@ class MainWindow(QMainWindow):
             ("Paste table", self.paste_table, "Ctrl+Shift+V"),
             ("Export CSV", self.save_table, ""),
         ):
-            control = button(title, handler, "primary" if title == "Open file" else "subtle")
-            control.setFixedSize(104, 34)
-            control.setToolTip(shortcut)
-            heading.addWidget(control)
+            if not derived or title == "Export CSV":
+                control = button(title, handler, "primary" if title == "Open file" else "subtle")
+                control.setFixedSize(104, 34)
+                control.setToolTip(shortcut)
+                heading.addWidget(control)
             action = QAction(title, self)
             action.setShortcut(QKeySequence(shortcut))
             if title == "Open file":
@@ -652,6 +665,7 @@ class MainWindow(QMainWindow):
         self.address.setFixedWidth(62)
         self.address.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.formula = QLineEdit()
+        self.formula.setReadOnly(derived)
         self.formula.setPlaceholderText("")
         self.formula.editingFinished.connect(self.edit_formula)
         formula.addWidget(self.address)
@@ -664,8 +678,11 @@ class MainWindow(QMainWindow):
         self.redo_button.setEnabled(False)
         formula.addWidget(self.undo_button)
         formula.addWidget(self.redo_button)
+        self.undo_button.setHidden(derived)
+        self.redo_button.setHidden(derived)
         layout.addLayout(formula)
-        self.sheet = SheetView(self.model, metadata_locks=self.workspace_type in ("wafer_map","correlation_trend"))
+        self.sheet = SheetView(self.model, read_only=derived,
+                               metadata_locks=not derived and self.workspace_type in ("wafer_map","correlation_trend"))
         self.sheet.table_pasted.connect(self.mark_table_pasted)
         layout.addWidget(self.sheet, 1)
         footer = QHBoxLayout()
@@ -1027,29 +1044,78 @@ class MainWindow(QMainWindow):
         prepared = getattr(self, "_prepared_participation", None)
         if prepared is None or prepared["book"] is not book:
             prepared = prepare_workbook_participation(book)
+        source = book.final_match_raw if book.result_mode == "final" and book.final_match_raw is not None else book.raw
+        self._install_workbook_participation(prepared, source)
+
+    def _install_workbook_participation(self, prepared, source):
         self._hide_workbook_excluded = prepared["hide_excluded"]
         self._workbook_selection_view = deepcopy(prepared["view"])
-        source = book.final_match_raw if book.result_mode == "final" and book.final_match_raw is not None else book.raw
         self._participation_excluded = set(prepared["excluded"])
         if self.workspace_type != "correlation_trend" and not any(
                 "".join(c.lower() for c in str(column) if c.isalnum()) in ("waferid", "cursmefilepath") for column in source):
             self._participation_excluded = set()
-        if (book.match_type == "TEM" and self.workspace_type != "correlation_trend"
+        if (prepared["book"] is not None and prepared["book"].match_type == "TEM" and self.workspace_type != "correlation_trend"
                 and not (self.workspace_type == "wafer_map" and self._workbook_selection_applies)):
             self._participation_excluded = set()  # TEM Map/Dynamic inputs have no paired-source provenance.
         self._refresh_selection_badge()
         self.update_plan()
 
-    def participating_positions(self, frame):
-        """Rows of this window's table that its plots may use."""
-        from .match_groups import participation_source_keys
+    def _effective_selection_exclusions(self):
         excluded = set(getattr(self, "_local_selection_excluded", set()))
         if getattr(self, "_workbook_selection_applies", True):
             inherited = getattr(self, "_participation_excluded", set())
             excluded = set(inherited) if hasattr(self, "_workbook_selection_view") else excluded | inherited
+        return excluded
+
+    def participating_positions(self, frame):
+        """Rows of this window's table that its plots may use."""
+        from .match_groups import participation_source_keys
+        excluded = self._effective_selection_exclusions()
         if not excluded:
             return set(range(len(frame)))
         return set(i for i, key in enumerate(participation_source_keys(frame)) if key not in excluded)
+
+    def _toggle_map_point(self, cell, row):
+        if not self.plot_page.dirty and not self.plot_page.background_render_pending:
+            self._toggle_plot_row(row, cell, row)
+
+    def _toggle_radius_point(self, row):
+        if self.radius_page.ready and not self.radius_page.pending_input_refresh:
+            self._toggle_plot_row(row)
+
+    def _toggle_plot_row(self, row, widget=None, plot_row=None):
+        from .match_groups import participation_source_keys
+        from .plotting.point_edits import PointRemoval
+        if (self.refresh_timer.isActive() or getattr(self, "_source_refresh_pending", False)
+                or self.model.duplicate_header_count()):
+            return
+        frame = self.model._analysis_view()
+        if not 0 <= row < len(frame):
+            return
+        exclusions = self._effective_selection_exclusions()
+        key = participation_source_keys(frame)[row]
+        exclusions.add(key)
+        view = self._workbook_selection_view if (self._workbook_selection_applies and
+                hasattr(self, "_workbook_selection_view")) else self._local_view
+        before = (set(self._local_selection_excluded), deepcopy(self._local_view), self._workbook_selection_applies)
+        after = (exclusions, deepcopy(view), False)
+        self._point_history.push(PointRemoval(self._apply_raw_point_removal, before, after, widget, plot_row))
+
+    def _apply_raw_point_removal(self, state, widget, row, removed):
+        excluded, view, follows_workbook = state
+        self._local_selection_excluded = set(excluded)
+        self._local_view = deepcopy(view)
+        self._workbook_selection_applies = follows_workbook
+        self.workbook_selection_action.setChecked(follows_workbook)
+        self.full_data_action.setChecked(not follows_workbook)
+        self._apply_point_participation(widget, row, removed, self._refresh_selection_scope)
+
+    def _apply_point_participation(self, widget, row, removed, refresh):
+        self._point_edit_target = (widget, row, removed) if widget is not None else None
+        try:
+            refresh()
+        finally:
+            self._point_edit_target = None
 
     def _refresh_selection_badge(self):
         self._refresh_table_projection()
@@ -1085,14 +1151,11 @@ class MainWindow(QMainWindow):
 
     def _refresh_table_projection(self):
         """A reversible editor view; the complete document remains authoritative."""
-        hidden = bool(getattr(self, "_hide_workbook_excluded", False)
-                      if getattr(self, "_workbook_selection_applies", True)
-                      else getattr(self, "_local_view", {}).get("hide_excluded", False))
         for name, view, model in (("raw", getattr(self, "sheet", None), self.model),
                                   ("reference", getattr(self, "reference_sheet", None), getattr(self, "reference_model", None))):
             if view is None or model is None:
                 continue
-            if hidden:
+            if self._table_selection_hidden(name):
                 from .match_group_ui import ProjectedSheetModel
                 attribute = f"_{name}_participation_proxy"
                 proxy = getattr(self, attribute, None)
@@ -1102,19 +1165,27 @@ class MainWindow(QMainWindow):
                 if model.duplicate_header_count():
                     continue  # Keep the previous safe row map while headers are repaired.
                 frame = model.document_frame()
-                raw = self.model.document_frame() if name == "reference" else frame
-                positions = self.participating_positions(raw if len(raw) == len(frame) else frame)
+                positions = self._table_participating_positions(name, frame)
                 proxy.set_rows(sorted(positions))
                 view.setModel(proxy) if view.model() is not proxy else None
             elif view.model() is not model:
                 view.setModel(model)
         self._refresh_table_sizes()
 
+    def _table_selection_hidden(self, _name):
+        return (getattr(self, "_hide_workbook_excluded", False)
+                if self._workbook_selection_applies else self._local_view.get("hide_excluded", False))
+
+    def _table_participating_positions(self, name, frame):
+        raw = self.model.document_frame() if name == "reference" else frame
+        return self.participating_positions(raw if len(raw) == len(frame) else frame)
+
     def _selection_scope_changed(self, *_args):
         applies = self.workbook_selection_action.isChecked()
         if applies == self._workbook_selection_applies:
             self._refresh_selection_badge()
             return
+        self._point_history.clear()
         self._workbook_selection_applies = applies
         owner = getattr(self, "_managed_owner", None)
         apply_scope = getattr(owner, "apply_child_selection_scope", None) if owner else None
@@ -1146,10 +1217,17 @@ class MainWindow(QMainWindow):
                                       context=saved_view.get("context"))
 
     def _apply_data_selection_dialog(self, dialog):
-        self._local_selection_excluded = set(dialog.excluded)
-        self._local_view = dialog.view_state()
+        self._point_history.clear()
+        self._apply_local_data_selection(set(dialog.excluded), dialog.view_state())
+
+    def _apply_local_data_selection(self, excluded, view):
+        self._local_selection_excluded = excluded
+        self._local_view = view
         self._workbook_selection_applies = False
         self.full_data_action.setChecked(True)
+        self._refresh_selection_scope()
+
+    def _refresh_selection_scope(self):
         owner = getattr(self, "_managed_owner", None)
         apply_scope = getattr(owner, "apply_child_selection_scope", None) if owner else None
         if callable(apply_scope):
@@ -1157,6 +1235,7 @@ class MainWindow(QMainWindow):
         else:
             self._refresh_selection_badge()
             self.update_plan()
+            self.document.refresh_identity()
 
     def copy_wkb_selection(self):
         owner = getattr(self, "_managed_owner", None)
@@ -1205,10 +1284,18 @@ class MainWindow(QMainWindow):
         self.selection["wafers"] = [key for key in wafers if self.selection["groups"].get(key)]
         if self.workspace_type == 'wafer_map' and getattr(self,'display_options',None) is not None:
             self.display_options.decorate_wafer_selection(self.selection)
-        self.plot_page.set_input(self._frame, self.selection)
-        self.radius_page.set_input(self._frame, self.selection)
+        self._publish_plot_inputs(self._frame, self.selection)
         self.statusBar().showMessage(f"{len(wafers)} measurement sets selected    ·    {len(metrics)} parameters selected")
         self.selection_changed.emit(self.selection_state())
+
+    def _publish_plot_inputs(self, frame, selection):
+        if self._point_edit_target is not None:
+            target = self._point_edit_target[0]
+            if isinstance(target, tuple) and self.plot_page.refresh_edited_map(frame, selection, target):
+                self.radius_page.selection = selection.copy()
+                return
+        self.plot_page.set_input(frame, selection)
+        self.radius_page.set_input(frame, selection)
 
     def set_workbook_groups(self, book):
         if self.workspace_type != 'wafer_map':

@@ -4,7 +4,7 @@ from decimal import Decimal
 from math import ceil, isfinite
 
 import pyqtgraph as pg
-from PyQt6.QtCore import QLineF, QPointF, QRectF, Qt
+from PyQt6.QtCore import QLineF, QPointF, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QWheelEvent
 from PyQt6.QtWidgets import QAbstractScrollArea, QApplication
 from .curve import ResponsivePlotDataItem
@@ -129,6 +129,7 @@ class _ValueAxis(pg.AxisItem):
 
 class InteractivePlotWidget(pg.PlotWidget):
     """A four-sided PyQtGraph plot with predictable Auto Range behavior."""
+    point_double_clicked = pyqtSignal(int)
 
     def __init__(self, *, auto_x_range=None, frame_tick_length=0, **kwargs):
         view_box = _PlotViewBox(auto_x_range=auto_x_range)
@@ -139,6 +140,7 @@ class InteractivePlotWidget(pg.PlotWidget):
         self.plot = self._plot_data
         self.secondary_views = []
         self.secondary_axes = []
+        self._selectable_points = []
         # Graphics items are not QWidget parents. Their unparented native menus
         # otherwise outlive a deleted plot through Qt signal connections.
         for menu in (self.getPlotItem().getMenu(), view_box.getMenu(None)):
@@ -148,6 +150,45 @@ class InteractivePlotWidget(pg.PlotWidget):
         # overlap them and make some edges appear heavier than others.
         self.view_box.setBorder(None)
         self._frame_axes(frame_tick_length)
+
+    def set_point_rows(self, scatter, rows):
+        if not hasattr(scatter, "_selection_rows"):
+            self._selectable_points.append(scatter)
+        scatter._selection_rows = rows
+
+    def add_point_edit_menu(self, history):
+        from .point_edits import add_point_edit_actions
+        for view in (self.view_box, *self.secondary_views):
+            menu = view.getMenu(None)
+            if menu is not None:
+                add_point_edit_actions(menu, history)
+                menu.addSeparator()
+                menu.setStyleSheet(menu.styleSheet() + "\nQMenu::separator {"
+                                   "height: 1px; background: palette(mid); margin: 4px 8px; }")
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self._selectable_points:
+            position = event.position().toPoint()
+            cursor = self.mapToScene(position)
+            if self.view_box.sceneBoundingRect().contains(cursor):
+                closest = None
+                for scatter in self._selectable_points:
+                    rows = scatter._selection_rows
+                    if rows is None or not scatter.isVisible():
+                        continue
+                    for point in scatter.pointsAt(scatter.mapFromScene(cursor)):
+                        index = point.index()
+                        if index >= len(rows):
+                            continue
+                        delta = self.mapFromScene(scatter.mapToScene(point.pos())) - position
+                        distance = delta.x() ** 2 + delta.y() ** 2
+                        if closest is None or distance < closest[0]:
+                            closest = distance, int(rows[index])
+                if closest is not None:
+                    event.accept()
+                    self.point_double_clicked.emit(closest[1])
+                    return
+        super().mouseDoubleClickEvent(event)
 
     def add_secondary_axis(self, label, color):
         """Add an X-linked Y view; later axes are placed further right."""

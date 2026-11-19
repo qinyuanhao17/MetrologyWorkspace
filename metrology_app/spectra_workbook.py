@@ -1,8 +1,9 @@
 """Portable Spectra child drafts inside an existing Match Workbook container."""
 from dataclasses import asdict
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from copy import deepcopy
 from io import BytesIO
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import base64
 import json
 import zlib
@@ -18,29 +19,92 @@ from .workspace_store import WorkspaceSnapshot, json_text
 def _key(value):
     value = dict(value)
     value["channel"] = ChannelKey(**value["channel"])
+    if value.get("category") == "folder" and value.get("category_value"):
+        value["category_value"] = str(PureWindowsPath(value["category_value"]))
     return WaferChannelKey(**value)
 
 
-def encode_sources(sources, cache=None, cancelled=None):
+def import_compression_threads(logical_cpus, preference="auto"):
+    """Return the accepted preference, its effective limit and manual choices."""
+    count = max(1, logical_cpus or 1)
+    manual = tuple(range(2, count + 1, 2))
+    if type(preference) is int and preference in manual:
+        return preference, preference, manual
+    automatic = max(2, (count // 8) * 2) if manual else 1
+    return "auto", automatic, manual
+
+
+def compression_workers(configured, files):
+    limit = min(configured, files)
+    return limit if limit < 2 else limit - limit % 2
+
+
+def _encode_source(source):
+    metadata = {name: getattr(source, name) for name in
+                ("key", "size_bytes", "mtime_ns", "embedded_filename", "x_mm", "y_mm", "coordinate_source")}
+    metadata.update(path=str(source.path), identity=asdict(source.identity),
+                    channels=[{"metadata": c.metadata, "spectrum_type": c.spectrum_type} for c in source.channels])
+    arrays = {f"{i}_{field}": getattr(channel, field)
+              for i, channel in enumerate(source.channels) for field in ("numeric", "wavelength")}
+    stream = BytesIO()
+    np.savez(stream, **arrays)
+    return source.key, json_text(metadata), base64.b64encode(zlib.compress(stream.getvalue(), 1)).decode("ascii")
+
+
+def encode_sources(sources, cache=None, cancelled=None, *, workers=1, progress=None):
+    sources = tuple(sources)
+    total = len(sources)
+    if not total:
+        return {}
     cache = cache or {}
-    retained = {}
-    for source in sources:
-        if cancelled and cancelled():
-            break
+    cancelled = cancelled or (lambda: False)
+    records = [None] * total
+
+    def encode(index):
+        source = sources[index]
         version = source.key, id(source)
         record = cache.get(version)
-        if record is None:
-            metadata = {name: getattr(source, name) for name in
-                        ("key", "size_bytes", "mtime_ns", "embedded_filename", "x_mm", "y_mm", "coordinate_source")}
-            metadata.update(path=str(source.path), identity=asdict(source.identity),
-                            channels=[{"metadata": c.metadata, "spectrum_type": c.spectrum_type} for c in source.channels])
-            arrays = {f"{i}_{field}": getattr(channel, field)
-                      for i, channel in enumerate(source.channels) for field in ("numeric", "wavelength")}
-            stream = BytesIO()
-            np.savez(stream, **arrays)
-            record = (source.key, json_text(metadata), base64.b64encode(zlib.compress(stream.getvalue(), 1)).decode("ascii"))
-        retained[version] = record
-    return retained
+        return version, record if record is not None else _encode_source(source)
+
+    completed = 0
+
+    def accept(index, record):
+        nonlocal completed
+        records[index] = record
+        completed += 1
+        if progress:
+            progress(completed, total)
+
+    if progress:
+        progress(0, total)
+    workers = compression_workers(workers, total)
+    if workers <= 1:
+        for index in range(total):
+            if cancelled():
+                return {}
+            accept(index, encode(index))
+    else:
+        pending = {}
+        indexes = iter(range(total))
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="sme-embed") as pool:
+            try:
+                while not cancelled():
+                    while len(pending) < workers and not cancelled():
+                        index = next(indexes, None)
+                        if index is None:
+                            break
+                        pending[pool.submit(encode, index)] = index
+                    if not pending:
+                        break
+                    finished, _ = wait(pending, timeout=.05, return_when=FIRST_COMPLETED)
+                    if cancelled():
+                        break
+                    for future in finished:
+                        accept(pending.pop(future), future.result())
+            finally:
+                for future in pending:
+                    future.cancel()
+    return dict(records) if completed == total and not cancelled() else {}
 
 
 def snapshot(viewer):
@@ -59,9 +123,13 @@ def snapshot(viewer):
           "highlighted": sorted(viewer.highlighted_keys),
           "baseline": viewer._baseline_key, "analysis": viewer.analysis_mode,
           "group_by": viewer.group_by_combo.currentData(), "color_by": viewer._color_mode,
+          "folder_level": viewer._folder_level,
+          "folder_path": viewer._folder_path,
+          "import_folders": list(viewer._import_folders),
           "data_selection": deepcopy(viewer._data_selection_view),
           "test_flags": dict(viewer.test_flags), "verify_spectra_time": viewer.verify_spectra_time_action.isChecked(),
           "info_deleted_columns": [sorted(columns) for columns in viewer.info_deleted_columns],
+          "info_columns_configured": viewer.info_columns_configured,
           "groups": viewer.group_options.snapshot(),
           "test_flag_values": list(viewer.test_flag_values), "test_flag_grouping": list(viewer.test_flag_grouping),
           "views": {name: action.isChecked() for name, action in viewer.view_actions.items()},
@@ -105,10 +173,14 @@ def _validate_ui(viewer, draft):
     values = ui.get("test_flag_values", [0, 1, -1])
     grouping = ui.get("test_flag_grouping", ["wafer", "lot", "pad"])
     removed = ui.get("info_deleted_columns", [[], [], []])
-    if (not isinstance(removed, list) or len(removed) != 3
+    if (type(ui.get("info_columns_configured", False)) is not bool
+            or not isinstance(removed, list) or len(removed) != 3
             or any(not isinstance(columns, list) or any(not isinstance(column, str) for column in columns)
                    for columns in removed)):
         raise ValueError("Invalid Spectra Info report columns.")
+    folders = ui.get("import_folders", [])
+    if (not isinstance(folders, list) or any(not isinstance(folder, str) or not folder for folder in folders)):
+        raise ValueError("Invalid Spectra import folders.")
     if (not isinstance(flags, dict) or any(not isinstance(key, str) or type(value) is not int
                                          for key, value in flags.items())
             or type(ui.get("verify_spectra_time", True)) is not bool
@@ -119,7 +191,9 @@ def _validate_ui(viewer, draft):
         raise ValueError("Invalid Spectra Info or Test Flag settings.")
     if (ui.get("version") != 1 or ui.get("analysis") not in {"original", "residual", "3sigma"}
             or ui.get("color_by") not in {"wafer", "sme", "folder", "testflag"}
-            or ui.get("group_by") not in {"wafer", "lot", "pad", "die"}
+            or ui.get("group_by") not in {"wafer", "lot", "pad", "die", "folder"}
+            or type(ui.get("folder_level", 0)) is not int or ui.get("folder_level", 0) < 0
+            or (ui.get("folder_path") is not None and not isinstance(ui["folder_path"], str))
             or list(draft.frames["spectra"].columns) != ["source", "metadata", "samples"]):
         raise ValueError("Invalid or unsupported Spectra file settings.")
     for name in ("checked", "selected"):
@@ -229,6 +303,7 @@ def restore(viewer, draft):
     viewer._data_selection_view = view
     viewer.group_options.restore(ui.get("groups"))
     viewer.info_deleted_columns = [set(columns) for columns in ui.get("info_deleted_columns", [[], [], []])]
+    viewer.info_columns_configured = ui.get("info_columns_configured", any(viewer.info_deleted_columns))
     viewer.test_flags = {key: value for key, value in ui.get("test_flags", {}).items() if key in keys | unavailable.keys() and value}
     viewer.group_options._cache = None
     viewer._apply_highlights(ui.get('highlighted',[]))
@@ -241,6 +316,9 @@ def restore(viewer, draft):
     if viewer._analysis_mode == "residual" and viewer._baseline_key is None:
         viewer._analysis_mode = "original"
     viewer._color_mode = ui.get("color_by", "wafer")
+    viewer._folder_level = ui.get("folder_level", 0)
+    viewer._folder_path = ui.get("folder_path")
+    viewer._import_folders = tuple(ui.get("import_folders", ()))
     for combo, value in ((viewer.group_by_combo, ui.get("group_by", "wafer")), (viewer.color_by_combo, viewer.color_mode)):
         combo.blockSignals(True)
         combo.setCurrentIndex(combo.findData(value))
@@ -324,7 +402,6 @@ def open_child(owner, scope):
         if panel.secondary is not None:
             panel.secondary.sigRangeChanged.connect(lambda *_: owner.document.identity_timer.start())
     child.tree.itemSelectionChanged.connect(owner.document.identity_timer.start)
-    child.group_by_combo.currentIndexChanged.connect(lambda *_: owner.document.identity_timer.start())
     for splitter in _splitters(child):
         splitter.splitterMoved.connect(lambda *_: owner.document.identity_timer.start())
     child.save_spec_action.setShortcut("")

@@ -1,11 +1,13 @@
 """Interactive SME spectra review workspace."""
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
+from ntpath import commonpath
+import os
 from time import monotonic
 
 from PyQt6 import sip
-from PyQt6.QtCore import QEvent, QItemSelectionModel, QSize, QTimer, Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QEvent, QItemSelectionModel, QSignalBlocker, QSize, QTimer, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QAction, QActionGroup, QColor, QIcon, QKeySequence, QPainter, QPalette, QPen, QPixmap, QPixmapCache, QUndoCommand, QUndoStack
 from PyQt6.QtWidgets import (
     QAbstractScrollArea,
@@ -30,10 +32,13 @@ from PyQt6.QtWidgets import (
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
+    QWidgetAction,
 )
 
 from .appearance import fit_window_to_screen, style_titlebar
-from .settings import apply_theme as apply_window_theme, get_settings, theme_stylesheet
+from .file_dialogs import choose_folders
+from .settings import apply_theme as apply_window_theme, get_settings, save_settings, theme_stylesheet
+from .widgets import ScrollSafeComboBox
 from .sme_spectra import (
     M_COLS,
     ChannelKey,
@@ -41,8 +46,7 @@ from .sme_spectra import (
     SpectrumCatalog,
     SpectrumFile,
     SPECTRUM_GROUP_FIELDS,
-    load_folder,
-    LoadIssue,
+    load_folders,
     natural_key,
 )
 from .spectra_map import SpectraMapWindow
@@ -67,8 +71,8 @@ ROLE_LEAF_GROUP = Qt.ItemDataRole.UserRole + 3
 ROLE_SORT_TEXT = Qt.ItemDataRole.UserRole + 4
 ROLE_BASE_TEXT = Qt.ItemDataRole.UserRole + 5
 ROLE_HIGHLIGHT = Qt.ItemDataRole.UserRole + 6
-GROUP_KINDS = {"wafer", "lot", "pad", "die"}
-GROUP_LABELS = (("wafer", "Wafer ID"), ("lot", "Lot"), ("pad", "PAD Name"), ("die", "Die"))
+GROUP_LABELS = (("wafer", "Wafer ID"), ("lot", "Lot"), ("pad", "PAD Name"), ("die", "Die"), ("folder", "Folder"))
+GROUP_KINDS = {key for key, _ in GROUP_LABELS}
 TREE_COLUMNS = (
     "Wafer / Spectrum",
     "SME Name",
@@ -161,12 +165,18 @@ class _ViewMenu(QMenu):
 
 class SpectraLoadThread(QThread):
     progress = pyqtSignal(int, int, str)
+    preparation_progress = pyqtSignal(int, int)
     completed = pyqtSignal(object)
+    failed = pyqtSignal(str)
 
-    def __init__(self, folder: Path, parent=None):
+    def __init__(self, folders, parent=None):
         super().__init__(parent)
-        self.folder = Path(folder)
-        self.pack_workbook = bool(getattr(parent, "_workbook_embedded", False))
+        self.folders = (Path(folders),) if isinstance(folders, (str, Path)) else tuple(map(Path, folders))
+        self.pack_workbook = bool(getattr(parent, "_workbook_embedded", False)
+                                  and getattr(parent, "spec_save_type", "embedded") == "embedded")
+        from .spectra_workbook import import_compression_threads
+        self.compression_threads = import_compression_threads(
+            os.cpu_count(), get_settings()["spectra_import_compression_threads"])[1]
         self.workbook_samples = {}
 
     def run(self):
@@ -179,23 +189,31 @@ class SpectraLoadThread(QThread):
                 self.progress.emit(done, total, message)
                 last_progress = now
 
+        def preparation_progress(done, total):
+            nonlocal last_progress
+            now = monotonic()
+            if done == 0 or done == total or now - last_progress >= 0.05:
+                self.preparation_progress.emit(done, total)
+                last_progress = now
+
         try:
-            result = load_folder(
-                self.folder,
+            result = load_folders(
+                self.folders,
                 progress=progress,
                 cancelled=self.isInterruptionRequested,
             )
-            if self.pack_workbook and not result.cancelled:
-                from .spectra_workbook import encode_sources
-                self.progress.emit(0, 0, "Preparing embedded Workbook spectra…")
-                self.workbook_samples = encode_sources(result.spectra, cancelled=self.isInterruptionRequested)
-                if self.isInterruptionRequested():
-                    result = LoadResult(result.spectra, result.issues, True)
+            if self.pack_workbook and result.spectra and not result.cancelled:
+                from .spectra_workbook import compression_workers, encode_sources
+                workers = compression_workers(self.compression_threads, len(result.spectra))
+                self.workbook_samples = encode_sources(
+                    result.spectra, cancelled=self.isInterruptionRequested, workers=workers,
+                    progress=preparation_progress)
+            if result.cancelled or self.isInterruptionRequested():
+                self.workbook_samples = {}
+                result = LoadResult((), (), True)
         except Exception as error:
-            result = LoadResult(
-                (),
-                (LoadIssue(self.folder, "error", str(error)),),
-            )
+            self.failed.emit(str(error))
+            return
         self.completed.emit(result)
 
 
@@ -238,6 +256,7 @@ class SpectraViewerWindow(QMainWindow):
         self.test_flags = {}
         self.edit_history = QUndoStack(self)
         self.info_deleted_columns = [set(), set(), set()]
+        self.info_columns_configured = False
         self.spec_save_type = "embedded"
         self._unavailable_paths = {}
         self._unavailable_checked = set()
@@ -250,6 +269,11 @@ class SpectraViewerWindow(QMainWindow):
         self.stateChanged.connect(self.schedule_spectra_info_refresh)
         self._channel_colors: dict[WaferChannelKey, QColor] = {}
         self._color_mode = "wafer"
+        self._folder_level = 0
+        self._folder_path = None
+        self._import_folders = ()
+        self._folder_catalog = None
+        self._folder_default = None
         self._legend_angles = {}
         self._color_key_revision = -1
         self._color_keys = {}
@@ -271,6 +295,7 @@ class SpectraViewerWindow(QMainWindow):
         self._exporter: SpectraExportThread | None = None
         self.export_dialog = None
         self._load_replace = True
+        self._load_cancel_requested = False
         self._expanded_paths: set[tuple[str, ...]] = set()
         self._syncing_tree = False
         self._unfold_queue: list[QTreeWidgetItem] = []
@@ -343,6 +368,8 @@ class SpectraViewerWindow(QMainWindow):
 
     def load_workspace(self, path):
         from .workspace_store import load_workspace, file_revision
+        if self._loader is not None:
+            raise ValueError("Wait for the current spectrum import to finish.")
         draft = load_workspace(path, expected_type=self.workspace_type)
         if not self.document.confirm_close():
             return None
@@ -417,6 +444,7 @@ class SpectraViewerWindow(QMainWindow):
         self.test_flag_action.triggered.connect(self.open_test_flags)
 
         self.options_menu = self.menuBar().addMenu("Options")
+        self._build_compression_option()
         self.spec_save_menu = self.options_menu.addMenu("Spec Save Type")
         self.spec_save_group = QActionGroup(self)
         self.spec_save_group.setExclusive(True)
@@ -451,6 +479,43 @@ class SpectraViewerWindow(QMainWindow):
         self.analysis_actions["residual"].setToolTip("Measured − BSL at exactly matching wavelengths; no interpolation.")
         self.analysis_actions["3sigma"].setToolTip("3 × sample SD (n−1) per Wafer/channel; at least two finite observations per exact wavelength.")
 
+    def _build_compression_option(self):
+        from .spectra_workbook import import_compression_threads
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(10, 4, 10, 4)
+        label = QLabel("Import Compression Threads")
+        self.compression_threads_combo = combo = ScrollSafeComboBox()
+        label.setBuddy(combo)
+        combo.setAccessibleName(label.text())
+        combo.setMaxVisibleItems(10)
+        combo.view().setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        _, automatic, manual = import_compression_threads(os.cpu_count())
+        combo.addItem(f"Auto ({automatic} {'thread' if automatic == 1 else 'threads'})", "auto")
+        for count in manual:
+            combo.addItem(str(count), count)
+        layout.addWidget(label)
+        layout.addWidget(combo, 1)
+        action = QWidgetAction(self.options_menu)
+        action.setDefaultWidget(row)
+        self.options_menu.addAction(action)
+        self.options_menu.aboutToShow.connect(self._restore_compression_option)
+        self._restore_compression_option()
+        combo.activated.connect(self._save_compression_option)
+
+    def _restore_compression_option(self):
+        from .spectra_workbook import import_compression_threads
+        preference, _, _ = import_compression_threads(
+            os.cpu_count(), get_settings()["spectra_import_compression_threads"])
+        self.compression_threads_combo.setCurrentIndex(self.compression_threads_combo.findData(preference))
+
+    def _save_compression_option(self, index):
+        try:
+            save_settings({"spectra_import_compression_threads": self.compression_threads_combo.itemData(index)})
+        except OSError as error:
+            self._restore_compression_option()
+            QMessageBox.warning(self, "Cannot save import preference", str(error))
+
     def _build_ui(self):
         root = QWidget(objectName="spectraRoot")
         outer = QVBoxLayout(root)
@@ -476,6 +541,15 @@ class SpectraViewerWindow(QMainWindow):
         self.color_by_combo.currentIndexChanged.connect(
             lambda index: self.set_color_mode(self.color_by_combo.itemData(index)))
         heading.addWidget(self.color_by_combo)
+        self.folder_level_combo = QComboBox()
+        self.folder_level_combo.setAccessibleName("Absolute folder path")
+        self.folder_level_combo.setPlaceholderText("Choose folder path…")
+        self.folder_level_combo.setMinimumWidth(145)
+        self.folder_level_combo.setMaximumWidth(265)
+        self.folder_level_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.folder_level_combo.currentIndexChanged.connect(self._folder_level_changed)
+        heading.addWidget(self.folder_level_combo)
+        self._refresh_folder_levels()
         self.baseline_label = QLabel("BSL: —", objectName="hint")
         self.baseline_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         heading.addWidget(self.baseline_label, 1)
@@ -675,29 +749,31 @@ class SpectraViewerWindow(QMainWindow):
     def choose_folder(self, *, replace: bool):
         if self._loader is not None:
             return
-        folder = QFileDialog.getExistingDirectory(
-            self,
-            "Load spectra folder",
-            str(Path.home()),
-        )
-        if folder:
-            self.start_loading(Path(folder), replace=replace)
+        folders = choose_folders(self, "Load spectra folders")
+        if folders:
+            self.start_loading(folders, replace=replace)
 
-    def start_loading(self, folder: Path, *, replace: bool):
+    def start_loading(self, folder, *, replace: bool):
         if self._loader is not None or self._exporter is not None:
+            return
+        folders = (folder,) if isinstance(folder, (str, Path)) else tuple(folder)
+        if not folders:
             return
         if replace and self.catalog.spectra:
             answer = QMessageBox.question(
                 self,
                 "Replace loaded spectra",
-                "Replace the current spectrum batch with this folder?",
+                "Replace the current spectrum batch with the selected folders?",
             )
             if answer != QMessageBox.StandardButton.Yes:
                 return
         self._load_replace = replace
-        self._loader = SpectraLoadThread(folder, self)
+        self._load_cancel_requested = False
+        self._loader = SpectraLoadThread(folders, self)
         self._loader.progress.connect(self._show_progress)
+        self._loader.preparation_progress.connect(self._show_preparation_progress)
         self._loader.completed.connect(self._loading_completed)
+        self._loader.failed.connect(self._loading_failed)
         self._loader.finished.connect(self._loading_finished)
         self.load_spectra_action.setEnabled(False)
         self.add_spectra_action.setEnabled(False)
@@ -711,10 +787,13 @@ class SpectraViewerWindow(QMainWindow):
         if self._exporter is not None:
             self._exporter.requestInterruption()
         if self._loader is not None:
+            self._load_cancel_requested = True
             self._loader.requestInterruption()
-            self.status.setText("Cancelling after the current file…")
+            self.status.setText("Cancelling import…")
 
     def _show_progress(self, done: int, total: int, message: str):
+        if self._load_cancel_requested:
+            return
         self.status.setToolTip(message)
         if total:
             self.progress.setRange(0, total)
@@ -723,13 +802,36 @@ class SpectraViewerWindow(QMainWindow):
         else:
             self.status.setText(message)
 
+    def _show_preparation_progress(self, done, total):
+        if self._load_cancel_requested:
+            return
+        message = f"Preparing embedded spectra {done} / {total}"
+        self.status.setToolTip(message)
+        self.status.setText(message)
+        self.progress.setRange(0, total)
+        self.progress.setValue(done)
+
+    def _loading_failed(self, message):
+        if self._load_cancel_requested:
+            self.status.setText("Spectrum loading cancelled; existing data was kept.")
+        else:
+            self.status.setText(f"Spectrum import failed: {message}")
+            self.status.setToolTip(message)
+
     def _loading_completed(self, result: LoadResult):
-        if result.cancelled:
+        if result.cancelled or self._load_cancel_requested:
             self.status.setText("Spectrum loading cancelled; existing data was kept.")
             return
-        if self._loader is not None and self._loader.workbook_samples:
-            self._workbook_samples = {**getattr(self, "_workbook_samples", {}), **self._loader.workbook_samples}
-        self.apply_load_result(result, replace=self._load_replace)
+        if not result.spectra:
+            self.status.setText(f"No readable spectra found{self._issue_summary(result.issues)}. Existing data was kept.")
+            return
+        if self._loader is not None:
+            if self._load_replace:
+                self._workbook_samples = self._loader.workbook_samples
+            elif self._loader.workbook_samples:
+                self._workbook_samples = {**getattr(self, "_workbook_samples", {}), **self._loader.workbook_samples}
+        folders = self._loader.folders if self._loader is not None else ()
+        self.apply_load_result(result, replace=self._load_replace, folders=folders)
 
     def _loading_finished(self):
         loader, self._loader = self._loader, None
@@ -740,7 +842,7 @@ class SpectraViewerWindow(QMainWindow):
         self.cancel_load.setVisible(False)
         self.progress.setVisible(False)
 
-    def apply_load_result(self, result: LoadResult, *, replace: bool, allow_empty_replace=False):
+    def apply_load_result(self, result: LoadResult, *, replace: bool, allow_empty_replace=False, folders=()):
         if result.cancelled:
             return
         if replace and not result.spectra and not allow_empty_replace:
@@ -751,9 +853,12 @@ class SpectraViewerWindow(QMainWindow):
                 "existing spectra were kept."
             )
             return
+        imported = tuple(str(Path(folder).resolve()) for folder in folders)
         if replace:
             self.edit_history.clear()
-            self.info_deleted_columns = [set(), set(), set()]
+            self._import_folders = tuple(dict.fromkeys(imported))
+            self._folder_path = None
+            self._folder_level = 0
             self.group_options.reset()
             self.catalog.replace(result)
             self._unavailable_paths.clear()
@@ -768,6 +873,10 @@ class SpectraViewerWindow(QMainWindow):
             self.test_flags.clear()
             self._channel_colors.clear()
         else:
+            if result.spectra and imported:
+                previous = self._import_folders or tuple(map(str, dict.fromkeys(
+                    self._source_folder(spectrum) for spectrum in self.catalog.spectra)))
+                self._import_folders = tuple(dict.fromkeys((*previous, *imported)))
             report = self.catalog.merge(result)
             recovered = {source.key for source in result.spectra} & self._unavailable_paths.keys()
             self._checked_keys.update(recovered & self._unavailable_checked)
@@ -916,6 +1025,72 @@ class SpectraViewerWindow(QMainWindow):
     def _grouping_changed(self):
         self._expanded_paths.clear()
         self._rebuild_tree(remember_expansion=False)
+        self.stateChanged.emit()
+
+    @staticmethod
+    def _source_folder(spectrum):
+        path = PureWindowsPath(str(spectrum.path))
+        if not path.is_absolute() and not spectrum.path.is_absolute():
+            path = PureWindowsPath(str(spectrum.path.absolute()))
+        return path.parent
+
+    @staticmethod
+    def _folder_at_level(folder, level):
+        parents = folder.parents
+        return parents[min(level, len(parents)) - 1] if level and parents else folder
+
+    def _folder_key(self, spectrum):
+        folder = self._source_folder(spectrum)
+        path = self._folder_path or (self._folder_default if self._import_folders else None)
+        if path:
+            depth = len(PureWindowsPath(path).parts)
+            return str(PureWindowsPath(*folder.parts[:depth]))
+        # Earlier snapshots stored a parent offset instead of an absolute path.
+        return str(self._folder_at_level(folder, self._folder_level))
+
+    def _refresh_folder_levels(self):
+        spectra = self.catalog.spectra
+        combo = self.folder_level_combo
+        if spectra is not self._folder_catalog or self._import_folders != getattr(self, "_shown_import_folders", None):
+            self._folder_catalog = spectra
+            self._shown_import_folders = self._import_folders
+            folders = (tuple(map(PureWindowsPath, self._import_folders))
+                       or tuple(dict.fromkeys(self._source_folder(spectrum) for spectrum in spectra)))
+            volumes = {}
+            for folder in folders:
+                volumes.setdefault(folder.anchor.casefold(), []).append(str(folder))
+            anchors = tuple(PureWindowsPath(commonpath(paths)) for paths in volumes.values())
+            paths = sorted({path for folder in anchors for path in (folder, *folder.parents)},
+                           key=lambda path: (-len(path.parts), natural_key(str(path))))
+            # Old workbooks did not store the actual roots selected in the import dialog.
+            self._folder_default = paths[0] if paths and (self._import_folders or len(folders) == 1) else None
+            with QSignalBlocker(combo):
+                combo.clear()
+                for path in map(str, paths):
+                    combo.addItem(path, path)
+                    combo.setItemData(combo.count() - 1, path, Qt.ItemDataRole.ToolTipRole)
+            if folders and self._folder_path and combo.findData(self._folder_path) < 0:
+                self._folder_path = None
+                self._folder_level = 0
+        current = self._folder_path
+        if current is None and self._folder_default is not None:
+            current = str(self._folder_at_level(self._folder_default, self._folder_level))
+        with QSignalBlocker(combo):
+            combo.setCurrentIndex(combo.findData(current))
+        combo.setToolTip((current + "\n" if current else "") +
+                         "Choose an absolute path to set the folder depth for Filter By and Color By.")
+        combo.setVisible(self.group_by_combo.currentData() == "folder" or self.color_mode == "folder")
+        combo.setEnabled(bool(spectra))
+
+    def _folder_level_changed(self, index):
+        self._folder_path = self.folder_level_combo.itemData(index)
+        self._folder_level = 0
+        if self.group_by_combo.currentData() == "folder":
+            self._grouping_changed()
+        else:
+            self._refresh_folder_levels()
+        if self.color_mode == "folder":
+            self._refresh_plots()
 
     def _sort_tree(self, column):
         order = (Qt.SortOrder.DescendingOrder if self._tree_sort == (column, Qt.SortOrder.AscendingOrder)
@@ -943,8 +1118,9 @@ class SpectraViewerWindow(QMainWindow):
         self._spectrum_groups_by_key = {}
         self._all_group_items = []
         group_by = self.group_by_combo.currentData()
-        fields = SPECTRUM_GROUP_FIELDS[group_by]
-        header = {"wafer": "Wafer", "lot": "Lot", "pad": "PAD", "die": "Die"}[group_by]
+        self._refresh_folder_levels()
+        fields = ("folder",) if group_by == "folder" else SPECTRUM_GROUP_FIELDS[group_by]
+        header = {"wafer": "Wafer", "lot": "Lot", "pad": "PAD", "die": "Die", "folder": "Folder"}[group_by]
         self.tree.headerItem().setText(0, f"{header} / Spectrum")
 
         def add_groups(parent, groups, depth=0):
@@ -982,7 +1158,7 @@ class SpectraViewerWindow(QMainWindow):
                     add_groups(item, members, depth + 1)
                 self._set_aggregate_state(item)
 
-        add_groups(self.tree.invisibleRootItem(), self.catalog.grouped(group_by))
+        add_groups(self.tree.invisibleRootItem(), self.catalog.grouped(group_by, folder_key=self._folder_key))
         if self.catalog.issues:
             errors = self._new_group_item("Load errors", "errors")
             errors.setFlags(errors.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
@@ -1200,6 +1376,8 @@ class SpectraViewerWindow(QMainWindow):
         if self.info_window.problems:
             QMessageBox.warning(self.info_window, "Spectra Info matching issues",
                                 "\n".join(self.info_window.problems[:8]) + "\nResolve these issues before exporting or copying.")
+        elif not self.info_columns_configured:
+            self.info_window.open_column_picker()
         return self.info_window
 
     def _refresh_spectra_info(self):
@@ -1241,15 +1419,26 @@ class SpectraViewerWindow(QMainWindow):
             self.stateChanged.emit()
 
     def delete_info_columns(self, tab, columns):
-        before = set(self.info_deleted_columns[tab])
-        after = before | set(columns)
-        if after != before:
-            self.edit_history.push(_SpectraEdit("Delete report columns",
-                lambda: self._apply_info_columns(tab, before), lambda: self._apply_info_columns(tab, after)))
+        hidden = [set(names) for names in self.info_deleted_columns]
+        hidden[tab].update(columns)
+        self.set_info_columns(hidden, "Delete report columns")
 
-    def _apply_info_columns(self, tab, columns):
-        self.info_deleted_columns[tab] = set(columns)
+    def restore_info_columns(self, tab, columns):
+        hidden = [set(names) for names in self.info_deleted_columns]
+        hidden[tab].difference_update(columns)
+        self.set_info_columns(hidden, "Restore report columns")
+
+    def set_info_columns(self, hidden, title="Choose report columns"):
+        previous = [set(names) for names in self.info_deleted_columns]
+        if hidden != previous:
+            self.record_edit(title, lambda: self._apply_info_columns(previous),
+                             lambda: self._apply_info_columns(hidden))
+
+    def _apply_info_columns(self, hidden):
+        self.info_deleted_columns = [set(names) for names in hidden]
         self.stateChanged.emit()
+        self._info_refresh_timer.stop()
+        self._refresh_spectra_info()
 
     def set_test_flags(self, updates):
         if any(type(value) is not int for value in updates.values()):
@@ -1669,6 +1858,9 @@ class SpectraViewerWindow(QMainWindow):
         self._refresh_plots()
 
     def _color_assignments(self):
+        if self.color_mode == "folder":
+            default = self._folder_default if self._import_folders else None
+            return self._folder_path or default, self._folder_level
         return frozenset(self.test_flags.items()) if self.color_mode == 'testflag' else None
 
     def _color_key(self, spectrum, channel):
@@ -1677,7 +1869,8 @@ class SpectraViewerWindow(QMainWindow):
             self._color_keys.clear()
             self._color_order.clear()
         cache_key = (id(spectrum), id(channel), self.color_mode,
-                     self.test_flags.get(spectrum.key,0) if self.color_mode == 'testflag' else None)
+                     self.test_flags.get(spectrum.key,0) if self.color_mode == 'testflag' else
+                     self._color_assignments() if self.color_mode == "folder" else None)
         cached = self._color_keys.get(cache_key)
         if cached is not None:
             return cached
@@ -1686,7 +1879,7 @@ class SpectraViewerWindow(QMainWindow):
         key = WaferChannelKey(identity.wafer, channel.key, identity.lot, identity.pad,
                               spectrum.key if individual else "", spectrum.path.name if individual else "")
         if self.color_mode in ('folder','testflag'):
-            value = str(spectrum.path.parent) if self.color_mode == 'folder' else str(self.test_flags.get(spectrum.key,0))
+            value = self._folder_key(spectrum) if self.color_mode == 'folder' else str(self.test_flags.get(spectrum.key,0))
             key = WaferChannelKey('',channel.key,category=self.color_mode,category_value=value)
         self._color_keys[cache_key] = key
         if key not in self._color_order:
@@ -1882,6 +2075,7 @@ class SpectraViewerWindow(QMainWindow):
         self.color_by_combo.setCurrentIndex(self.color_by_combo.findData(self.color_mode))
         self.color_by_combo.blockSignals(blocked)
         self.color_by_combo.setEnabled(self._analysis_mode != "3sigma")
+        self._refresh_folder_levels()
         self.color_by_combo.setToolTip(
             "3σ summarizes checked files per Wafer/channel; colors remain per Wafer/channel."
             if self._analysis_mode == "3sigma" else "Color by Wafer ID/Lot/PAD, SME file, source Folder or TestFlag, with distinct channel colors.")
@@ -2321,6 +2515,7 @@ class SpectraViewerWindow(QMainWindow):
         for panel in (*self.plot_panels.values(), *self.mueller_panel.mij_plots.values()):
             panel.cancel_rendering()
         if self._loader is not None:
+            self._load_cancel_requested = True
             self._loader.requestInterruption()
             if not self._loader.wait(2000):
                 self._loader.wait()

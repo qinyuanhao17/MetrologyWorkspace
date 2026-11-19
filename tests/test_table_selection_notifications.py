@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pandas as pd
 from PyQt6.QtCore import QItemSelection, QItemSelectionModel, Qt
-from PyQt6.QtTest import QSignalSpy
+from PyQt6.QtTest import QSignalSpy, QTest
 from PyQt6.QtWidgets import QApplication, QHeaderView, QStyleOptionHeader, QTableView
 
 from metrology_app.match_group_ui import OrderModel, ProjectedSheetModel
@@ -25,6 +25,39 @@ class TableSelectionNotificationTests(unittest.TestCase):
         self.addCleanup(view.deleteLater)
         self.addCleanup(view.close)
         return view
+
+    def test_excel_selection_stops_at_end_of_run_and_uses_anchor_in_four_directions(self):
+        model = SheetModel()
+        model.load(pd.DataFrame({'A': ['a', 'b', '', 'c', 'd'],
+                                 'B': ['1', '0', '', '2', '3'],
+                                 'C': ['x', 'y', '', 'z', 'w'],
+                                 'D': ['', '', '', '', '']}))
+        view = self.view(model)
+        view.setCurrentIndex(model.index(1, 0))
+        modifiers = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier
+        for direction, expected in (
+            (Qt.Key.Key_Right, (1, 0, 1, 2)),
+            (Qt.Key.Key_Down, (1, 0, 2, 2)),
+            (Qt.Key.Key_Down, (1, 0, 4, 2)),
+            (Qt.Key.Key_Left, (1, 0, 4, 0)),
+            (Qt.Key.Key_Up, (1, 0, 2, 0)),
+        ):
+            QTest.keyClick(view, direction, modifiers)
+            self.assertEqual(rectangles(view.selectionModel().selection()), [expected])
+
+    def test_excel_selection_also_uses_data_boundaries_in_item_tables(self):
+        from PyQt6.QtWidgets import QTableWidgetItem
+        from metrology_app.table_selection import RangeSelectionTableWidget
+        table = RangeSelectionTableWidget(1, 5)
+        self.addCleanup(table.deleteLater)
+        for column, value in enumerate(('a', '0', '', 'b', 'c')):
+            table.setItem(0, column, QTableWidgetItem(value))
+        table.setCurrentCell(0, 0)
+        modifiers = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier
+        QTest.keyClick(table, Qt.Key.Key_Right, modifiers)
+        self.assertEqual(rectangles(table.selectionModel().selection()), [(0, 0, 0, 1)])
+        QTest.keyClick(table, Qt.Key.Key_Right, modifiers)
+        self.assertEqual(rectangles(table.selectionModel().selection()), [(0, 0, 0, 3)])
 
     def test_native_first_cell_events_keep_delta_order_without_expanding_ranges(self):
         model = SheetModel()

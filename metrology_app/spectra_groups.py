@@ -324,6 +324,8 @@ class SpectraGroupOptions:
         return self.dialog
 
     def apply_settings(self):
+        if self.controls.plan is None:
+            return
         self.controls.accept_changes()
         definition = _definition(self.controls.state)
         frame = file_metadata_dataframe(self.owner.catalog.spectra)
@@ -334,3 +336,5 @@ class SpectraGroupOptions:
         definition.pop('flags',None)
         self.commit({'enabled':True,'definition':definition,'records':records},'Apply Group settings',
                     {key:int(record['flag'] or 0) for key,record in records.items()})
+        if self.dialog is not None and self.dialog.isVisible():
+            self.dialog.accept()
