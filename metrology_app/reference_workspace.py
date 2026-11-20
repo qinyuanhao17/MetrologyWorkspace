@@ -56,10 +56,11 @@ def snapshot(window):
                   "parent": str(value.request.output_parent), "result": result,
                   "outputs": list(map(str, value.output_files)), "issues": list(value.issue_lines)}
     return WorkspaceSnapshot(window.workspace_type, frames, {"ui": {
-        "version": 1, "vendor": window.vendor_name, "files": list(map(str, window.files)),
+        "version": 2, "vendor": window.vendor_name, "files": list(map(str, window.files)),
         "checked": list(map(str, window.selected_source_files())),
         "output_parent": str(window.output_parent) if window.output_parent else None,
         "report": report, "outputs": entries, "active": str(active) if active is not None else None,
+        "source_metadata": window._source_metadata,
         "fixed": page.raw_fixed.isChecked(), "basis": page.sort_basis.currentData(),
         "primary": page.primary.currentData(), "x_order": page.x_order.currentData(),
         "y_order": page.y_order.currentData(), "plot_columns": window.trend_page.columns.currentText(),
@@ -97,14 +98,25 @@ def prepare(snapshot):
     from .reference_summary_window import ReferenceSummaryReport, ReferenceSummaryRequest, VENDOR_DETAILS
 
     ui = snapshot.states.get("ui", {})
-    if (snapshot.workspace_type != "reference_summary" or ui.get("version") != 1
+    version = ui.get("version")
+    if (snapshot.workspace_type != "reference_summary" or version not in (1, 2)
             or ui.get("vendor") not in VENDOR_DETAILS):
         raise ValueError("Invalid Reference Summarizer workspace.")
     if (ui["plot_columns"] not in ("1", "2", "3") or ui["plot_order"] not in ("raw", "ref", "sorted")
             or ui["basis"] not in ("field", "xy") or ui["primary"] not in ("x", "y")
-            or type(ui["tab"]) is not int or not 0 <= ui["tab"] <= 7
+            or type(ui["tab"]) is not int or not 0 <= ui["tab"] <= (7 if version == 1 else 8)
             or any(type(ui[key]) is not bool for key in ("fixed", "x_order", "y_order"))):
         raise ValueError("Invalid Reference workspace controls.")
+    if version == 1 and ui["tab"] >= 4:
+        ui = {**ui, "tab": ui["tab"] + 1}
+    metadata = ui.get("source_metadata", {})
+    if not isinstance(metadata, dict) or any(
+            vendor not in VENDOR_DETAILS or not isinstance(paths, dict)
+            or any(not isinstance(fields, dict)
+                   or any(not isinstance(values, list) or not all(isinstance(value, str) for value in values)
+                          for values in fields.values()) for fields in paths.values())
+            for vendor, paths in metadata.items()):
+        raise ValueError("Invalid Reference source metadata.")
     sources = tuple(map(Path, ui["files"]))
     checked = set(map(Path, ui["checked"]))
     parent = Path(ui["output_parent"]) if ui["output_parent"] else None
@@ -163,6 +175,7 @@ def install(window, prepared):
         window.vendor.setCurrentText(ui["vendor"])
     window._vendor_changed()
     window.output_parent = parent
+    window._source_metadata = ui.get("source_metadata", {})
     window.set_source_files(sources)
     with QSignalBlocker(window.source_list):
         for index, path in enumerate(window.files):

@@ -420,32 +420,39 @@ class SequencePage(QWidget):
         self.selection = selection.copy()
         self._point_input_pending = self.has_drawn_once
 
-    def repaint_point(self, widget, row, removed):
+    def repaint_points(self, widget, points, removed):
         curves = widget.listDataItems() + [item for view in widget.secondary_views for item in view.addedItems
                                           if isinstance(item, pg.PlotDataItem)]
+        selection = widget.point_selection
+        spacing = getattr(widget, "_wafer_spacing", None)
         updated = False
         for item in curves:
             baseline = getattr(item, "_point_edit_baseline", None)
             if baseline is None:
-                rows = getattr(item.scatter, "_selection_rows", None)
-                if not removed or rows is None or row not in rows:
+                rows = selection.original_rows.get(item, getattr(item.scatter, "_selection_rows", None))
+                if not removed or rows is None or points.isdisjoint(rows):
                     continue
+                selection.prepare_item_update(item)
                 x = item.xData
                 saved = getattr(item, "_wafer_ordinals", None)
                 if saved is not None and x is saved[1]:
                     x = saved[0]
-                baseline = (x, item.yData, tuple(item.opts["data"]), rows, set())
+                elif spacing is not None:
+                    x = spacing.inverse(x)
+                baseline = (x, item.yData, tuple(item.opts["data"]), np.asarray(rows), set())
                 item._point_edit_baseline = baseline
             x, y, dies, rows, exclusions = baseline
-            if row not in rows or (not removed and row not in exclusions):
+            affected = points.intersection(rows if removed else exclusions)
+            if not affected:
                 continue
+            if item in selection.masks or selection.selected:
+                selection.prepare_item_update(item)
             if removed:
-                exclusions.add(row)
+                exclusions.update(affected)
             else:
-                exclusions.discard(row)
+                exclusions.difference_update(affected)
             keep = ~np.isin(rows, tuple(exclusions))
             ordinals = x[keep]
-            spacing = getattr(widget, "_wafer_spacing", None)
             display = spacing.forward(ordinals) if spacing is not None else ordinals
             labels = [die for die, include in zip(dies, keep) if include]
             item.setData(x=display, y=y[keep], data=labels)
@@ -454,6 +461,7 @@ class SequencePage(QWidget):
             widget.set_point_rows(item.scatter, rows[keep])
             updated = True
         if updated:
+            selection.update_highlight()
             set_plot_statistics(widget, [(item.name() or widget.getAxis("left").labelText, item.yData)
                                          for item in curves], True)
             self._export_dirty = True

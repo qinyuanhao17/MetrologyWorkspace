@@ -9,6 +9,47 @@ from metrology_app.reference_alignment import (AlignmentColumns, infer_alignment
 
 
 class ReferenceAlignmentTests(unittest.TestCase):
+    def test_ctrl_wheel_syncs_ref_and_raw_wafer_list_progress(self):
+        from PyQt6.QtCore import QPoint, QPointF, Qt
+        from PyQt6.QtGui import QWheelEvent
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.reference_alignment_ui import ReferenceAlignmentPage, CoordinateTrendPage
+
+        app = QApplication.instance() or QApplication([])
+        page = ReferenceAlignmentPage(CoordinateTrendPage())
+        self.addCleanup(page.close)
+        page.resize(1100, 700)
+        page.ref.set_frame(pd.DataFrame({'Wafer ID': [f'R{i}' for i in range(24)]}))
+        page.raw.set_frame(pd.DataFrame({'Wafer ID': [f'D{i}' for i in range(40)]}))
+        page.show()
+        app.processEvents()
+        ref, raw = page.ref_wafers, page.raw_wafers
+        left, right = ref.verticalScrollBar(), raw.verticalScrollBar()
+        self.assertGreater(left.maximum(), 0)
+        self.assertEqual(left.maximum(), right.maximum())
+
+        def wheel(view, delta, modifiers):
+            viewport = view.viewport()
+            point = viewport.rect().center()
+            event = QWheelEvent(QPointF(point), QPointF(viewport.mapToGlobal(point)),
+                                QPoint(), QPoint(0, delta), Qt.MouseButton.NoButton,
+                                modifiers, Qt.ScrollPhase.NoScrollPhase, False)
+            app.sendEvent(viewport, event)
+
+        wheel(ref, -120, Qt.KeyboardModifier.NoModifier)
+        self.assertGreater(left.value(), 0)
+        self.assertEqual(right.value(), 0)
+        control = Qt.KeyboardModifier.ControlModifier
+        previous = left.value()
+        wheel(ref, -120, control)
+        self.assertGreater(left.value(), previous)
+        self.assertEqual(right.value(), left.value())
+        previous = left.value(), right.value()
+        wheel(raw, 120, control)
+        self.assertLess(left.value(), previous[0])
+        self.assertLess(right.value(), previous[1])
+        self.assertEqual(left.value(), right.value())
+
     def test_bias_converts_reference_into_raw_units(self):
         ref = pd.DataFrame({'Wafer ID':['R'],'X(mm)':['1.00'],'Y(mm)':['-2.00']})
         raw = pd.DataFrame({'Wafer ID':['D'],'X(µm)':['1200'],'Y(µm)':['-2300']})
@@ -123,7 +164,7 @@ class ReferenceAlignmentTests(unittest.TestCase):
                 'R2,L,P,0,0,5000,1000\nR2,L,P,1,0,6000,2000\n')
             window._completed(run_reference_summary(ReferenceSummaryRequest('NOVA',(source,),root)))
             page = window.alignment
-            self.assertEqual(window.tabs.count(), 8)
+            self.assertEqual(window.tabs.count(), 9)
             self.assertEqual(len(page.ref.frame()),4)
             self.assertEqual(page.ref.columns().unit,'')
             page.ref.pickers['unit'].setCurrentIndex(page.ref.pickers['unit'].findData('µm'))
@@ -185,12 +226,15 @@ class ReferenceAlignmentTests(unittest.TestCase):
             'Die Seq': ['02', '01', '03', '01'],
             'FIELD X': [1, 0, 2, 0], 'FIELD Y': [0] * 4,
             'X(mm)': [12, 99, 23, 1], 'Y(mm)': [1, 99, 2, 3],
+            'CD': ['7.10', '999', '8.20', '6.00'], 'Width': ['21', '99', '22', '20'],
         }))
         alignment.set_link(('R1', '', ''), ('D1', 'L', 'P'))
         alignment.apply_sort()
-        self.assertTrue(all(window.tabs.isTabEnabled(i) for i in range(3, 8)))
-        self.assertTrue(all(window.tabs.isTabVisible(i) for i in range(3, 8)))
+        self.assertTrue(all(window.tabs.isTabEnabled(i) for i in range(3, 9)))
+        self.assertTrue(all(window.tabs.isTabVisible(i) for i in range(3, 9)))
+        self.assertEqual([window.tabs.tabText(i) for i in (3, 4)], ['4. Ref Data', '5. Raw Data'])
         self.assertTrue(window.analysis.model.document_frame().empty)
+        self.assertTrue(window.analysis.reference_model.document_frame().empty)
         alignment.draw()
 
         for order, expected in (('raw', [2, 3, 1]), ('ref', [3, 1, 2]), ('sorted', [1, 2, 3])):
@@ -199,40 +243,51 @@ class ReferenceAlignmentTests(unittest.TestCase):
             self.assertEqual(list(curve.yData), expected)
 
         window.tabs.setCurrentIndex(3)
-        data = window.analysis.model.document_frame()
+        data = window.analysis.reference_model.document_frame()
+        raw_data = window.analysis.raw_model.document_frame()
         self.assertEqual(list(data.columns[:9]), ['Wafer ID', 'Lot ID', 'Tool SN', 'PAD Name',
                          'Die Seq', 'FIELD X', 'FIELD Y', 'X(mm)', 'Y(mm)'])
         self.assertEqual(data['Wafer ID'].tolist(), ['D1'] * 3)
         self.assertEqual(data['CD'].tolist(), ['001.00', '002.00', '000.00'])
         self.assertEqual(data['X(mm)'].tolist(), ['12', '23', '1'])
+        self.assertEqual(raw_data['Wafer ID'].tolist(), ['D1'] * 3)
+        self.assertEqual(raw_data['CD'].tolist(), ['7.10', '8.20', '6.00'])
         for page in (window.analysis.correlation_page, window.analysis.sequence_page,
                      window.analysis.plot_page, window.analysis.radius_page):
-            self.assertEqual(page.frame['CD'].tolist(), data['CD'].tolist())
+            self.assertEqual(page.frame['CD'].tolist(), data['CD'].tolist() + raw_data['CD'].tolist())
             self.assertIn('CD', page.selection['metrics'])
+            self.assertEqual({key[0] for key, metric in page.selection['available_cells'] if metric == 'CD'},
+                             {'Reference', 'Raw Data'})
         self.assertEqual(window.analysis.plot_page.x_column.currentData(), 'X(mm)')
         self.assertEqual(window.analysis.radius_page.y_column.currentData(), 'Y(mm)')
-        window.analysis._set_checked_values(window.analysis.parameter_list, ('CD', 'Depth'))
-        window.analysis.update_plan()
         for index, page in enumerate((window.analysis.correlation_page,
                                       window.analysis.sequence_page, window.analysis.plot_page,
-                                      window.analysis.radius_page), start=4):
+                                      window.analysis.radius_page), start=5):
             window.tabs.setCurrentIndex(index)
             page.selector.selectAll()
             if page is window.analysis.plot_page:
                 page.draw_maps()
                 finish_graphics(page)
                 self.assertEqual(page.result['scenes'][0]['layer']['x'].tolist(), [12, 23, 1])
+                self.assertEqual({scene['wafer'][0] for scene in page.result['scenes'] if not scene.get('skip')},
+                                 {'Reference', 'Raw Data'})
             else:
                 page.draw_plot()
                 self.assertTrue(page.ready, page.status.text())
+                if page is window.analysis.sequence_page:
+                    self.assertEqual({group['source']['name'] for group in page.groups}, {'Reference', 'Raw Data'})
+                elif page is window.analysis.radius_page:
+                    self.assertEqual({plot['wafer'][0] for plot in page.plot_sources if not plot.get('skip')},
+                                     {'Reference', 'Raw Data'})
         for requested in (['CD'], ['CD', 'Depth']):
             window.analysis.copy_reference(requested)
             copied = clipboard_frame(app.clipboard().text())
             self.assertEqual(list(copied.columns), requested)
             self.assertEqual(copied['CD'].tolist(), ['001.00', '', '002.00', '000.00'])
         alignment.clear_links()
-        self.assertTrue(all(window.tabs.isTabVisible(i) for i in range(3, 8)))
+        self.assertTrue(all(window.tabs.isTabVisible(i) for i in range(3, 9)))
         self.assertTrue(window.analysis.model.document_frame().empty)
+        self.assertTrue(window.analysis.reference_model.document_frame().empty)
 
     def test_loaded_outputs_preserve_raw_edits_and_trends_when_either_tab_switches(self):
         from PyQt6.QtWidgets import QApplication, QLabel
@@ -287,7 +342,7 @@ class ReferenceAlignmentTests(unittest.TestCase):
     def test_sqlite_session_reopens_plot_state_mappings_and_cached_outputs(self):
         from PyQt6.QtWidgets import QApplication
         from metrology_app.reference_summary_window import ReferenceSummaryWindow
-        from metrology_app.workspace_store import workspace_kind
+        from metrology_app.workspace_store import save_workspace, workspace_kind
 
         app = QApplication.instance() or QApplication([])
         original, restored = ReferenceSummaryWindow(), ReferenceSummaryWindow()
@@ -314,14 +369,17 @@ class ReferenceAlignmentTests(unittest.TestCase):
             page.draw()
             original.trend_page.set_order('ref')
             original.trend_page.columns.setCurrentText('2')
-            original.tabs.setCurrentIndex(3)
-            expected = original.analysis.model.document_frame()
+            original.tabs.setCurrentWidget(original.analysis.raw_page)
+            expected = original.analysis.reference_model.document_frame()
             page.output_picker.setCurrentIndex(1)
             page.raw.set_frame(pd.DataFrame({'Wafer ID': ['D2'], 'X(mm)': ['2.00'], 'Y(mm)': ['0']}))
             page.link_aligned()
             page.output_picker.setCurrentIndex(0)
             paths[2].unlink()  # Unvisited output is already in the import snapshot.
             saved = original.save_reference(root / 'alignment')
+            old_snapshot = original.workspace_snapshot()
+            old_snapshot.states['ui'].update(version=1, tab=5)
+            legacy = save_workspace(root / 'legacy.ref', old_snapshot)
             self.assertEqual(saved.suffix, '.ref')
             self.assertEqual(workspace_kind(saved), 'reference_summary')
             for path in paths[:2]:
@@ -329,14 +387,14 @@ class ReferenceAlignmentTests(unittest.TestCase):
             restored.load_workspace(saved)
             restored_page = restored.alignment
             self.assertEqual(restored.selected_source_files(), (paths[0],))
-            self.assertEqual(restored.tabs.currentIndex(), 3)
+            self.assertIs(restored.tabs.currentWidget(), restored.analysis.raw_page)
             self.assertEqual(restored.trend_page.columns.currentText(), '2')
             self.assertEqual(restored.trend_page._order, 'ref')
             self.assertEqual(restored_page.raw.source_rows, page.raw.source_rows)
             self.assertEqual(restored_page.links, page.links)
             self.assertEqual(restored_page.primary.currentData(), 'y')
             self.assertEqual(restored_page.x_order.currentData(), False)
-            pd.testing.assert_frame_equal(restored.analysis.model.document_frame(), expected)
+            pd.testing.assert_frame_equal(restored.analysis.reference_model.document_frame(), expected)
             self.assertFalse(restored.document.is_dirty())
             restored.trend_page.output_picker.setCurrentIndex(1)
             self.assertEqual(restored_page.raw.frame()['Wafer ID'].tolist(), ['D2'])
@@ -344,7 +402,7 @@ class ReferenceAlignmentTests(unittest.TestCase):
             restored_page.output_picker.setCurrentIndex(2)
             self.assertEqual(restored_page.ref.frame()['WaferID'].tolist(), ['R3', 'R3'])
             restored_page.output_picker.setCurrentIndex(0)
-            pd.testing.assert_frame_equal(restored.analysis.model.document_frame(), expected)
+            pd.testing.assert_frame_equal(restored.analysis.reference_model.document_frame(), expected)
             self.assertEqual(restored_page.raw.source_rows, [3, 2])
             links = restored_page.links.copy()
             restored_page.recover_sort()
@@ -352,6 +410,8 @@ class ReferenceAlignmentTests(unittest.TestCase):
             self.assertEqual(restored_page.raw.source_rows, [2, 3])
             self.assertEqual(restored_page.raw.frame()['X(mm)'].tolist(), ['1.50', '2.50'])
             self.assertFalse(restored_page.results)
+            restored.load_workspace(legacy)
+            self.assertIs(restored.tabs.currentWidget(), restored.analysis.sequence_page)
 
     def test_loading_output_folders_adds_only_checked_summary_csvs(self):
         from unittest.mock import patch

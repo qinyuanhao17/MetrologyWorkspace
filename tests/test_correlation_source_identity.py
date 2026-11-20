@@ -68,7 +68,11 @@ class CorrelationSourceIdentityTests(unittest.TestCase):
         APP.processEvents()
         plot, = page.plot_widgets
         scatter = plot.listDataItems()[0]
+        point_count = len(scatter.getData()[1])
         self.double_click(plot, scatter, 3, 8, Qt.KeyboardModifier.ShiftModifier)
+        QTest.qWait(180)
+        self.assertEqual(page.plot_widgets, [plot])
+        self.assertEqual(len(scatter.getData()[1]), point_count - 1)
 
         dialog = window._data_selection_dialog()
         keys = participation_source_keys(raw)
@@ -96,7 +100,26 @@ class CorrelationSourceIdentityTests(unittest.TestCase):
         other_data = other.listDataItems()[0].yData.copy()
         item, = plot.listDataItems()
         original = item.yData.copy()
-        self.double_click(plot, item.scatter, item.xData[0], item.yData[0], Qt.KeyboardModifier.ShiftModifier)
+        x, y = item.xData[0], item.yData[0]
+        with patch.object(page, "draw_plot", wraps=page.draw_plot) as draw:
+            self.double_click(plot, item.scatter, x, y)
+            self.double_click(plot, item.scatter, x, y)
+            self.assertEqual(item.yData.tolist(), original.tolist())
+            masked_x, masked_y = item.xData[-1], item.yData[-1]
+            self.double_click(plot, item.scatter, masked_x, masked_y)
+            self.double_click(plot, item.scatter, x, y, Qt.KeyboardModifier.ShiftModifier)
+            QTest.qWait(180)
+            self.assertEqual(item.yData.tolist(), original[1:-1].tolist())
+            self.assertEqual(window._table_participating_positions("reference", reference), {0, 1})
+            self.double_click(plot, item.scatter, x, y, Qt.KeyboardModifier.ShiftModifier)
+            QTest.qWait(180)
+            self.assertEqual(item.yData.tolist(), original[:-1].tolist())
+            self.double_click(plot, item.scatter, masked_x, masked_y)
+            self.assertEqual(item.yData.tolist(), original.tolist())
+            self.assertEqual(window._table_participating_positions("reference", reference), {0, 1, 2})
+            self.double_click(plot, item.scatter, x, y, Qt.KeyboardModifier.ShiftModifier)
+            QTest.qWait(180)
+            draw.assert_not_called()
 
         self.assertEqual(window._table_participating_positions("reference", reference), {0, 1})
         self.assertEqual(window.participating_positions(raw), set(range(len(raw))))

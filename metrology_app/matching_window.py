@@ -6158,6 +6158,11 @@ class MatchingWindow(QMainWindow):
     @recovery_decision
     def save_workbook(self, path, *, capture_children=True, child=None):
         commit_editors(self)
+        if self._auto_run_pending:
+            # Save the result of edits made before Save, even when their
+            # automatic analysis is still queued by the typing debounce.
+            self._raw_keyboard_timer.stop()
+            self._run_paste_analysis()
         self.finish_linked_updates()
         previous = self._accepted_workspace_state()
         children = tuple(self._stage_windows) if capture_children else (() if child is None else (child,))
@@ -6195,6 +6200,7 @@ class MatchingWindow(QMainWindow):
             target = self.document.choose_target(path)
             if target is None:
                 return None
+            spectra_children = tuple(self._spectra_windows.items())
             snapshot = self.workspace_snapshot()
             candidate = self._accepted_workspace_state()
         finally:
@@ -6212,37 +6218,51 @@ class MatchingWindow(QMainWindow):
         self.document.untrusted_recovery = False
         if capture_children:
             self._recovered_children.clear()
-        self.document.mark_clean(snapshot)
-        for scope, spectra in self._spectra_windows.items():
-            if spectra.document.path is None:
-                spectra.document.mark_clean(WorkspaceSnapshot(
-                    "spectra_viewer", {"spectra": snapshot.frames[f"{scope}.spectra"]},
-                    {"ui": snapshot.states[scope]["ui"]},
-                ))
-            else:
-                spectra.document.refresh_identity()
-        for workspace, baseline in baselines.items():
-            workspace.document.mark_clean(baseline)
-            workspace._use_workbook_data = False
-            scope = getattr(workspace, "_managed_scope", "")
-            workspace._independent_data = bool(self._workspace_states.get(scope, {}).get("data_override"))
         # Everything below is auxiliary to an already committed file.
         try:
+            self.document.mark_clean(snapshot)
+            # The background write can process close/open events. Only update
+            # the live instances whose data was included in this snapshot.
+            for scope, spectra in spectra_children:
+                if self._spectra_windows.get(scope) is not spectra or sip.isdeleted(spectra):
+                    continue
+                if spectra.document.path is None:
+                    spectra.document.mark_clean(WorkspaceSnapshot(
+                        "spectra_viewer", {"spectra": snapshot.frames[f"{scope}.spectra"]},
+                        {"ui": snapshot.states[scope]["ui"]},
+                    ))
+                else:
+                    spectra.document.refresh_identity()
+            for workspace, baseline in baselines.items():
+                if workspace not in self._stage_windows:
+                    continue
+                workspace.document.mark_clean(baseline)
+                workspace._use_workbook_data = False
+                scope = getattr(workspace, "_managed_scope", "")
+                workspace._independent_data = bool(self._workspace_states.get(scope, {}).get("data_override"))
             self.workbook = None if snapshot.states["match"]["draft"] else MatchWorkbook.from_snapshot(snapshot)
             self.reveal_wkb_action.setEnabled(True)
             for workspace in children:
+                if workspace not in self._stage_windows:
+                    continue
                 model = getattr(workspace, "model", None)
                 if model is not None and hasattr(model, "undo"):
                     model.undo.setClean()
             for workspace in self._stage_windows:
                 if hasattr(workspace, "document"):
                     workspace.document.refresh_identity()
-            if self.document.has_changes():
+            # The Workbook title includes child drafts. Refresh after the
+            # saved children have accepted their baselines.
+            self.document.refresh_identity()
+            unsaved = self.isWindowModified()
+            if unsaved:
                 self.document.write_recovery()
             else:
                 self.document.remove_recovery()
             warning = f" · Warning: {self.document.last_warning}" if self.document.last_warning else ""
-            self._set_status(f"Saved {saved.name}{warning}")
+            pending = " · Unsaved changes remain" if unsaved else ""
+            self._set_status("")
+            self.statusBar().showMessage(f"Saved {saved.name}{pending}{warning}", 8000)
             LOGGER.info("WKB saved: %s", saved)
         except Exception as error:
             self.document.last_warning = str(error)
@@ -6340,7 +6360,8 @@ class MatchingWindow(QMainWindow):
             return self.save_wkb_dialog()
         try:
             saved = self.save_workbook(self.workbook_path)
-            self._remember_recent_wkb(saved)
+            if saved is not None:
+                self._remember_recent_wkb(saved)
             return saved
         except Exception as error:
             LOGGER.exception("Cannot save WKB")
@@ -6364,7 +6385,8 @@ class MatchingWindow(QMainWindow):
             )
             if path:
                 saved = self.save_workbook(path, capture_children=capture_children, child=child)
-                self._remember_recent_wkb(saved)
+                if saved is not None:
+                    self._remember_recent_wkb(saved)
                 return saved
         except Exception as error:
             LOGGER.exception("Cannot save WKB")

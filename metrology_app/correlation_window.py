@@ -3,6 +3,7 @@
 from pathlib import Path
 from copy import deepcopy
 from collections import Counter
+from itertools import chain
 
 import numpy as np
 import pandas as pd
@@ -109,6 +110,7 @@ class CorrelationWindow(DataWorkspaceWindow):
         self._reference_excluded = set()
         self._reference_selection_view = {}
         super().__init__()
+        self._chart_edits.point_edit = self._apply_point_participation
         self.setWindowTitle("Correlation and Trend")
         self.raw_model = self.model
         self.raw_sheet = self.sheet
@@ -117,7 +119,8 @@ class CorrelationWindow(DataWorkspaceWindow):
         self.tabs.setTabText(0, "2. Raw Data")
 
         self.reference_model = SheetModel()
-        self.reference_sheet = SheetView(self.reference_model, metadata_locks=True)
+        derived = getattr(self, "derived_table", False)
+        self.reference_sheet = SheetView(self.reference_model, read_only=derived, metadata_locks=not derived)
         self.reference_page = self._build_reference_page()
         self.tabs.insertTab(0, self.reference_page, "1. Ref Data")
         self.reference_model.changed.connect(self.refresh_timer.start)
@@ -546,7 +549,7 @@ class CorrelationWindow(DataWorkspaceWindow):
     def _toggle_correlation_point(self, widget, row):
         if self.refresh_timer.isActive() or getattr(self, "_source_refresh_pending", False):
             return
-        self._apply_point_participation(widget, row, True, lambda: self._chart_edits.uncheck({row}))
+        self._chart_edits.uncheck({row}, plot=widget)
 
     def set_workbook_plot_labels(self, options):
         self.display_options.set_workbook_labels(options)
@@ -801,8 +804,8 @@ class CorrelationWindow(DataWorkspaceWindow):
         heading = QHBoxLayout()
         heading.addWidget(help_title_label(
             "Reference table",
-            "Editable Reference values and identities. Value-only imports can "
-            "use identity fields from row-aligned Raw Data.",
+            "Paired Reference data from Wafer Alignment." if self.reference_sheet.read_only else
+            "Editable Reference values and identities. Value-only imports can use identity fields from row-aligned Raw Data.",
         ))
         heading.addStretch()
         for title, callback in (
@@ -811,6 +814,8 @@ class CorrelationWindow(DataWorkspaceWindow):
             ("Paste table", self.paste_reference_table),
             ("Export CSV", self.save_reference_csv),
         ):
+            if self.reference_sheet.read_only and title != "Export CSV":
+                continue
             control = QPushButton(title)
             control.setObjectName("primary" if title == "Open file" else "subtle")
             control.setFixedSize(104, 34)
@@ -1052,8 +1057,8 @@ class CorrelationWindow(DataWorkspaceWindow):
             frame, primary, chosen_groups, use_die_seq=False
         ) if primary else []
         chosen_metrics = (
-            set(self.default_parameters(metrics))
-            if reset else previous_metrics | (set(self.default_parameters(metrics)) - previous_numeric)
+            set(self.default_reference_parameters(metrics))
+            if reset else previous_metrics | (set(self.default_reference_parameters(metrics)) - previous_numeric)
         )
         for tree in (self.reference_wafer_list, self.reference_parameter_list):
             tree.blockSignals(True)
@@ -1131,6 +1136,9 @@ class CorrelationWindow(DataWorkspaceWindow):
         """Correlation starts with all useful numeric columns selected."""
         return [metric for metric in metrics if parameter_checked_by_default(metric)]
 
+    def default_reference_parameters(self, metrics):
+        return self.default_parameters(metrics)
+
     def set_table(self, frame, source, **kwargs):
         if kwargs.get("report_paste"):
             self.model.validate_clipboard_frame(frame)
@@ -1157,7 +1165,7 @@ class CorrelationWindow(DataWorkspaceWindow):
 
     def set_sources(self, reference, raw, mappings, mode="Preview", *, align_reference=True):
         """Load row-aligned WKB sources without merging their visible tables."""
-        self._source_mappings = tuple(mappings)
+        self._source_mappings = tuple(mappings) if mappings is not None else ()
         self._match_groups = None
         self._group_plan = None
         if align_reference:
@@ -1181,10 +1189,8 @@ class CorrelationWindow(DataWorkspaceWindow):
                 self.source_path = f"{mode} Raw Data"
                 self.file_label.setText(self.source_path)
                 self.file_label.setToolTip(self.source_path)
-            self._set_checked_values(
-                self.parameter_list,
-                [mapping.raw_column for mapping in self._source_mappings],
-            )
+            if mappings is not None:
+                self._set_checked_values(self.parameter_list, [mapping.raw_column for mapping in self._source_mappings])
             if not reference_frame.fillna("").astype(str).equals(self.reference_model.document_frame()):
                 if not self.reference_model.update_headers(reference_frame):
                     self.reference_model.load(reference_frame)
@@ -1512,13 +1518,17 @@ class CorrelationWindow(DataWorkspaceWindow):
             return
         trend_selection = self._grouped_trend_selection(selection)
         if self._point_edit_target is not None:
-            widget, row, removed = self._point_edit_target
-            for page in (self.correlation_page, self.sequence_page, self.wafer_statistics_page):
+            widget, _row, removed = self._point_edit_target
+            for page, updated in ((self.correlation_page, selection), (self.sequence_page, trend_selection)):
                 if widget in page.plot_widgets and page.ready and not page.background_render_pending:
+                    # Aligned Ref/Raw can both change from a single checkbox.
+                    before = set(chain.from_iterable(page.selection.get("groups", {}).values()))
+                    after = set(chain.from_iterable(updated.get("groups", {}).values()))
+                    rows = before - after if removed else after - before
                     self.correlation_page.set_point_selection(selection)
                     self.sequence_page.set_point_selection(trend_selection)
                     self.wafer_statistics_page.set_point_selection(trend_selection)
-                    if page.repaint_point(widget, row, removed):
+                    if not rows or page.repaint_points(widget, rows, removed):
                         return
                     break
         self.correlation_page.set_input(frame, selection)

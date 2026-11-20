@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLa
     QScrollArea, QFrame, QApplication, QDialog, QDialogButtonBox, QMessageBox,
     QStackedWidget)
 
-from .widgets import CheckableListWidget, ScrollSafeComboBox
+from .widgets import CheckableListWidget, LinkedVerticalScroll, ScrollSafeComboBox
 from .sheet import SheetModel, SheetView, DuplicateHeaderBanner
 from .appearance import fit_window_to_screen, help_title_label
 from .file_dialogs import choose_files, choose_folders
@@ -245,6 +245,7 @@ class ReferenceAlignmentPage(QWidget):
         link_layout.addLayout(link_tools)
         lists = QHBoxLayout()
         self.ref_wafers, self.raw_wafers = WaferOrderList(), WaferOrderList()
+        self._wafer_scroll_link = LinkedVerticalScroll(self, (self.ref_wafers, self.raw_wafers))
         self.canvas = LinkCanvas(self)
         lists.addWidget(self.ref_wafers,1); lists.addWidget(self.canvas); lists.addWidget(self.raw_wafers,1)
         link_layout.addLayout(lists)

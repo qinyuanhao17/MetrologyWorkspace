@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 import pandas as pd
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QPoint, Qt
 from PyQt6.QtTest import QTest
 
 from metrology_app.sme_spectra import LoadResult
@@ -24,6 +24,31 @@ class SpectraInfoEditTests(unittest.TestCase):
         viewer.set_spectra_info_source(lambda:(raw, pd.DataFrame({'Depth':['8.1','9.2']})))
         viewer.check_all_spectra()
         return viewer, raw, sources
+
+    def test_copy_from_column_header_includes_names_on_every_tab(self):
+        viewer, _, _ = self.viewer()
+        info = viewer.open_spectra_info()
+        info.column_picker.accept()
+        clipboard = fixtures.APP.clipboard()
+        for tab, table in enumerate(info.tables):
+            with self.subTest(tab=tab):
+                info.tabs.setCurrentIndex(tab)
+                fixtures.APP.processEvents()
+                model = table.model()
+                name = model.frame.columns[0]
+                values = [model.index(row, 0).data() for row in range(model.rowCount())]
+                header = table.horizontalHeader()
+                point = QPoint(header.sectionViewportPosition(0) + 12, header.height() // 2)
+                QTest.mouseClick(header.viewport(), Qt.MouseButton.LeftButton, pos=point)
+                QTest.keyClick(table, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
+                self.assertEqual(clipboard.text().splitlines(), [name, *values])
+                menu = info.build_column_menu(tab, 1, header=True)
+                next(action for action in menu.actions() if action.text() == 'Copy Column').trigger()
+                self.assertEqual(clipboard.text().splitlines()[0], model.frame.columns[1])
+
+                table.setCurrentIndex(model.index(0, 0))
+                QTest.keyClick(table, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
+                self.assertEqual(clipboard.text().splitlines(), [values[0]])
 
     def test_delete_column_shifts_report_and_exports_without_changing_source(self):
         viewer, raw, sources = self.viewer()

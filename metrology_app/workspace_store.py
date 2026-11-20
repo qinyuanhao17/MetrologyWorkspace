@@ -16,6 +16,7 @@ import re
 import shutil
 import sqlite3
 import tempfile
+from time import sleep
 from .workspace_frames import StoredFrame, FrameSource, read_frame, check_frame
 
 FORMAT_VERSION = 1
@@ -153,6 +154,22 @@ def _temporary(target):
     return Path(handle.name)
 
 
+def _replace_workspace_file(source, target, *, expected_revision=_UNCHECKED):
+    """Allow short-lived Windows file handles to release an atomic save target."""
+    for delay in (.05, .1, .2, .4, None):
+        if expected_revision is not _UNCHECKED and file_revision(target) != expected_revision:
+            raise ValueError("This workspace changed in another window while saving. Use Save As.")
+        try:
+            os.replace(source, target)
+            return
+        except OSError as error:
+            # Windows can report access denied instead of a sharing violation
+            # when replacing a file another process briefly holds open.
+            if delay is None or getattr(error, "winerror", None) not in (5, 32, 33):
+                raise
+        sleep(delay)
+
+
 class _PayloadConnection(sqlite3.Connection):
     """Keep pandas' per-table commits inside the enclosing document transaction.
 
@@ -256,12 +273,10 @@ def save_workspace(path, snapshot, *, expected_revision=_UNCHECKED, backup=True)
                 shutil.copyfile(target, backup_temp)
                 with backup_temp.open("r+b") as stream:
                     os.fsync(stream.fileno())
-                os.replace(backup_temp, backup_path)
+                _replace_workspace_file(backup_temp, backup_path)
             finally:
                 backup_temp.unlink(missing_ok=True)
-        if file_revision(target) != original_revision:
-            raise ValueError("This workspace changed in another window while saving. Use Save As.")
-        os.replace(temporary, target)
+        _replace_workspace_file(temporary, target, expected_revision=original_revision)
         committed = True
         snapshot.revision = saved_revision
         temporary = None

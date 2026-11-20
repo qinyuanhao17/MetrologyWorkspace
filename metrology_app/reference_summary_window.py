@@ -9,6 +9,7 @@ from PyQt6.QtCore import QSignalBlocker, QThread, Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QAction, QDesktopServices, QKeySequence
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QComboBox,
     QFileDialog,
     QFrame,
@@ -179,6 +180,9 @@ class ReferenceSummaryWindow(QMainWindow):
         self.output_parent: Path | None = None
         self.worker: _SummaryWorker | None = None
         self.report: ReferenceSummaryReport | None = None
+        self._source_metadata = {}
+        self._summary_path = None
+        self._suggested_ref_name = 'Reference.ref'
         self._close_when_finished = False
         self._build_ui()
         self._vendor_changed()
@@ -233,6 +237,8 @@ class ReferenceSummaryWindow(QMainWindow):
         self.save_reference_as_action = self.file_menu.addAction("Save Reference Workspace As…")
         self.save_reference_as_action.setShortcut("Ctrl+Shift+S")
         self.save_reference_as_action.triggered.connect(lambda: self.save_wkb(save_as=True))
+        self.show_summary_action = self.file_menu.addAction("Show Summary in File Explorer")
+        self.show_summary_action.triggered.connect(self.show_summary)
 
         cancel_action = QAction(self)
         cancel_action.setShortcut(QKeySequence(Qt.Key.Key_Escape))
@@ -248,19 +254,92 @@ class ReferenceSummaryWindow(QMainWindow):
         from .reference_workspace import install, prepare
         install(self, prepare(snapshot))
 
+    def workspace_save_default(self):
+        directory = self.document.path.parent if self.document.path else self.output_parent
+        return (directory or Path.cwd()) / self._suggested_ref_name
+
+    def _summary_metadata(self):
+        from .reference_metadata import FIELDS, collect_sources, frame_metadata
+
+        page = self.alignment
+        active = page._dataset.path
+        vendor = page._output_vendors.get(active, self.vendor_name)
+        if vendor not in FIELDS:
+            vendor = self.vendor_name
+        if self.report is None:
+            inputs = self.selected_source_files()
+        else:
+            inputs = self.report.request.files if self.report.request.vendor == vendor else ()
+        cached = self._source_metadata.get(vendor, {})
+        sources = collect_sources(vendor, inputs, cached)
+        fields = frame_metadata(vendor, page.ref.frame())
+        outputs = [(str(active) if active else 'Wafer Alignment', fields)] if fields or active else []
+        for output in page._output_vendors:
+            if output == active or page._output_vendors[output] not in (vendor, 'Ref'):
+                continue
+            dataset = page._datasets.get(output)
+            frame = dataset.ref.frame() if dataset is not None else page._saved_output_frames.get(output)
+            if frame is not None:
+                outputs.append((str(output), frame_metadata(vendor, frame)))
+        return vendor, fields, outputs, sources
+
     def save_reference(self, path=None, *, save_as=False):
         from .reference_workspace import cache_available_outputs
+        from .reference_metadata import suggested_filename, summary_text, write_summary
         if self.worker is not None:
             raise ValueError("Wait for the current summary to finish.")
         cache_available_outputs(self.alignment)
-        return self.document.save(path, save_as=save_as)
+        vendor, fields, outputs, sources = self._summary_metadata()
+        self._suggested_ref_name = suggested_filename(vendor, fields, sources,
+                                                       [metadata for _, metadata in outputs])
+        previous = self._source_metadata
+        cached = {**previous.get(vendor, {}), **{name: fields for name, fields in sources.items() if fields}}
+        self._source_metadata = {**previous, vendor: cached} if cached else previous
+        saved = None
+        try:
+            saved = self.document.save(path, save_as=save_as)
+        finally:
+            if saved is None:
+                self._source_metadata = previous
+        if saved is not None:
+            self._summary_path = None
+            try:
+                self._summary_path = write_summary(saved, summary_text(vendor, saved, outputs, sources))
+            except OSError as error:
+                self.statusBar().showMessage(f"Saved {saved.name}. Summary could not be written: {error}", 10000)
+        return saved
 
     def save_wkb(self, *, save_as=False):
         try:
-            return self.save_reference(save_as=save_as)
+            saved = self.save_reference(save_as=save_as)
+            if saved and self._summary_path and QApplication.platformName() != 'offscreen':
+                self.show_summary()
+            return saved
         except (OSError, ValueError) as error:
             QMessageBox.warning(self, "Cannot save Reference Workspace", str(error))
             return None
+
+    def show_summary(self):
+        from .matching_window import reveal_path_in_folder
+        from .reference_metadata import MARKER
+
+        if not self.document.path:
+            return
+        workspace = self.document.path
+        try:
+            prefix = workspace.stem + '.summary'
+            candidates = [workspace.with_suffix('.txt'), *sorted(path for path in workspace.parent.iterdir()
+                          if path.name.startswith(prefix) and path.suffix == '.txt')]
+            for path in (self._summary_path, *candidates):
+                if path is None or not path.is_file():
+                    continue
+                with path.open(encoding='utf-8-sig', errors='replace') as stream:
+                    if stream.readline().strip() != MARKER:
+                        continue
+                reveal_path_in_folder(path)
+                return
+        except OSError as error:
+            self.statusBar().showMessage(f"Could not show the summary: {error}", 10000)
 
     def load_workspace(self, path):
         from .reference_workspace import install, prepare
@@ -278,6 +357,7 @@ class ReferenceSummaryWindow(QMainWindow):
             self.document.recover(path, draft)
             return draft
         install(self, prepared)
+        self._summary_path = None
         self.document.path = Path(path).resolve()
         self.document.revision = draft.revision
         self.document.untrusted_recovery = False

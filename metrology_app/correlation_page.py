@@ -654,21 +654,24 @@ class CorrelationPage(QWidget):
         self.selection = selection.copy()
         self._point_input_pending = self.has_drawn_once
 
-    def repaint_point(self, widget, row, removed):
+    def repaint_points(self, widget, points, removed):
         for index, key in enumerate(self._visible_panel_keys):
             entry = self._panel_cache[key]
             if entry["widget"] is not widget:
                 continue
             rows = entry.setdefault("removed_points", set())
-            if not removed and row not in rows:
+            if not removed and rows.isdisjoint(points):
                 return False  # A complete redraw may already have consumed the new selection.
             if removed:
-                rows.add(row)
+                rows.update(points)
             else:
-                rows.discard(row)
+                rows.difference_update(points)
             fit = _fit_without_points(self.oriented_fit(entry["original"]), rows)
             rank = self.page_index * int(self.page_size.currentText()) + index + 1
+            for points, _line in entry["items"]:
+                widget.point_selection.prepare_item_update(points)
             self._update_render_panel(entry, fit, rank, int(self.font_size.currentText()))
+            widget.point_selection.update_highlight()
             self.home_views[index:index + 1] = [entry["home"]]
             self._export_dirty = True
             self._copy_image = self._copy_dpi = None

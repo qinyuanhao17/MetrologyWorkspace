@@ -61,6 +61,52 @@ class WorkspaceStoreTests(unittest.TestCase):
                     save_workspace(path, snapshot)
             self.assertEqual(path.read_bytes(), original)
 
+    @unittest.skipUnless(os.name == "nt", "Windows file sharing semantics")
+    def test_temporary_file_handles_on_backup_and_workbook_allow_retry(self):
+        snapshot = WorkspaceSnapshot("dynamic", {"input_data": pd.DataFrame({"CD": ["1.00"]})})
+        with tempfile.TemporaryDirectory() as directory:
+            path = save_workspace(Path(directory) / "dynamic.wdyn", snapshot)
+            save_workspace(path, snapshot)  # Create the previous backup.
+            backup = path.with_name(path.name + ".bak")
+            held_destinations = {path, backup}
+            replace = os.replace
+
+            def held_once(source, destination):
+                if destination in held_destinations:
+                    held_destinations.remove(destination)
+                    with destination.open("rb"):
+                        return replace(source, destination)
+                return replace(source, destination)
+
+            snapshot.frames["input_data"].iloc[0, 0] = "2.00"
+            with patch.object(os, "replace", side_effect=held_once):
+                save_workspace(path, snapshot, expected_revision=snapshot.revision)
+            self.assertFalse(held_destinations)
+            self.assertEqual(load_workspace(path).frames["input_data"].iloc[0, 0], "2.00")
+            self.assertEqual(load_workspace(backup).frames["input_data"].iloc[0, 0], "1.00")
+
+    def test_workbook_changed_during_replace_retry_is_not_overwritten(self):
+        snapshot = WorkspaceSnapshot("dynamic", {"input_data": pd.DataFrame({"CD": ["1.00"]})})
+        newer = WorkspaceSnapshot("dynamic", {"input_data": pd.DataFrame({"CD": ["3.00"]})})
+        with tempfile.TemporaryDirectory() as directory:
+            path = save_workspace(Path(directory) / "dynamic.wdyn", snapshot)
+            other = save_workspace(Path(directory) / "other.wdyn", newer)
+            replace = os.replace
+
+            def external_save_then_busy(source, destination):
+                if destination == path:
+                    shutil.copyfile(other, path)
+                    error = PermissionError("temporary file sharing conflict")
+                    error.winerror = 32
+                    raise error
+                return replace(source, destination)
+
+            with patch.object(os, "replace", side_effect=external_save_then_busy):
+                with self.assertRaisesRegex(ValueError, "changed in another"):
+                    save_workspace(path, snapshot, expected_revision=snapshot.revision)
+            self.assertEqual(load_workspace(path).frames["input_data"].iloc[0, 0], "3.00")
+            self.assertFalse(path.with_name(path.name + ".lock").exists())
+
     def test_lock_cleanup_failure_after_commit_does_not_report_unsaved(self):
         snapshot = WorkspaceSnapshot("dynamic", {"input_data": pd.DataFrame({"CD": ["2.00"]})})
         unlink = Path.unlink

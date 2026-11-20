@@ -1,6 +1,7 @@
 """Qt gestures preserve the separation between a plot mask and Data selection."""
 
 import unittest
+from unittest.mock import Mock
 
 import numpy as np
 import pandas as pd
@@ -148,6 +149,14 @@ class PlotPointSelectionTests(unittest.TestCase):
         self.assertEqual(color.name().upper(), SELECTION_HIGHLIGHT_COLOR.upper())
         linked = self.plot.point_selection.preview.opts["pen"].color()
         self.assertEqual(linked.name().upper(), "#F2B705")
+
+    def test_matching_preview_points_reads_source_identities_once(self):
+        records = Mock(return_value=("A", "B", "C", "D"))
+        self.plot.point_selection.data = DataPointEdits(lambda rows, checked: rows, records=records)
+
+        self.assertEqual(self.plot.point_selection.tokens_for_keys({"B", "D"}),
+                         {(self.curve, 1), (self.curve, 3)})
+        records.assert_called_once_with()
 
     def test_click_selects_and_links_the_same_parameter_with_an_enlarged_marker(self):
         other = InteractivePlotWidget()

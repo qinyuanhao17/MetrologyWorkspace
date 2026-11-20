@@ -17,7 +17,7 @@ from .window import MainWindow as DataWorkspaceWindow
 
 
 class ReferenceAnalysisPages(CorrelationWindow):
-    """Reuse the standard Data page and plot pages with one derived source."""
+    """Reuse the standard analysis pages with paired, derived Ref and Raw sources."""
 
     derived_table = True
 
@@ -31,19 +31,16 @@ class ReferenceAnalysisPages(CorrelationWindow):
         self.alignment = alignment
         alignment.trend_page.data_point_edits = self._chart_edits
         self.measurement_floating_editor.owner = tabs.window()
-        self.data_page = self.tabs.widget(1)
+        self.reference_floating_editor.owner = tabs.window()
+        self.raw_page = self.tabs.widget(1)
         controls = self.measurement_panel.layout().itemAt(0).layout()
         selection = QPushButton('Data selection…')
         selection.clicked.connect(self.open_data_selection)
         controls.insertWidget(2, selection)
-        self.copy_reference_button = QPushButton('Copy Reference')
-        self.copy_reference_button.setEnabled(False)
-        self.copy_reference_button.clicked.connect(self.choose_reference_columns)
-        controls.insertWidget(3, self.copy_reference_button)
         for page, title in (
-            (self.data_page, '4. Data'), (self.correlation_page, '5. Correlation'),
-            (self.sequence_page, '6. Trend'), (self.plot_page, '7. WaferMap'),
-            (self.radius_page, '8. Radius Plot'),
+            (self.reference_page, '4. Ref Data'), (self.raw_page, '5. Raw Data'),
+            (self.correlation_page, '6. Correlation'), (self.sequence_page, '7. Trend'),
+            (self.plot_page, '8. WaferMap'), (self.radius_page, '9. Radius Plot'),
         ):
             tabs.addTab(page, title)
         alignment.alignment_changed.connect(self.refresh_alignment)
@@ -56,11 +53,20 @@ class ReferenceAnalysisPages(CorrelationWindow):
             self.alignment.trend_page.refresh_point_checks(self.participating_positions(self._frame))
         return changed
 
-    def default_parameters(self, metrics):
-        return [name for name in super().default_parameters(metrics) if name in self.reference_parameters]
+    def _build_reference_sheet_card(self):
+        card = super()._build_reference_sheet_card()
+        controls = card.layout().itemAt(0).layout()
+        selection = QPushButton('Data selection…')
+        selection.clicked.connect(self.open_data_selection)
+        controls.insertWidget(2, selection)
+        self.copy_reference_button = QPushButton('Copy Reference')
+        self.copy_reference_button.setEnabled(False)
+        self.copy_reference_button.clicked.connect(self.choose_reference_columns)
+        controls.insertWidget(3, self.copy_reference_button)
+        return card
 
-    def is_parameter_selectable(self, column, numeric):
-        return numeric and column in self.reference_parameters
+    def default_reference_parameters(self, metrics):
+        return [name for name in super().default_reference_parameters(metrics) if name in self.reference_parameters]
 
     def refresh_alignment(self):
         results = self.alignment.results or None
@@ -70,10 +76,10 @@ class ReferenceAnalysisPages(CorrelationWindow):
         try:
             if not self.alignment.results:
                 raise ValueError('Link the wafers and plot XY Bias in Wafer Alignment.')
-            frame, values, axes = self.alignment.reference_data()
+            frame, raw, values, axes = self.alignment.reference_data()
             source = 'Aligned Reference' if len(frame) else 'No matched rows in the linked wafers.'
         except ValueError as error:
-            frame, values, axes = pd.DataFrame(), pd.DataFrame(), ()
+            frame, raw, values, axes = pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), ()
             source = str(error)
         self.reference_values = values
         columns = self.alignment.ref.columns()
@@ -83,7 +89,7 @@ class ReferenceAnalysisPages(CorrelationWindow):
             display for name, display in zip(values.columns, frame.columns[-len(values.columns):])
             if name not in identity and not is_metadata_column(name)
         )
-        self.set_table(frame, 'Aligned Reference', keep_local_selection=True)
+        self.set_sources(frame, raw, None, 'Aligned', align_reference=False)
         if len(frame):
             self.alignment.trend_page.refresh_point_checks(self.participating_positions(self._frame))
         for page in (self.plot_page, self.radius_page):
@@ -114,7 +120,7 @@ class ReferenceAnalysisPages(CorrelationWindow):
             self.radius_page.selection = selection.copy()
 
     def choose_reference_columns(self):
-        dialog = QDialog(self.data_page)
+        dialog = QDialog(self.reference_page)
         dialog.setWindowTitle('Copy Reference')
         layout = QVBoxLayout(dialog)
         columns = CheckableListWidget()

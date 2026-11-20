@@ -162,7 +162,7 @@ def coordinate_bias(ref, raw, ref_columns, raw_columns, links, *,
 
 
 def aligned_reference_data(ref, raw, raw_columns, results, ref_source_rows, raw_source_rows):
-    """Build the derived Data tab and a full-length, Raw-indexed clipboard table."""
+    """Build both paired tables and a full-length, Raw-indexed Ref clipboard table."""
     ref_positions = {source: index for index, source in enumerate(ref_source_rows)}
     raw_positions = {source: index for index, source in enumerate(raw_source_rows)}
     pairs = sorted(
@@ -198,7 +198,10 @@ def aligned_reference_data(ref, raw, raw_columns, results, ref_source_rows, raw_
                 name = f'Ref {name}'
         display_names[column] = name
     clipboard = ref_values.set_axis(list(source_rows)).reindex(sorted(raw_source_rows), fill_value='')
-    return pd.concat([prefix, ref_values.rename(columns=display_names)], axis=1), clipboard, axes
+    raw_measurements = raw_values.drop(columns=[column for column in raw_values
+                                               if column in prefix or column in metadata.values()])
+    return (pd.concat([prefix, ref_values.rename(columns=display_names)], axis=1),
+            pd.concat([prefix, raw_measurements], axis=1), clipboard, axes)
 
 
 def scan_alignment_outputs(folders):

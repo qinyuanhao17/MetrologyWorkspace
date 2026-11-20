@@ -73,6 +73,7 @@ class DataPointEdits:
         self.set_flag = set_flag
         self.records = records
         self.flag_values = flag_values
+        self.point_edit = None
         self.unchecked = set()
         self.applied_unchecks = set()
         self.removed_by_plot = {}
@@ -129,9 +130,15 @@ class DataPointEdits:
             except RuntimeError:
                 self._preview_listeners.discard(target)
 
-    def uncheck(self, keys, *, from_removed=False):
+    def _set_checks(self, rows, checked, plot):
+        if plot is not None and self.point_edit is not None and len(rows) == 1:
+            return self.point_edit(plot, next(iter(rows)), not checked,
+                                   lambda: self.set_checked(rows, checked))
+        return self.set_checked(rows, checked)
+
+    def uncheck(self, keys, *, from_removed=False, plot=None):
         records = self.records() if self.records is not None else None
-        changed = self.set_checked(set(keys), False)
+        changed = self._set_checks(set(keys), False, plot)
         changed_keys = changed if records is None else {records[row] for row in changed}
         if not changed_keys:
             return set()
@@ -145,27 +152,28 @@ class DataPointEdits:
         history = self.applied_unchecks if from_removed else self.unchecked
         return self.restore_keys(history, from_removed=from_removed)
 
-    def restore_keys(self, keys, *, from_removed=False):
+    def restore_keys(self, keys, *, from_removed=False, plot=None):
         history = self.applied_unchecks if from_removed else self.unchecked
         selected = set(history) & set(keys)
         if not selected:
             return set()
         if self.records is None:
-            restored = self.set_checked(selected, True)
+            restored = self._set_checks(selected, True, plot)
             history.difference_update(restored)
             return set(restored)
         else:
             records = self.records()
             rows = {row for row, key in enumerate(records) if key in selected}
-            restored = self.set_checked(rows, True)
+            restored = self._set_checks(rows, True, plot)
             restored_keys = {records[row] for row in restored}
             history.difference_update(restored_keys)
             return restored_keys
 
-    def record_key(self, row):
+    def record_key(self, row, records=None):
         if self.records is None:
             return row
-        records = self.records()
+        if records is None:
+            records = self.records()
         return records[row] if 0 <= row < len(records) else None
 
     def available_flags(self):
@@ -406,6 +414,9 @@ class CurveSelection:
     def tokens_for_keys(self, keys):
         if self.data is None or not keys:
             return set()
+        # Identity providers can compute keys for the entire source table.
+        # Reuse one lookup across the points in this plot.
+        records = self.data.records() if self.data.records is not None else None
         picked = set()
         for _view, item in self.series(include_hidden=False):
             rows = self._item_rows(item)
@@ -416,7 +427,7 @@ class CurveSelection:
                 if index in hidden:
                     continue
                 try:
-                    key = self.data.record_key(int(row))
+                    key = self.data.record_key(int(row), records)
                 except (TypeError, ValueError):
                     key = row
                 if key in keys:
@@ -466,8 +477,10 @@ class CurveSelection:
 
     def double_click(self, point, modifiers):
         self.prune()
-        visible = self.points_near(point, include_hidden=False)
-        hidden = self.points_near(point, include_hidden=True) - visible
+        nearby = self.points_near(point, include_hidden=True)
+        hidden = {(item, index) for item, index in nearby
+                  if index in self.masks.get(item, (None, None, (), None))[2]}
+        visible = nearby - hidden
         views = {item: view for view, item in self.series(include_hidden=True)}
 
         def distance(token):
@@ -482,17 +495,16 @@ class CurveSelection:
             keys = ({self.data.record_key(int(row)) for row in rows}
                     if self.data is not None and self.data.records is not None else set(rows))
             keys.discard(None)
-            if not keys:
-                keys = self.unchecked_key_at(point)
+            keys = self.unchecked_key_at(point) or keys
             if not keys or self.data is None:
                 return False
             restore = keys & set(self.data.unchecked)
             if restore:
-                self.data.restore_keys(restore)
+                self.data.restore_keys(restore, plot=self.plot)
                 for key in restore:
                     self.unchecked_clicks.pop(key, None)
             else:
-                changed = self.data.uncheck(rows)
+                changed = self.data.uncheck(rows, plot=self.plot)
                 if nearest is not None:
                     for key in changed:
                         self.unchecked_clicks[key] = QPoint(point)
@@ -511,17 +523,24 @@ class CurveSelection:
         import numpy as np
 
         picked = set()
+        # The lookup ends in rounded device pixels. Leave an extra pixel
+        # around the hit area, then apply the original exact distance test.
+        scene = self.plot.mapToScene(QRect(point.x() - 10, point.y() - 10, 21, 21)).boundingRect()
         for view, item in self.series(include_hidden=True):
             x, y = self._original_values(item)
             if x is None or y is None:
                 continue
             hidden = self.masks.get(item, (None, None, set(), None))[2]
-            mapped = [self.plot.mapFromScene(view.mapViewToScene(QPointF(float(px), float(py))))
-                      for px, py in zip(x, y)]
-            for index, position in enumerate(mapped):
+            a, b = view.mapSceneToView(scene.topLeft()), view.mapSceneToView(scene.bottomRight())
+            left, right = sorted((a.x(), b.x()))
+            bottom, top = sorted((a.y(), b.y()))
+            candidates = np.flatnonzero((x >= left) & (x <= right) & (y >= bottom) & (y <= top))
+            for candidate in candidates:
+                index = int(candidate)
                 if index in hidden and not include_hidden:
                     continue
-                if np.isfinite(y[index]) and (position - point).manhattanLength() <= 9:
+                position = self.plot.mapFromScene(view.mapViewToScene(QPointF(float(x[index]), float(y[index]))))
+                if (position - point).manhattanLength() <= 9:
                     picked.add((item, index))
         return picked
 
@@ -563,11 +582,17 @@ class CurveSelection:
         return self.data.removed_by_plot.get(self.scope, set())
 
     def _identities(self, item, indices, records):
+        rows = self._item_rows(item)
+        if rows is None:
+            return
         name = item.name() if hasattr(item, "name") else None
         if not name:
             name = next((i for i, (_, series) in enumerate(self.series(include_hidden=True)) if series is item), None)
         for index in indices:
-            positions = self.data_keys({(item, index)})
+            if index >= len(rows):
+                continue
+            row = rows[index]
+            positions = set(row) if isinstance(row, (tuple, set, frozenset, list)) else (row,)
             keys = tuple(records[row] for row in sorted(positions) if 0 <= row < len(records))
             if keys:
                 yield index, (name, keys)
@@ -587,6 +612,14 @@ class CurveSelection:
 
     def removed(self):
         return {(item, index) for item, (_, _, removed, _) in self.masks.items() for index in removed}
+
+    def prepare_item_update(self, item):
+        # Local removals are stored by source identity and reapplied when the
+        # plot installs the new row positions. Restore the old arrays first.
+        self.selected = {(series, index) for series, index in self.selected if series is not item}
+        mask = self.masks.pop(item, None)
+        if mask is not None:
+            self._write(item, mask[0], mask[1])
 
     def _write(self, item, x, y, hidden=()):
         import numpy as np

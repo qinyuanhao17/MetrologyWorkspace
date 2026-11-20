@@ -96,7 +96,7 @@ class ExcelHeaderFilters(QObject):
         QTimer.singleShot(0, self.position_buttons)
 
     def eventFilter(self, watched, event):
-        if watched is self.header and event.type() in (QEvent.Type.Resize, QEvent.Type.Show):
+        if event.type() in (QEvent.Type.Resize, QEvent.Type.Show) and watched is getattr(self, "header", None):
             self.position_buttons()
         return False
 

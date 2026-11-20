@@ -69,6 +69,7 @@ class SpectraInfoWindow(QMainWindow):
         self.column_picker = None
         for tab, title in enumerate(("Spectra Info", "With Test Flag", "XY")):
             table = RangeSelectionTableView()
+            table.copy_headers_for_full_columns = True
             model = InfoModel(parent=self)
             table.setModel(model)
             table.setAlternatingRowColors(True)
@@ -78,7 +79,8 @@ class SpectraInfoWindow(QMainWindow):
             header = table.horizontalHeader()
             header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             header.customContextMenuRequested.connect(
-                lambda point, i=tab, h=header: self.build_column_menu(i, h.logicalIndexAt(point)).exec(h.mapToGlobal(point)))
+                lambda point, i=tab, h=header: self.build_column_menu(
+                    i, h.logicalIndexAt(point), header=True).exec(h.mapToGlobal(point)))
             table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             table.customContextMenuRequested.connect(
                 lambda point, i=tab, t=table: self.build_column_menu(i, t.indexAt(point).column()).exec(t.viewport().mapToGlobal(point)))
@@ -131,15 +133,19 @@ class SpectraInfoWindow(QMainWindow):
         self.status.setText(f"{len(frames[0]):,} visible rows · {order}"
                             + (f" · {len(problems)} matching issues" if problems else ""))
 
-    def build_column_menu(self, tab, column):
+    def build_column_menu(self, tab, column, *, header=False):
         menu = QMenu(self)
         frame = self.models[tab].frame
         if 0 <= column < len(frame.columns):
             selected = [index.column() for index in self.tables[tab].selectionModel().selectedColumns()]
-            columns = selected if column in selected else [column]
+            columns = sorted(selected) if column in selected else [column]
             names = [frame.columns[i] for i in columns]
             menu.addAction("Delete Column" if len(names) == 1 else "Delete Columns",
                            lambda: self.viewer.delete_info_columns(tab, names))
+            if header:
+                copy = menu.addAction("Copy Column" if len(columns) == 1 else "Copy Columns",
+                                      lambda: self._copy_frame(frame.iloc[:, columns]))
+                copy.setEnabled(not self.problems)
         hidden = self.viewer.info_deleted_columns[tab]
         if hidden:
             restore = menu.addMenu("Restore Columns")
@@ -222,7 +228,10 @@ class SpectraInfoWindow(QMainWindow):
         return self.models[self.tabs.currentIndex()].frame.copy()
 
     def copy_table(self):
-        frame = self.table_frame()
+        self._copy_frame(self.table_frame())
+
+    @staticmethod
+    def _copy_frame(frame):
         QApplication.clipboard().setText(frame.to_csv(sep="\t", index=False, lineterminator="\n"))
 
     def export_csv(self, path):

@@ -1154,7 +1154,7 @@ class MainWindow(QMainWindow):
     def _apply_point_participation(self, widget, row, removed, refresh):
         self._point_edit_target = (widget, row, removed) if widget is not None else None
         try:
-            refresh()
+            return refresh()
         finally:
             self._point_edit_target = None
 
@@ -1260,11 +1260,19 @@ class MainWindow(QMainWindow):
         self._apply_local_data_selection(set(dialog.excluded), dialog.view_state())
 
     def _apply_local_data_selection(self, excluded, view):
+        already_local = not self._workbook_selection_applies
         self._local_selection_excluded = excluded
         self._local_view = view
         self._workbook_selection_applies = False
         self.full_data_action.setChecked(True)
-        self._refresh_selection_scope()
+        if self._point_edit_target is not None and already_local:
+            # A point edit does not change the installed Workbook scope or
+            # its grouping. Apply only the new local checkbox state.
+            self._refresh_selection_badge()
+            self.update_plan()
+            self.document.identity_timer.start()
+        else:
+            self._refresh_selection_scope()
 
     def _refresh_selection_scope(self):
         owner = getattr(self, "_managed_owner", None)

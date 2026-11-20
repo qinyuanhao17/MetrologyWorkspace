@@ -8,7 +8,7 @@ import sqlite3
 from contextlib import closing
 
 import pandas as pd
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QCoreApplication, QEvent, Qt
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QFileDialog, QLineEdit, QMessageBox
 from metrology_app.matching_window import MatchingWindow
@@ -223,6 +223,85 @@ class StorageV2Tests(unittest.TestCase):
         self.assertEqual(load_workspace(path).frames["preview_map"].iloc[0, col], "10")
         self.assertEqual(child.model.document_frame().iloc[0, col], "11")
         self.assertTrue(child.document.is_dirty())
+        self.assertTrue(self.match.isWindowModified())
+        self.assertIn("Unsaved changes remain", self.match.statusBar().currentMessage())
+
+    def test_full_match_save_clears_title_star_after_saving_child_edits(self):
+        child = self.match.open_correlation_workspace()
+        path = self.match.save_workbook(self.folder / "project.mwkb")
+        child.set_reference_table(pd.DataFrame({"CD": ["123.0000"]}))
+        self.match.document.refresh_identity()
+        self.assertTrue(self.match.isWindowModified())
+
+        self.assertEqual(self.match.save_wkb(), path)
+
+        self.assertFalse(child.isWindowModified())
+        self.assertFalse(self.match.isWindowModified())
+        self.assertEqual(self.match.statusBar().currentMessage(), f"Saved {path.name}")
+        snapshot = load_workspace(path)
+        self.assertEqual(snapshot.frames["correlation.preview.reference_data"].iloc[0, 0], "123.0000")
+
+    def test_match_save_includes_pending_automatic_analysis(self):
+        path = self.match.save_workbook(self.folder / "project.mwkb")
+        self.match.reference_model.replace_matrix([["CD Reference"], ["2.00"], ["4.00"]])
+
+        self.assertEqual(self.match.save_wkb(), path)
+
+        snapshot = load_workspace(path)
+        self.assertEqual(snapshot.frames["reference"]["CD Reference"].tolist(), ["2.00", "4.00"])
+        self.assertEqual(len(snapshot.frames["raw"]), 3)
+        self.assertFalse(snapshot.states["match"]["draft"], "The queued analysis belongs to the edit being saved")
+        APP.processEvents()
+        self.assertFalse(self.match.document.has_changes())
+        self.assertFalse(self.match.isWindowModified())
+
+    def test_match_declining_save_as_replacement_does_not_report_a_failure(self):
+        original = self.match.save_workbook(self.folder / "project.mwkb")
+        target = self.folder / "existing.mwkb"
+        target.write_bytes(original.read_bytes())
+        accepted = target.read_bytes()
+        self.match.reference_model.edit({(1, 0): "123.0000"})
+        with patch.object(QFileDialog, "getSaveFileName", return_value=(str(target), "")), \
+                patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No) as confirm, \
+                patch.object(QMessageBox, "warning") as warning:
+            self.assertIsNone(self.match.save_wkb_dialog())
+        confirm.assert_called_once()
+        warning.assert_not_called()
+        self.assertEqual(self.match.workbook_path, original)
+        self.assertEqual(target.read_bytes(), accepted)
+        self.assertTrue(self.match.document.is_dirty())
+
+    def test_match_save_accepts_only_children_captured_before_disk_write(self):
+        from PyQt6 import sip
+        from metrology_app import workspace_document
+
+        path = self.match.save_workbook(self.folder / "project.mwkb")
+        closing_child = self.match.open_correlation_workspace()
+        closing_child.document.force_close = True
+        self.match.reference_model.edit({(1, 0): "123.0000"})
+        opened_after_capture = []
+        new_scope = "spectra.final"
+
+        def save_then_handle_child_events(_owner, write, _label):
+            saved = write()
+            self.assertTrue(closing_child.close())
+            closing_child.deleteLater()
+            QCoreApplication.sendPostedEvents(closing_child, QEvent.Type.DeferredDelete.value)
+            opened_after_capture.append(self.match.open_spectra_workspace(scope=new_scope))
+            return saved
+
+        with patch.object(workspace_document, "large_spectra_payload", return_value=True), \
+                patch.object(workspace_document, "document_io", side_effect=save_then_handle_child_events), \
+                patch.object(QMessageBox, "warning") as warning:
+            self.assertEqual(self.match.save_wkb(), path)
+        warning.assert_not_called()
+        self.assertTrue(sip.isdeleted(closing_child))
+        self.assertIs(self.match._spectra_windows[new_scope], opened_after_capture[0])
+        snapshot = load_workspace(path)
+        self.assertEqual(snapshot.frames["reference"].iloc[0, 0], "123.0000")
+        self.assertIn("correlation.preview", snapshot.states)
+        self.assertNotIn(new_scope, snapshot.states)
+        self.assertTrue(self.match.document.is_dirty(), "The newly opened child is a later change")
 
     def test_old_tool_wkb_requires_explicit_typed_save_as(self):
         snapshot = WorkspaceSnapshot("wafer_map", {"input_data": pd.DataFrame({"CD": ["2.1000"]})}, {"ui": {}})

@@ -45,6 +45,46 @@ def synthetic_cdsem(path):
 
 
 class ReferenceSummaryTests(unittest.TestCase):
+    def test_ref_save_suggests_wafer_and_date_and_recreates_summary_offline(self):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QFileDialog
+        from metrology_app.reference_metadata import MARKER
+
+        window, reopened = ReferenceSummaryWindow(), ReferenceSummaryWindow()
+        for item in (window, reopened):
+            item.document.force_close = True
+            self.addCleanup(item.deleteLater)
+            self.addCleanup(item.close)
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = root / 'NOVA-source.csv'
+            source.write_text('WaferID,LotID,SiteName,DateTime,ToolName,MARS_Library_Name,CD\n'
+                              'W01,L03,PAD1,8/18/2026 12:11:14 PM,QH01,LIB1,25.20\n', encoding='utf-8')
+            window.set_source_files([source])
+            original = window.workspace_snapshot()
+            with patch.object(QFileDialog, 'getSaveFileName', return_value=('', '')):
+                self.assertIsNone(window.save_reference())
+            self.assertEqual(window.workspace_snapshot().states, original.states)
+
+            name = 'NOVA_Wafer-W01_Lot-L03_PAD-PAD1_20260818_121114.ref'
+            path = root / name
+            unrelated = path.with_suffix('.txt')
+            unrelated.write_text('Keep this note', encoding='utf-8')
+            with patch.object(QFileDialog, 'getSaveFileName', return_value=(str(path), '')) as dialog:
+                self.assertEqual(window.save_reference(), path)
+            self.assertEqual(Path(dialog.call_args.args[2]).name, name)
+            self.assertEqual(unrelated.read_text(encoding='utf-8'), 'Keep this note')
+            summary = path.with_suffix('.summary.txt')
+            text = summary.read_text(encoding='utf-8-sig')
+            self.assertTrue(text.startswith(MARKER))
+            self.assertLess(text.index('ToolName  QH01'), text.index('WaferID  W01'))
+            self.assertIn('MARS_Library_Name  LIB1', text)
+            source.unlink()
+            summary.unlink()
+            reopened.load_workspace(path)
+            self.assertEqual(reopened.save_reference(), path)
+            self.assertEqual(summary.read_text(encoding='utf-8-sig'), text)
+
     def test_every_vendor_selects_and_scans_csv_and_first_sheet_excel(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)
@@ -132,8 +172,8 @@ class ReferenceSummaryTests(unittest.TestCase):
             self.assertEqual(window.tabs.widget(0).findChildren(QTableView), [])
             self.assertEqual(window.tabs.widget(0).findChildren(QTableWidget), [])
             self.assertEqual([window.tabs.tabText(i) for i in range(2, window.tabs.count())],
-                             ["3. XY Bias", "4. Data", "5. Correlation",
-                              "6. Trend", "7. WaferMap", "8. Radius Plot"])
+                             ["3. XY Bias", "4. Ref Data", "5. Raw Data", "6. Correlation",
+                              "7. Trend", "8. WaferMap", "9. Radius Plot"])
             self.assertIn(
                 "intentionally not previewed",
                 next(label for label in window.findChildren(QLabel)

@@ -268,9 +268,10 @@ class RadiusPage(QWidget):
         combo.blockSignals(False)
 
     def set_input(self, frame, selection):
+        cells = selection.get("available_cells")
         signature = (id(frame), tuple(selection["wafers"]), tuple(selection["metrics"]), selection["wafer_column"],
                      tuple((key, tuple(selection["groups"].get(key, ()))) for key in selection["wafers"])
-                     if "groups" in selection else None)
+                     if "groups" in selection else None, cells)
         if signature == self.signature:
             if (selection.get('labels') != self.selection.get('labels')
                     or selection.get('caption_fields',{}) != self.selection.get('caption_fields',{})):
@@ -296,6 +297,7 @@ class RadiusPage(QWidget):
             tuple(selection["wafers"]) != tuple(self.selection.get("wafers", ()))
             or tuple(selection["metrics"]) != tuple(self.selection.get("metrics", ()))
             or selection["wafer_column"] != self.selection.get("wafer_column")
+            or cells != self.selection.get("available_cells")
         )
         changed_table = self.frame is not frame
         self.signature, self.frame, self.selection = signature, frame, selection.copy()
@@ -306,7 +308,7 @@ class RadiusPage(QWidget):
                                    (self.y_column, ("ymm", "fieldy", "y", "diey"))):
                 selected = next((names[a] for a in aliases if a in names), None)
                 self.populate(combo, entries, selected)
-        self.selector.set_array(selection["wafers"], selection["metrics"], selection.get("labels"))
+        self.selector.set_array(selection["wafers"], selection["metrics"], selection.get("labels"), cells)
         replay = (self.has_drawn_once and not grid_changed
                   and not self.selector.pending_draw
                   and set(self.selector.selected_cells()) == set(self.drawn_cells))

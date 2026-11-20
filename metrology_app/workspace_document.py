@@ -631,7 +631,8 @@ class WkbDocument:
     def choose_target(self, path=None):
         kind = self.window.workspace_type
         if path is None:
-            default_source = self.path or Path(f"workspace{EXTENSIONS[kind]}")
+            suggestion = getattr(self.window, "workspace_save_default", None)
+            default_source = suggestion() if callable(suggestion) else self.path or Path(f"workspace{EXTENSIONS[kind]}")
             if default_source.suffix.lower() == ".bak":
                 default_source = default_source.with_suffix("")
             default = workspace_path(default_source, kind)
