@@ -117,3 +117,21 @@ Feature: Review Dynamic repeatability by cycle and die
     And missing values remain gaps
     And Y ticks use unscaled values without an axis multiplier
     And Mean, sample sigma, Min and Max appear on empty-space hover without a title annotation
+
+
+  # Automation: GrrInputTests.test_first_nine_cycles_and_thirteen_dies_fill_three_input_blocks
+  Scenario: Supply Dynamic measurements to the GRR worksheet
+    Given a selected parameter has ten cycles of fourteen dies
+    When the engineer evaluates GRR
+    Then the first nine cycles and first thirteen dies fill D12:P14, D18:P20 and D24:P26
+    And Excel recalculates the assessment in the merged M96:R98 range
+
+  # Automation: DynamicGrrWorkflowTests.test_load_grr_updates_each_plot_and_saves_each_parameter_beside_mwkb
+  Scenario: Reuse the GRR template and save one report sheet per parameter
+    Given the engineer loaded a GRR template and selected CD and EW
+    When the engineer edits a Dynamic measurement
+    Then the assessment below the corresponding chart updates
+    And the template remains available when the workbook is reopened
+    When the engineer saves the Match Workbook as project.mwkb
+    Then GRR_project.xlsx is saved alongside it with CD_GRR and EW_GRR sheets
+    And each assessment formula is retained in the Excel report

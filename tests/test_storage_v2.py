@@ -8,9 +8,11 @@ import sqlite3
 from contextlib import closing
 
 import pandas as pd
-from PyQt6.QtCore import QCoreApplication, QEvent, Qt
+from PyQt6.QtCore import QCoreApplication, QDateTime, QEvent, Qt
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication, QFileDialog, QLineEdit, QMessageBox
+from PyQt6.QtWidgets import (
+    QApplication, QDateTimeEdit, QDialog, QDialogButtonBox, QFileDialog, QLineEdit, QMessageBox,
+)
 from metrology_app.matching_window import MatchingWindow
 from metrology_app.workspace_store import EXTENSIONS, WorkspaceSnapshot, load_workspace, save_workspace
 from metrology_app.window import MainWindow
@@ -255,13 +257,74 @@ class StorageV2Tests(unittest.TestCase):
         self.assertFalse(self.match.document.has_changes())
         self.assertFalse(self.match.isWindowModified())
 
+    @staticmethod
+    def _fill_match_filename(dialog):
+        fields = ("Project", "Layer", "Site", "Version")
+        values = ("Project A", "M2", "FAB1", "v1.2")
+        for field, value in zip(fields, values):
+            dialog.findChild(QLineEdit, field).setText(value)
+
+    def test_first_match_save_suggests_filename_with_editable_local_date_and_minute(self):
+        now = QDateTime.fromString("2026-11-20 08:09:59", "yyyy-MM-dd HH:mm:ss")
+        edited = QDateTime.fromString("2026-11-19 14:07:26", "yyyy-MM-dd HH:mm:ss")
+        expected = "Project A_M2_FAB1_v1.2_20261119_1407.mwkb"
+        observed = []
+
+        def fill_name(dialog):
+            timestamp = dialog.findChild(QDateTimeEdit)
+            observed.append(timestamp.text())
+            timestamp.setDateTime(edited)
+            ok = dialog.findChild(QDialogButtonBox).button(QDialogButtonBox.StandardButton.Ok)
+            observed.append(ok.isEnabled())
+            self._fill_match_filename(dialog)
+            project = dialog.findChild(QLineEdit, "Project")
+            project.setText("A/B")
+            observed.append(ok.isEnabled())
+            project.setText("Project A")
+            ok.click()
+            return dialog.result()
+
+        def choose_location(_parent, _title, suggested_path, _filter):
+            return str(self.folder / Path(suggested_path).name), ""
+
+        with (
+            patch.object(QDateTime, "currentDateTime", return_value=now),
+            patch.object(QDialog, "exec", fill_name),
+            patch.object(QFileDialog, "getSaveFileName", side_effect=choose_location),
+        ):
+            saved = self.match.save_wkb()
+
+        self.assertEqual(observed, ["2026-11-20 08:09", False, False])
+        self.assertEqual(saved, self.folder / expected)
+        self.assertEqual(load_workspace(saved).workspace_type, "match_workbook")
+        with patch.object(QDialog, "exec") as naming, patch.object(QFileDialog, "getSaveFileName") as location:
+            self.assertEqual(self.match.save_wkb(), saved)
+        naming.assert_not_called()
+        location.assert_not_called()
+
+    def test_cancel_match_filename_leaves_workbook_unsaved(self):
+        with (
+            patch.object(QDialog, "exec", return_value=QDialog.DialogCode.Rejected) as naming,
+            patch.object(QFileDialog, "getSaveFileName", return_value=("", "")) as location,
+        ):
+            self.assertIsNone(self.match.save_wkb())
+        naming.assert_called_once()
+        location.assert_not_called()
+        self.assertIsNone(self.match.workbook_path)
+
     def test_match_declining_save_as_replacement_does_not_report_a_failure(self):
         original = self.match.save_workbook(self.folder / "project.mwkb")
         target = self.folder / "existing.mwkb"
         target.write_bytes(original.read_bytes())
         accepted = target.read_bytes()
         self.match.reference_model.edit({(1, 0): "123.0000"})
-        with patch.object(QFileDialog, "getSaveFileName", return_value=(str(target), "")), \
+        def accept_name(dialog):
+            self._fill_match_filename(dialog)
+            dialog.accept()
+            return dialog.result()
+
+        with patch.object(QDialog, "exec", accept_name), \
+                patch.object(QFileDialog, "getSaveFileName", return_value=(str(target), "")), \
                 patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No) as confirm, \
                 patch.object(QMessageBox, "warning") as warning:
             self.assertIsNone(self.match.save_wkb_dialog())

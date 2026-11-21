@@ -38,6 +38,21 @@ class DynamicWindow(DataWorkspaceWindow):
         self.dynamic_page.set_baseline(prepared)
         super().set_table(prepared, source, **kwargs)
 
+    def workspace_snapshot(self, *, include_drafts=False, readonly=False):
+        snapshot = super().workspace_snapshot(include_drafts=include_drafts, readonly=readonly)
+        page = getattr(self, "dynamic_page", None)
+        if page is not None and page.grr_requested:
+            snapshot.states["grr"] = page.grr_state()
+        return snapshot
+
+    def restore_workspace(self, snapshot):
+        self.dynamic_page.restore_grr(snapshot.states.get("grr"))
+        super().restore_workspace(snapshot)
+
+    def prepare_grr_save(self):
+        if self.dynamic_page.grr_requested and self.refresh_timer.isActive():
+            self.recognize()
+
     def change_tab(self, index):
         if index >= 1 and self.refresh_timer.isActive():
             self.recognize()

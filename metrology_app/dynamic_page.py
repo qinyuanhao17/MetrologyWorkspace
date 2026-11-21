@@ -5,15 +5,19 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pyqtgraph as pg
-from PyQt6.QtCore import QAbstractTableModel, QItemSelection, QItemSelectionModel, QModelIndex, QRectF, Qt
+from PyQt6.QtCore import (
+    QAbstractTableModel, QItemSelection, QItemSelectionModel, QModelIndex, QRectF, Qt, QTimer, pyqtSignal,
+)
 from PyQt6.QtGui import QFont, QKeySequence
 from PyQt6.QtWidgets import (
-    QApplication, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel,
+    QApplication, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QMessageBox, QPushButton,
     QScrollArea, QSplitter, QTableView, QVBoxLayout, QWidget,
 )
 from pyqtgraph.graphicsItems.LegendItem import ItemSample, LegendItem
 
-from .dynamic import (changed_dynamic_parameters, dynamic_pivot,
+from . import dynamic_grr
+from .background_task import LatestTask
+from .dynamic import (_sort_measurement_labels, changed_dynamic_parameters, dynamic_pivot,
                       prepare_dynamic_frame, selected_measurement_rows)
 from .plotting import InteractivePlotWidget
 from .settings import get_settings
@@ -26,6 +30,10 @@ PLOT_WIDTH = 420
 PLOT_HEIGHT = 270
 PLOT_SPACING = 14
 PLOT_COLUMNS = 3
+GRR_COLOURS = {
+    "dark": ("#4ade80", "#fbbf24", "#60a5fa", "#c4b5fd", "#f87171", "#f9a8d4"),
+    "light": ("#166534", "#92400e", "#1d4ed8", "#6b21a8", "#b91c1c", "#9d174d"),
+}
 SERIES_COLOURS = (
     "#0072B2",
     "#D55E00",
@@ -269,6 +277,8 @@ class DynamicPivotView(RangeSelectionTableView):
 
 
 class DynamicPage(QWidget):
+    grr_activated = pyqtSignal()
+
     def __init__(self, parent=None):
         super().__init__(parent, objectName="dynamicPage")
         self.frame = pd.DataFrame()
@@ -288,6 +298,26 @@ class DynamicPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 12, 10, 10)
         layout.setSpacing(10)
+
+        controls = QHBoxLayout()
+        self.load_grr_button = QPushButton("Load GRR", objectName="loadGrr")
+        self.load_grr_button.clicked.connect(self._load_grr)
+        controls.addWidget(self.load_grr_button)
+        self.grr_status = QLabel(objectName="subtitle")
+        self.grr_status.setTextFormat(Qt.TextFormat.PlainText)
+        controls.addWidget(self.grr_status, 1)
+        layout.addLayout(controls)
+        self._grr_requested = False
+        self._grr_axes = ((), ())
+        self._grr_labels = {}
+        self._grr_messages = {}
+        self._grr_grades = {}
+        self._grr_job = None
+        self._grr_timer = QTimer(self, interval=200, singleShot=True)
+        self._grr_timer.timeout.connect(self._start_grr)
+        self._grr_task = LatestTask(
+            lambda job, _cancelled: dynamic_grr.evaluate(job), self._accept_grr, self._fail_grr, self,
+        )
 
         self.message = QLabel(objectName="subtitle")
         self.message.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -353,6 +383,7 @@ class DynamicPage(QWidget):
         self.selection = dict(selection)
         if (changed is not None and self.parameter_models
                 and self._update_parameters(changed)):
+            self._refresh_grr()
             return
         self.refresh()
 
@@ -464,6 +495,7 @@ class DynamicPage(QWidget):
             self.content.hide()
             self.message.clear()
             self.message.show()
+            self._refresh_grr()
             return
         try:
             rows = self._selected_rows().drop(columns=["Cycle"], errors="ignore")
@@ -477,8 +509,13 @@ class DynamicPage(QWidget):
             self.content.hide()
             self.message.setText(str(error))
             self.message.show()
+            self._refresh_grr()
             return
 
+        self._grr_axes = (
+            _sort_measurement_labels(prepared["Cycle"].dropna().unique())[:dynamic_grr.CYCLE_COUNT],
+            _sort_measurement_labels(prepared["Die Seq"].dropna().unique())[:dynamic_grr.DIE_COUNT],
+        )
         self._die_source_rows = {}
         for die, row in zip(prepared["Die Seq"], source_rows):
             self._die_source_rows.setdefault(str(die), []).append(int(row))
@@ -497,13 +534,7 @@ class DynamicPage(QWidget):
                 parameter, pivots[parameter],
                 SERIES_COLOURS[index % len(SERIES_COLOURS)],
             )
-        plot_columns = min(PLOT_COLUMNS, len(self.plots))
-        plot_rows = (len(self.plots) + PLOT_COLUMNS - 1) // PLOT_COLUMNS
-        plot_width = plot_columns * PLOT_WIDTH
-        plot_width += max(0, plot_columns - 1) * PLOT_SPACING
-        plot_height = plot_rows * PLOT_HEIGHT
-        plot_height += max(0, plot_rows - 1) * PLOT_SPACING
-        self.plot_host.setFixedSize(plot_width, plot_height)
+        self._refresh_grr()
         self.plot = self.plots[0]
         self.pivot_model = self.parameter_models[parameters[0]]
         self.table = self.parameter_tables[parameters[0]]
@@ -537,6 +568,8 @@ class DynamicPage(QWidget):
         self.parameter_tables = {}
         self.parameter_sections = []
         self.plots = []
+        self._grr_labels.clear()
+        self._grr_axes = ((), ())
 
     def _new_plot(self, title):
         plot = InteractivePlotWidget(
@@ -565,7 +598,7 @@ class DynamicPage(QWidget):
             accessible_title = "selected parameters"
         plot.setAccessibleName(f"Dynamic 3 Sigma — {accessible_title}")
         row, column = divmod(len(self.plots), PLOT_COLUMNS)
-        self.plot_layout.addWidget(plot, row, column)
+        self.plot_layout.addWidget(plot, row * 2, column)
         self.plots.append(plot)
         return plot
 
@@ -670,6 +703,134 @@ class DynamicPage(QWidget):
         bars._selection_rows = [self._die_source_rows.get(str(die), []) for die, valid in zip(dies, finite) if valid]
         plot.addItem(bars)
         self.bar_items.append(bars)
+        row, column = divmod(len(self.plots) - 1, PLOT_COLUMNS)
+        label = QLabel(objectName="dynamicGrrResult")
+        label.setProperty("parameter", parameter)
+        label.setTextFormat(Qt.TextFormat.PlainText)
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setWordWrap(True)
+        label.setFixedWidth(PLOT_WIDTH)
+        label.hide()
+        self.plot_layout.addWidget(label, row * 2 + 1, column)
+        self._grr_labels[parameter] = label
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._refresh_grr(activate=True)
+
+    def _load_grr(self):
+        source, _ = QFileDialog.getOpenFileName(self, "Load GRR Template", "", "Excel Workbook (*.xlsx)")
+        if not source:
+            return
+        try:
+            dynamic_grr.install_template(source)
+        except Exception as error:
+            QMessageBox.warning(self, "Could not load GRR template", str(error))
+            return
+        self._grr_job = None
+        self._refresh_grr(activate=True)
+
+    @property
+    def grr_requested(self):
+        return self._grr_requested
+
+    def restore_grr(self, state):
+        self._grr_requested = bool(state)
+        self._cancel_grr()
+
+    def grr_state(self):
+        if not self._grr_requested:
+            return None
+        valid, errors = self._grr_measurements()
+        return {"parameters": [[str(name), [list(row) for row in valid[name]] if name not in errors else None]
+                               for name in self.parameter_models]}
+
+    def _grr_measurements(self):
+        valid, errors = {}, {}
+        cycles, dies = self._grr_axes
+        for name, model in self.parameter_models.items():
+            try:
+                valid[name] = dynamic_grr.input_values(model.frame, cycles=cycles, dies=dies)
+            except ValueError as error:
+                errors[name] = str(error)
+        return valid, errors
+
+    def _cancel_grr(self):
+        self._grr_timer.stop()
+        if self._grr_task.busy:
+            self._grr_task.cancel()
+        self._grr_job = None
+        self._grr_messages = {}
+
+    def _refresh_grr(self, *, activate=False):
+        template = dynamic_grr.template_path()
+        if not template.is_file():
+            self._cancel_grr()
+            self.grr_status.clear()
+        elif self.isVisible():
+            self.grr_status.setText("" if self.parameter_models else "GRR template loaded.")
+            valid, errors = self._grr_measurements()
+            if self.parameter_models and (activate or not self._grr_requested):
+                self._grr_requested = True
+                self.grr_activated.emit()
+            messages = {name: (error, "") for name, error in errors.items()}
+            if not valid:
+                self._cancel_grr()
+                self._grr_messages = messages
+            else:
+                try:
+                    job = dynamic_grr.request(valid.items(), template)
+                except (OSError, ValueError) as error:
+                    self._cancel_grr()
+                    self._grr_messages = {name: (str(error), "") for name in self.parameter_models}
+                else:
+                    if job != self._grr_job:
+                        self._cancel_grr()
+                        self._grr_job = job
+                        self._grr_messages = {**messages, **{name: ("Calculating GRR...", "") for name in valid}}
+                        self._grr_timer.start()
+                    else:
+                        self._grr_messages.update(messages)
+        self._show_grr_results()
+
+    def _start_grr(self):
+        self._grr_task.submit(self._grr_job)
+
+    def _accept_grr(self, report):
+        palette = GRR_COLOURS["dark" if get_settings().get("theme") == "dark" else "light"]
+        for name, text in report.results:
+            grade = text.strip().casefold().rstrip(".!")
+            if grade in ("excellent", "excelent", "exellent"):
+                colour = palette[0]
+            else:
+                index = self._grr_grades.setdefault(grade, len(self._grr_grades) % (len(palette) - 1))
+                colour = palette[index + 1]
+            self._grr_messages[name] = (f"GRR: {text}", colour)
+        self._show_grr_results()
+
+    def _fail_grr(self, error):
+        for name, _ in self._grr_job.parameters:
+            self._grr_messages[name] = (f"GRR unavailable: {error}", "")
+        self._show_grr_results()
+
+    def _show_grr_results(self):
+        label_heights = {}
+        for parameter, label in self._grr_labels.items():
+            text, colour = self._grr_messages.get(parameter, ("", ""))
+            label.setText(text)
+            label.setStyleSheet(f"color: {colour}; font-weight: 600;" if colour else "")
+            label.setVisible(bool(text))
+            if text:
+                row, _, _, _ = self.plot_layout.getItemPosition(self.plot_layout.indexOf(label))
+                height = max(26, label.heightForWidth(PLOT_WIDTH))
+                label.setFixedHeight(height)
+                label_heights[row] = max(label_heights.get(row, 0), height)
+        columns = min(PLOT_COLUMNS, len(self.plots))
+        rows = (len(self.plots) + PLOT_COLUMNS - 1) // PLOT_COLUMNS
+        width = columns * PLOT_WIDTH + max(0, columns - 1) * PLOT_SPACING
+        height = rows * PLOT_HEIGHT + max(0, rows - 1) * PLOT_SPACING
+        height += sum(label_height + PLOT_SPACING for label_height in label_heights.values())
+        self.plot_host.setFixedSize(width, height)
 
 
 __all__ = ["DynamicPage", "DynamicPivotModel", "DynamicPivotView"]

@@ -5,6 +5,7 @@ __pycache__/
 .cache/
 settings.yaml
 config/settings.yaml
+/config/grr_template.xlsx
 config/reminders.sqlite3*
 reminders.sqlite3*
 *.log

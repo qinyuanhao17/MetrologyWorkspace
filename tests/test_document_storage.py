@@ -968,9 +968,13 @@ class DocumentStorageTests(unittest.TestCase):
             column = child.model.frame().columns.get_loc("CD")
             original = window.preview_dynamic_frame.copy()
             child.model.edit({(1, column): "99"})
-            with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Save), \
-                    patch.object(QFileDialog, "getSaveFileName", return_value=("", "")):
+            with (
+                patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Save),
+                patch("metrology_app.matching_window._match_save_filename", return_value="match.mwkb"),
+                patch.object(QFileDialog, "getSaveFileName", return_value=("", "")) as location,
+            ):
                 self.assertFalse(child.close())
+            location.assert_called_once()
             self.assertTrue(child.document.is_dirty())
             pd.testing.assert_frame_equal(window.preview_dynamic_frame, original)
             self.assertEqual(child.model.frame().iloc[0, column], "99")

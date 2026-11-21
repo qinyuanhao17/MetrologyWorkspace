@@ -46,6 +46,22 @@ Feature: Durable metrology workspaces
       Then the Final tab awaits input without using Preview results
       And Preview measurements remain available
 
+  Rule: Match Workbook filenames can be generated when choosing a save location
+
+    # test_first_match_save_suggests_filename_with_editable_local_date_and_minute
+    Scenario: Name a new Match Workbook
+      Given the engineer is saving a new Match Workbook
+      When the engineer enters Project A, M2, FAB1 and v1.2
+      And changes the prefilled local date and time to 2026-11-19 14:07
+      Then the suggested name is "Project A_M2_FAB1_v1.2_20261119_1407.mwkb"
+      And later saves update the chosen file
+
+    # test_cancel_match_filename_leaves_workbook_unsaved
+    Scenario: Cancel naming a new Match Workbook
+      Given the engineer is saving a new Match Workbook
+      When the engineer cancels naming it
+      Then no location is requested and the Workbook remains unsaved
+
   Rule: Independent analyses can resume from their own documents
 
     # test_independent_tool_file_open_restores_document_for_all_three_tools

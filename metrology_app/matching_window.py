@@ -7,7 +7,8 @@ from contextlib import nullcontext
 from dataclasses import asdict, replace
 import json
 from io import StringIO
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
+import re
 from uuid import uuid4
 import subprocess
 import sys
@@ -19,7 +20,7 @@ import pyqtgraph.exporters
 from PyQt6 import sip
 from .plotting.parameter_layout import ParameterPlotArea, normalize_plot_layouts
 from PyQt6.QtCore import (
-    QAbstractTableModel, QEasingCurve, QEvent, QMimeData, QModelIndex, QPoint, QRect, QRectF,
+    QAbstractTableModel, QDateTime, QEasingCurve, QEvent, QMimeData, QModelIndex, QPoint, QRect, QRectF,
     QPropertyAnimation, QSignalBlocker, Qt, QTimer, pyqtSignal,
 )
 from PyQt6.QtGui import (
@@ -31,10 +32,12 @@ from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
+    QDateTimeEdit,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
     QFileDialog,
+    QFormLayout,
     QFrame,
     QGraphicsOpacityEffect,
     QGridLayout,
@@ -42,6 +45,7 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QInputDialog,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -65,6 +69,7 @@ from PyQt6.QtWidgets import (
 from .appearance import TREND_LINE_WIDTH, TREND_MARKER_SIZE
 from .appearance import (CORRELATION_FIT_COLOR, CORRELATION_POINT_COLOR,
                          fit_window_to_screen, help_title_label)
+from . import dynamic_grr
 from .analysis_windows import LABELS as WINDOW_LABELS, scope_parts, validate_windows, window_entries, window_metadata
 from .data import inspect_table
 from .excel_export import write_workbook
@@ -85,7 +90,7 @@ from .sheet import DuplicateHeaderBanner, SheetModel, SheetView, column_letter
 from .table_clipboard import attach_copy_feedback
 from .table_selection import RangeSelectionTableView, RangeSelectionTableWidget
 from .widgets import ScrollSafeComboBox
-from .workspace_store import EXTENSIONS, MATCH_FILTER, WorkspaceSnapshot, file_revision, file_stamp, load_workspace, save_workspace, workspace_path
+from .workspace_store import EXTENSIONS, MATCH_FILTER, WorkspaceSnapshot, file_revision, file_stamp, load_workspace, save_workspace
 from .workspace_document import WkbDocument, commit_editors, local_snapshot, local_ui, recovery_decision, recovery_directory, writable_path
 from .workbook_startup import AXIS_MODE_LABELS, analysis_settings as normalized_analysis_settings
 
@@ -788,6 +793,7 @@ class MatchingWindow(QMainWindow):
         )
         self._map_selection_states = {"preview": None, "final": None}
         self._dynamic_selection_states = {"preview": None, "final": None}
+        self._grr_scope = None
         self._correlation_selection_states = {
             "preview": None, "final": None
         }
@@ -903,6 +909,8 @@ class MatchingWindow(QMainWindow):
               "expand_wafer_ids": self.expand_wafer_ids.isChecked(),
               "trend_cards": [[list(key), value] for key, value in self._trend_card_state.items()],
               "statistics": [[list(key), value] for key, value in self._statistics_state.items()]}
+        if self._grr_scope is not None:
+            ui["grr_scope"] = self._grr_scope
         snapshot = WorkspaceSnapshot("match_workbook", frames,
                                      {"match": state, "match_ui": ui, **capture(self._workspace_states)})
         if validate and not state["draft"]:
@@ -984,6 +992,7 @@ class MatchingWindow(QMainWindow):
         self._workspace_states = {name: deepcopy(value) for name, value in snapshot.states.items()
                                   if name not in ("match", "match_ui", "recovery")}
         self._workspace_frames = {name: frame.copy() for name, frame in snapshot.frames.items() if "." in name}
+        self._grr_scope = snapshot.states.get("match_ui", {}).get("grr_scope")
         self._trend_card_state = {tuple(key): value for key, value in snapshot.states.get("match_ui", {}).get("trend_cards", [])}
         self._statistics_state = {tuple(key): bool(value) for key, value in snapshot.states.get("match_ui", {}).get("statistics", [])}
         self._plot_layout_states = plot_layouts
@@ -4839,6 +4848,9 @@ class MatchingWindow(QMainWindow):
         self._configure_managed_close(workspace, "dynamic", stage)
         if hasattr(workspace, "setWindowTitle"):
             workspace.setWindowTitle(f"{str(stage).title()} Dynamic")
+        page = getattr(workspace, "dynamic_page", None)
+        if page is not None:
+            page.grr_activated.connect(lambda: setattr(self, "_grr_scope", scope))
         self._register_stage_workspace(workspace, "dynamic", stage)
         workspace.show()
         self.remember_stage_inputs()
@@ -6190,6 +6202,9 @@ class MatchingWindow(QMainWindow):
             for workspace in children:
                 if hasattr(workspace, "document"):
                     commit_editors(workspace)
+                    prepare_grr = getattr(workspace, "prepare_grr_save", None)
+                    if prepare_grr is not None:
+                        prepare_grr()
                     baselines[workspace] = workspace.workspace_snapshot()
                 try:
                     self._capture_managed_stage_workspace(workspace)
@@ -6259,6 +6274,18 @@ class MatchingWindow(QMainWindow):
                 self.document.write_recovery()
             else:
                 self.document.remove_recovery()
+            grr_inputs = dynamic_grr.match_inputs(snapshot)
+            if grr_inputs and grr_inputs.get("parameters"):
+                try:
+                    grr_warning = document_io(
+                        self, lambda: dynamic_grr.save_match_report(Path(saved), snapshot.revision, grr_inputs),
+                        "Saving GRR Excel report…",
+                    )
+                except Exception as error:
+                    grr_warning = f"GRR report was not saved: {error}"
+                    LOGGER.warning(grr_warning)
+                if grr_warning:
+                    self.document.last_warning = "; ".join(filter(None, (self.document.last_warning, grr_warning)))
             warning = f" · Warning: {self.document.last_warning}" if self.document.last_warning else ""
             pending = " · Unsaved changes remain" if unsaved else ""
             self._set_status("")
@@ -6369,14 +6396,11 @@ class MatchingWindow(QMainWindow):
 
     def save_wkb_dialog(self, *, capture_children=True, child=None):
         try:
-            default_source = (
-                self.workbook_path
-                if self.workbook_path is not None
-                else Path.home() / "matching-analysis.mwkb"
-            )
-            if default_source.suffix.lower() == ".bak":
-                default_source = default_source.with_suffix("")
-            default = str(workspace_path(default_source, self.workspace_type))
+            filename = _match_save_filename(self)
+            if filename is None:
+                return None
+            directory = self.workbook_path.parent if self.workbook_path is not None else Path.home()
+            default = str(directory / filename)
             path, _ = QFileDialog.getSaveFileName(
                 self,
                 "Save Matching Workbook As",
@@ -6611,6 +6635,63 @@ class MatchingWindow(QMainWindow):
             return snapshot
         finally:
             dialog.deleteLater()
+
+
+def _match_save_filename(parent):
+    dialog = QDialog(parent)
+    dialog.setWindowTitle("Name Match Workbook")
+    form = QFormLayout(dialog)
+    form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    fields = []
+    for label in ("Project", "Layer", "Site", "Version"):
+        field = QLineEdit(dialog)
+        field.setObjectName(label)
+        form.addRow(label, field)
+        fields.append(field)
+
+    timestamp = QDateTimeEdit(QDateTime.currentDateTime(), dialog)
+    timestamp.setDisplayFormat("yyyy-MM-dd HH:mm")
+    timestamp.setCalendarPopup(True)
+    form.addRow("Date and Time", timestamp)
+
+    preview = QLabel(dialog)
+    preview.setTextFormat(Qt.TextFormat.PlainText)
+    preview.setWordWrap(True)
+    form.addRow("File Name", preview)
+
+    buttons = QDialogButtonBox(
+        QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, parent=dialog,
+    )
+    proceed = buttons.button(QDialogButtonBox.StandardButton.Ok)
+    proceed.setText("Continue")
+    buttons.accepted.connect(dialog.accept)
+    buttons.rejected.connect(dialog.reject)
+    form.addRow(buttons)
+
+    def update_preview():
+        parts = [field.text().strip() for field in fields]
+        stamp = timestamp.dateTime().toString("yyyyMMdd_HHmm")
+        filename = "_".join([*parts, stamp]) + EXTENSIONS["match_workbook"]
+        message = ""
+        if not all(parts):
+            message = "Enter Project, Layer, Site and Version."
+        elif any(re.search(r'[<>:"/\\|?*\x00-\x1f]', part) for part in parts):
+            message = "Remove characters that Windows does not allow in file names."
+        elif PureWindowsPath(filename).is_reserved():
+            message = "Choose a file name that Windows does not reserve."
+        preview.setText(message or filename)
+        proceed.setEnabled(not message)
+
+    for field in fields:
+        field.textChanged.connect(update_preview)
+    timestamp.dateTimeChanged.connect(update_preview)
+    update_preview()
+    try:
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            return preview.text()
+        return None
+    finally:
+        dialog.deleteLater()
 
 
 def _safe_filename(value):

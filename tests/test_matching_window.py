@@ -2733,11 +2733,10 @@ class MatchingWindowTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "current.mwkb"
-            with patch.object(
-                QFileDialog,
-                "getSaveFileName",
-                return_value=(str(path), "Matching Workbook (*.mwkb)"),
-            ) as first_prompt:
+            with (
+                patch("metrology_app.matching_window._match_save_filename", return_value="match.mwkb"),
+                patch.object(QFileDialog, "getSaveFileName", return_value=(str(path), "")) as first_prompt,
+            ):
                 self.window.save_action.trigger()
 
             first_prompt.assert_called_once()
@@ -2796,10 +2795,9 @@ class MatchingWindowTests(unittest.TestCase):
             self.window.save_workbook(original)
 
             self.window.match_type.setCurrentText("TEM")
-            with patch.object(
-                QFileDialog,
-                "getSaveFileName",
-                return_value=(str(renamed), "Matching Workbook (*.mwkb)"),
+            with (
+                patch("metrology_app.matching_window._match_save_filename", return_value="match.mwkb"),
+                patch.object(QFileDialog, "getSaveFileName", return_value=(str(renamed), "")),
             ):
                 self.window.save_as_action.trigger()
 
