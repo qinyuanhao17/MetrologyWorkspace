@@ -2,18 +2,22 @@
 from __future__ import annotations
 
 import csv
+import re
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
-from PyQt6.QtCore import QSignalBlocker, QThread, Qt, QUrl, pyqtSignal
-from PyQt6.QtGui import QAction, QDesktopServices, QKeySequence
+from PyQt6.QtCore import QDateTime, QSignalBlocker, QThread, Qt, QUrl, pyqtSignal
+from PyQt6.QtGui import QAction, QDesktopServices, QKeySequence, QTextOption
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QComboBox,
+    QDateTimeEdit,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
+    QFormLayout,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -26,6 +30,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSplitter,
     QTabWidget,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -34,9 +39,12 @@ from .appearance import fit_window_to_screen, help_title_label
 from .cdsem1 import merge_cdsem1
 from .reference_merge import merge, scan_reference_files
 from .reference_input import SOURCE_EXTENSIONS
+from .reference_metadata import (BATCH_SUMMARY, find_output_summary, frame_metadata, measurement_csv_path,
+                                 summary_html, write_output_summary)
+from .reference_reports import REPORT_WORKBOOK
 from .file_dialogs import choose_files, choose_folders
 from .file_paths import filesystem_path
-from .widgets import CheckableListWidget
+from .widgets import CheckableListWidget, ScrollSafeComboBox
 
 
 VENDOR_DETAILS = {
@@ -78,24 +86,46 @@ class ReferenceSummaryReport:
     issue_lines: tuple[str, ...]
 
 
-def _issue_lines(output_dir: Path, limit: int = 6) -> tuple[str, ...]:
-    """Return a compact issue digest; detailed rows stay in the exported CSV."""
-    report = filesystem_path(output_dir.resolve() / "_issues.csv")
-    if not report.is_file():
+def _issue_rows(report: Path):
+    if report.suffix == '.xlsx':
+        from openpyxl import load_workbook
+
+        with report.open('rb') as stream:
+            book = load_workbook(stream, read_only=True)
+            try:
+                for name in book.sheetnames:
+                    if name == '_issues' or name.startswith('_issues_'):
+                        rows = book[name].values
+                        columns = next(rows)
+                        for row in rows:
+                            yield dict(zip(columns, row))
+            finally:
+                book.close()
+    elif report.is_file():
+        with report.open(encoding='utf-8-sig', newline='') as stream:
+            yield from csv.DictReader(stream)
+
+
+def _issue_lines(output_dir: Path, total: int, limit: int = 6) -> tuple[str, ...]:
+    from contextlib import closing
+    from itertools import islice
+
+    if not total:
         return ()
+    report = filesystem_path(output_dir.resolve() / REPORT_WORKBOOK)
+    label = f'{REPORT_WORKBOOK} → _issues'
+    if not report.is_file():
+        report = report.with_name('_issues.csv')
+        label = report.name
     lines = []
-    total = 0
-    with report.open(encoding="utf-8-sig", newline="") as stream:
-        for row in csv.DictReader(stream):
-            total += 1
-            if len(lines) >= limit:
-                continue
-            source = Path(row.get("File", "")).name or "Unknown file"
-            detail = row.get("Issue") or row.get("Detail") or "Unspecified issue"
-            kind = row.get("Kind", "").strip()
+    with closing(_issue_rows(report)) as rows:
+        for row in islice(rows, limit):
+            source = Path(row.get('File') or '').name or 'Unknown file'
+            detail = row.get('Issue') or row.get('Detail') or 'Unspecified issue'
+            kind = (row.get('Kind') or '').strip()
             lines.append(f"{source} — {kind + ': ' if kind else ''}{detail}")
     if total > limit:
-        lines.append(f"… {total - limit} more; open _issues.csv for details")
+        lines.append(f'… {total - limit} more; open {label} for details')
     return tuple(lines)
 
 
@@ -120,7 +150,7 @@ def run_reference_summary(request: ReferenceSummaryRequest, cancelled=None, prog
         request=request,
         result=result,
         output_files=files,
-        issue_lines=_issue_lines(output_dir),
+        issue_lines=_issue_lines(output_dir, result.error_count),
     )
 
 
@@ -151,19 +181,10 @@ class _SummaryWorker(QThread):
             self.failed.emit(str(error))
 
 
-def _metric(title: str):
-    frame = QFrame(objectName="summaryMetric")
-    layout = QVBoxLayout(frame)
-    layout.setContentsMargins(14, 12, 14, 12)
-    layout.setSpacing(3)
-    label = QLabel(title.upper(), objectName="eyebrow")
-    value = QLabel("—", objectName="detailValue")
-    value.setWordWrap(True)
-    value.setMinimumHeight(36)
-    value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-    layout.addWidget(label)
-    layout.addWidget(value)
-    return frame, value
+class _SummaryBrowser(QTextBrowser):
+    def loadResource(self, resource_type, name):
+        # Generated summaries are self-contained. Reopened HTML never fetches resources.
+        return None
 
 
 class ReferenceSummaryWindow(QMainWindow):
@@ -181,19 +202,38 @@ class ReferenceSummaryWindow(QMainWindow):
         self.worker: _SummaryWorker | None = None
         self.report: ReferenceSummaryReport | None = None
         self._source_metadata = {}
+        self._output_summaries = {}
         self._summary_path = None
         self._suggested_ref_name = 'Reference.ref'
         self._close_when_finished = False
+        self._aligned_results = None
+        self._aligned_inputs = None
         self._build_ui()
         self._vendor_changed()
         from .settings import apply_theme
         apply_theme(self)
         from .workspace_document import WkbDocument
+        from .reference_analysis_ui import ReferenceAnalysisPages
         self.document = WkbDocument(self)
+        self.analysis = ReferenceAnalysisPages(self.tabs, self)
+        self.groups_menu = self.menuBar().addMenu("Groups")
+        for action in self.analysis.display_options.menu.actions():
+            self.groups_menu.addAction(action)
+        self.analysis_menu = self.menuBar().addMenu('Analysis')
+        trend_axes = self.analysis.trend_y_axes_menu
+        self.analysis.analysis_menu.removeAction(trend_axes.menuAction())
+        trend_axes.setParent(self.analysis_menu, trend_axes.windowFlags())
+        self.analysis_menu.addMenu(trend_axes)
+        self.trend_page.data_point_edits = self.analysis._chart_edits
+        self.alignment.alignment_changed.connect(self._refresh_analysis)
+        self._refresh_analysis()
         self.alignment.alignment_changed.connect(self.document.identity_timer.start)
         self.source_list.itemChanged.connect(lambda *_: self.document.identity_timer.start())
         self.output_path.textChanged.connect(lambda *_: self.document.identity_timer.start())
         self.tabs.currentChanged.connect(lambda *_: self.document.identity_timer.start())
+        trend = self.analysis.sequence_page
+        trend.axis_mode.currentIndexChanged.connect(lambda _: self.document.identity_timer.start())
+        trend.axis_ratio.valueChanged.connect(lambda _: self.document.identity_timer.start())
         for button in self.trend_page.order_buttons.values():
             button.clicked.connect(lambda *_: self.document.identity_timer.start())
         self.document.mark_clean()
@@ -217,15 +257,16 @@ class ReferenceSummaryWindow(QMainWindow):
         split.setSizes([430, 680])
         outer.addWidget(split, 1)
         from .reference_alignment_ui import ReferenceAlignmentPage, CoordinateTrendPage
-        from .reference_analysis_ui import ReferenceAnalysisPages
         self.tabs = QTabWidget()
         self.tabs.addTab(root, '1. Summary')
         self.trend_page = CoordinateTrendPage()
         self.alignment = ReferenceAlignmentPage(self.trend_page)
+        self.alignment.external_outputs_loaded.connect(self._summarize_external_outputs)
+        self.alignment.active_output_changed.connect(self._show_output_summary)
+        self.load_folders_button.clicked.connect(self.alignment.choose_output_folders)
         self.tabs.addTab(self.alignment, '2. Wafer Alignment')
         self.tabs.addTab(self.trend_page, '3. XY Bias')
         self.setCentralWidget(self.tabs)
-        self.analysis = ReferenceAnalysisPages(self.tabs, self.alignment)
         self.alignment.plotted.connect(lambda: self.tabs.setCurrentIndex(2))
         self.file_menu = self.menuBar().addMenu("File")
         self.open_reference_action = self.file_menu.addAction("Open Reference Workspace…")
@@ -240,11 +281,84 @@ class ReferenceSummaryWindow(QMainWindow):
         self.show_summary_action = self.file_menu.addAction("Show Summary in File Explorer")
         self.show_summary_action.triggered.connect(self.show_summary)
 
+        self.data_menu = self.menuBar().addMenu('Data')
+        self.data_selection_action = self.data_menu.addAction('Data selection…')
+        self.data_selection_action.triggered.connect(self.open_data_selection)
+
         cancel_action = QAction(self)
         cancel_action.setShortcut(QKeySequence(Qt.Key.Key_Escape))
         cancel_action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
         cancel_action.triggered.connect(self.cancel)
         self.addAction(cancel_action)
+
+    def _refresh_analysis(self):
+        results = self.alignment.results or None
+        if results is not self._aligned_results:
+            try:
+                self._aligned_inputs = self.alignment.reference_data() if results else None
+            except ValueError as error:
+                self._aligned_inputs = None
+                self.statusBar().showMessage(str(error), 10000)
+            self._aligned_results = results
+        self._publish_analysis_selection()
+
+    def _publish_analysis_selection(self):
+        from .match_groups import participation_rows, participation_source_keys
+
+        inputs = self._aligned_inputs
+        state = self.alignment._dataset.data_selection or {}
+        allowed, excluded = set(), set()
+        if inputs is not None:
+            raw = inputs[1]
+            allowed = set(participation_rows(raw, state))
+            if len(allowed) < len(raw):
+                excluded = {key for row, key in enumerate(participation_source_keys(raw)) if row not in allowed}
+        self.analysis.set_alignment_inputs(inputs, excluded, state.get('hide_excluded', False))
+        self.data_selection_action.setEnabled(inputs is not None and not inputs[1].empty)
+        self.trend_page.refresh_point_checks(allowed)
+
+    def open_data_selection(self):
+        if self._aligned_inputs is None or self._aligned_inputs[1].empty:
+            return
+        from PyQt6.QtWidgets import QDialog
+        from .data_selection import DataSelectionDialog
+        from .match_groups import GroupPlan
+
+        dataset = self.alignment._dataset
+        reference, raw, _, _ = self._aligned_inputs
+        try:
+            plan = GroupPlan(raw, state={'data_selection': dataset.data_selection}, reference=reference)
+        except ValueError as error:
+            QMessageBox.warning(self, 'Cannot select analysis data', str(error))
+            return
+        dialog = DataSelectionDialog(plan, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            dataset.data_selection = dialog.selection
+            self._publish_analysis_selection()
+            self.document.identity_timer.start()
+        dialog.deleteLater()
+
+    def change_analysis_rows(self, rows, checked):
+        from .match_groups import missing_excluded_records, participation_ids, row_ids
+
+        if self._aligned_inputs is None:
+            return set()
+        raw = self._aligned_inputs[1]
+        dataset = self.alignment._dataset
+        state = dataset.data_selection or {}
+        excluded = set(state.get('excluded', ()))
+        ids = participation_ids(raw, state)
+        changed = {row for row in rows if 0 <= row < len(ids) and (ids[row] in excluded) == checked}
+        if not changed:
+            return changed
+        changes = {ids[row] for row in changed}
+        excluded = excluded - changes if checked else excluded | changes
+        records = [{'key': key, 'id': identifier} for key, identifier in zip(row_ids(raw), ids)]
+        dataset.data_selection = {**state, 'records': records + missing_excluded_records(state, records),
+                                  'excluded': sorted(excluded)}
+        self._publish_analysis_selection()
+        self.document.identity_timer.start()
+        return changed
 
     def workspace_snapshot(self):
         from .reference_workspace import snapshot
@@ -285,59 +399,188 @@ class ReferenceSummaryWindow(QMainWindow):
 
     def save_reference(self, path=None, *, save_as=False):
         from .reference_workspace import cache_available_outputs
-        from .reference_metadata import suggested_filename, summary_text, write_summary
+        from .reference_metadata import suggested_filename
         if self.worker is not None:
             raise ValueError("Wait for the current summary to finish.")
         cache_available_outputs(self.alignment)
         vendor, fields, outputs, sources = self._summary_metadata()
         self._suggested_ref_name = suggested_filename(vendor, fields, sources,
                                                        [metadata for _, metadata in outputs])
+        suggested_base = suggested_filename(
+            vendor, fields, sources, [metadata for _, metadata in outputs], include_date=False,
+        )
         previous = self._source_metadata
         cached = {**previous.get(vendor, {}), **{name: fields for name, fields in sources.items() if fields}}
         self._source_metadata = {**previous, vendor: cached} if cached else previous
         saved = None
         try:
+            if path is None and (save_as or self.document.path is None):
+                filename = _reference_save_filename(self, suggested_base)
+                if filename is None:
+                    return None
+                directory = (self.document.path.parent if self.document.path is not None
+                             else self.output_parent or Path.cwd())
+                chosen, _ = QFileDialog.getSaveFileName(
+                    self,
+                    "Save Reference Workspace As",
+                    str(directory / filename),
+                    "Reference Workspace (*.ref)",
+                )
+                if not chosen:
+                    return None
+                path = Path(chosen)
+                save_as = False
             saved = self.document.save(path, save_as=save_as)
         finally:
             if saved is None:
                 self._source_metadata = previous
-        if saved is not None:
-            self._summary_path = None
-            try:
-                self._summary_path = write_summary(saved, summary_text(vendor, saved, outputs, sources))
-            except OSError as error:
-                self.statusBar().showMessage(f"Saved {saved.name}. Summary could not be written: {error}", 10000)
         return saved
 
     def save_wkb(self, *, save_as=False):
         try:
-            saved = self.save_reference(save_as=save_as)
-            if saved and self._summary_path and QApplication.platformName() != 'offscreen':
-                self.show_summary()
-            return saved
+            return self.save_reference(save_as=save_as)
         except (OSError, ValueError) as error:
             QMessageBox.warning(self, "Cannot save Reference Workspace", str(error))
             return None
 
+    def _summarize_external_outputs(self, entries):
+        errors = []
+        for path, vendor, frame in entries:
+            vendor = self.vendor_name if vendor == 'Ref' else vendor
+            try:
+                summary = find_output_summary(path)
+                if summary is None:
+                    fields = frame_metadata(vendor, frame)
+                    summary = write_output_summary(path, summary_html(vendor, path, fields, {}))
+                self._output_summaries[path] = summary
+            except OSError as error:
+                errors.append(f'{path.name}: {error}')
+        active = self.alignment._dataset.path
+        if active is not None:
+            self._show_output_summary(active)
+        if errors:
+            self.statusBar().showMessage('Could not write summary for ' + '; '.join(errors), 10000)
+
+    def _show_output_summary(self, path):
+        if path is None:
+            if self.report is None:
+                self._summary_path = None
+                self.metadata_preview.clear()
+            self._refresh_output_picker(self._summary_path)
+            return
+        self._summary_path = None
+        try:
+            summary = find_output_summary(path)
+            if summary is not None:
+                self._output_summaries[path] = summary
+                self._show_html_summary(summary)
+        except (OSError, UnicodeError) as error:
+            self.statusBar().showMessage(f'Could not read the summary for {path.name}: {error}', 10000)
+        if self._summary_path is None:
+            vendor = self.alignment._output_vendors.get(path, self.vendor_name)
+            vendor = self.vendor_name if vendor == 'Ref' else vendor
+            fields = frame_metadata(vendor, self.alignment.ref.frame())
+            self.metadata_preview.setHtml(summary_html(vendor, path, fields, {}))
+        if self.report is not None and path in self.report.output_files:
+            self._show_issues(self.report.issue_lines)
+        else:
+            self.issue_summary.clear()
+        self._refresh_output_picker(path)
+
+    def _show_html_summary(self, path):
+        self.metadata_preview.setHtml(filesystem_path(path).read_text(encoding='utf-8'))
+        self._summary_path = path
+
+    def _output_paths(self):
+        refs = self.alignment.output_picker
+        outputs = [Path(refs.itemData(index)) for index in range(refs.count())]
+        files = list(self.report.output_files) if self.report is not None else []
+        files.extend(self._output_summaries[path] for path in outputs if path in self._output_summaries)
+        return outputs, list(dict.fromkeys(outputs + files))
+
+    def _refresh_output_picker(self, selected=None):
+        outputs, files = self._output_paths()
+        ref_role = Qt.ItemDataRole.UserRole + 1
+        picker = self.summary_output_picker
+        with QSignalBlocker(picker):
+            picker.clear()
+            for ref in outputs:
+                path = measurement_csv_path(ref)
+                if path.suffix.casefold() != '.csv' or picker.findData(str(path)) >= 0:
+                    continue
+                if path != ref and path not in files and not filesystem_path(path).is_file():
+                    continue
+                picker.addItem(path.name, str(path))
+                picker.setItemData(picker.count() - 1, str(path), Qt.ItemDataRole.ToolTipRole)
+                picker.setItemData(picker.count() - 1, str(ref), ref_role)
+            picker.setCurrentIndex(picker.findData(str(selected), role=ref_role))
+        self._update_output_actions()
+
+    def _select_output_file(self, _index):
+        path = self._selected_output_file()
+        if path is None:
+            return
+        refs = self.alignment.output_picker
+        ref = self.summary_output_picker.currentData(Qt.ItemDataRole.UserRole + 1)
+        index = refs.findData(ref)
+        if index >= 0:
+            if refs.currentIndex() == index:
+                self._show_output_summary(Path(ref))
+            else:
+                refs.setCurrentIndex(index)
+        self._update_output_actions()
+
+    def _selected_output_file(self):
+        value = self.summary_output_picker.currentData()
+        return Path(value) if value else None
+
+    def _update_output_actions(self):
+        path = self._selected_output_file()
+        self.summary_output_picker.setToolTip(str(path) if path else '')
+        active = path or self._summary_path or self.alignment._dataset.path
+        directory = active.parent if active else None
+        if directory is None and self.report is not None:
+            directory = self.report.result.output_dir
+        self.open_folder_button.setEnabled(directory is not None)
+        self.result_path.setText(str(directory) if directory else '')
+        self.result_path.setCursorPosition(0)
+        self.result_path.setToolTip(self.result_path.text())
+        _, all_files = self._output_paths()
+        files = [value for value in all_files if value.parent == directory]
+        current = [self.output_list.item(index).data(Qt.ItemDataRole.UserRole)
+                   for index in range(self.output_list.count())]
+        if current != files:
+            self.output_list.clear()
+            for file in files:
+                item = QListWidgetItem(file.name)
+                item.setData(Qt.ItemDataRole.UserRole, file)
+                item.setToolTip(str(file))
+                self.output_list.addItem(item)
+        selected = active if active in files else self._summary_path
+        self.output_list.setCurrentRow(files.index(selected) if selected in files else -1)
+
+    def _select_listed_output(self, item):
+        path = item.data(Qt.ItemDataRole.UserRole)
+        picker = self.summary_output_picker
+        index = picker.findData(str(path))
+        if index >= 0:
+            picker.setCurrentIndex(index)
+        elif path.suffix.casefold() == '.html':
+            try:
+                self._show_html_summary(path)
+            except (OSError, UnicodeError) as error:
+                self.statusBar().showMessage(f'Could not read the summary: {error}', 10000)
+
     def show_summary(self):
         from .matching_window import reveal_path_in_folder
-        from .reference_metadata import MARKER
 
-        if not self.document.path:
+        path = self._summary_path
+        if path is None and self.report is not None:
+            path = next((path for path in self.report.output_files if path.name == BATCH_SUMMARY), None)
+        if path is None:
             return
-        workspace = self.document.path
         try:
-            prefix = workspace.stem + '.summary'
-            candidates = [workspace.with_suffix('.txt'), *sorted(path for path in workspace.parent.iterdir()
-                          if path.name.startswith(prefix) and path.suffix == '.txt')]
-            for path in (self._summary_path, *candidates):
-                if path is None or not path.is_file():
-                    continue
-                with path.open(encoding='utf-8-sig', errors='replace') as stream:
-                    if stream.readline().strip() != MARKER:
-                        continue
-                reveal_path_in_folder(path)
-                return
+            reveal_path_in_folder(path)
         except OSError as error:
             self.statusBar().showMessage(f"Could not show the summary: {error}", 10000)
 
@@ -356,8 +599,8 @@ class ReferenceSummaryWindow(QMainWindow):
         if "recovery" in draft.states:
             self.document.recover(path, draft)
             return draft
+        self._output_summaries.clear()
         install(self, prepared)
-        self._summary_path = None
         self.document.path = Path(path).resolve()
         self.document.revision = draft.revision
         self.document.untrusted_recovery = False
@@ -446,45 +689,63 @@ class ReferenceSummaryWindow(QMainWindow):
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(18, 16, 18, 18)
         layout.setSpacing(12)
-        layout.addWidget(help_title_label(
-            "Run summary",
-            "Shows counts, warnings and generated files. Measurement rows are intentionally not previewed here.",
-        ))
+        ref_row = QHBoxLayout()
+        label = help_title_label('Output', 'Select a Ref measurement CSV. Measurement rows are intentionally not previewed here.')
+        self.summary_output_picker = ScrollSafeComboBox()
+        self.summary_output_picker.setSizeAdjustPolicy(ScrollSafeComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.summary_output_picker.setAccessibleName('Output file')
+        self.summary_output_picker.setPlaceholderText('Select an output file')
+        self.summary_output_picker.currentIndexChanged.connect(self._select_output_file)
+        label.setBuddy(self.summary_output_picker)
+        ref_row.addWidget(label)
+        ref_row.addWidget(self.summary_output_picker, 1)
+        self.load_files_button = QPushButton('Load files…')
+        self.load_files_button.setToolTip('Load one or more existing Ref output CSVs.')
+        self.load_files_button.clicked.connect(self.choose_output_files)
+        ref_row.addWidget(self.load_files_button)
+        self.load_folders_button = QPushButton('Load folders…')
+        self.load_folders_button.setToolTip('Load existing Ref output CSVs from one or more folders.')
+        ref_row.addWidget(self.load_folders_button)
+        layout.addLayout(ref_row)
 
-        metrics = QGridLayout()
-        metrics.setHorizontalSpacing(10)
-        metrics.setVerticalSpacing(10)
-        self.metric_values = {}
-        for index, key in enumerate(("Files", "Rows kept", "Channels / MP", "Issues")):
-            frame, value = _metric(key)
-            self.metric_values[key] = value
-            metrics.addWidget(frame, index // 2, index % 2)
-        layout.addLayout(metrics)
-
-        folder_row = QHBoxLayout()
-        folder_row.addWidget(QLabel("OUTPUT", objectName="eyebrow"))
-        folder_row.addStretch()
-        self.open_folder_button = QPushButton("Open folder", objectName="link")
-        self.open_folder_button.clicked.connect(self.open_output_folder)
-        self.open_folder_button.setEnabled(False)
-        folder_row.addWidget(self.open_folder_button)
-        layout.addLayout(folder_row)
         self.result_path = QLineEdit()
         self.result_path.setReadOnly(True)
-        self.result_path.setPlaceholderText("Output appears after a successful run")
+        self.result_path.setAccessibleName('Output directory')
+        self.result_path.setPlaceholderText('Output directory')
         layout.addWidget(self.result_path)
 
-        layout.addWidget(QLabel("GENERATED FILES", objectName="eyebrow"))
-        self.output_list = QListWidget(objectName="referenceOutputList")
-        self.output_list.setMinimumHeight(155)
-        self.output_list.itemDoubleClicked.connect(self.open_output_file)
-        layout.addWidget(self.output_list, 1)
+        self.metadata_preview = _SummaryBrowser(objectName='referenceMetadata')
+        self.metadata_preview.setAccessibleName('Reference metadata summary')
+        self.metadata_preview.setOpenLinks(False)
+        self.metadata_preview.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        self.metadata_preview.setPlaceholderText('Run a summary or load a Ref output to view its metadata.')
+        self.metadata_preview.setMinimumHeight(175)
+        layout.addWidget(self.metadata_preview, 1)
+
+        file_actions = QHBoxLayout()
+        file_actions.addWidget(QLabel('OUTPUT FILES', objectName='eyebrow'))
+        file_actions.addStretch()
+        self.open_file_button = QPushButton('Open file', objectName='link')
+        self.open_file_button.setEnabled(False)
+        self.open_file_button.clicked.connect(self.open_output_file)
+        file_actions.addWidget(self.open_file_button)
+        self.open_folder_button = QPushButton('Open folder', objectName='link')
+        self.open_folder_button.clicked.connect(self.open_output_folder)
+        file_actions.addWidget(self.open_folder_button)
+        layout.addLayout(file_actions)
+        self.output_list = QListWidget(objectName='referenceOutputList')
+        self.output_list.setMinimumHeight(76)
+        self.output_list.setMaximumHeight(108)
+        self.output_list.itemClicked.connect(self._select_listed_output)
+        self.output_list.itemDoubleClicked.connect(lambda item: self.open_output_file())
+        self.output_list.currentItemChanged.connect(lambda item, previous: self.open_file_button.setEnabled(item is not None))
+        layout.addWidget(self.output_list)
 
         layout.addWidget(QLabel("CHECKS", objectName="eyebrow"))
         self.issue_summary = QPlainTextEdit(objectName="referenceIssues")
         self.issue_summary.setReadOnly(True)
         self.issue_summary.setPlaceholderText("No run yet")
-        self.issue_summary.setMaximumHeight(130)
+        self.issue_summary.setMaximumHeight(88)
         layout.addWidget(self.issue_summary)
         return panel
 
@@ -498,13 +759,9 @@ class ReferenceSummaryWindow(QMainWindow):
 
     def _clear_result(self):
         self.report = None
-        self.result_path.clear()
-        self.output_list.clear()
         self.issue_summary.clear()
         self.issue_summary.setPlaceholderText("No run yet")
-        self.open_folder_button.setEnabled(False)
-        for value in self.metric_values.values():
-            value.setText("—")
+        self._show_output_summary(self.alignment._dataset.path)
 
     def set_source_files(self, files):
         allowed = VENDOR_DETAILS[self.vendor_name]["extensions"]
@@ -583,6 +840,12 @@ class ReferenceSummaryWindow(QMainWindow):
             self.output_parent = Path(folder)
             self.output_path.setText(folder)
 
+    def choose_output_files(self):
+        paths = choose_files(self, 'Load Ref output files', 'Ref output CSVs (*.csv)',
+                             directory=self.result_path.text())
+        if paths:
+            self.alignment.add_output_files(paths)
+
     def _update_actions(self):
         busy = self.worker is not None
         for action in (self.open_reference_action, self.save_reference_action, self.save_reference_as_action):
@@ -590,6 +853,8 @@ class ReferenceSummaryWindow(QMainWindow):
         self.vendor.setEnabled(not busy)
         self.files_button.setEnabled(not busy)
         self.folder_button.setEnabled(not busy)
+        self.load_files_button.setEnabled(not busy)
+        self.load_folders_button.setEnabled(not busy)
         self.source_list.setEnabled(not busy)
         self.run_button.setEnabled(bool(self.selected_source_files() and self.output_parent) and not busy)
         self.cancel_button.setEnabled(busy)
@@ -618,8 +883,8 @@ class ReferenceSummaryWindow(QMainWindow):
         self.status.setText(message)
 
     def _completed(self, report):
-        self.alignment.set_report(report)
         self._show_report(report)
+        self.alignment.set_report(report)
 
     def _show_report(self, report):
         self.report = report
@@ -627,31 +892,20 @@ class ReferenceSummaryWindow(QMainWindow):
         self.progress.setRange(0, 1)
         self.progress.setValue(1)
         self.status.setText("Summary complete. Source files were not modified.")
-        self.metric_values["Files"].setText(
-            f"{result.parsed_files} / {len(report.request.files)}"
-        )
-        self.metric_values["Rows kept"].setText(
-            f"{result.kept_rows:,} kept\n{result.duplicates:,} duplicates removed"
-        )
-        if report.request.vendor == "CDSEM1":
-            channel_text = f"{result.site_count:,} chips  ·  {result.mp_count:,} MP groups"
-        else:
-            channel_text = f"{result.channel_count:,} channel{'s' if result.channel_count != 1 else ''}"
-        self.metric_values["Channels / MP"].setText(channel_text)
-        self.metric_values["Issues"].setText(str(result.error_count))
-        self.result_path.setText(str(result.output_dir))
-        self.open_folder_button.setEnabled(True)
-        self.output_list.clear()
-        for path in report.output_files:
-            item = QListWidgetItem(path.name)
-            item.setData(Qt.ItemDataRole.UserRole, str(path))
-            item.setToolTip(f"Double-click to open\n{path}")
-            self.output_list.addItem(item)
-        if report.issue_lines:
-            self.issue_summary.setPlainText("\n".join(report.issue_lines))
-        else:
-            self.issue_summary.setPlainText("No issues reported")
+        self._show_issues(report.issue_lines)
+        overview = result.output_dir / BATCH_SUMMARY
+        self._summary_path = None
+        self.metadata_preview.clear()
+        if overview in report.output_files and filesystem_path(overview).is_file():
+            try:
+                self._show_html_summary(overview)
+            except (OSError, UnicodeError) as error:
+                self.statusBar().showMessage(f'Could not read the summary: {error}', 10000)
+        self._refresh_output_picker(self._summary_path)
         self.document.identity_timer.start()
+
+    def _show_issues(self, issues):
+        self.issue_summary.setPlainText("\n".join(issues) if issues else "No issues reported")
 
     def _failed(self, message):
         self.status.setText("Summary failed. No incomplete output was published.")
@@ -679,13 +933,13 @@ class ReferenceSummaryWindow(QMainWindow):
             self.worker.requestInterruption()
 
     def open_output_folder(self):
-        if self.report is not None:
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.report.result.output_dir)))
+        if directory := self.result_path.text():
+            QDesktopServices.openUrl(QUrl.fromLocalFile(directory))
 
-    def open_output_file(self, item):
-        path = item.data(Qt.ItemDataRole.UserRole)
-        if path:
-            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+    def open_output_file(self):
+        if item := self.output_list.currentItem():
+            path = item.data(Qt.ItemDataRole.UserRole)
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
     def closeEvent(self, event):
         if self.worker is not None and self.worker.isRunning():
@@ -696,12 +950,60 @@ class ReferenceSummaryWindow(QMainWindow):
         if not self.document.confirm_close():
             event.ignore()
             return
-        self.analysis.document.force_close = True
         if not self.analysis.close():
             event.ignore()
             return
         self.document.closed()
         super().closeEvent(event)
+
+
+def _reference_save_filename(parent, suggested_name):
+    dialog = QDialog(parent)
+    dialog.setWindowTitle("Name Reference Workspace")
+    form = QFormLayout(dialog)
+    form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+
+    timestamp = QDateTimeEdit(QDateTime.currentDateTime(), dialog)
+    timestamp.setDisplayFormat("yyyy-MM-dd HH:mm")
+    timestamp.setCalendarPopup(True)
+    form.addRow("Date and Time", timestamp)
+
+    base = Path(suggested_name).stem
+    preview = QLabel(dialog)
+    preview.setObjectName("FileNamePreview")
+    preview.setTextFormat(Qt.TextFormat.PlainText)
+    preview.setWordWrap(True)
+    form.addRow("File Name", preview)
+
+    buttons = QDialogButtonBox(
+        QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+        parent=dialog,
+    )
+    proceed = buttons.button(QDialogButtonBox.StandardButton.Ok)
+    proceed.setText("Continue")
+    buttons.accepted.connect(dialog.accept)
+    buttons.rejected.connect(dialog.reject)
+    form.addRow(buttons)
+
+    def update_preview():
+        stamp = timestamp.dateTime().toString("yyyyMMdd_HHmm")
+        filename = f"{base}_{stamp}.ref"
+        message = ""
+        if not base or any(re.search(r'[<>:"/\\|?*\x00-\x1f]', part) for part in (base, stamp)):
+            message = "Remove characters that Windows does not allow in file names."
+        elif PureWindowsPath(filename).is_reserved():
+            message = "Choose a file name that Windows does not reserve."
+        preview.setText(message or filename)
+        proceed.setEnabled(not message)
+
+    timestamp.dateTimeChanged.connect(update_preview)
+    update_preview()
+    try:
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            return preview.text()
+        return None
+    finally:
+        dialog.deleteLater()
 
 
 __all__ = [

@@ -1,6 +1,7 @@
 """Identify measurement sets without modifying, dropping or averaging samples."""
 from threading import current_thread, main_thread, local
 from dataclasses import dataclass, replace
+from itertools import groupby
 import json
 
 import numpy as np
@@ -10,6 +11,63 @@ from .data import number
 
 
 _MEASUREMENT_CACHE = []  # Four owned metadata snapshots, never measurement values.
+
+_COMPARABLE_WAFER_FIELDS = (
+    ("Wafer ID", ("waferid", "wafer", "waferno", "wafernumber")),
+    ("Lot ID", ("lotid", "lot", "lotno", "lotnumber")),
+    ("PAD Name", ("padname", "pad", "sitename")),
+    ("Slot", ("slot", "slotno", "slotnumber", "waferslot")),
+)
+
+
+def compare_wafer_inputs(reference, raw):
+    """Return a wafer order flag and a description of different identities."""
+    if any(frame.empty or not frame.columns.is_unique for frame in (reference, raw)):
+        return False, ""
+
+    def headers(frame):
+        return {"".join(c.lower() for c in str(column) if c.isalnum()): column
+                for column in frame}
+
+    ref_headers, raw_headers = headers(reference), headers(raw)
+    fields, ref_values, raw_values = [], [], []
+    for field, aliases in _COMPARABLE_WAFER_FIELDS:
+        ref_column = next((ref_headers[name] for name in aliases if name in ref_headers), None)
+        raw_column = next((raw_headers[name] for name in aliases if name in raw_headers), None)
+        if ref_column is not None and raw_column is not None:
+            fields.append(field)
+            ref_values.append(reference[ref_column].fillna("").astype(str).str.strip())
+            raw_values.append(raw[raw_column].fillna("").astype(str).str.strip())
+    if "Wafer ID" not in fields and "Slot" not in fields:
+        return False, ""
+
+    ref_runs = [key for key, _ in groupby(zip(*ref_values)) if any(key)]
+    raw_runs = [key for key, _ in groupby(zip(*raw_values)) if any(key)]
+
+    def order_differs(ref_keys, raw_keys):
+        shared = set(ref_keys) & set(raw_keys)
+        return ([key for key in ref_keys if key in shared]
+                != [key for key in raw_keys if key in shared])
+
+    order_mismatch = order_differs(ref_runs, raw_runs)
+    if not order_mismatch and fields[0] == "Wafer ID":
+        # Recognize a reversed wafer sequence even if its Lot or PAD changed.
+        ref_ids = [key for key, _ in groupby(row[0] for row in ref_runs) if key]
+        raw_ids = [key for key, _ in groupby(row[0] for row in raw_runs) if key]
+        order_mismatch = order_differs(ref_ids, raw_ids)
+
+    def differences(label, runs, other_runs):
+        other = set(other_runs)
+        unique = dict.fromkeys(key for key in runs if key not in other)
+        if not unique:
+            return ""
+        details = ", ".join(f"{field} {value or '(blank)'}"
+                            for field, value in zip(fields, next(iter(unique))))
+        return f"{label} only ({len(unique)}) · {details}."
+
+    difference = " ".join(filter(None, (differences("Ref", ref_runs, raw_runs),
+                                        differences("Raw", raw_runs, ref_runs))))
+    return order_mismatch, difference
 
 
 @dataclass
@@ -119,7 +177,7 @@ def detect_measurements(frame, wafer_column, group_columns=None, use_die_seq=Tru
     find = lambda *aliases: next((names[a] for a in aliases if a in names), None)
     lot_col = find("lotid", "lot", "lotno")
     pad_col = find("padname", "pad")
-    seq_col = find("dieseq", "diesequence", "diesequenceno")
+    seq_col = find("dieseq", "diesequence", "diesequenceno", "seq")
     sequence = frame[seq_col] if seq_col else None
     columns = ([c for c in (wafer_column, lot_col, pad_col) if c] if group_columns is None
                else [c for c in group_columns if c in frame])

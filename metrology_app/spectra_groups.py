@@ -54,6 +54,8 @@ def validate_groups(saved):
 def copied_groups(raw, flags, state, spectra):
     """Copy accepted classification by Wafer/Lot/PAD/Die, rejecting ambiguous identities."""
     names = {normalized(c):c for c in raw}
+    if 'dieseq' not in names and 'seq' in names:
+        names['dieseq'] = names['seq']
     required = ('waferid','lotid','padname','dieseq')
     if any(name not in names for name in required):
         raise ValueError('WKB Groups require Wafer ID, Lot ID, PAD Name and Die Seq.')

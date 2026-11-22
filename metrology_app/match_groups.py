@@ -607,8 +607,8 @@ class GroupPlan:
                 spans[-1]["rows"].append(row)
                 previous = boundary
             return spans
-        names = {normalized(c): c for c in self.raw}
-        die = names.get("dieseq")
+        from .data import die_sequence_column
+        die = die_sequence_column(self.raw.columns)
         die_values = pd.to_numeric(self.raw[die], errors="coerce").to_numpy(float) if die else None
         spans = []
         for group in self.group_keys:

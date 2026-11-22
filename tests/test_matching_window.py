@@ -1306,6 +1306,9 @@ class MatchingWindowTests(unittest.TestCase):
         window.results_tabs.setCurrentIndex(1)
         window.show()
         APP.processEvents()
+        window._resize_results_for_plot_groups()
+        APP.processEvents()
+        QTest.qWait(20)
         group = window.plot_groups["CD"]
         view, model = group["wafer_view"], group["wafer_model"]
         column = model.frame.columns.get_loc("Draw")
@@ -1403,7 +1406,7 @@ class MatchingWindowTests(unittest.TestCase):
         APP.processEvents()
         group = window.plot_groups["CD"]
         view, card = group["wafer_view"], group["wafer_card"]
-        baseline = (card.height(), view.mapTo(card, QPoint()).y(), group["wafer_r2"].mapTo(card, QPoint()).y())
+        baseline = (card.height(), view.mapTo(card, QPoint()).y())
         model = view.model()
         column = model.frame.columns.get_loc("Draw")
         for _ in range(3):
@@ -1416,7 +1419,11 @@ class MatchingWindowTests(unittest.TestCase):
             self.assertTrue(detail["card"].isHidden())
             APP.processEvents()
             self.assertEqual(group["wafer_details"], {})
-            self.assertEqual((card.height(), view.mapTo(card, QPoint()).y(), group["wafer_r2"].mapTo(card, QPoint()).y()), baseline)
+            self.assertEqual((card.height(), view.mapTo(card, QPoint()).y()), baseline)
+            self.assertEqual(
+                group["wafer_plot_area"].mapTo(card, QPoint()).y(),
+                group["wafer_table_column"].geometry().y(),
+            )
 
     def test_display_filter_does_not_remove_participating_points_in_original_row_order(self):
         window = self.window
@@ -1677,6 +1684,199 @@ class MatchingWindowTests(unittest.TestCase):
         window.run_analysis()
         APP.processEvents()
         self.assertEqual(window.result.summary["Valid pairs"].tolist(), [3])
+
+    def test_data_selection_groups_and_test_flags_survive_stage_switch_and_reopen(self):
+        from copy import deepcopy
+        from PyQt6.QtWidgets import QLineEdit, QPushButton
+        from metrology_app.match_groups import applied_state
+
+        window = self.window
+        raw = pd.DataFrame({
+            "Wafer ID": ["W1"] * 3 + ["W2"] * 3,
+            "Die Seq": [1, 2, 3] * 2,
+            "CD": [1., 2., 3., 4., 5., 6.],
+        })
+        window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7., 8., 11., 14.]}))
+        window.set_raw_frame(raw)
+        final_data = raw.copy()
+        final_data.loc[:, "CD"] += 10
+        window.final_match_frame = final_data
+        window._load_input_sheet(window.final_raw_model, final_data)
+        configure_match_fixture(window)
+        window.run_analysis()
+
+        dialog = window.open_group_settings()
+        dialog.show()
+        APP.processEvents()
+        controls = window.group_controls
+        controls.enabled.setChecked(True)
+        table = dialog.table
+        model = table.model()
+
+        def set_test_flags(rows, key):
+            table.setCurrentIndex(model.index(rows[0], 4))
+            table.clearSelection()
+            for row in rows:
+                table.selectionModel().select(
+                    model.index(row, 4),
+                    QItemSelectionModel.SelectionFlag.Select,
+                )
+            QTest.keyClick(table, key)
+
+        set_test_flags((0, 1, 2), Qt.Key.Key_1)
+        set_test_flags((3, 4, 5), Qt.Key.Key_0)
+        controls.apply_button.click()
+        APP.processEvents()
+        self.assertFalse(dialog.isVisible())
+        expected_flags = ["1", "1", "1", "0", "0", "0"]
+        self.assertEqual(controls.flags_frame().iloc[:, 0].tolist(), expected_flags)
+
+        def choose_data():
+            chooser = APP.activeModalWidget()
+            chooser.findChild(QLineEdit, "dataSelectionSearch").setText("W2")
+            next(button for button in chooser.findChildren(QPushButton)
+                 if button.text() == "Uncheck Visible").click()
+            chooser.accept()
+
+        QTimer.singleShot(0, choose_data)
+        window.data_selection_action.trigger()
+        APP.processEvents()
+        self.assertEqual(window.result.summary["Valid pairs"].tolist(), [3])
+        expected_selection = deepcopy(applied_state(controls.state)["data_selection"])
+        self.assertEqual(len(expected_selection["excluded"]), 3)
+        self.assertEqual(window.result.group_plan.group_keys, ("All:1",))
+
+        window.result_mode.setCurrentText("Final")
+        APP.processEvents()
+        self.assertEqual(window.result.result_mode, "final")
+        self.assertEqual(window.result.summary["Valid pairs"].tolist(), [3])
+        self.assertEqual(
+            sorted(window.result.series("CD")["Raw"].dropna().tolist()),
+            [11., 12., 13.],
+        )
+        self.assertTrue(controls.enabled.isChecked())
+        self.assertEqual(controls.flags_frame().iloc[:, 0].tolist(), expected_flags)
+        self.assertEqual(applied_state(controls.state)["data_selection"], expected_selection)
+        self.assertEqual(window.result.group_plan.group_keys, ("All:1",))
+
+        # Re-running and opening an analysis child must not regenerate the
+        # selection or TestFlags from row counts.
+        window.run_analysis()
+        child = window.open_stage_workspace("final")
+        try:
+            self.assertEqual(len(child.participating_positions(child.model.frame())), 3)
+            self.assertEqual(controls.flags_frame().iloc[:, 0].tolist(), expected_flags)
+            self.assertEqual(applied_state(controls.state)["data_selection"], expected_selection)
+        finally:
+            child.document.force_close = True
+            child.close()
+            child.deleteLater()
+            APP.processEvents()
+
+        path = Path(self._documents.name) / "selection-groups-flags.mwkb"
+        window.save_workbook(path)
+        restored = MatchingWindow()
+        try:
+            restored.load_workbook(path)
+            self.assertEqual(restored.result_mode.currentText().lower(), "final")
+            self.assertEqual(restored.result.summary["Valid pairs"].tolist(), [3])
+            self.assertEqual(restored.group_controls.flags_frame().iloc[:, 0].tolist(), expected_flags)
+            self.assertTrue(restored.group_controls.enabled.isChecked())
+            self.assertEqual(applied_state(restored.group_controls.state)["data_selection"],
+                             expected_selection)
+            self.assertEqual(restored.result.group_plan.group_keys, ("All:1",))
+
+            reopened_child = restored.open_stage_workspace("final")
+            try:
+                self.assertEqual(
+                    len(reopened_child.participating_positions(reopened_child.model.frame())),
+                    3,
+                )
+            finally:
+                reopened_child.document.force_close = True
+                reopened_child.close()
+                reopened_child.deleteLater()
+                APP.processEvents()
+
+            restored.result_mode.setCurrentText("Preview")
+            APP.processEvents()
+            self.assertEqual(restored.result.result_mode, "preview")
+            self.assertEqual(restored.result.summary["Valid pairs"].tolist(), [3])
+            self.assertEqual(restored.group_controls.flags_frame().iloc[:, 0].tolist(), expected_flags)
+            self.assertTrue(restored.group_controls.enabled.isChecked())
+            self.assertEqual(applied_state(restored.group_controls.state)["data_selection"],
+                             expected_selection)
+            self.assertEqual(restored.result.group_plan.group_keys, ("All:1",))
+        finally:
+            restored.document.force_close = True
+            restored.close()
+            restored.deleteLater()
+            APP.processEvents()
+
+    def test_pending_group_and_test_flags_survive_reopen_then_apply_on_stage_switch(self):
+        from PyQt6.QtWidgets import QLineEdit, QPushButton
+        from metrology_app.match_groups import applied_state
+
+        window = self.window
+        raw = pd.DataFrame({
+            "Wafer ID": ["W1"] * 3 + ["W2"] * 3,
+            "Die Seq": [1, 2, 3] * 2,
+            "CD": [1., 2., 3., 4., 5., 6.],
+        })
+        window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7., 8., 11., 14.]}))
+        window.set_raw_frame(raw)
+        final_data = raw.copy()
+        final_data.loc[:, "CD"] += 10
+        window.final_match_frame = final_data
+        window._load_input_sheet(window.final_raw_model, final_data)
+        configure_match_fixture(window)
+        window.run_analysis()
+
+        controls = window.group_controls
+        controls.enabled.setChecked(True)
+        controls.set_test_flags({0, 1, 2}, "1")
+        controls.set_test_flags({3, 4, 5}, "0")
+        self.assertTrue(controls.pending)
+
+        def choose_data():
+            chooser = APP.activeModalWidget()
+            chooser.findChild(QLineEdit, "dataSelectionSearch").setText("W2")
+            next(button for button in chooser.findChildren(QPushButton)
+                 if button.text() == "Uncheck Visible").click()
+            chooser.accept()
+
+        QTimer.singleShot(0, choose_data)
+        window.data_selection_action.trigger()
+        APP.processEvents()
+        expected_flags = ["1", "1", "1", "0", "0", "0"]
+        expected_selection = applied_state(controls.state)["data_selection"]
+
+        path = Path(self._documents.name) / "pending-selection-groups-flags.mwkb"
+        window.save_workbook(path)
+        restored = MatchingWindow()
+        try:
+            restored.load_workbook(path)
+            self.assertEqual(restored.group_controls.flags_frame().iloc[:, 0].tolist(), expected_flags)
+            self.assertTrue(restored.group_controls.enabled.isChecked())
+            self.assertTrue(restored.group_controls.pending)
+            self.assertEqual(applied_state(restored.group_controls.state)["enabled"], False)
+            self.assertEqual(applied_state(restored.group_controls.state)["data_selection"],
+                             expected_selection)
+
+            restored.result_mode.setCurrentText("Final")
+            APP.processEvents()
+            two = restored.group_controls
+            self.assertFalse(two.pending)
+            self.assertEqual(two.flags_frame().iloc[:, 0].tolist(), expected_flags)
+            self.assertEqual(applied_state(two.state)["enabled"], True)
+            self.assertEqual(applied_state(two.state)["data_selection"], expected_selection)
+            self.assertEqual(restored.result.summary["Valid pairs"].tolist(), [3])
+            self.assertEqual(restored.result.group_plan.group_keys, ("All:1",))
+        finally:
+            restored.document.force_close = True
+            restored.close()
+            restored.deleteLater()
+            APP.processEvents()
 
     def test_changed_selection_columns_ask_for_a_new_selection(self):
         from PyQt6.QtWidgets import QLineEdit, QPushButton
@@ -1971,17 +2171,21 @@ class MatchingWindowTests(unittest.TestCase):
         group = window.plot_groups["CD"]
         self.assertEqual(group["wafer_model"].frame.columns[0], "Draw")
         self.assertEqual(group["wafer_view"].columnWidth(1), 320)
+        window._resize_results_for_plot_groups()
+        APP.processEvents()
+        QTest.qWait(20)
         view = group["wafer_view"]
         self.assertEqual(view.height(), 280)
         table_position = view.mapTo(group["wafer_card"], QPoint())
-        plot_position = group["wafer_r2"].mapTo(group["wafer_card"], QPoint())
-        self.assertEqual(table_position.y(), plot_position.y())
+        plot_position = group["wafer_plot_area"].mapTo(group["wafer_card"], QPoint())
+        self.assertEqual(group["wafer_table_column"].geometry().y(), plot_position.y())
         self.assertGreater(plot_position.x(), table_position.x() + view.width())
         self.assertEqual(view.verticalScrollBarPolicy(), Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         for key in ("wafer_r2", "wafer_slope"):
             view.clearSelection()
             plot = group[key]
-            self.assertEqual((plot.width(), plot.height()), (420, 280))
+            self.assertGreaterEqual(plot.width(), 200)
+            self.assertEqual(plot.height(), 280)
             curve = plot.listDataItems()[0]
             point = curve.scatter.points()[1]
             position = plot.mapFromScene(curve.scatter.mapToScene(point.pos()))
@@ -2421,6 +2625,30 @@ class MatchingWindowTests(unittest.TestCase):
             self.window.final_raw_model.headers(), ["Wafer ID", "DP", "DP_1"]
         )
         self.assertTrue(self.window.raw_duplicate_banner.isHidden())
+
+    def test_match_warns_when_ref_and_raw_wafer_order_differs(self):
+        reference = pd.DataFrame({
+            "Wafer ID": ["W1", "W1", "W2", "W2"],
+            "Lot ID": ["L1"] * 4, "PAD Name": ["P1"] * 4, "Slot": ["1", "1", "2", "2"],
+            "Die Seq": [1, 2] * 2, "CD": [20., 21., 25., 26.],
+        })
+        raw = reference.iloc[[2, 3, 0, 1]].reset_index(drop=True)
+        self.window.set_reference_frame(reference)
+        self.window.set_raw_frame(raw)
+        self.assertFalse(self.window.wafer_warning.isHidden())
+        self.assertIn("wafer order differs", self.window.wafer_warning.text())
+        self.assertEqual(self.window.raw_model.frame()["Wafer ID"].tolist(), raw["Wafer ID"].tolist())
+        workspace = self.window.open_correlation_workspace()
+        try:
+            workspace.copy_reference_from_wkb_action.trigger()
+            self.assertIn("Workbook Ref and Raw wafer order differs", workspace.wafer_warning.text())
+            self.assertNotIn("wafer information differs", workspace.wafer_warning.text())
+        finally:
+            workspace.close()
+            workspace.deleteLater()
+            APP.processEvents()
+        self.window.set_raw_frame(reference)
+        self.assertTrue(self.window.wafer_warning.isHidden())
 
     def test_correlation_button_opens_active_reference_and_raw_sources(self):
         class FakeCorrelationWorkspace:
@@ -4479,7 +4707,7 @@ class MatchingWindowTests(unittest.TestCase):
             self.window._offer_second_axis_settings(workspace)
             self.assertEqual(self.window.trend_axis_mode, "dual")
             self.assertEqual(workspace.sequence_page.axis_mode_value(), "dual")
-            self.assertEqual(workspace.sequence_page.axis_ratio_limit(), 10.0)
+            self.assertEqual(workspace.sequence_page.axis_ratio_limit(), 1.0)
         finally:
             workspace.close()
             workspace.deleteLater()
@@ -5427,9 +5655,10 @@ class MatchingWindowTests(unittest.TestCase):
         self.window.run_analysis()
 
         self.assertIsInstance(self.window.results_tabs, QTabWidget)
-        self.assertEqual(self.window.results_tabs.count(), 2)
+        self.assertEqual(self.window.results_tabs.count(), 3)
         self.assertEqual(self.window.results_tabs.tabText(0), "All parameter plots")
         self.assertEqual(self.window.results_tabs.tabText(1), "Single-Wafer metrics")
+        self.assertEqual(self.window.results_tabs.tabText(2), "Wafer Mean / Sigma")
         group = self.window.plot_groups["CD"]
         self.assertFalse(group["wafer_card"].isHidden())
         self.assertEqual(group["wafer_model"].rowCount(), 2)

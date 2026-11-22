@@ -607,7 +607,10 @@ class ParameterFilterTests(unittest.TestCase):
                         self.assertEqual({frozenset((axis.get_xlabel(), axis.get_ylabel()))
                                           for axis in visible_axes}, expected)
                     else:
-                        self.assertEqual(len(page.figure.axes), 3)
+                        self.assertEqual(
+                            len([axis for axis in page.figure.axes if axis.get_title()]),
+                            3,
+                        )
                         self.assertFalse(any("UC" in axis.get_title() for axis in page.figure.axes))
                     page.parameter_filter.buttons[None].click()
                     if kind is CorrelationPage:

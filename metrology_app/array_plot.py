@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 import numpy as np
 import pandas as pd
 
-from .data import number
+from .data import combined_xy_unit, coordinates, number
 from .plot import PlotOptions, WaferPlot, infer_geometry, infer_wafer_geometry, prepare_surfaces
 
 MAX_ARRAY_MAPS = 120
@@ -45,7 +45,7 @@ def prepare_array(frame, selection, options, progress=lambda *_: None, cancelled
     selected &= {(w, m) for w in wafers for m in metrics}
     if not selected:
         raise ValueError("Select at least one map box before drawing.")
-    if options.x == options.y:
+    if options.x == options.y and combined_xy_unit(options.x) is None:
         raise ValueError("Choose different X and Y coordinate columns.")
     if options.diameter is not None and (not np.isfinite(options.diameter) or options.diameter <= 0):
         raise ValueError("Diameter must be a finite positive number, or Auto.")
@@ -55,8 +55,9 @@ def prepare_array(frame, selection, options, progress=lambda *_: None, cancelled
         ids = frame[selection["wafer_column"]].astype(str).str.strip()
         part_rows = {key: np.flatnonzero(ids == key) for key in wafers}
     parts = {key: frame.iloc[positions] for key, positions in part_rows.items()}
-    rows = pd.concat([parts[key] for key in wafers if key in {w for w, _ in selected}])
-    points = pd.DataFrame({"x": number(rows[options.x]), "y": number(rows[options.y])}).dropna().drop_duplicates()
+    plotted = {wafer for wafer, _ in selected}
+    xy_by_wafer = {wafer: coordinates(parts[wafer], options.x, options.y) for wafer in wafers if wafer in plotted}
+    points = pd.concat(xy_by_wafer.values()).dropna().drop_duplicates()
     if points.empty:
         raise ValueError("No valid coordinates in the selected wafers.")
     geometry = (infer_geometry(points.to_numpy()) if options.diameter is None else
@@ -64,16 +65,15 @@ def prepare_array(frame, selection, options, progress=lambda *_: None, cancelled
     per_wafer = {}
     if options.diameter is None:
         for wafer in wafers:
-            if wafer not in {w for w, _ in selected}:
+            if wafer not in plotted:
                 continue
-            part = parts[wafer]
-            xy = pd.DataFrame({"x": number(part[options.x]), "y": number(part[options.y])}).dropna().drop_duplicates()
+            xy = xy_by_wafer[wafer].dropna().drop_duplicates()
             per_wafer[wafer] = (infer_wafer_geometry(xy.to_numpy(), (options.x, options.y))
                                 if not xy.empty else (geometry, None))
     scenes = []
     pending = []
     names = {"".join(ch.lower() for ch in str(column) if ch.isalnum()): column for column in frame}
-    die_column = next((names[name] for name in ("dieseq", "dieid", "diesequence", "diesequenceno")
+    die_column = next((names[name] for name in ("dieseq", "dieid", "diesequence", "diesequenceno", "seq")
                        if name in names), None)
     # Small arrays can afford a near screen-resolution grid, which keeps the
     # displayed surface crisp; large arrays fall back to the cheaper grid.
@@ -87,13 +87,12 @@ def prepare_array(frame, selection, options, progress=lambda *_: None, cancelled
             if (wafer, metric) not in selected:
                 scenes.append({"wafer": wafer, "metric": metric, "skip": True, "error": ""})
                 continue
-            fields = {"x": number(part[options.x]), "y": number(part[options.y]),
-                      "value": number(part[metric]), "source_row": part_rows[wafer]}
+            layer = xy_by_wafer[wafer].assign(value=number(part[metric]), source_row=part_rows[wafer])
             if die_column is not None:
                 # Carry the source identifier through exactly the same invalid
                 # coordinate/value mask as the measured points, not row numbers.
-                fields["die"] = part[die_column].fillna("").astype(str)
-            layer = pd.DataFrame(fields).dropna(subset=["x", "y"])
+                layer["die"] = part[die_column].fillna("").astype(str)
+            layer = layer.dropna(subset=["x", "y"])
             wafer_geometry, standard = per_wafer.get(wafer, (geometry, None))
             plot_options = PlotOptions(*wafer_geometry, labels=options.labels, points=options.points,
                                        fill_edge=options.fill_edge, resolution=grid_resolution,
@@ -116,8 +115,8 @@ def prepare_array(frame, selection, options, progress=lambda *_: None, cancelled
             scenes.append(scene)
     batches = {}
     for scene in pending:
-        coordinates = tuple(map(tuple, scene["layer"][["x", "y"]].to_numpy(float)))
-        batches.setdefault((scene["wafer"], coordinates), []).append(scene)
+        points_key = tuple(map(tuple, scene["layer"][["x", "y"]].to_numpy(float)))
+        batches.setdefault((scene["wafer"], points_key), []).append(scene)
     completed = sum(bool(scene["error"]) for scene in scenes)
 
     def interpolate_batch(batch):

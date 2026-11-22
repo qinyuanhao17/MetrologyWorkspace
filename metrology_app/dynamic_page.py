@@ -17,6 +17,7 @@ from pyqtgraph.graphicsItems.LegendItem import ItemSample, LegendItem
 
 from . import dynamic_grr
 from .background_task import LatestTask
+from .data import die_sequence_column
 from .dynamic import (_sort_measurement_labels, changed_dynamic_parameters, dynamic_pivot,
                       prepare_dynamic_frame, selected_measurement_rows)
 from .plotting import InteractivePlotWidget
@@ -465,7 +466,7 @@ class DynamicPage(QWidget):
         positions = {
             (cycle, die): row
             for row, (cycle, die) in zip(
-                source_rows, zip(prepared["Cycle"], prepared["Die Seq"])
+                source_rows, zip(prepared["Cycle"], prepared[die_sequence_column(prepared.columns)])
             )
         }
         return {
@@ -512,12 +513,13 @@ class DynamicPage(QWidget):
             self._refresh_grr()
             return
 
+        dies = prepared[die_sequence_column(prepared.columns)]
         self._grr_axes = (
             _sort_measurement_labels(prepared["Cycle"].dropna().unique())[:dynamic_grr.CYCLE_COUNT],
-            _sort_measurement_labels(prepared["Die Seq"].dropna().unique())[:dynamic_grr.DIE_COUNT],
+            _sort_measurement_labels(dies.dropna().unique())[:dynamic_grr.DIE_COUNT],
         )
         self._die_source_rows = {}
-        for die, row in zip(prepared["Die Seq"], source_rows):
+        for die, row in zip(dies, source_rows):
             self._die_source_rows.setdefault(str(die), []).append(int(row))
         if len(parameters) > 1:
             self._add_comparison_plot(parameters, pivots)
@@ -575,7 +577,7 @@ class DynamicPage(QWidget):
         plot = InteractivePlotWidget(
             background=self._plot_background, frame_tick_length=3
         )
-        plot.point_selection.data = getattr(self, "data_point_edits", None)
+        plot.point_selection.set_data(getattr(self, "data_point_edits", None), ("Dynamic",))
         plot.setFixedSize(PLOT_WIDTH, PLOT_HEIGHT)
         plot.setLabel("bottom", "Die Seq")
         plot.setLabel("left", "3 Sigma (nm)")

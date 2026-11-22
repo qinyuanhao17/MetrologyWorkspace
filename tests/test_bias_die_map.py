@@ -27,9 +27,8 @@ class BiasDieMapTests(unittest.TestCase):
             "Wafer ID": ["W1"] * 4,
             "Lot ID": ["L1"] * 4,
             "PAD Name": ["P1"] * 4,
-            "Die Seq": [1, 2, 3, 4],
-            "X (mm)": [0, 20, 40, 60],
-            "Y (mm)": [0, 10, 20, 30],
+            "Seq": [1, 2, 3, 4],
+            "XY (mm)": ['X0 Y0', 'X20 Y10', 'X40 Y20', 'X60 Y30'],
             "CD": [0, 1.1, 4.5, 3.2],
         })
         owner.set_reference_frame(pd.DataFrame({"CD Reference": [0, 1, 2, 3]}))
@@ -58,8 +57,8 @@ class BiasDieMapTests(unittest.TestCase):
             "#F2B705",
         )
         preview = map_plot.preview.points()[0]
-        self.assertAlmostEqual(preview.pos().x(), float(raw.loc[source_row, "X (mm)"]))
-        self.assertAlmostEqual(preview.pos().y(), float(raw.loc[source_row, "Y (mm)"]))
+        self.assertAlmostEqual(preview.pos().x(), 20 * source_row)
+        self.assertAlmostEqual(preview.pos().y(), 10 * source_row)
         self.assertEqual(len(map_plot.selection.data), 0)
         self.assertFalse(map_window._selected_keys)
 

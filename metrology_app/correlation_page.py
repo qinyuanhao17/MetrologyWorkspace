@@ -1531,8 +1531,9 @@ class CorrelationPage(QWidget):
             widget.deleteLater()
             raise RuntimeError('Correlation rendering cancelled')
         widget.point_double_clicked.connect(lambda row: self._emit_point_double_clicked(widget, row))
-        widget.point_selection.data = getattr(self, 'data_point_edits', None)
-        widget.point_selection.scope = ('Correlation', key[:-1])
+        widget.point_selection.set_data(
+            getattr(self, 'data_point_edits', None), ('Correlation',),
+        )
         widget.setMinimumSize(180, 310)
         widget.setToolTip("Ctrl+scroll to zoom · Ctrl+left-drag to zoom · Left-drag to select · Right-drag to pan · "
                           "Ordinary scrolling moves the page · "

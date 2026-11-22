@@ -44,6 +44,43 @@ class ArrayTests(unittest.TestCase):
         self.assertEqual(result["scenes"][1]["options"].limits, (1, 10))
         self.assertTrue(all(not s["error"] for s in result["scenes"]))
 
+    def test_map_and_radius_parse_prefixed_xy_keep_seq_labels_and_source_rows(self):
+        from metrology_app.radius_page import RadiusPage
+
+        frame = pd.DataFrame({'Wafer': ['W'] * 4, 'Seq': ['07', '11', '12', '14'],
+                              'XY(mm)': ['X0.15 Y0.16', 'X:-0.4, Y=0.2', 'X1e-1 Y−.2', 'invalid'],
+                              'CD': ['1.00', '2.00', '3.00', '4.00']})
+        selection = {'wafer_column': 'Wafer', 'wafers': ['W'], 'metrics': ['CD']}
+        expected = np.array([[.15, .16], [-.4, .2], [.1, -.2]])
+        result = prepare_array(frame, selection, ArrayOptions('XY(mm)', 'XY(mm)'), grid_resolution=36)
+        layer = result['scenes'][0]['layer']
+        np.testing.assert_allclose(layer[['x', 'y']].to_numpy(), expected)
+        self.assertEqual(layer['source_row'].tolist(), [0, 1, 2])
+        self.assertEqual(layer['die'].tolist(), ['07', '11', '12'])
+
+        split = frame.drop(columns='XY(mm)').assign(**{
+            'X(mm)': ['X0.131697', ' x : -4e-1 ', 'X.1', 'invalid'],
+            'Y(mm)': ['Y0.05158', 'y=+.2', 'Y−.2', 'Y0.0'],
+        })
+        result = prepare_array(split, selection, ArrayOptions('X(mm)', 'Y(mm)'), grid_resolution=36)
+        points = result['scenes'][0]['layer']
+        np.testing.assert_allclose(points[['x', 'y']].to_numpy(), [[.131697, .05158], [-.4, .2], [.1, -.2]])
+        self.assertEqual(split.at[0, 'Y(mm)'], 'Y0.05158')
+
+        page = RadiusPage()
+        self.addCleanup(page.deleteLater)
+        self.addCleanup(page.close)
+        page.set_input(frame, selection)
+        self.assertEqual((page.x_column.currentData(), page.y_column.currentData()), ('XY(mm)', 'XY(mm)'))
+        page.selector.selectAll()
+        page.draw_plot()
+        self.assertTrue(page.ready, page.status.text())
+        source = page.plot_sources[0]
+        self.assertEqual(source['die'], ['07', '11', '12'])
+        self.assertEqual(source['source_rows'].tolist(), [0, 1, 2])
+        np.testing.assert_allclose(np.abs(source['radius']), np.linalg.norm(expected, axis=1))
+        self.assertEqual(frame.loc[0, 'XY(mm)'], 'X0.15 Y0.16')
+
     def test_independent_scale_is_default(self):
         result = prepare_array(self.frame, self.selection, ArrayOptions("X", "Y"))
         self.assertTrue(all(scene["options"].limits is None for scene in result["scenes"]))

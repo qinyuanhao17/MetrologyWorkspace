@@ -1,6 +1,6 @@
 # Metrology Workspace
 
-Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、光谱、径向图、相关性图和趋势图。主窗口提供 **Match Workbook**、**Wafer Map**、**Spectra Viewer**、**Correlation and Trend**、**Dynamic**、**AutoWeighting Writer** 和 **Reference Summarizer** 七个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例；窗口可命名、勾选随 WKB 保存。当前源码版本为 **v5.5.2**。Windows x64 Setup 见 [v5.5.0 发布页](https://github.com/qinyuanhao17/MetrologyWorkspace/releases/tag/v5.5.0)。
+Metrology Workspace 是一套 Python 3.10+ / PyQt6 桌面工具，用于整理量测数据、完成 Card 匹配、Dynamic 重复性分析，并绘制 Wafer Map、光谱、径向图、相关性图和趋势图。主窗口提供 **Match Workbook**、**Wafer Map**、**Spectra Viewer**、**Correlation and Trend**、**Dynamic**、**AutoWeighting Writer** 和 **Reference Summarizer** 七个工具。每次打开都会创建一个独立窗口，同一工具可以同时开多个实例；窗口可命名、勾选随 WKB 保存。当前源码版本为 **v5.5.3**。Windows x64 Setup 见 [v5.5.0 发布页](https://github.com/qinyuanhao17/MetrologyWorkspace/releases/tag/v5.5.0)。
 
 v4.3.1 修复 Match Group / Wafer 导出中曲线、Wafer 标签和分界线不一致的问题：原生 Trend、Bias 与 Bias % 改为绑定单元格的 XY series，Show Wafer Group 的真实宽度会同步作用于数据；Wafer 标签保持各自 span 中心。单独 Group 页始终展示全部 Wafer，Match Wafer 改为不分页的一张完整图，数值轴只保留一个 Die Seq 标题，并在每个 Wafer 内按可用宽度生成密集刻度。完整 Undo、宽表粘贴/删除和多窗口阶段切换仍可能等待，不能把局部提速理解为整体流畅度全部达标。
 

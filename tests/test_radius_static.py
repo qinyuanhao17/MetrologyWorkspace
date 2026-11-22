@@ -54,6 +54,26 @@ class StaticRadiusTests(unittest.TestCase):
         self.assertGreater(page.scroll.transform().m11(), transform.m11())
         np.testing.assert_array_equal(before, page.radius_grid.panels[0].source["radius"])
 
+    def test_draw_all_paginates_more_than_120_selected_radius_plots(self):
+        page, _frame = self.page()
+        wafers = ["W1", "W2", "W3"]
+        metrics = [f"CD{index}" for index in range(61)]
+        frame = pd.DataFrame({"Wafer ID": wafers, "X(mm)": [3, 2, 1], "Y(mm)": [4, 5, 6],
+                              **{metric: [1, 2, 3] for metric in metrics}})
+        page.page_size.setValue(12)
+        page.set_input(frame, {"wafers": wafers, "metrics": metrics, "wafer_column": "Wafer ID"})
+        page.selector.selectAll()
+        page.draw_plot()
+        for index, wafer in enumerate(wafers):
+            self.assertTrue(page.ready, page.status.text())
+            self.assertEqual(page.page_label.text(), f"Page {index + 1} / 3")
+            self.assertEqual([(source["wafer"], source["metric"]) for source in page.plot_sources],
+                             [(wafer, metric) for metric in metrics])
+            if index + 1 < len(wafers):
+                page.page_next.click()
+        self.assertFalse(page.page_next.isEnabled())
+        self.assertEqual(len(page.drawn_cells), len(wafers) * len(metrics))
+
     def test_scatter_data_limits_and_geometry_match_matplotlib_export(self):
         page, _frame = self.page()
         page.draw_plot()

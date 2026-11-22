@@ -7,6 +7,7 @@ from zipfile import BadZipFile
 from PyQt6.QtCore import QSignalBlocker, Qt
 
 from .reference_alignment import AlignmentColumns, coordinate_bias, load_alignment_output
+from .trend import MAGNITUDE_RATIO_LIMIT
 from .workspace_store import WorkspaceSnapshot
 
 
@@ -24,6 +25,7 @@ def cache_available_outputs(page):
 
 def snapshot(window):
     page = window.alignment
+    trend = window.analysis.sequence_page
     paths = [Path(page.output_picker.itemData(index)) for index in range(page.output_picker.count())]
     active = page._dataset.path
     if active is None:
@@ -41,7 +43,7 @@ def snapshot(window):
         orders = ((page.ref_wafers.keys(), page.raw_wafers.keys()) if dataset is page._dataset else dataset.orders)
         entry.update(links=[[list(ref), list(raw)] for ref, raw in dataset.links.items()],
                      orders=[[None if key is None else list(key) for key in order] for order in orders],
-                     plotted=bool(dataset.results))
+                     plotted=bool(dataset.results), data_selection=dataset.data_selection)
         for name, sheet in (("ref", dataset.ref), ("raw", dataset.raw)):
             frames[f"{name}.{index}"] = sheet.frame()
             entry[name] = {"vendor": sheet.vendor, "rows": list(sheet.source_rows),
@@ -65,6 +67,8 @@ def snapshot(window):
         "primary": page.primary.currentData(), "x_order": page.x_order.currentData(),
         "y_order": page.y_order.currentData(), "plot_columns": window.trend_page.columns.currentText(),
         "plot_order": window.trend_page._order, "tab": window.tabs.currentIndex(),
+        "trend_axis_mode": trend.axis_mode_value(), "trend_axis_ratio": trend.axis_ratio_limit(),
+        "analysis_options": window.analysis.display_options.snapshot(readonly=True),
     }})
 
 
@@ -94,6 +98,7 @@ def _read_sheet(snapshot, entry, name, index):
 def prepare(snapshot):
     """Validate the snapshot and recover Bias data before replacing UI state."""
     from .cdsem1 import CDSEM1Result
+    from .match_groups import group_state
     from .reference_merge import MergeResult
     from .reference_summary_window import ReferenceSummaryReport, ReferenceSummaryRequest, VENDOR_DETAILS
 
@@ -152,7 +157,8 @@ def prepare(snapshot):
                                       ref_source_rows=ref_state["rows"], raw_source_rows=raw_state["rows"], notes=[])
             if not results:
                 raise ValueError("Saved XY Bias results could not be recovered.")
-        entries[path] = (entry["vendor"], ref, (ref_state, raw, raw_state, links, orders, results))
+        data_selection = group_state({'data_selection': entry.get('data_selection')})['data_selection']
+        entries[path] = (entry["vendor"], ref, (ref_state, raw, raw_state, links, orders, results, data_selection))
     if active not in entries or entries[active][2] is None:
         raise ValueError("Reference workspace has no active data sheet.")
     return ui, sources, checked, parent, report, entries, active
@@ -201,9 +207,10 @@ def install(window, prepared):
             if ref is not None:
                 page._saved_output_frames[path] = ref
             continue
-        ref_state, raw, raw_state, links, orders, results = state
+        ref_state, raw, raw_state, links, orders, results, data_selection = state
         dataset = page._new_dataset()
         dataset.path, dataset.links, dataset.orders, dataset.results = path, links, orders, results
+        dataset.data_selection = data_selection
         _restore_sheet(dataset.ref, ref, ref_state)
         _restore_sheet(dataset.raw, raw, raw_state)
         if path is not None:
@@ -223,5 +230,12 @@ def install(window, prepared):
     page._rebuild_wafer_lists(page._dataset.orders)
     trend.source_output = active
     trend.show_results(page.results)
+    page.active_output_changed.emit(active)
     page.alignment_changed.emit()
+    sequence = window.analysis.sequence_page
+    sequence.restore_axis_ratio(ui.get("trend_axis_ratio", MAGNITUDE_RATIO_LIMIT))
+    sequence.restore_axis_mode(ui.get("trend_axis_mode", "auto"))
+    if analysis_options := ui.get("analysis_options"):
+        window.analysis.display_options.restore(analysis_options)
+        window.analysis.display_options.refresh()
     window.tabs.setCurrentIndex(ui["tab"])

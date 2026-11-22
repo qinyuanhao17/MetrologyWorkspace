@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 import pyqtgraph as pg
 from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.collections import LineCollection
 from matplotlib.figure import Figure
 from matplotlib.transforms import ScaledTranslation
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
@@ -392,7 +393,7 @@ class SequencePage(QWidget):
         self.frame = frame
         self.selection = selection.copy()
         self.wafer_column = find_column(frame, ("waferid", "wafer", "waferno"))
-        self.die_column = find_column(frame, ("dieseq", "diesequence", "diesequenceno", "dieid"))
+        self.die_column = find_column(frame, ("dieseq", "diesequence", "diesequenceno", "dieid", "seq"))
         if self._defer_input and not self.isVisible():
             # There are no box edits before the first visit. Build the grid
             # using the latest data when the page first needs the selector.
@@ -587,10 +588,23 @@ class SequencePage(QWidget):
         for position, caption in ticks:
             axis.text(position, 0, caption, transform=transform, ha="center", va="top",
                       color="#5f6368", fontproperties=font, clip_on=False)
+        self._add_export_caption_dividers(axis, spans, offset, base)
+
+    def _add_export_caption_dividers(self, axis, spans, offset, base):
+        edges = sorted({edge for start, end, _ in spans for edge in (start, end)})
+        lines = max((label.count("\n") + 1 for _, _, label in spans), default=1)
+        height = (base + 3) * lines * self.figure.dpi / (72 * axis.bbox.height)
+        transform = axis.get_xaxis_transform() + ScaledTranslation(
+            0, -offset / 72, self.figure.dpi_scale_trans)
+        dividers = LineCollection([[(edge, -height), (edge, 0)] for edge in edges],
+                                  transform=transform, color="#000000", linewidth=1.25,
+                                  clip_on=False)
+        axis.add_collection(dividers, autolim=False)
 
     @staticmethod
-    def _add_caption_axis(widget, spans, row, *, optional_fields=False):
-        axis = SpanLabelAxis(spans, font=widget.font(), optional_fields=optional_fields)
+    def _add_caption_axis(widget, spans, row, *, optional_fields=False, show_boundaries=False):
+        axis = SpanLabelAxis(spans, font=widget.font(), optional_fields=optional_fields,
+                             show_boundaries=show_boundaries)
         axis.setPen(pg.mkPen(QColor(0, 0, 0, 0)))
         axis.setTextPen(pg.mkPen("#5f6368"))
         widget.getPlotItem().layout.addItem(axis, row, 1)
@@ -1485,9 +1499,12 @@ class SequencePage(QWidget):
                     position, label = ticks[index]
                     text.set_position((position, 0))
                     text.set_text(label)
+            offset = 3 * base + 12
+            levels = max((label.count("\n") + 1 for _, _, label in wafers), default=0)
+            if self.selection.get("show_group_labels"):
+                base_offset = offset + ((base + 3) * levels + 5 if levels else 0)
+                self._add_export_caption_dividers(ax, label_spans, base_offset, base)
             if wafers or combined:
-                offset = 3 * base + 12
-                levels = max((label.count("\n") + 1 for _, _, label in wafers), default=0)
                 if wafers:
                     self._add_export_caption_row(ax, wafers, offset, base, wafer=True)
                     for text in texts:
@@ -1639,9 +1656,12 @@ class SequencePage(QWidget):
         """
         if self.expand_wafer_ids.isChecked() or any(panel.get("comparisons") for panel in panels):
             return None
+        caption_rows = self._classification_spans(
+            self.axis_groups, [(group["start"] - .5, group["stop"] + .5) for group in self.axis_groups])
         return (
             int(self.font_size.currentText()), columns, rows, self.x_range,
-            tuple(label_spans),
+            tuple(label_spans), tuple(tuple(spans) for spans in caption_rows),
+            bool(self.selection.get("show_group_labels")),
             tuple(tuple(edges) for edges in self._boundary_positions()),
             tuple((panel["metric"], (panel["source"] or {}).get("name"),
                    (panel["source"] or {}).get("color"),
@@ -1756,8 +1776,9 @@ class SequencePage(QWidget):
         comparisons = panel.get("comparisons", ())
         chosen = self._chosen_groups(panel, groups)
         widget = InteractivePlotWidget(background="w", auto_x_range=self.x_range)
-        widget.point_selection.data = getattr(self, 'data_point_edits', None)
-        widget.point_selection.scope = ('Trend', panel_source['name'] if panel_source else None, metric)
+        widget.point_selection.set_data(
+            getattr(self, 'data_point_edits', None), ('Trend',),
+        )
         widget.point_double_clicked.connect(lambda row: self._emit_point_double_clicked(widget, row))
         widget.setMinimumSize(360, 280)
         widget.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
@@ -1882,12 +1903,15 @@ class SequencePage(QWidget):
             edges = [(group["start"] - .5, group["stop"] + .5) for group in self.axis_groups]
             wafers, combined = self._classification_spans(self.axis_groups, edges)
             if wafers:
-                widget._group_wafer_axis = self._add_caption_axis(widget, wafers, 4, optional_fields=True)
+                widget._group_wafer_axis = self._add_caption_axis(
+                    widget, wafers, 4, optional_fields=True, show_boundaries=True)
             widget._wafer_axis = self._add_caption_axis(
                 widget, label_spans, 5 if wafers else 4,
+                show_boundaries=bool(self.selection.get("show_group_labels")),
                 optional_fields=not self.selection.get("show_group_labels", self.selection.get("preserve_group_order")))
             if combined:
-                widget._combined_caption_axis = self._add_caption_axis(widget, combined, 6)
+                widget._combined_caption_axis = self._add_caption_axis(
+                    widget, combined, 6, show_boundaries=True)
         left = plot.getAxis("left")
         if not comparisons:
             left.setPen(pg.mkPen("#30343b"))

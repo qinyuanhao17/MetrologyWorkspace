@@ -1,6 +1,7 @@
 """Qt gestures preserve the separation between a plot mask and Data selection."""
 
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import numpy as np
@@ -194,3 +195,51 @@ class PlotPointSelectionTests(unittest.TestCase):
         self.assertFalse(other.point_selection.selected)
         self.assertEqual(len(self.plot.point_selection.highlight.data), 0)
         self.assertEqual(len(other.point_selection.preview.data), 0)
+
+    def test_analysis_pages_register_and_preview_the_same_source_point(self):
+        from PyQt6.QtTest import QTest
+        from metrology_app.correlation_window import CorrelationWindow
+
+        window = CorrelationWindow()
+        window.document.force_close = True
+        self.addCleanup(window.close)
+        raw = pd.DataFrame({
+            "Wafer ID": ["W1"] * 8,
+            "Die Seq": list(range(1, 9)),
+            "CD": range(8),
+            "Depth": [value * 2 + 1 for value in range(8)],
+        })
+        window.set_table(raw, "Raw")
+        window.set_reference_table(raw.assign(CD=[2, 4, 6, 8, 10, 12, 14, 16]))
+        correlation, trend = window.correlation_page, window.sequence_page
+        correlation.min_rsq.setValue(0)
+        correlation.selector.selectAll()
+        correlation.draw_plot()
+        trend.selector.selectAll()
+        trend.draw_plot()
+        QTest.qWait(500)
+        plots = correlation.plot_widgets + trend.plot_widgets
+        self.assertTrue(plots)
+        self.assertTrue(all(plot.point_selection in window._chart_edits._selections for plot in plots))
+
+        key = window._chart_edits.records()[0]
+        window._chart_edits.highlight({key}, None, rows={0})
+        self.assertGreater(sum(len(plot.point_selection.preview.data) for plot in plots), 0)
+
+    def test_wafer_maps_and_radius_paint_the_shared_linked_preview_ring(self):
+        from metrology_app.window import MainWindow
+        from metrology_app.wafer_graphics import paint_chart_preview
+
+        window = MainWindow()
+        window.document.force_close = True
+        self.addCleanup(window.close)
+        self.assertIn(window.plot_page.scroll, window._chart_edits._preview_listeners)
+        self.assertIn(window.radius_page.scroll, window._chart_edits._preview_listeners)
+
+        panel = SimpleNamespace(
+            point_rows=lambda: np.array([3, 7]),
+            _pixel_positions=np.array([[10.0, 20.0], [30.0, 40.0]]),
+        )
+        painter = Mock()
+        paint_chart_preview(panel, painter, rows={7})
+        painter.drawEllipse.assert_called_once()

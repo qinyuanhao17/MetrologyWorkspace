@@ -29,6 +29,7 @@ from typing import Callable
 import pandas as pd
 from .file_paths import filesystem_path
 from .reference_input import SOURCE_EXTENSIONS, check_cancel, decode_csv, reference_text
+from .reference_reports import REPORT_WORKBOOK, write_reports
 
 OUTPUT_FOLDER = "Reference_Summary_Output"
 CHANNEL_FIELDS = {
@@ -446,20 +447,24 @@ def scan_csv(folder: str | Path) -> list[Path]:
     return scan_reference_files(folder,extensions={'.csv'})
 
 
-def channel_filename(vendor: str, channel: tuple[str, ...]) -> str:
-    if vendor == "NOVA":
-        return "NOVA_merged.csv"
+def channel_filename(vendor: str, channel: tuple[str, ...], stem: str) -> str:
+    if not channel:
+        return stem + '.csv'
     fields = CHANNEL_FIELDS[vendor]
     chunks = []
     for key, value in zip(fields, channel):
         safe = "".join(c if c.isalnum() or c in "_-" else "_" for c in value).strip("_")
-        chunks.append(f"{key.replace(' ', '')}-{(safe or 'EMPTY')[:32]}")
+        chunks.append(f"{key.replace(' ', '')}-{(safe or 'EMPTY')[:20]}")
     digest = hashlib.sha256("\x1f".join(channel).encode("utf-8")).hexdigest()[:10]
-    return f"{vendor}_{'_'.join(chunks)}_{digest}.csv"
+    # Leave room for the matching .summary.html name within the filename limit.
+    suffix = f"_{'_'.join(chunks)}_{digest}"
+    return f"{stem[:230 - len(suffix)].rstrip(' .-')}{suffix}.csv"
 
 
 def merge(vendor: str, files: list[str | Path], output_parent: str | Path,
           cancelled=None, progress: Callable[[int, int, str], None] | None = None) -> MergeResult:
+    from .reference_metadata import batch_directory_name, collect_sources, frame_metadata, measurement_stem, write_batch_summary
+
     vendor = vendor.upper()
     if vendor not in CHANNEL_FIELDS:
         raise ValueError(f"Unknown vendor: {vendor}")
@@ -469,7 +474,6 @@ def merge(vendor: str, files: list[str | Path], output_parent: str | Path,
     base = Path(output_parent).resolve() / OUTPUT_FOLDER
     filesystem_path(base).mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    final = base / f"{vendor}_{stamp}"
     tmp = filesystem_path(base / f".processing_{uuid.uuid4().hex}")
     tmp.mkdir()
     groups: dict[tuple, list[dict]] = defaultdict(list)
@@ -495,7 +499,8 @@ def merge(vendor: str, files: list[str | Path], output_parent: str | Path,
                               "Accepted rows": 0, "Issues": 1, "Status": "FAILED"})
             if progress:
                 progress(index, len(files), f"Read {path.name}")
-        overviews, schemas, origins = [], [], []
+        sources = collect_sources(vendor, files, {}, cancelled)
+        overviews, schemas, origins, outputs = [], [], [], []
         total_before = total_after = 0
         for n, (channel, entries) in enumerate(sorted(groups.items()), 1):
             check_cancel(cancelled)
@@ -507,13 +512,17 @@ def merge(vendor: str, files: list[str | Path], output_parent: str | Path,
             data = data.loc[mask].reset_index(drop=True)
             front = [c for c in ("WaferID", "LotID", "PadName", "Slot", "TestID", "TestLabel", "Recipe", "Metrology unit", "AzimuthAngle", "ToolSN") if c in data]
             data = data[front + [c for c in data.columns if c not in front]]
-            filename = channel_filename(vendor, channel)
+            source_files = tuple(dict.fromkeys(entry["path"] for entry in entries))
+            fields = frame_metadata(vendor, data)
+            stem = measurement_stem(vendor, fields, [sources[path] for path in source_files])
+            filename = channel_filename(vendor, channel, stem)
             data.to_csv(tmp / filename, index=False, encoding="utf-8-sig")
+            outputs.append((filename, fields, source_files))
             total_before += count
             total_after += len(data)
             overviews.append({**dict(zip(CHANNEL_FIELDS[vendor], channel)),
                               "Input rows": count, "Duplicates removed": count - len(data),
-                              "Output rows": len(data), "Source files": len({e["path"] for e in entries}),
+                              "Output rows": len(data), "Source files": len(source_files),
                               "Output file": filename})
             for csv_line, item in enumerate(selected, 2):
                 origins.append({"Output file": filename, "Output line": csv_line,
@@ -526,19 +535,23 @@ def merge(vendor: str, files: list[str | Path], output_parent: str | Path,
             if progress:
                 progress(n, len(groups), f"Exported {filename}")
         report_specs = {
-            "_channels.csv": (overviews, [*CHANNEL_FIELDS[vendor], "Input rows", "Duplicates removed", "Output rows", "Source files", "Output file"]),
-            "_files.csv": (stats, ["File", "Blocks", "Data rows found", "Accepted rows", "Issues", "Status"]),
-            "_issues.csv": (issues, ["File", "CSV line", "Kind", "Detail"]),
-            "_schemas.csv": (schemas, ["Output file", "Rows", "Original data header"]),
-            "_provenance.csv": (origins, ["Output file", "Output line", "Source file", "Source line"]),
+            "_channels": (overviews, [*CHANNEL_FIELDS[vendor], "Input rows", "Duplicates removed", "Output rows", "Source files", "Output file"]),
+            "_files": (stats, ["File", "Blocks", "Data rows found", "Accepted rows", "Issues", "Status"]),
+            "_issues": (issues, ["File", "CSV line", "Kind", "Detail"]),
+            "_provenance": (origins, ["Output file", "Output line", "Source file", "Source line"]),
+            "_schemas": (schemas, ["Output file", "Rows", "Original data header"]),
         }
-        for report, (items, columns) in report_specs.items():
-            check_cancel(cancelled)
-            pd.DataFrame(items, columns=columns).to_csv(tmp / report, index=False, encoding="utf-8-sig")
+        final = base / batch_directory_name(vendor, stamp, outputs, sources)
+        result = MergeResult(final, len(groups), total_before, total_after, total_before - total_after,
+                             len(issues), sum(s["Status"] == "OK" for s in stats))
+        counts = {"Files": [f"{result.parsed_files:,} / {len(files):,}"],
+                  "Rows kept": [f"{result.kept_rows:,}"], "Duplicates removed": [f"{result.duplicates:,}"],
+                  "Channels": [f"{result.channel_count:,}"], "Issues": [f"{result.error_count:,}"]}
+        write_reports(tmp / REPORT_WORKBOOK, report_specs, cancelled)
+        write_batch_summary(vendor, tmp, final, outputs, sources, counts, cancelled)
         check_cancel(cancelled)
         os.replace(tmp, filesystem_path(final))
-        return MergeResult(final, len(groups), total_before, total_after, total_before - total_after,
-                           len(issues), sum(s["Status"] == "OK" for s in stats))
+        return result
     finally:
         if tmp.exists():
             shutil.rmtree(tmp)

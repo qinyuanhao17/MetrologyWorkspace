@@ -7,6 +7,7 @@ import re
 import numpy as np
 import pandas as pd
 
+from .data import die_sequence_column
 
 _DYNAMIC_RUN = re.compile(r"(?:^|[\\/])dynamic[\\/]([^\\/]+)", re.IGNORECASE)
 
@@ -67,6 +68,8 @@ def prepare_dynamic_frame(
         len(prepared.columns),
     )
     prepared = prepared.iloc[:, :separator].copy()
+    if die_column == "Die Seq" and die_column not in prepared:
+        die_column = die_sequence_column(prepared.columns) or die_column
     if cycle_column in prepared:
         prepared = prepared.drop(columns=[cycle_column])
     cycles = _cycle_from_run_paths(prepared, path_column)
@@ -94,6 +97,8 @@ def dynamic_pivot(
     cycle_column="Cycle",
 ):
     """Build Cycle × Die values and append per-die sample 3σ as the last row."""
+    if die_column == "Die Seq" and die_column not in frame:
+        die_column = die_sequence_column(frame.columns) or die_column
     required = (cycle_column, die_column, parameter)
     missing = [column for column in required if column not in frame]
     if missing:
@@ -165,7 +170,7 @@ def changed_dynamic_parameters(before, after, old_selection, selection):
             or not before.columns.equals(after.columns)
             or not before.index.equals(after.index)):
         return None
-    structural = [column for column in ("Cur SME File Path", "Die Seq", "Cycle")
+    structural = [column for column in ("Cur SME File Path", die_sequence_column(after.columns), "Cycle")
                   if column in after]
     if not before[structural].equals(after[structural]):
         return None

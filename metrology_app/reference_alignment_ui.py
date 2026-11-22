@@ -5,21 +5,22 @@ from pathlib import Path
 
 import numpy as np
 import pyqtgraph as pg
-from PyQt6.QtCore import QEvent, Qt, QSize, QPoint, QSignalBlocker, pyqtSignal
+from PyQt6.QtCore import (QEvent, QItemSelection, QItemSelectionModel, Qt, QSize, QPoint,
+                          QSignalBlocker, pyqtSignal)
 from PyQt6.QtGui import QPainter, QPen, QColor, QPainterPath
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
     QPushButton, QCheckBox, QListWidget, QListWidgetItem, QAbstractItemView, QSplitter,
-    QScrollArea, QFrame, QApplication, QDialog, QDialogButtonBox, QMessageBox,
+    QScrollArea, QFrame, QApplication, QBoxLayout, QDialog, QDialogButtonBox, QMessageBox,
     QStackedWidget)
 
 from .widgets import CheckableListWidget, LinkedVerticalScroll, ScrollSafeComboBox
 from .sheet import SheetModel, SheetView, DuplicateHeaderBanner
 from .appearance import fit_window_to_screen, help_title_label
-from .file_dialogs import choose_files, choose_folders
+from .file_dialogs import choose_folders
 from .plotting import InteractivePlotWidget, PlotPanel, place_legend_above_frame
 from .reference_alignment import (AlignmentColumns, infer_alignment_columns, wafer_groups,
     wafer_row_order, coordinate_row_order, coordinate_bias, load_alignment_output,
-    scan_alignment_outputs, aligned_reference_data)
+    scan_alignment_outputs, aligned_reference_data, linked_row_order)
 
 
 class AlignmentSheet(QFrame):
@@ -34,7 +35,12 @@ class AlignmentSheet(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16,14,16,12)
         layout.setSpacing(8)
-        layout.addWidget(help_title_label(title,'Row 1 = headers · Ctrl+V paste · Ctrl+Shift+V replace table · Ctrl+Z undo.'))
+        layout.addWidget(help_title_label(
+            title,
+            'Row 1 = headers · Ctrl+V paste · Ctrl+Shift+V replace · '
+            'Ctrl+Shift+Arrow select to boundary · Double-click row number to align Ref/Raw · '
+            'Ctrl+wheel align scroll · Ctrl+Z undo.',
+        ))
         self.model = SheetModel()
         self.view = SheetView(self.model)
         layout.addWidget(DuplicateHeaderBanner(self.model))
@@ -198,11 +204,16 @@ class AlignmentDataset:
     links: dict = field(default_factory=dict)
     orders: tuple = ((), ())
     results: list = field(default_factory=list)
+    data_selection: dict | None = None
+    scroll_link: LinkedVerticalScroll | None = None
 
 
 class ReferenceAlignmentPage(QWidget):
     plotted = pyqtSignal()
     alignment_changed = pyqtSignal()
+    external_outputs_loaded = pyqtSignal(object)
+    active_output_changed = pyqtSignal(object)
+
     def __init__(self, trend_page, parent=None):
         super().__init__(parent)
         self.trend_page = trend_page
@@ -220,11 +231,6 @@ class ReferenceAlignmentPage(QWidget):
         self.output_picker.setSizeAdjustPolicy(ScrollSafeComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         trend_page.output_picker.setModel(self.output_picker.model())
         tools.addWidget(self.output_picker, 1)
-        for text, callback in (('Load CSV…', self.choose_output_files),
-                               ('Load folders…', self.choose_output_folders)):
-            button = QPushButton(text)
-            button.clicked.connect(callback)
-            tools.addWidget(button)
         self.raw_fixed = QCheckBox('Fix Raw wafer order')
         self.raw_fixed.setChecked(True)
         self.raw_fixed.toggled.connect(self._fixed_changed)
@@ -252,7 +258,12 @@ class ReferenceAlignmentPage(QWidget):
         vertical.addWidget(link_panel)
         vertical.setSizes([480,200])
         layout.addWidget(vertical,1)
-        sorting = QHBoxLayout()
+        self._sort_toolbar = QBoxLayout(QBoxLayout.Direction.TopToBottom)
+        self._sort_options = QHBoxLayout()
+        self._sort_actions = QHBoxLayout()
+        self._sort_actions.addStretch()
+        self._sort_toolbar.addLayout(self._sort_options)
+        self._sort_toolbar.addLayout(self._sort_actions)
         self.sort_basis = ScrollSafeComboBox(); self.sort_basis.addItem('Field X / Field Y','field'); self.sort_basis.addItem('Absolute X / Y','xy')
         self.primary = ScrollSafeComboBox(); self.primary.addItem('X first','x'); self.primary.addItem('Y first','y')
         self.x_order, self.y_order = ScrollSafeComboBox(), ScrollSafeComboBox()
@@ -261,7 +272,7 @@ class ReferenceAlignmentPage(QWidget):
         for combo in (self.x_order, self.y_order):
             combo.addItem('Ascending',True); combo.addItem('Descending',False)
         for widget in (QLabel('Sort each wafer'), self.sort_basis, self.primary):
-            sorting.addWidget(widget)
+            self._sort_options.addWidget(widget)
         for name, combo in (('X', self.x_order), ('Y', self.y_order)):
             pair = QHBoxLayout()
             pair.setSpacing(5)
@@ -269,22 +280,40 @@ class ReferenceAlignmentPage(QWidget):
             caption.setBuddy(combo)
             pair.addWidget(caption, 0, Qt.AlignmentFlag.AlignLeft)
             pair.addWidget(combo, 1)
-            sorting.addLayout(pair)
-        sort = QPushButton('Apply sort'); sort.clicked.connect(self.apply_sort); sorting.addWidget(sort)
+            self._sort_options.addLayout(pair)
+        sort = QPushButton('Apply sort'); sort.clicked.connect(self.apply_sort); self._sort_actions.addWidget(sort)
         recover = QPushButton('Recover order')
         recover.setToolTip('Restore the original row order of the current Ref and Raw tables.')
         recover.clicked.connect(self.recover_sort)
-        sorting.addWidget(recover)
-        draw = QPushButton('Plot XY Bias',objectName='primary'); draw.clicked.connect(self.draw); sorting.addWidget(draw)
-        layout.addLayout(sorting)
+        self._sort_actions.addWidget(recover)
+        raw_order = QPushButton('Raw order')
+        raw_order.setToolTip('Order linked Ref wafers and uniquely matched Field X/Y points by the current Raw table.')
+        raw_order.clicked.connect(self.apply_raw_order)
+        self._sort_actions.addWidget(raw_order)
+        ref_order = QPushButton('Ref Order')
+        ref_order.setToolTip('Order linked Raw wafers and uniquely matched Field X/Y points by the current Ref table.')
+        ref_order.clicked.connect(self.apply_ref_order)
+        self._sort_actions.addWidget(ref_order)
+        draw = QPushButton('Plot XY Bias',objectName='primary'); draw.clicked.connect(self.draw); self._sort_actions.addWidget(draw)
+        layout.addLayout(self._sort_toolbar)
         self.status = QLabel()
-        self.status.setWordWrap(True); layout.addWidget(self.status)
+        self.status.setWordWrap(True)
+        self.status.hide()
+        layout.addWidget(self.status)
         self.output_picker.currentIndexChanged.connect(self._load_output)
         trend_page.output_picker.currentIndexChanged.connect(self._load_output)
         self.ref_wafers.moved.connect(lambda key: self._order_changed(self.ref_wafers,key))
         self.raw_wafers.moved.connect(lambda key: self._order_changed(self.raw_wafers,key))
         for widget in (self.ref_wafers,self.raw_wafers): widget.verticalScrollBar().valueChanged.connect(self.canvas.update)
         self._fixed_changed(True)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        margins = self.layout().contentsMargins()
+        width = event.size().width() - margins.left() - margins.right()
+        needed = self._sort_options.sizeHint().width() + self._sort_actions.sizeHint().width() + self._sort_toolbar.spacing()
+        direction = QBoxLayout.Direction.LeftToRight if width >= needed else QBoxLayout.Direction.TopToBottom
+        self._sort_toolbar.setDirection(direction)
 
     @property
     def ref(self):
@@ -309,10 +338,35 @@ class ReferenceAlignmentPage(QWidget):
         sheets.addWidget(raw)
         sheets.setSizes([650, 650])
         dataset = AlignmentDataset(sheets, ref, raw)
+        ref.view.verticalHeader().sectionDoubleClicked.connect(
+            lambda row: self._jump_parallel_row(ref.view, raw.view, row)
+        )
+        raw.view.verticalHeader().sectionDoubleClicked.connect(
+            lambda row: self._jump_parallel_row(raw.view, ref.view, row)
+        )
+        dataset.scroll_link = LinkedVerticalScroll(self, (ref.view, raw.view))
         for sheet in (ref, raw):
             sheet.changed.connect(lambda: self._dataset_changed(dataset))
         self.sheet_stack.addWidget(sheets)
         return dataset
+
+    @staticmethod
+    def _jump_parallel_row(source, target, row):
+        source_model, target_model = source.model(), target.model()
+        if (source_model is None or target_model is None
+                or not 0 <= row < min(source_model.rowCount(), target_model.rowCount())):
+            return
+        for view, model in ((source, source_model), (target, target_model)):
+            column = max(0, min(view.currentIndex().column(), model.columnCount() - 1))
+            index = model.index(row, column)
+            first = model.index(row, 0)
+            last = model.index(row, model.columnCount() - 1)
+            view.selectionModel().setCurrentIndex(index, QItemSelectionModel.SelectionFlag.NoUpdate)
+            view.selectionModel().select(
+                QItemSelection(first, last), QItemSelectionModel.SelectionFlag.ClearAndSelect,
+            )
+            view.scrollTo(first, QAbstractItemView.ScrollHint.PositionAtCenter)
+        target.verticalScrollBar().setValue(source.verticalScrollBar().value())
 
     def _dataset_changed(self, dataset):
         if dataset is self._dataset:
@@ -327,7 +381,7 @@ class ReferenceAlignmentPage(QWidget):
                           if not path.name.startswith('_') and path.suffix.lower() in extensions)
 
     def add_output_files(self, paths):
-        entries, errors = [], []
+        entries, loaded, errors = [], [], []
         for path in dict.fromkeys(Path(path).resolve() for path in paths):
             if path.suffix.casefold() != '.csv' or path.name.startswith(('_', '.')):
                 continue
@@ -341,14 +395,13 @@ class ReferenceAlignmentPage(QWidget):
             vendor = next((name for name in ('NOVA', 'PMISH', 'KLA', 'CDSEM1')
                            if any(value.startswith(f'{name}_') for value in prefixes)), 'Ref')
             entries.append((path, vendor))
+            if path in self._saved_output_frames:
+                loaded.append((path, vendor, self._saved_output_frames[path]))
         self._add_outputs(entries)
+        if loaded:
+            self.external_outputs_loaded.emit(loaded)
         if errors:
             QMessageBox.warning(self, 'Cannot load Ref output', '\n\n'.join(errors))
-
-    def choose_output_files(self, *_):
-        paths = choose_files(self, 'Load Ref output CSV', 'Summary CSV files (*.csv)',
-                             directory=self._dataset.path.parent if self._dataset.path else None)
-        self.add_output_files(paths)
 
     def choose_output_folders(self, *_):
         folders = choose_folders(self, 'Load Ref output folders',
@@ -357,7 +410,7 @@ class ReferenceAlignmentPage(QWidget):
             return
         paths = scan_alignment_outputs(folders)
         if not paths:
-            self.status.setText('No measurement CSVs found in the selected folders.')
+            QMessageBox.information(self, 'No Ref outputs', 'No measurement CSVs found in the selected folders.')
             return
         dialog = QDialog(self)
         dialog.setWindowTitle('Select Ref output CSVs')
@@ -432,7 +485,7 @@ class ReferenceAlignmentPage(QWidget):
             except (ValueError, OSError, StopIteration) as error:
                 current = self._dataset.path
                 self._set_output_indexes(self.output_picker.findData(str(current)) if current else -1)
-                self.status.setText(str(error))
+                self._set_status(str(error))
                 QMessageBox.warning(self, 'Cannot load Ref output', f'{path.name}\n{error}')
                 return
             dataset = self._new_dataset() if self._dataset.path else self._dataset
@@ -453,12 +506,18 @@ class ReferenceAlignmentPage(QWidget):
             self.trend_page.show_results(dataset.results)
         else:
             self.trend_page.clear()
+        self.active_output_changed.emit(path)
         self.alignment_changed.emit()
 
     def paste_raw(self):
         from .matching_window import clipboard_frame
         try: self.raw.set_frame(clipboard_frame(QApplication.clipboard().text()))
-        except (ValueError,TypeError) as error: self.status.setText(str(error))
+        except (ValueError,TypeError) as error: self._set_status(str(error))
+
+    def _set_status(self, message='', details=''):
+        self.status.setText(message)
+        self.status.setToolTip(details)
+        self.status.setVisible(bool(message))
 
     def _fixed_changed(self, fixed):
         self.raw_wafers.setDragDropMode(QAbstractItemView.DragDropMode.NoDragDrop if fixed else QAbstractItemView.DragDropMode.InternalMove)
@@ -493,9 +552,8 @@ class ReferenceAlignmentPage(QWidget):
                     item = QListWidgetItem(' · '.join(part for part in key if part) if key else '—')
                     item.setData(Qt.ItemDataRole.UserRole,key); item.setSizeHint(QSize(0,32)); widget.addItem(item)
             self._dataset.links = {r:d for r,d in self.links.items() if r in groups[0] and d in groups[1]}
-            self.status.setToolTip('')
-            self.status.setText(f'{len(groups[0])} Ref wafers · {len(groups[1])} Raw wafers · {len(self.links)} linked pairs')
-        except ValueError as error: self.status.setText(str(error))
+            self._set_status()
+        except ValueError as error: self._set_status(str(error))
         finally: self._rebuilding = False
         self.canvas.update()
 
@@ -505,12 +563,13 @@ class ReferenceAlignmentPage(QWidget):
         try:
             sheet.reorder(wafer_row_order(sheet.frame(),sheet.columns(),[key for key in widget.keys() if key is not None]))
             self._invalidate()
+            self._set_status()
             index = widget.keys().index(moved) if moved is not None else -1
             other = self.raw_wafers if widget is self.ref_wafers else self.ref_wafers
             target = other.keys()[index] if 0 <= index < other.count() else None
             if moved and target:
                 self.set_link(moved,target) if widget is self.ref_wafers else self.set_link(target,moved)
-        except ValueError as error: self.status.setText(str(error))
+        except ValueError as error: self._set_status(str(error))
         self.canvas.update()
 
     def set_link(self, ref, raw):
@@ -518,25 +577,27 @@ class ReferenceAlignmentPage(QWidget):
             raise ValueError('Raw wafer is already linked. Unlink it first; links must be one-to-one.')
         self.links[ref] = raw
         self._invalidate(); self.canvas.update()
-        self.status.setText(f'{len(self.links)} linked pairs; unlinked wafers are excluded.')
+        self._set_status()
 
     def link_selected(self):
         try:
             a,b = self.ref_wafers.currentItem(),self.raw_wafers.currentItem()
             if a and b and a.data(Qt.ItemDataRole.UserRole) and b.data(Qt.ItemDataRole.UserRole): self.set_link(a.data(Qt.ItemDataRole.UserRole),b.data(Qt.ItemDataRole.UserRole))
-        except ValueError as error: self.status.setText(str(error))
+        except ValueError as error: self._set_status(str(error))
 
     def link_aligned(self):
         self._dataset.links = {a:b for a,b in zip(self.ref_wafers.keys(),self.raw_wafers.keys()) if a is not None and b is not None}
-        self._invalidate(); self.canvas.update(); self.status.setText(f'{len(self.links)} aligned pairs linked.')
+        self._invalidate(); self.canvas.update(); self._set_status()
 
     def unlink_selected(self):
         item = self.ref_wafers.currentItem()
         if item: self.links.pop(item.data(Qt.ItemDataRole.UserRole),None)
         self._invalidate(); self.canvas.update()
+        self._set_status()
 
     def clear_links(self):
         self.links.clear(); self._invalidate(); self.canvas.update()
+        self._set_status()
 
     def apply_sort(self):
         try:
@@ -547,8 +608,8 @@ class ReferenceAlignmentPage(QWidget):
             orders = [coordinate_row_order(sheet.frame(), sheet.columns(), self.sort_basis.currentData(),
                                            primary, directions) for sheet in (self.ref, self.raw)]
             for sheet,order in zip((self.ref,self.raw),orders): sheet.reorder(order)
-            self._invalidate(); self.status.setText('Both tables sorted within each wafer. Links retained; plot to compare the new row pairing.')
-        except ValueError as error: self.status.setText(str(error)); self._invalidate()
+            self._invalidate(); self._set_status()
+        except ValueError as error: self._set_status(str(error)); self._invalidate()
 
     def recover_sort(self):
         changed = False
@@ -557,13 +618,36 @@ class ReferenceAlignmentPage(QWidget):
             if order != list(range(len(order))):
                 sheet.reorder(order)
                 changed = True
+        self._set_status()
         if changed:
+            self._rebuild_wafer_lists(((), ()))
             self._invalidate()
-        self.status.setText('Original Ref and Raw row order restored. Wafer links retained.')
+
+    def apply_raw_order(self):
+        self._apply_linked_order(self.ref, self.raw, self.links)
+
+    def apply_ref_order(self):
+        self._apply_linked_order(self.raw, self.ref, {raw: ref for ref, raw in self.links.items()})
+
+    def _apply_linked_order(self, target, anchor, links):
+        try:
+            order, keys = linked_row_order(target.frame(), anchor.frame(), target.columns(), anchor.columns(), links)
+        except ValueError as error:
+            self._set_status(str(error))
+            return
+        changed = order != list(range(len(order)))
+        if changed:
+            target.reorder(order)
+        widget = self.ref_wafers if target is self.ref else self.raw_wafers
+        list_changed = keys != [key for key in widget.keys() if key is not None]
+        self._set_status()
+        if changed or list_changed:
+            orders = (keys, self.raw_wafers.keys()) if widget is self.ref_wafers else (self.ref_wafers.keys(), keys)
+            self._rebuild_wafer_lists(orders)
+            self._invalidate()
 
     def draw(self):
         try:
-            self.status.setToolTip('')
             if not self.links: raise ValueError('Link at least one Ref/Raw wafer pair first.')
             notes = []
             self._dataset.results = coordinate_bias(self.ref.frame(),self.raw.frame(),self.ref.columns(),self.raw.columns(),
@@ -572,16 +656,15 @@ class ReferenceAlignmentPage(QWidget):
                 raise ValueError(notes[0] if notes else 'No aligned wafer points to plot.')
             self.trend_page.source_output = self._dataset.path
             self.trend_page.show_results(self.results)
-            message = f'{len(self.results)} linked wafer trends · Bias = Raw − Ref ({self.raw.columns().unit})'
             if notes:
-                message += f' · {len(notes)} alignment notes (hover for details)'
-                self.status.setToolTip('\n'.join(notes))
-            self.status.setText(message)
+                self._set_status(f'{len(notes)} alignment notes (hover for details)', '\n'.join(notes))
+            else:
+                self._set_status()
             self.alignment_changed.emit()
             self.plotted.emit()
         except ValueError as error:
             self._invalidate()
-            self.status.setText(str(error))
+            self._set_status(str(error))
 
 
 class CoordinateTrendPage(QWidget):
@@ -698,8 +781,9 @@ class CoordinateTrendPage(QWidget):
         self._clear_plots()
         source = {'raw': 'Raw source row', 'ref': 'Ref source row'}.get(order)
         results = self._results
-        ordinals = {row: index for index, row in enumerate(sorted(
-                    row for _, _, frame in results for row in frame.get("Raw source row", ())))}
+        ordinals = {row: index for index, row in enumerate(sorted({
+            row for _, _, frame in results for row in frame.get("Raw source row", ())
+        }))}
         if source:
             results = sorted(results, key=lambda result: result[2][source].min())
         for ref,raw,frame in results:
@@ -708,13 +792,15 @@ class CoordinateTrendPage(QWidget):
             unit = frame.attrs.get('unit','mm')
             from .spectra_plots import DecimalAxisItem
             plot = InteractivePlotWidget(background='white', axisItems={'left':DecimalAxisItem('left'), 'bottom':DecimalAxisItem('bottom')})
-            plot.point_selection.data = getattr(self, "data_point_edits", None)
+            plot.point_selection.set_data(
+                getattr(self, "data_point_edits", None), ("XY Bias",),
+            )
             for name in ('left','bottom'):
                 axis = plot.getAxis(name)
                 axis.enableAutoSIPrefix(False)
                 axis.setPen('#555555'); axis.setTextPen('#333333')
             plot.setMinimumSize(0,280)
-            title = ' · '.join(part for part in raw if part) + ' ↔ ' + ' · '.join(part for part in ref if part)
+            title = ' · '.join(part for part in raw if part) or 'Raw Data'
             heading = QLabel(f'<b>{escape(title)}</b>')
             heading.setStyleSheet('color: #20242a; padding: 6px;')
             heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -728,13 +814,13 @@ class CoordinateTrendPage(QWidget):
             y_curve = plot.plot(point,frame[f'Bias Y ({unit})'].to_numpy(),pen=pg.mkPen('#D55E00',width=2),symbol='t',symbolSize=4,symbolPen='#D55E00',symbolBrush='#D55E00',name='Y: Raw − Ref')
             if "Raw source row" in frame:
                 rows = [ordinals[row] for row in frame["Raw source row"]]
-                plot.point_selection.scope = ("XY Bias", getattr(self, "source_output", None), ref, raw)
                 for curve in (x_curve, y_curve):
                     curve._xy_bias_values = curve.yData.copy()
                     if self._checked_positions is not None:
                         visible = np.array([row in self._checked_positions for row in rows])
                         curve.setData(x=curve.xData, y=np.where(visible, curve._xy_bias_values, np.nan))
                     plot.set_point_rows(curve.scatter, rows)
+                plot.point_selection.update_preview()
             plot.addItem(pg.InfiniteLine(pos=0,angle=0,pen=pg.mkPen('#888888',style=Qt.PenStyle.DashLine)))
             place_legend_above_frame(plot)
             plot.getPlotItem().layout.setRowFixedHeight(0,28)

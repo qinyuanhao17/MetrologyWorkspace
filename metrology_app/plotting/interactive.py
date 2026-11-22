@@ -167,6 +167,8 @@ class InteractivePlotWidget(pg.PlotWidget):
         parent = scatter.parentItem()
         item = parent if isinstance(parent, pg.PlotDataItem) else scatter
         self.point_selection.apply_saved(item)
+        if self.point_selection.data is not None and self.point_selection.data.preview_keys:
+            self.point_selection.update_preview()
 
     def mouseDoubleClickEvent(self, event):
         if (event.button() == Qt.MouseButton.LeftButton

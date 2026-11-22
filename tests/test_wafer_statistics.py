@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import pyqtgraph as pg
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QLabel
 
 from metrology_app import sequence_page as sequence_module
 from metrology_app import settings as settings_module
@@ -164,7 +164,16 @@ class WaferStatisticsTests(unittest.TestCase):
         self.assertEqual(len(page.plot_widgets), 2)
         self.assertEqual(
             [widget.getAxis("bottom").labelText for widget in page.plot_widgets],
-            ["Wafer", "Wafer"],
+            ["", ""],
+        )
+        self.assertFalse(page.plot_widgets[0].getAxis("bottom").style["showValues"])
+        self.assertEqual(
+            page.panel_hosts[0].findChild(QLabel).text(),
+            "<b>CD · Wafer Mean</b>",
+        )
+        self.assertEqual(
+            page.plot_widgets[0].getAxis("left").labelText,
+            "CD · Wafer Mean",
         )
 
         mean_bar = page.plot_widgets[0].listDataItems()[0]
@@ -175,6 +184,21 @@ class WaferStatisticsTests(unittest.TestCase):
         np.testing.assert_allclose(
             sigma_bar.opts["height"], [expected_sigma, expected_sigma]
         )
+        window.resize(1400, 900)
+        window.show()
+        APP.processEvents()
+
+        def pixels(bar, widget):
+            low, high = widget.getViewBox().viewRange()[0]
+            return (bar.opts["width"] / (high - low)
+                    * widget.getViewBox().sceneBoundingRect().width())
+
+        before = pixels(mean_bar, page.plot_widgets[0])
+        self.assertAlmostEqual(before, page.BAR_WIDTH_PIXELS, delta=1.5)
+        window.resize(1900, 900)
+        APP.processEvents()
+        after = pixels(mean_bar, page.plot_widgets[0])
+        self.assertAlmostEqual(after, before, delta=1.5)
 
         plots = page.export_plot_data()
         self.assertEqual(
@@ -183,6 +207,11 @@ class WaferStatisticsTests(unittest.TestCase):
         )
         self.assertTrue(all(plot["sheet"] == "Wafer Mean and Sigma"
                             for plot in plots))
+        page.ensure_export_figure()
+        export_axis = page.figure.axes[0]
+        self.assertEqual(export_axis.get_title(), "CD · Wafer Mean")
+        self.assertEqual(export_axis.get_ylabel(), "CD · Wafer Mean")
+        self.assertEqual(list(export_axis.get_xticks()), [])
         report = capture_window(window)
         self.assertEqual(
             len([plot for plot in report["plots"]
@@ -203,6 +232,7 @@ class WaferStatisticsTests(unittest.TestCase):
 
     def test_add_compare_aligns_ref_and_raw_bars_in_the_same_panels(self):
         window, page = self.draw_sources()
+        page.restore_axis_mode("single")
         window.resize(1200, 900)
         window.show()
         APP.processEvents()
@@ -227,8 +257,14 @@ class WaferStatisticsTests(unittest.TestCase):
         self.assertEqual(len(bars), 2)
         np.testing.assert_allclose(bars[0].opts["height"], [3.0, 4.0])
         np.testing.assert_allclose(bars[1].opts["height"], [4.0, 6.0])
-        self.assertEqual(bars[0].opts["width"], page.BAR_WIDTH)
-        self.assertEqual(bars[1].opts["width"], page.BAR_WIDTH)
+        self.assertAlmostEqual(bars[0].opts["width"], bars[1].opts["width"])
+        low, high = page.plot_widgets[index].getViewBox().viewRange()[0]
+        width = page.plot_widgets[index].getViewBox().sceneBoundingRect().width()
+        self.assertAlmostEqual(
+            bars[0].opts["width"] / (high - low) * width,
+            page.BAR_WIDTH_PIXELS,
+            delta=1.5,
+        )
         self.assertEqual(
             bars[0].opts["brush"].color().name().upper(), "#ED7D31"
         )
@@ -257,7 +293,13 @@ class WaferStatisticsTests(unittest.TestCase):
         )
         bias_bar = page.plot_widgets[bias_mean_index].listDataItems()[0]
         np.testing.assert_allclose(bias_bar.opts["height"], [1.0, 2.0])
-        self.assertEqual(bias_bar.opts["width"], page.BAR_WIDTH)
+        low, high = page.plot_widgets[bias_mean_index].getViewBox().viewRange()[0]
+        width = page.plot_widgets[bias_mean_index].getViewBox().sceneBoundingRect().width()
+        self.assertAlmostEqual(
+            bias_bar.opts["width"] / (high - low) * width,
+            page.BAR_WIDTH_PIXELS,
+            delta=1.5,
+        )
         QTest.qWait(20)
         for splitter in page.plot_host.row_splitters:
             left, right = splitter.sizes()
@@ -265,7 +307,7 @@ class WaferStatisticsTests(unittest.TestCase):
 
         mean_plot = next(
             plot for plot in page.export_plot_data()
-            if plot["title"] == "Reference · CD Ref · Wafer Mean"
+            if plot["title"] == "CD Ref · Wafer Mean"
         )
         self.assertEqual(
             [series["name"] for series in mean_plot["series"]],
@@ -278,7 +320,7 @@ class WaferStatisticsTests(unittest.TestCase):
         self.assertEqual(mean_plot["series"][1]["color"], "#5b9bd5")
         bias_plot = next(
             plot for plot in page.export_plot_data()
-            if plot["title"].startswith("Wafer Mean Bias")
+            if plot["title"] == "CD Ref · Wafer Mean Bias"
         )
         np.testing.assert_allclose(
             bias_plot["series"][0]["data"]["Y"].to_numpy(float),
@@ -310,6 +352,7 @@ class WaferStatisticsTests(unittest.TestCase):
             ParameterMapping("Alt", "Alt Ref", "Alt Raw"),
         ))
         page = window.wafer_statistics_page
+        page.restore_axis_mode("single")
         page.selector.selectAll()
         page.draw_plot()
         self.assertTrue(page.set_overlay(

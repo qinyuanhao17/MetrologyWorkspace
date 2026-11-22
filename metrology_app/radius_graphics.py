@@ -7,7 +7,8 @@ from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import QGraphicsRectItem, QToolTip
 
-from .wafer_graphics import WaferPanel, paint_point_selection, panel_point_state
+from .wafer_graphics import (WaferPanel, paint_chart_preview, paint_point_selection,
+                             panel_point_state)
 from .plotting.identity_labels import measurement_caption
 
 
@@ -185,6 +186,7 @@ class RadiusPanel(pg.GraphicsObject):
             self.text(painter, "No valid samples", box)
             return
         paint_point_selection(self, painter)
+        paint_chart_preview(self, painter)
         detail = max(6, base-1)
         line = detail*1.45*100/72
         bottom = box.top()-5*100/72

@@ -7,6 +7,7 @@ This deliberately leaves the existing NOVA/PMISH/KLA engine untouched.
 from __future__ import annotations
 
 import csv
+import hashlib
 import os
 import shutil
 import uuid
@@ -20,6 +21,7 @@ from xml.sax.saxutils import escape
 
 import pandas as pd
 
+from .file_paths import filesystem_path
 from .reference_merge import OUTPUT_FOLDER, check_cancel
 from .reference_input import SOURCE_EXTENSIONS, iter_first_sheet, iter_source_rows
 
@@ -360,19 +362,21 @@ def export_cdsem1(book: dict, output_xlsx: Path, output_csv: Path, *, cancelled=
 
 def merge_cdsem1(files: list[str | Path], output_parent: str | Path,
                  *, cancelled=None, progress=None) -> CDSEM1Result:
+    from .reference_metadata import batch_directory_name, collect_sources, measurement_stem, write_batch_summary
+
     files = sorted({Path(x).resolve() for x in files}, key=lambda x: str(x).casefold())
     if not files:
         raise ValueError('CDSEM1: no source files selected')
     for file in files:
         if file.suffix.casefold() not in SOURCE_EXTENSIONS:
             raise ValueError(f'CDSEM1 accepts .csv, .xlsx or .xlsm: {file}')
-    base = Path(output_parent) / OUTPUT_FOLDER
-    base.mkdir(parents=True, exist_ok=True)
+    base = Path(output_parent).resolve() / OUTPUT_FOLDER
+    filesystem_path(base).mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
-    output = base / f'CDSEM1_{stamp}'
-    temp = base / f'.processing_{uuid.uuid4().hex}'
+    temp = filesystem_path(base / f'.processing_{uuid.uuid4().hex}')
     temp.mkdir()
-    stats, issues = [], []
+    stats, issues, outputs = [], [], []
+    sources = {}
     total_rows = total_kept = total_dupes = total_sites = total_mps = successful = 0
     try:
         for index, file in enumerate(files, 1):
@@ -380,13 +384,15 @@ def merge_cdsem1(files: list[str | Path], output_parent: str | Path,
             try:
                 sheet, total, rows = read_cd_rows(file, cancelled=cancelled)
                 book = pivot_cd_rows(rows, sheet, file.name, source_rows=total)
-                # Use a short hash to distinguish identical base filenames from different folders.
-                stem = ''.join(c if c.isalnum() or c in '-_' else '_' for c in file.stem)[:62]
-                import hashlib
+                metadata = collect_sources('CDSEM1', [file], {}, cancelled)
+                fields = metadata[str(file)]
+                # One output per original file, even when their wafer metadata matches.
                 digest = hashlib.sha256(str(file).encode('utf-8')).hexdigest()[:8]
-                basename = f'CDSEM1_{stem}_{digest}'
+                basename = f'{measurement_stem("CDSEM1", fields, ())}_{digest}'
                 export_cdsem1(book, temp / (basename + '.xlsx'),
                               temp / (basename + '_Results.csv'), cancelled=cancelled)
+                sources.update(metadata)
+                outputs.append((basename + '_Results.csv', fields, (str(file),)))
                 successful += 1
                 total_rows += book['input_rows']
                 total_kept += book['unique_cd_rows']
@@ -411,8 +417,13 @@ def merge_cdsem1(files: list[str | Path], output_parent: str | Path,
             raise ValueError('CDSEM1: all input files failed: ' + '; '.join(i['Issue'] for i in issues))
         pd.DataFrame(stats).to_csv(temp/'_files.csv', index=False, encoding='utf-8-sig')
         pd.DataFrame(issues, columns=['File','Issue']).to_csv(temp/'_issues.csv', index=False, encoding='utf-8-sig')
+        counts = {'Files': [f'{successful:,} / {len(files):,}'], 'Rows kept': [f'{total_kept:,}'],
+                  'Duplicates removed': [f'{total_dupes:,}'], 'Chips': [f'{total_sites:,}'],
+                  'MP groups': [f'{total_mps:,}'], 'Issues': [f'{len(issues):,}']}
+        output = base / batch_directory_name('CDSEM1', stamp, outputs, sources)
+        write_batch_summary('CDSEM1', temp, output, outputs, sources, counts, cancelled)
         check_cancel(cancelled)
-        os.replace(temp, output)
+        os.replace(temp, filesystem_path(output))
         return CDSEM1Result(output, total_mps, total_rows, total_kept, total_dupes,
                             len(issues), successful, total_sites, total_mps)
     finally:

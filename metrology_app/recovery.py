@@ -5,11 +5,14 @@ one, so Save/Discard/close can invalidate a result without waiting for disk IO.
 No window, widget or Qt model crosses this seam.
 """
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import wait as wait_futures
 from copy import deepcopy
 from dataclasses import dataclass
 import logging
 import os
 from pathlib import Path
+from threading import Lock
+import time
 import uuid
 
 from .workspace_store import WorkspaceSnapshot, file_revision, load_workspace, save_workspace
@@ -18,6 +21,8 @@ from .workspace_store import WorkspaceSnapshot, file_revision, load_workspace, s
 # ponytail: one disk writer for all documents; rotate latest requests at the
 # document seam rather than running several large copies/writes concurrently.
 _WRITER = ThreadPoolExecutor(max_workers=1, thread_name_prefix="metrology-recovery")
+_PENDING = set()
+_PENDING_LOCK = Lock()
 _SCALARS = frozenset((str, int, float, bool, type(None)))
 
 
@@ -169,8 +174,28 @@ def submit_recovery(*args):
     # releases its large frames immediately, not when that queue is drained.
     inputs = [args]
     future = _WRITER.submit(lambda: _prepare(*inputs.pop()))
-    future.add_done_callback(lambda _future: inputs.clear())
+    with _PENDING_LOCK:
+        _PENDING.add(future)
+    def complete(completed):
+        inputs.clear()
+        with _PENDING_LOCK:
+            _PENDING.discard(completed)
+    future.add_done_callback(complete)
     return future
+
+
+def wait_for_recovery(timeout=5):
+    """Wait for queued/active disk work without touching GUI-owned state."""
+    deadline = time.monotonic() + max(0, float(timeout))
+    while True:
+        with _PENDING_LOCK:
+            pending = tuple(_PENDING)
+        if not pending:
+            return True
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        wait_futures(pending, timeout=remaining)
 
 
 def discard_result(future):

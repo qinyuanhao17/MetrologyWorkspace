@@ -25,8 +25,8 @@ def prepare_measurement_choices(frame, reset=True, previous_groups=(), *, includ
         frame, include_fit_quality=include_fit_quality
     )
     normalize = lambda name: "".join(ch.lower() for ch in str(name) if ch.isalnum())
-    excluded = {"fieldx", "fieldy", "x", "y", "xmm", "ymm", "diex", "diey",
-                "dieseq", "diesequence", "diesequenceno"}
+    excluded = {"fieldx", "fieldy", "x", "y", "xmm", "ymm", "xymm", "diex", "diey",
+                "dieseq", "diesequence", "diesequenceno", "seq"}
     hints = ("wafer", "lot", "pad", "sample", "id", "name", "tool", "recipe", "group", "run", "batch")
     candidates = [c for c in frame if (c not in metrics or any(h in normalize(c) for h in hints))
                   and normalize(c) not in excluded and "path" not in c.lower()]

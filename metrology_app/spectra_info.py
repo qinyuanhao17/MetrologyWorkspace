@@ -51,6 +51,8 @@ def _text(value):
 def _raw_pairs(raw, spectra, required, verify_timestamp, *, coordinates=True):
     """Pair each selected SME once, retaining original Raw Data row positions."""
     columns = {normalized(c): c for c in raw}
+    if "dieseq" not in columns and "seq" in columns:
+        columns["dieseq"] = columns["seq"]
     names = ("waferid", "lotid", "padname", "dieseq")
     if coordinates:
         names += ("fieldx", "fieldy")

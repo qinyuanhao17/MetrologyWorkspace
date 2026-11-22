@@ -9,6 +9,10 @@ Feature: Summarize multi-vendor reference exports
       When the engineer runs Reference Summarizer
       Then complete duplicate measurement rows are removed
       And the source CSV files are not modified
+      And channels, files, issues, provenance and schemas are sheets in one Excel report
+      And an HTML summary lists vendor metadata beside the measurement output
+      And the measurement CSV name identifies the wafer, lot and PAD where available
+      And the output folder name includes the original measurement date where available
       And the window shows counts, checks and generated files instead of a 100-row preview
 
     Scenario: Cancel a running batch
@@ -85,6 +89,21 @@ Feature: Summarize multi-vendor reference exports
       And unlinked wafers are not plotted
       And the window reports missing physical coordinates
 
+    Scenario: Reorder Ref to match Raw
+      Given the Ref and Raw wafers have explicit links
+      When the engineer clicks Raw order on Wafer Alignment
+      Then linked Ref wafer blocks follow the current Raw wafer order
+      And uniquely matched Field X/Y points follow Raw order within the linked wafers
+      And an equal-length pair keeps its point order when those positions cannot all be matched uniquely
+      And the Raw table, source row identities and wafer links are preserved
+
+    Scenario: Reorder Raw to match Ref
+      Given the Ref and Raw wafers have explicit links
+      When the engineer clicks Ref Order on Wafer Alignment
+      Then linked Raw wafer blocks and their uniquely matched points follow the current Ref order
+      And the Ref table, source row identities and wafer links are preserved
+      And the sorting toolbar has no success message after a successful reorder
+
     Scenario: Compare common points in wafer links of different lengths
       Given at least one linked wafer has more Ref points than Raw points
       When the engineer plots coordinate Bias
@@ -98,6 +117,14 @@ Feature: Summarize multi-vendor reference exports
       Then original NA strings and wafer identities are retained
       And Field sorting works without inventing physical coordinates
       And plotting Bias reports the missing coordinates and source rows
+
+    Scenario: Plot labelled coordinate text and sequence numbers
+      Given the input uses Seq for Die Seq and supplies X/Y coordinates with axis prefixes
+      When the engineer draws XY Bias, Trend, WaferMap or Radius
+      Then the plot reads Seq as the die identifier and extracts the signed coordinate values
+      And the original coordinate strings, die labels and source row identities are preserved
+      And each XY Bias panel title identifies only the linked Raw wafer
+      And selecting one XY Bias point immediately marks every linked panel and analysis plot
 
     Scenario: Scroll linked-wafer trends
       Given linked wafer trends are drawn in three columns by default
@@ -120,23 +147,76 @@ Feature: Summarize multi-vendor reference exports
 
   Rule: Ref output selection keeps independent working data
 
+    Scenario: Edit Ref and Raw tables with Match Workbook navigation
+      Given the engineer opens Wafer Alignment with Ref and Raw measurements
+      When the engineer presses Ctrl+Shift+Arrow in either measurement table
+      Then the selection extends to the next populated data boundary
+      When the engineer double-clicks a row number
+      Then the same row is selected and revealed in the other table
+      When the engineer holds Ctrl and scrolls either table
+      Then both measurement tables keep aligned scroll progress
+
+    Scenario: Summarize metadata when loading an existing Ref CSV
+      Given an existing Ref output CSV includes instrument and wafer metadata
+      When the engineer loads its folder from the Summary tab
+      Then an HTML summary is written beside the CSV with instrument and recipe information first
+      And choosing a Ref output in the Summary tab shows that output's HTML and selects it in the analysis tabs
+      And the selected output's folder path and files are visible in the Summary tab
+      And the selected CSV and any preexisting notes are preserved
+
     Scenario: Switch between earlier Ref outputs
       Given two earlier summary CSVs are loaded as Ref outputs
       And each output has its own edited Raw Data and plotted wafer links
       When the engineer chooses an output from either Wafer Alignment or XY Bias
       Then both Ref output selectors show the chosen absolute path
       And that output's Raw Data, links and trends are restored
-      And Data and the analysis tabs use that output's successful alignment
+      And the analysis tabs use that output's successful alignment
 
     Scenario: Switch to a Ref output before plotting XY Bias
       Given the current Ref output has been plotted and another has not
       When the engineer chooses the unplotted output
-      Then the analysis tabs remain available and Data is empty
+      Then the analysis tabs remain available with empty data tabs
       When Plot XY Bias succeeds for the new output
       Then Data immediately shows the new matched rows in original Raw order
+
+    Scenario: Plot only reference measurements in WaferMap and Radius
+      Given the current Ref output has been plotted in XY Bias
+      When the engineer draws a plot on Ref WaferMap or Ref Radius Plot
+      Then the plot uses the aligned Ref measurements
+      When the engineer applies Data selection from the Data menu
+      Then the analysis tabs and XY Bias use the same included rows for this output
+      And hiding unchecked rows leaves the original aligned tables intact
 
     Scenario: Reopen a saved Reference workspace
       Given the Ref outputs have distinct Raw tables, links, mappings and plot states
       When the engineer saves a .ref file and reopens it without the original Ref CSVs
       Then the saved Ref and Raw worksheet values and original row identities are recovered
       And each output retains its own plotted or unplotted state
+      And saving the workspace does not generate a new HTML summary
+
+    Scenario: Choose Y axes for Trend comparisons
+      Given the engineer has overlaid two parameters in Trend
+      When the engineer chooses automatic, always one, or always two Y axes in the Analysis menu
+      Then the Trend redraws using that choice
+      And saving and reopening the Reference workspace restores the choice and automatic median ratio threshold
+
+    Scenario: Name a Reference workspace with local date and time
+      Given the engineer is saving a new Reference workspace
+      When the naming dialog opens
+      Then Date and Time is prefilled from the local clock
+      And File Name previews the vendor and wafer identity with that minute
+      When the engineer changes the date and time
+      Then the suggested Reference filename updates in the same dialog
+      And only the Reference workspace is written
+
+    Scenario: Use Match Workbook Groups in Reference analysis
+      Given linked Ref and Raw measurements are plotting in the analysis tabs
+      When the engineer opens Group settings from the Groups menu
+      Then the same Head, Mark, Group and Plot labels controls used by Match Workbook are available
+      And every Group settings column can be filtered, including TestFlag, Head, Mark and Group
+      And Set Test Flag is available and right-click flag changes update the same settings
+      When the engineer enables Groups and applies them
+      Then Trend, Wafer Mean / Sigma and plot labels use the selected classification
+      When the engineer opens Manage groups and selects Show Wafer
+      Then wafer identity captions and group boundaries follow that selection
+      And saving and reopening the Reference workspace restores the grouping choices

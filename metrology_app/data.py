@@ -3,13 +3,68 @@
 from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
+import re
 
 import numpy as np
 import pandas as pd
 
+_COORDINATE = r'[+\-−]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[Ee][+\-−]?[0-9]+)?'
+_XY_PAIR = re.compile(rf'\s*X\s*[:=]?\s*({_COORDINATE})\s*[,;/]?\s*Y\s*[:=]?\s*({_COORDINATE})\s*\Z', re.I)
+_AXIS_VALUE = {axis: re.compile(rf'\s*{axis}\s*[:=]?\s*({_COORDINATE})\s*\Z', re.I) for axis in 'xy'}
+_XY_UNITS = {'xymm': 'mm', 'xyum': 'µm', 'xynm': 'nm', 'xy': ''}
+
 
 def number(series):
     return pd.to_numeric(series, errors="coerce").replace([np.inf, -np.inf], np.nan)
+
+
+def coordinate_name(name):
+    return ''.join(char for char in str(name).casefold().replace('µ', 'u').replace('μ', 'u') if char.isalnum())
+
+
+def die_sequence_column(columns):
+    names = {coordinate_name(column): column for column in columns}
+    return next((names[name] for name in ('dieseq', 'diesequence', 'diesequenceno', 'dieid', 'seq') if name in names), None)
+
+
+def combined_xy_column(columns):
+    names = {coordinate_name(column): column for column in columns}
+    return next((names[name] for name in _XY_UNITS if name in names), None)
+
+
+def combined_xy_unit(column):
+    return _XY_UNITS.get(coordinate_name(column))
+
+
+def coordinate_columns(columns):
+    """Prefer absolute coordinates and expose a combined XY column as both axes."""
+    names = {coordinate_name(column): column for column in columns}
+    combined = combined_xy_column(columns)
+    if combined is not None and not {'xmm', 'ymm'} <= names.keys() and combined_xy_unit(combined):
+        return combined, combined
+    x = next((names[name] for name in ('xmm', 'fieldx', 'x', 'diex') if name in names), None)
+    y = next((names[name] for name in ('ymm', 'fieldy', 'y', 'diey') if name in names), None)
+    return (combined, combined) if combined is not None and (x is None or y is None) else (x, y)
+
+
+def _axis_number(series, axis):
+    numeric = number(series)
+    if not numeric.isna().any() or pd.api.types.is_numeric_dtype(series.dtype):
+        return numeric
+    text = series.astype('string')
+    single = text.str.extract(_AXIS_VALUE[axis], expand=False)
+    pair = text.str.extract(_XY_PAIR)[0 if axis == 'x' else 1]
+    parsed = number(single.fillna(pair).str.replace('−', '-', regex=False)).astype(float)
+    return numeric.fillna(parsed)
+
+
+def coordinates(frame, x, y):
+    """Parse coordinate columns without modifying the source frame or row IDs."""
+    if x == y:
+        pair = frame[x].astype('string').str.extract(_XY_PAIR)
+        return pd.DataFrame({axis: number(pair[index].str.replace('−', '-', regex=False)).astype(float)
+                             for index, axis in enumerate('xy')}, index=frame.index)
+    return pd.DataFrame({'x': _axis_number(frame[x], 'x'), 'y': _axis_number(frame[y], 'y')}, index=frame.index)
 
 
 def _has_numeric_value(series):
@@ -41,7 +96,7 @@ def inspect_table(frame, wafer_column=None, *, include_fit_quality=True):
     wafer_column = wafer_column or next((names[n] for n in ("waferid", "wafer", "waferno") if n in names), None)
     # Fit-quality columns are numeric in every parameter list, without being
     # physical model parameters. Bookkeeping remains excluded everywhere.
-    excluded = {"fieldx", "fieldy", "x", "y", "xmm", "ymm", "diex", "diey", "dieseq", "dieid",
+    excluded = {"fieldx", "fieldy", "x", "y", "xmm", "ymm", "xy", "xymm", "xyum", "xynm", "diex", "diey", "dieseq", "dieid",
                 "diesequence", "diesequenceno", "lotid", "lot", "lotno", "toolsn", "toolid",
                 "padname", "pad", "waferid", "wafer", "waferno", "seq", "logicalid",
                 "mse", "gof", "ngof", "lbh", "fittime", "regiter", "reglter", "cindex", "testflag"}
@@ -76,12 +131,14 @@ class Dataset:
 
         self.x = find("fieldx", "x", "diex", "coordx", "xcoordinate")
         self.y = find("fieldy", "y", "diey", "coordy", "ycoordinate")
+        if not self.x or not self.y:
+            self.x, self.y = coordinate_columns(self.frame.columns)
         self.wafer = find("waferid", "wafer", "waferno")
         self.group = find("padname", "measurementgroup", "measurement", "timestamp", "recipe")
         if not self.x or not self.y:
             raise ValueError("需要坐标列 FIELD X / FIELD Y（或 X / Y）。")
         metadata = {self.x, self.y, find("xmm"), find("ymm"), self.wafer, self.group,
-                    find("dieseq", "dieid"), find("lotid", "lot"), find("toolsn", "toolid"), find("testflag")}
+                    find("dieseq", "dieid", "seq"), find("lotid", "lot"), find("toolsn", "toolid"), find("testflag")}
         self.metrics = [c for c in self.frame if c not in metadata
                         and "path" not in c.lower() and number(self.frame[c]).notna().any()]
         if not self.metrics:
@@ -107,12 +164,11 @@ class Dataset:
 
     def geometry_points(self, wafer):
         rows = self.rows(wafer)
-        return pd.DataFrame({"x": number(rows[self.x]), "y": number(rows[self.y])}).dropna().drop_duplicates()
+        return coordinates(rows, self.x, self.y).dropna().drop_duplicates()
 
     def samples(self, wafer, group, metric):
         rows = self.rows(wafer, group)
-        points = pd.DataFrame({"x": number(rows[self.x]), "y": number(rows[self.y]),
-                               "value": number(rows[metric])}).dropna(subset=["x", "y"])
+        points = coordinates(rows, self.x, self.y).assign(value=number(rows[metric])).dropna(subset=["x", "y"])
         if points.duplicated(["x", "y"]).any():
             raise ValueError("当前测量组有重复坐标，请先拆分测量组；程序不会自动覆盖或平均。")
         return points.dropna(subset=["value"]).reset_index(drop=True)

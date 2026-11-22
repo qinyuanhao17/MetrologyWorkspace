@@ -1,16 +1,17 @@
-"""Preserve vendor identifiers for Reference workspace names and text summaries."""
+"""Preserve vendor identifiers for Reference workspace names and HTML summaries."""
 
 import csv
 from datetime import datetime
+from html import escape
+import os
 from pathlib import Path
 import re
-from textwrap import wrap
+from tempfile import NamedTemporaryFile
 from xml.etree.ElementTree import ParseError
 from zipfile import BadZipFile
 
-from PyQt6.QtCore import QIODevice, QSaveFile
-
-from .reference_input import iter_source_rows
+from .file_paths import filesystem_path
+from .reference_input import check_cancel, iter_source_rows
 from .reference_merge import compact, is_kla_header, is_pmish_header, is_summary_row
 
 
@@ -26,7 +27,10 @@ FIELDS = {
 }
 ALIASES = {'wafernumber': 'waferid', 'waferno': 'waferid', 'lotno': 'lotid',
            'lotnumber': 'lotid', 'toolserialnumber': 'toolsn', 'pad': 'padname'}
-MARKER = 'REFERENCE WORKSPACE SUMMARY'
+MARKER = '<!doctype html><!-- Metrology Workspace Reference Summary -->'
+BATCH_SUMMARY = '_summary.html'
+TIME_FIELDS = {'date', 'datetime', 'start', 'end'}
+WAFER_FIELDS = {'waferid', 'lotid', 'sitename', 'padname', 'slot', 'slotno', 'waferslot'}
 
 
 def field_key(label):
@@ -52,12 +56,12 @@ def frame_metadata(vendor, frame):
     return {name: list(values) for name, values in fields.items()}
 
 
-def source_metadata(vendor, path):
+def source_metadata(vendor, path, cancelled=None):
     """Read metadata from original preambles as well as measurement columns."""
     accepted = {field_key(name) for name in FIELDS[vendor]}
     fields, columns, cd_type_column = {}, {}, None
     sectioned = vendor in ('KLA', 'PMISH')
-    for _, _, source in iter_source_rows(path):
+    for _, _, source in iter_source_rows(path, cancelled):
         cells = [source.get(index, '').strip() for index in range(max(source, default=-1) + 1)]
         if not any(cells):
             continue
@@ -91,15 +95,18 @@ def source_metadata(vendor, path):
     return {name: list(values) for name, values in fields.items()}
 
 
-def collect_sources(vendor, paths, cached):
+def collect_sources(vendor, paths, cached, cancelled=None):
     records = {}
     for path in paths:
+        check_cancel(cancelled)
         name = str(path)
         if name in cached:
             records[name] = cached[name]
             continue
         try:
-            records[name] = source_metadata(vendor, path)
+            records[name] = source_metadata(vendor, path, cancelled)
+        except InterruptedError:
+            raise
         except (OSError, ValueError, csv.Error, BadZipFile, ParseError, KeyError, IndexError):
             # Older workspaces may embed their Ref tables after source files moved.
             records[name] = {}
@@ -125,82 +132,180 @@ def _safe_name(value):
     return re.sub(r'[<>:"/\\|?*\s\x00-\x1f]+', '-', value).strip(' .-')
 
 
-def suggested_filename(vendor, active, sources, other=()):
-    """Use the active Ref output first and keep long multi-wafer names bounded."""
-    records = list(sources.values()) or list(other)
-    parts = [vendor]
+def _wafer_parts(active, records, other=(), *, show_total=False):
+    parts = []
     for label, keys in (('Wafer', {'waferid'}), ('Lot', {'lotid'}),
                         ('PAD', {'padname', 'sitename'}), ('Slot', {'slot', 'slotno', 'waferslot'})):
-        values = _values([active], keys) or _values(records, keys) or _values(other, keys)
-        if label == 'Wafer':
-            values = [value for value in values if compact(value) != 'nowaferid']
+        for fields in ([active], records, other):
+            values = [value for value in _values(fields, keys)
+                      if label != 'Wafer' or compact(value) != 'nowaferid']
+            if values:
+                break
         if not values:
             continue
         token = _safe_name(values[0])[:32]
         if token:
-            parts.append(f'{label}-{token}' + (f'+{len(values)-1}' if len(values) > 1 else ''))
-    for fields in ([active], records, other):
-        dates = next((values for key in ('datetime', 'start', 'date') if (values := _values(fields, {key}))), [])
+            part = f'{label}-{token}'
+            if len(values) > 1:
+                part += f'({len(values)})' if show_total else f'+{len(values)-1}'
+            parts.append(part)
+    return parts
+
+
+def _date_part(*record_groups):
+    for fields in record_groups:
+        dates = next((values for key in ('datetime', 'start', 'date', 'end') if (values := _values(fields, {key}))), [])
         if dates and (token := _safe_name(_date_token(dates[0]))[:32]):
-            parts.append(token + (f'+{len(dates)-1}' if len(dates) > 1 else ''))
-            break
+            return token + (f'+{len(dates)-1}' if len(dates) > 1 else '')
+    return ''
+
+
+def suggested_filename(vendor, active, sources, other=(), *, include_date=True):
+    """Use the active Ref output first and keep long multi-wafer names bounded."""
+    records = list(sources.values()) or list(other)
+    parts = [vendor, *_wafer_parts(active, records, other)]
+    if include_date and (date := _date_part([active], records, other)):
+        parts.append(date)
     if len(parts) == 1:
         parts.append('Reference')
     return '_'.join(parts) + '.ref'
 
 
-def _field_lines(vendor, fields):
+def measurement_stem(vendor, fields, sources):
+    if vendor == 'KLA':
+        original_wafers = _values(sources, {'waferid'})
+        if original_wafers and all(compact(value) == 'nowaferid' for value in original_wafers):
+            fields = {name: values for name, values in fields.items() if field_key(name) != 'waferid'}
+    parts = _wafer_parts(fields, sources, show_total=True)
+    return '_'.join([vendor, *(parts or ['Reference'])])
+
+
+def batch_directory_name(vendor, stamp, outputs, sources):
+    used_sources = dict.fromkeys(path for _, _, paths in outputs for path in paths)
+    date = _date_part([fields for _, fields, _ in outputs],
+                      [sources[path] for path in used_sources] if used_sources else sources.values())
+    return '_'.join(part for part in (vendor, date, stamp) if part)
+
+
+def _field_table(vendor, fields):
     order = {field_key(name): index for index, name in enumerate(FIELDS[vendor])}
-    lines = []
-    for name, values in sorted(fields.items(), key=lambda entry: order.get(field_key(entry[0]), len(order))):
-        lines.extend(wrap(' | '.join(values), width=100, initial_indent=f'{name}  ',
-                          subsequent_indent=' ' * min(len(name) + 2, 30), break_long_words=False,
-                          break_on_hyphens=False))
-    return lines
+    rows = sorted(fields.items(), key=lambda entry: order.get(field_key(entry[0]), len(order)))
+    return ('<table width="100%" cellspacing="0" cellpadding="5">'
+            + ''.join(f'<tr><th scope="row" width="38%" align="left">{escape(name)}</th>'
+                      f'<td>{"<br>".join(map(escape, values))}</td></tr>' for name, values in rows)
+            + '</table>')
 
 
-def summary_text(vendor, workspace, outputs, sources):
-    lines = [MARKER, f'Workspace  {workspace.name}', f'Vendor  {vendor}']
+def summary_html(vendor, output, output_fields, sources, *, counts=None):
+    title = f'{vendor} reference summary'
+    sections = [f'<h1>{escape(title)}</h1>', f'<p>{escape(output.name)}</p>']
     combined = {}
     labels = {}
     accepted = {field_key(field) for field in FIELDS[vendor]}
     original = {field_key(name) for fields in sources.values() for name in fields}
-    output_fields = ({name: values for name, values in fields.items() if field_key(name) not in original}
-                     for _, fields in outputs)
-    for fields in (*sources.values(), *output_fields):
+    missing = {name: values for name, values in output_fields.items() if field_key(name) not in original}
+    for fields in (*sources.values(), missing):
         for name, values in fields.items():
             if field_key(name) in accepted:
                 label = labels.setdefault(field_key(name), name)
                 for value in values:
                     _append(combined, label, value)
-    if combined:
-        lines.extend(['', 'Instrument, recipe and wafer metadata', *_field_lines(vendor, combined)])
-    if outputs:
-        lines.extend(['', 'Reference outputs', *(f'  {Path(label).name}' for label, _ in outputs)])
-    if sources:
-        lines.extend(['', 'Original sources'])
-        for label, fields in sources.items():
-            lines.append(f'  {label}')
-            if len(sources) > 1:
-                lines.extend(f'    {line}' for line in _field_lines(vendor, fields))
+    for name, values in output_fields.items():
+        label = labels.get(field_key(name))
+        if label in combined:
+            matching = combined[label].keys() & set(values)
+            if matching:
+                combined[label] = {value: None for value in combined[label] if value in matching}
+    field_groups = {
+        'Instrument and recipe': {name: values for name, values in combined.items()
+                                  if field_key(name) not in TIME_FIELDS | WAFER_FIELDS},
+        'Measurement time': {name: values for name, values in combined.items() if field_key(name) in TIME_FIELDS},
+        'Wafer and site': {name: values for name, values in combined.items() if field_key(name) in WAFER_FIELDS},
+    }
+    for heading, fields in field_groups.items():
+        if fields:
+            sections.extend([f'<h2>{heading}</h2>', _field_table(vendor, fields)])
     if not combined:
-        lines.extend(['', 'No recognized vendor metadata is available in this workspace.'])
-    return '\n'.join(lines) + '\n'
+        sections.append('<p>No recognized vendor metadata is available.</p>')
+    if counts:
+        sections.extend(['<h2>Batch results</h2>', _field_table(vendor, counts)])
+    if sources:
+        sections.append('<h2>Original sources</h2>')
+        for label, fields in sources.items():
+            sections.append(f'<p>{escape(label)}</p>')
+            if len(sources) > 1 and fields:
+                sections.append(_field_table(vendor, fields))
+    return f'''{MARKER}
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{escape(title)}</title>
+<style>
+  :root {{ color-scheme: light dark; }}
+  body {{ font-family: system-ui, sans-serif; max-width: 56rem; margin: 2rem auto; padding: 0 1rem; }}
+  h1 {{ font-size: 1.5rem; }}
+  h2 {{ font-size: 1.1rem; margin-top: 1.5rem; }}
+  table {{ border-collapse: collapse; table-layout: fixed; }}
+  th, td {{ border-bottom: 1px solid GrayText; vertical-align: top; overflow-wrap: anywhere; }}
+  p {{ overflow-wrap: anywhere; }}
+</style>
+</head>
+<body>{''.join(sections)}</body>
+</html>
+'''
 
 
-def write_summary(workspace, text):
-    target = workspace.with_suffix('.txt')
-    suffix = 0
-    while target.exists():
-        with target.open(encoding='utf-8-sig', errors='replace') as stream:
-            if stream.readline().strip() == MARKER:
-                break
+def write_batch_summary(vendor, staging, batch, outputs, sources, counts, cancelled=None):
+    if not outputs:
+        html = summary_html(vendor, batch, {}, sources, counts=counts)
+        (staging / BATCH_SUMMARY).write_text(html, encoding='utf-8')
+    for name, fields, used_files in outputs:
+        check_cancel(cancelled)
+        output = staging / name
+        selected_sources = {path: sources[path] for path in used_files}
+        html = summary_html(vendor, output, fields, selected_sources, counts=counts)
+        output.with_suffix('.summary.html').write_text(html, encoding='utf-8')
+
+
+def _marked_summary(target):
+    with filesystem_path(target).open(encoding='utf-8', errors='replace') as stream:
+        return stream.readline(len(MARKER) + 2).strip() == MARKER
+
+
+def output_summary_path(output_path):
+    """Keep unrelated HTML files even when they share the export's basename."""
+    target = output_path.with_suffix('.summary.html')
+    suffix = 1
+    while filesystem_path(target).exists():
+        if _marked_summary(target):
+            break
         suffix += 1
-        target = workspace.with_suffix(f'.summary{suffix if suffix > 1 else ""}.txt')
-    output = QSaveFile(str(target))
-    if not output.open(QIODevice.OpenModeFlag.WriteOnly):
-        raise OSError(output.errorString())
-    data = text.replace('\n', '\r\n').encode('utf-8-sig')
-    if output.write(data) != len(data) or not output.commit():
-        raise OSError(output.errorString())
+        target = output_path.with_suffix(f'.summary{suffix}.html')
+    return target
+
+
+def measurement_csv_path(output_path):
+    if output_path.suffix.casefold() == '.xlsx':  # CDSEM1's matching Results CSV
+        return output_path.with_name(output_path.stem + '_Results.csv')
+    return output_path
+
+
+def find_output_summary(output_path):
+    target = output_summary_path(measurement_csv_path(output_path))
+    if filesystem_path(target).is_file():
+        return target
+    return None
+
+
+def write_output_summary(output_path, html):
+    target = output_summary_path(output_path)
+    native_target = filesystem_path(target)
+    output = NamedTemporaryFile(dir=native_target.parent, prefix='.summary-', delete=False)
+    try:
+        with output:
+            output.write(html.encode('utf-8'))
+        os.replace(output.name, native_target)
+    finally:
+        Path(output.name).unlink(missing_ok=True)
     return target

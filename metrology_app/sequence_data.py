@@ -1,4 +1,6 @@
 """Pure, positional Trend preparation shared by GUI and worker paths."""
+from itertools import chain
+
 import numpy as np
 import pandas as pd
 import json
@@ -87,6 +89,7 @@ def prepare_sequence_groups(frame, selection, cells, wafer_column, die_column):
     wafer_values = frame[wafer_column].fillna("").astype(str).str.strip().to_numpy()
     span_lengths = {}
     span_keys = []
+    source_spans = {source["name"]: {} for source in sources}
     for key, source_positions in ordered_parts:
         source = source_by_key.get(key)
         span_key = (_source_span_key(key, source, identity_values, source_positions)
@@ -94,11 +97,20 @@ def prepare_sequence_groups(frame, selection, cells, wafer_column, die_column):
                     key[1] if source is not None else key)
         span_lengths[span_key] = max(span_lengths.get(span_key, 0), len(source_positions))
         span_keys.append(span_key)
+        if source is not None:
+            source_spans[source["name"]][span_key] = None
     # A short Ref series may share a wafer with a much longer Raw series.
     # Reserve the full span before positioning either series or the next wafer.
-    for span_key, length in span_lengths.items():
+    span_order = span_lengths
+    if len(source_spans) == 2 and not selection.get("preserve_group_order"):
+        first, second = source_spans.values()
+        shared = first.keys() & second.keys()
+        if [span for span in first if span in shared] != [span for span in second if span in shared]:
+            # Resolve conflicting source orders using the first source's axis.
+            span_order = dict.fromkeys(chain(first, second))
+    for span_key in span_order:
         spans[span_key] = cursor
-        cursor += length
+        cursor += span_lengths[span_key]
     offset = 0
     for (key, source_positions), span_key in zip(ordered_parts, span_keys):
         ordered = ordered_frame.iloc[offset:offset + len(source_positions)].copy(deep=False)
@@ -121,6 +133,8 @@ def prepare_sequence_groups(frame, selection, cells, wafer_column, die_column):
                        "start": float(np.min(positions)),
                        "stop": float(np.max(positions)),
                        "source": source})
+    # All curves, point mappings and exports traverse the shared axis in order.
+    groups.sort(key=lambda group: group["start"])
     return groups, cursor
 
 

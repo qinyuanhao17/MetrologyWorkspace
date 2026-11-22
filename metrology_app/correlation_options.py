@@ -3,7 +3,8 @@ from copy import deepcopy
 
 import pandas as pd
 from PyQt6.QtCore import QObject, QSignalBlocker
-from .match_group_ui import GroupControls
+from PyQt6.QtWidgets import QDialog, QMessageBox
+from .match_group_ui import CombinedGroupDialog, GroupControls
 from .match_groups import row_ids, participation_source_keys, copy_group_state
 from .group_settings_ui import GroupSettingsDialog
 
@@ -17,6 +18,8 @@ class CorrelationOptions(QObject):
         self.has_workbook = False
         self.local_applied = False
         self.local_identities = None
+        self._follow_disabled_without_data = False
+        self._follow_user_choice = False
         self._context_cache = None
         self.dialog = None
         self.controls = GroupControls(owner)
@@ -25,7 +28,7 @@ class CorrelationOptions(QObject):
         self.controls.hide()
         self.controls.apply_requested.connect(self.apply_groups)
         self.controls.changed.connect(owner.document.refresh_identity)
-        menu = owner.menuBar().addMenu('Groups')
+        menu = self.menu = owner.menuBar().addMenu('Groups')
         self.enabled = menu.addAction('Enable Groups')
         self.enabled.setCheckable(True)
         self.enabled.setChecked(True)
@@ -41,6 +44,9 @@ class CorrelationOptions(QObject):
         self.copy_groups_action.triggered.connect(self.copy_groups)
         self.settings_action = menu.addAction('Group settings…')
         self.settings_action.triggered.connect(self.open_groups)
+        if not self.is_wafer:
+            owner.manage_groups_action = menu.addAction('Manage groups…')
+            owner.manage_groups_action.triggered.connect(self.manage_groups)
         menu.addSeparator()
         from .window import CheckMenu
         labels = CheckMenu(menu)
@@ -74,6 +80,55 @@ class CorrelationOptions(QObject):
         owner.follow_workbook_labels_action = self.follow_labels
         owner.plot_label_checks = self.label_checks
 
+    def workbook_data_copied(self):
+        return bool(getattr(self.owner, "_copy_from_wkb", False)
+                    or getattr(self.owner, "_copy_reference_from_wkb", False))
+
+    def set_workbook_data_copied(self, copied):
+        """Keep follow defaults aligned with copied source data."""
+        if copied:
+            if self._follow_disabled_without_data and not self.local_applied:
+                with QSignalBlocker(self.follow_groups):
+                    self.follow_groups.setChecked(True)
+                self._follow_disabled_without_data = False
+                self._follow_user_choice = False
+                self.settings_action.setEnabled(False)
+                self.refresh()
+            return
+        if not self.local_applied and self.follow_groups.isChecked():
+            with QSignalBlocker(self.follow_groups):
+                self.follow_groups.setChecked(False)
+            self._follow_disabled_without_data = True
+            self._follow_user_choice = False
+            self.settings_action.setEnabled(True)
+        if not self.local_applied:
+            self._context_cache = None
+            for name in ("_match_groups", "_group_plan", "_group_result_cache"):
+                if hasattr(self.owner, name):
+                    setattr(self.owner, name, None)
+            self.refresh()
+
+    def set_source_test_flags(self, rows, value):
+        """Keep an independent child's local Group settings on chart edits."""
+        raw, reference = self.frames()
+        if self.has_workbook and not self.local_applied:
+            if self.workbook_context is not None:
+                self._load_local_groups(self.workbook_context)
+            else:
+                self.local_applied = True
+                self.local_identities = list(row_ids(raw))
+            with QSignalBlocker(self.follow_groups):
+                self.follow_groups.setChecked(False)
+            self.settings_action.setEnabled(True)
+            self._follow_user_choice = True
+            self._follow_disabled_without_data = False
+        self.controls.set_sources(reference, raw)
+        self.controls.set_test_flags(rows, value)
+        self.controls.accept_changes()
+        if self.local_applied:
+            self._context_cache = None
+            self.refresh()
+
     def frames(self):
         reference = getattr(self.owner,'reference_model',None)
         return self.owner.model._analysis_view(),reference._analysis_view() if reference is not None else pd.DataFrame()
@@ -81,6 +136,12 @@ class CorrelationOptions(QObject):
     def remember_workbook(self, context):
         self.workbook_context = context
         self.has_workbook = True
+        if (getattr(self.owner, "_managed_owner", None) is not None
+                and not self.workbook_data_copied() and not self.local_applied
+                and not self._follow_user_choice and self.follow_groups.isChecked()):
+            with QSignalBlocker(self.follow_groups):
+                self.follow_groups.setChecked(False)
+            self._follow_disabled_without_data = True
         self.follow_groups.setEnabled(True)
         self.copy_groups_action.setEnabled(context is not None)
         self.settings_action.setEnabled(not self.follow_groups.isChecked())
@@ -110,15 +171,11 @@ class CorrelationOptions(QObject):
         return result
 
     def _follow_groups_changed(self, following):
+        self._follow_user_choice = True
         if not following and self.has_workbook and not self.local_applied:
             context = self.workbook_context
             if context:
-                state = deepcopy(context['grouping'])
-                for config in (state,state.get('applied',{})):
-                    config['data_selection'] = {'records':[],'excluded':[]}
-                self.controls.restore(state,pd.DataFrame({'TestFlag':context['flags']}))
-                self.local_applied = True
-                self.local_identities = list(context['identities'])
+                self._load_local_groups(context)
         self.settings_action.setEnabled(not (following and self.has_workbook))
         if self.dialog is not None:
             self.controls.setEnabled(not (following and self.has_workbook))
@@ -126,6 +183,37 @@ class CorrelationOptions(QObject):
                 self.dialog.hide()
         self._context_cache = None
         self.refresh()
+
+    def _load_local_groups(self, context):
+        state = deepcopy(context['grouping'])
+        for config in (state, state.get('applied', {})):
+            config['data_selection'] = {'records': [], 'excluded': []}
+        self.controls.restore(state, pd.DataFrame({'TestFlag': context['flags']}))
+        self.local_applied = True
+        self.local_identities = list(context['identities'])
+
+    def manage_groups(self):
+        owner = self.owner
+        plan = owner._group_plan
+        if plan is None or not plan.enabled:
+            QMessageBox.warning(owner, 'Groups unavailable',
+                                'Enable Head groups or Mark in Group settings first.')
+            return
+
+        dialog = CombinedGroupDialog(plan, owner)
+        try:
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+            if not self.local_applied or self.follow_groups.isChecked():
+                self._load_local_groups(owner._match_groups)
+                with QSignalBlocker(self.follow_groups):
+                    self.follow_groups.setChecked(False)
+                self.settings_action.setEnabled(True)
+            self.controls.set_display_groups(dialog.groups, sorted(dialog.show_wafer_groups))
+            self._context_cache = None
+            self.refresh()
+        finally:
+            dialog.deleteLater()
 
     def open_groups(self):
         if not self.settings_action.isEnabled():
@@ -162,6 +250,7 @@ class CorrelationOptions(QObject):
         self.controls.accept_changes()
         self.local_applied = True
         self.local_identities = list(row_ids(raw))
+        self._follow_disabled_without_data = False
         with QSignalBlocker(self.follow_groups):
             self.follow_groups.setChecked(False)
         self.settings_action.setEnabled(True)

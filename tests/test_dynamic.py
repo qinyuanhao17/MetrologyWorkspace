@@ -64,6 +64,14 @@ class DynamicDataTests(unittest.TestCase):
 
         self.assertEqual(prepared["Cycle"].tolist(), [1] * 3 + [2] * 3 + [3] * 3)
 
+    def test_seq_alias_preserves_the_source_header_and_values(self):
+        frame = pd.DataFrame({'Seq': ['02', '05', '02', '05'], 'DP': ['10.00', '20.00', '11.00', '21.00']})
+        prepared = prepare_dynamic_frame(frame)
+        self.assertEqual(prepared.columns.tolist(), ['Seq', 'Cycle', 'DP'])
+        self.assertEqual(prepared['Seq'].tolist(), frame['Seq'].tolist())
+        self.assertEqual(prepared['Cycle'].tolist(), [1, 1, 2, 2])
+        self.assertEqual(cycle_trend(prepared, 'DP').loc[2, '05'], 21.0)
+
     def test_pivot_has_cycles_by_die_and_sample_three_sigma_bottom_row(self):
         frame = pd.DataFrame({
             "Cycle": [1, 1, 2, 2, 3, 3],
@@ -524,10 +532,11 @@ class DynamicWindowTests(unittest.TestCase):
 
     def test_trend_tab_draws_one_cycle_panel_per_parameter_and_one_die(self):
         """Cycle is the x-axis; each panel draws the Die its picker selects."""
-        self.window.set_table(self.frame(), "dynamic.csv")
+        self.window.set_table(self.frame().rename(columns={'Die Seq': 'Seq'}), "dynamic.csv")
         self.select_parameters("DP", "EW")
         page = self.window.dynamic_trend
 
+        self.assertIn('Seq', self.window.model.document_frame())
         self.assertTrue(page.ready, page.status.text())
         self.assertEqual(
             [parameter for parameter, _table in page.panel_specs], ["DP", "EW"]

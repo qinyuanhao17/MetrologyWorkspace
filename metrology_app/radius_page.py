@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
 
 from .appearance import configure_resolution_combo, resolution_settings, screen_render_scale
 from .array_plot import drawn_axes
-from .data import number
+from .data import combined_xy_unit, coordinate_columns, coordinates, number
 from .map_selector import MapSelector
 from .plot import infer_wafer_geometry, set_panel_title
 from .radius_graphics import RadiusGrid
@@ -24,6 +24,7 @@ from .wafer_graphics import PAGE_ZOOM_PERCENTAGES, StaticMapView
 from .settings import get_settings
 from .plotting.identity_labels import measurement_caption
 
+RADIUS_PLOTS_PER_PAGE = 120
 
 def signed_radius(x, y):
     """R = sqrt(X² + Y²), mirrored to the negative side when X < 0."""
@@ -111,7 +112,7 @@ class RadiusPage(QWidget):
         self.page_size.setFixedWidth(58)
         self.page_size.setKeyboardTracking(False)
         self.page_size.setToolTip(
-            "Draw one page at a time; every metric of a wafer stays on its page.")
+            "Maximum wafers per page. Wide selections use fewer wafers per page to keep each wafer together.")
         self.page_size.valueChanged.connect(self._page_size_changed)
         appearance.addWidget(self.page_size)
         self.page_back = QPushButton("◀", objectName="subtle")
@@ -302,11 +303,8 @@ class RadiusPage(QWidget):
         changed_table = self.frame is not frame
         self.signature, self.frame, self.selection = signature, frame, selection.copy()
         if changed_table:
-            names = {"".join(c.lower() for c in name if c.isalnum()): name for name in frame}
             entries = [(name, name) for name in frame]
-            for combo, aliases in ((self.x_column, ("xmm", "fieldx", "x", "diex")),
-                                   (self.y_column, ("ymm", "fieldy", "y", "diey"))):
-                selected = next((names[a] for a in aliases if a in names), None)
+            for combo, selected in zip((self.x_column, self.y_column), coordinate_columns(frame.columns)):
                 self.populate(combo, entries, selected)
         self.selector.set_array(selection["wafers"], selection["metrics"], selection.get("labels"), cells)
         replay = (self.has_drawn_once and not grid_changed
@@ -340,10 +338,11 @@ class RadiusPage(QWidget):
         self.page_index = 0
         self.invalidate()
 
-    def paginate_wafers(self, wafers):
+    def paginate_wafers(self, wafers, metrics=()):
         """One page at a time; a wafer always brings all its metrics along."""
         wafers = list(wafers)
-        size = max(1, self.page_size.value())
+        size = max(1, min(self.page_size.value(), RADIUS_PLOTS_PER_PAGE // max(1, len(metrics))))
+        self.page_label.setToolTip(f"Up to {size} wafers per page for this selection.")
         pages = max(1, (len(wafers) + size - 1) // size)
         self.page_index = min(max(0, self.page_index), pages - 1)
         start = self.page_index * size
@@ -397,7 +396,7 @@ class RadiusPage(QWidget):
             if not wafers or not metrics:
                 raise ValueError("Select at least one measurement set and one parameter in Data.")
             x_name, y_name = self.x_column.currentData(), self.y_column.currentData()
-            if x_name == y_name:
+            if x_name == y_name and combined_xy_unit(x_name) is None:
                 raise ValueError("Choose different X and Y coordinate columns.")
             cells = self.selector.selected_cells()
             if not cells:
@@ -406,10 +405,8 @@ class RadiusPage(QWidget):
             # Only the rows and columns that hold a drawn box end up on the
             # canvas, so its size follows the number of drawn plots.
             wafers, metrics = drawn_axes(wafers, metrics, cells)
-            wafers, page_index, pages = self.paginate_wafers(wafers)
+            wafers, page_index, pages = self.paginate_wafers(wafers, metrics)
             self._update_page_controls(page_index, pages)
-            if len(wafers) * len(metrics) > 120:
-                raise ValueError("Select up to 120 radius plots per page.")
             columns, rows = len(metrics), len(wafers)
             base = int(self.font_size.currentText())
             colors = [f"C{index % 10}" for index in range(len(wafers))]
@@ -419,7 +416,7 @@ class RadiusPage(QWidget):
             names = {"".join(character.lower() for character in str(column) if character.isalnum()): column
                      for column in self.frame}
             die_column = next((names[name] for name in
-                               ("dieseq", "dieid", "diesequence", "diesequenceno") if name in names), None)
+                               ("dieseq", "dieid", "diesequence", "diesequenceno", "seq") if name in names), None)
             for color, wafer in zip(colors, wafers):
                 for metric in metrics:
                     if (wafer, metric) not in cells:
@@ -427,8 +424,7 @@ class RadiusPage(QWidget):
                         continue
                     drawn += 1
                     part = self.frame.iloc[parts[wafer]]
-                    frame = pd.DataFrame({"x": number(part[x_name]), "y": number(part[y_name]),
-                                          "value": number(part[metric]), "source_row": parts[wafer]})
+                    frame = coordinates(part, x_name, y_name).assign(value=number(part[metric]), source_row=parts[wafer])
                     if die_column is not None:
                         frame["die"] = part[die_column].fillna("").astype(str).to_numpy()
                     data = frame.dropna(subset=["x", "y", "value"])

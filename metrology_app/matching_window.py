@@ -71,12 +71,14 @@ from .appearance import (CORRELATION_FIT_COLOR, CORRELATION_POINT_COLOR,
                          fit_window_to_screen, help_title_label)
 from . import dynamic_grr
 from .analysis_windows import LABELS as WINDOW_LABELS, scope_parts, validate_windows, window_entries, window_metadata
-from .data import inspect_table
+from .data import die_sequence_column, inspect_table
 from .excel_export import write_workbook
-from .trend import parse_unit
+from .trend import MAGNITUDE_RATIO_LIMIT, parse_unit
 from .diagnostics import get_logger
 from .matching import MAX_ROWS, MatchWorkbook, ParameterMapping, extrema_sample_indices
 from .match_groups import copy_group_state, group_state, row_ids
+from .match_wafer_statistics_page import MatchWaferStatisticsPage
+from .measurements import compare_wafer_inputs
 from .match_group_ui import CombinedGroupDialog, GroupControls, GroupPlotPage, ProjectedSheetModel, draw_group_trend, set_group_axes
 from .data_selection import DataSelectionDialog
 from .plotting import InteractivePlotWidget, place_legend_above_frame
@@ -825,7 +827,7 @@ class MatchingWindow(QMainWindow):
         self._spectra_windows = {}
         self._bias_die_maps = {}
         self._recovered_children = {}
-        self.second_axis_ratio = 10.0
+        self.second_axis_ratio = MAGNITUDE_RATIO_LIMIT
         self.metric_highlighting = _metric_highlighting_limits()
         self.trend_axis_mode = "auto"
         self._recent_wkb_paths = list(recent_wkb_paths())
@@ -1080,7 +1082,7 @@ class MatchingWindow(QMainWindow):
             self._map_selection_states = state.get("workspace_selections", {}).get("map", {"preview": None, "final": None})
             self._dynamic_selection_states = state.get("workspace_selections", {}).get("dynamic", {"preview": None, "final": None})
             self._correlation_selection_states = state.get("correlation_selections", {"preview": None, "final": None})
-            self.set_second_axis_ratio(state.get("trend_axis_settings", {}).get("ratio", 10.0))
+            self.set_second_axis_ratio(state.get("trend_axis_settings", {}).get("ratio", MAGNITUDE_RATIO_LIMIT))
             self.set_trend_axis_mode(state.get("trend_axis_settings", {}).get("mode", "auto"))
             if self.reference_frame.columns.is_unique:
                 self._populate_mappings(snapshot.states.get("match_ui", {}).get("mapping_choices", {}))
@@ -1418,6 +1420,8 @@ class MatchingWindow(QMainWindow):
                         axis.refresh()
         for child in self._stage_windows:
             self._offer_plot_labels(child)
+        if hasattr(self, "match_statistics_page"):
+            self.match_statistics_page.set_label_options(options["trend"])
         for block in blocks if trend_changed else ():
             self._expand_parameter_group(block)
         if hasattr(self, "document"):
@@ -1432,26 +1436,25 @@ class MatchingWindow(QMainWindow):
                 else:
                     page.set_identity_labels(self._plot_label_options[name])
 
-    def manage_groups(self):
-        plan = self.result.group_plan if self.result is not None else None
+    def manage_groups(self, *, plan=None, parent=None):
+        if plan is None and self.result is not None:
+            plan = self.result.group_plan
+        parent = self if parent is None else parent
         if plan is None or not plan.enabled:
-            QMessageBox.warning(self, "Groups unavailable", "Enable Head groups or Mark and enter the paired data first.")
+            QMessageBox.warning(parent, "Groups unavailable", "Enable Head groups or Mark and enter the paired data first.")
             return
-        dialog = CombinedGroupDialog(plan, self)
+        dialog = CombinedGroupDialog(plan, parent)
         accepted = dialog.exec() == QDialog.DialogCode.Accepted
         groups = deepcopy(dialog.groups)
         show_wafer_groups = sorted(dialog.show_wafer_groups)
         dialog.deleteLater()
         if accepted:
-            for state in (self.group_controls.state, self.group_controls.state["applied"]):
-                state["combined_groups"] = deepcopy(groups)
-                state["show_wafer_groups"] = show_wafer_groups.copy()
-            self.group_controls.refresh()
+            self.group_controls.set_display_groups(groups, show_wafer_groups)
             self._stage_sync_inputs = None
             try:
                 self.run_analysis(apply_groups=False)
             except ValueError as error:
-                QMessageBox.warning(self, "Cannot plot Groups", str(error))
+                QMessageBox.warning(parent, "Cannot plot Groups", str(error))
 
     def selection_script(self):
         from .data_selection import selection_frame
@@ -1665,6 +1668,12 @@ class MatchingWindow(QMainWindow):
         self.status.setWordWrap(True)
         self.status.hide()
         layout.addWidget(self.status)
+        self.wafer_warning = _label(
+            "Ref and Raw wafer order differs. Align the wafer order before running Match.", "warning"
+        )
+        self.wafer_warning.setWordWrap(True)
+        self.wafer_warning.hide()
+        layout.addWidget(self.wafer_warning)
 
         inputs = QSplitter(Qt.Orientation.Horizontal)
         self.inputs_splitter = inputs
@@ -1864,6 +1873,11 @@ class MatchingWindow(QMainWindow):
         self.empty_wafer_hint = _label("", "hint")
         self.wafer_groups_layout.addWidget(self.empty_wafer_hint)
         self.results_tabs.addTab(self.wafer_groups_widget, "Single-Wafer metrics")
+        self.match_statistics_page = MatchWaferStatisticsPage()
+        self.match_statistics_page.layout_changed.connect(
+            self._match_statistics_layout_changed
+        )
+        self.results_tabs.addTab(self.match_statistics_page, "Wafer Mean / Sigma")
         self.group_plot_page = GroupPlotPage(self)
         # Until its tab is added the page has no layout slot; an unparented
         # child would otherwise float at the window's top-left over the menu bar.
@@ -1952,6 +1966,9 @@ class MatchingWindow(QMainWindow):
         return True
 
     def _refresh_visible_wafer_metrics(self, _index):
+        if self.results_tabs.currentWidget() is self.match_statistics_page and self.result is not None:
+            self.match_statistics_page.render()
+            return
         if self.results_tabs.currentWidget() is not self.wafer_groups_widget or self.result is None:
             return
         for parameter, group in self.plot_groups.items():
@@ -2037,7 +2054,14 @@ class MatchingWindow(QMainWindow):
 
     @staticmethod
     def _plot_widget(bottom, left, plot_class=InteractivePlotWidget):
-        plot = plot_class(background=None, frame_tick_length=3)
+        plot = plot_class(background="w", frame_tick_length=3)
+        plot.setBackground("w")
+        palette = plot.palette()
+        palette.setColor(QPalette.ColorRole.Window, QColor("#ffffff"))
+        palette.setColor(QPalette.ColorRole.Base, QColor("#ffffff"))
+        palette.setColor(QPalette.ColorRole.WindowText, QColor("#20242a"))
+        palette.setColor(QPalette.ColorRole.Text, QColor("#20242a"))
+        plot.setPalette(palette)
         plot.showGrid(x=True, y=True, alpha=0.18)
         plot.setLabel("bottom", bottom)
         plot.setLabel("left", left)
@@ -2050,12 +2074,16 @@ class MatchingWindow(QMainWindow):
         plot_item.layout.setRowFixedHeight(0, _MatchPlotWidget.HEADER_HEIGHT)
         view = plot_item.getViewBox()
         view.setMouseMode(pg.ViewBox.RectMode)
-        frame_pen = pg.mkPen(plot.palette().color(plot.foregroundRole()))
+        frame_pen = pg.mkPen("#30343b")
         view.setBorder(None)
         for axis_name in ("top", "right", "bottom", "left"):
             axis = plot_item.getAxis(axis_name)
             axis.setPen(frame_pen)
             axis.setTextPen(frame_pen)
+        for label in plot.findChildren(QLabel):
+            label.setStyleSheet("color: #20242a; background: transparent;")
+        for check in plot.findChildren(QCheckBox):
+            check.setStyleSheet("color: #20242a; background: transparent;")
         plain_y_axes(plot)
         return plot
 
@@ -3052,6 +3080,7 @@ class MatchingWindow(QMainWindow):
                 if widget is not None:
                     widget.deleteLater()
         self.plot_groups.clear()
+        self.match_statistics_page.clear()
         self.results_panel.setMinimumHeight(520)
         self.setup_splitter.setMinimumHeight(1120)
 
@@ -3083,6 +3112,12 @@ class MatchingWindow(QMainWindow):
                 f"{self.mapping_table.rowCount():,} rows × {self.mapping_table.columnCount()} columns")
         raw_frame = self._active_raw_frame()
         has_raw = not raw_frame.empty
+        wafer_inputs = (self.reference_frame, raw_frame)
+        if any(current is not previous for current, previous in zip(
+                wafer_inputs, getattr(self, "_checked_wafer_inputs", (None, None)))):
+            order_mismatch, _difference = compare_wafer_inputs(*wafer_inputs)
+            self.wafer_warning.setVisible(order_mismatch)
+            self._checked_wafer_inputs = wafer_inputs
         self.raw_view.setEnabled(True)
         valid_rows = has_reference and has_raw and len(self.reference_frame) <= len(raw_frame)
         has_mapping = False
@@ -4346,20 +4381,9 @@ class MatchingWindow(QMainWindow):
         return frames
 
     def set_child_chart_flags(self, workspace, rows, value):
-        from .match_groups import participation_source_keys
-
-        source = workspace.model._analysis_view()
-        parent = self._active_raw_frame()
-        if not getattr(workspace, "_copy_from_wkb", False) or self._stage_window_context.get(
-                workspace, ("", ""))[1] != self.result_mode.currentText().lower():
-            return False
-        positions = {key: row for row, key in enumerate(participation_source_keys(parent))}
-        keys = participation_source_keys(source)
-        selected = {keys[row] for row in rows if 0 <= row < len(keys)}
-        if not selected or not selected <= positions.keys():
-            return False
-        self.group_controls.order_model.edit({(positions[key] + 1, 0): value for key in selected})
-        return True
+        # Chart-level TestFlag edits are child-local. The child detaches from
+        # Workbook Groups before applying them and never mutates the parent.
+        return False
 
     def apply_child_selection_scope(self, workspace, *, refresh_source=True):
         """Choose participation without replacing manual or locked Map data."""
@@ -4968,6 +4992,7 @@ class MatchingWindow(QMainWindow):
         self.result_status.setText(self._result_descriptor)
         self._draw_all_parameters()
         self.group_plot_page.set_result(self.result)
+        self._publish_match_statistics_result()
         self._update_state()
         # Open analysis windows mirror the workbook tables they were built from.
         try:
@@ -5237,17 +5262,29 @@ class MatchingWindow(QMainWindow):
         wafer_view.clearRequested.connect(lambda: self._clear_wafer_selection(parameter))
         wafer_metrics_layout = QHBoxLayout()
         wafer_metrics_layout.setSpacing(14)
-        wafer_metrics_layout.addWidget(wafer_view, 1)
-        wafer_plots = QWidget()
-        wafer_plot_layout = QGridLayout(wafer_plots)
-        wafer_plot_layout.setContentsMargins(0, 0, 0, 0)
-        wafer_plot_layout.setHorizontalSpacing(14)
+        wafer_table_column = QVBoxLayout()
+        wafer_table_column.setContentsMargins(0, 0, 0, 0)
+        wafer_table_column.addWidget(wafer_view, 1)
+        wafer_metrics_layout.addLayout(wafer_table_column, 0)
         wafer_r2 = self._plot_widget("Wafer", "R²")
         wafer_slope = self._plot_widget("Wafer", "Slope")
-        for column, plot in enumerate((wafer_r2, wafer_slope)):
-            plot.setFixedSize(420, 280)
+        for plot in (wafer_r2, wafer_slope):
             plot.getAxis("left").enableAutoSIPrefix(False)
-            wafer_plot_layout.addWidget(plot, 0, column)
+        wafer_plot_area = ParameterPlotArea(
+            {"wafer_r2": wafer_r2, "wafer_slope": wafer_slope},
+            plot_height=280,
+            titles={"wafer_r2": "R²", "wafer_slope": "Slope"},
+            initial_sizes=(420, 420),
+        )
+        saved_wafer_layout = self._plot_layout_states.get(mode, {}).get(
+            storage_key, {}
+        ).get("wafer_r2|wafer_slope")
+        if saved_wafer_layout is not None:
+            wafer_plot_area.restoreState(saved_wafer_layout)
+        wafer_plot_area.layoutChanged.connect(
+            lambda area=wafer_plot_area, name=parameter, stage=mode, key=storage_key:
+            self._single_wafer_plot_layout_changed(name, stage, key, area)
+        )
         for plot in (wafer_r2, wafer_slope):
             plot.setToolTip("Click a point to find its row. Click the same point again, or press Esc, to clear the highlight.")
             # Dense single-wafer plots thin the row-number ticks out so the
@@ -5259,8 +5296,7 @@ class MatchingWindow(QMainWindow):
             shortcut = QShortcut(QKeySequence(Qt.Key.Key_Escape), widget)
             shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
             shortcut.activated.connect(lambda: self._clear_wafer_selection(parameter))
-        wafer_plots.setFixedSize(854, 280)
-        wafer_metrics_layout.addWidget(wafer_plots)
+        wafer_metrics_layout.addWidget(wafer_plot_area, 1)
         wafer_layout.addLayout(wafer_metrics_layout)
         wafer_detail_layout = QVBoxLayout()
         wafer_detail_layout.setSpacing(12)
@@ -5287,6 +5323,8 @@ class MatchingWindow(QMainWindow):
             "wafer_draw_delegate": draw_delegate,
             "wafer_header": wafer_header,
             "wafer_metrics_layout": wafer_metrics_layout,
+            "wafer_table_column": wafer_table_column,
+            "wafer_plot_area": wafer_plot_area,
             "wafer_uncheck_all": uncheck_all,
             "wafer_r2": wafer_r2,
             "wafer_slope": wafer_slope,
@@ -5307,6 +5345,51 @@ class MatchingWindow(QMainWindow):
         self._restore_setup_splitter_layout(sizes)
         if hasattr(self, "document"):
             self._plot_layout_identity_timer.start()
+
+    def _single_wafer_plot_layout_changed(self, parameter, stage, storage_key, area):
+        variant = "wafer_r2|wafer_slope"
+        layouts = normalize_plot_layouts({
+            stage: {storage_key: {variant: area.saveState()}}
+        })
+        self._plot_layout_states.setdefault(stage, {}).setdefault(
+            storage_key, {}
+        )[variant] = layouts[stage][storage_key][variant]
+        sizes = self.setup_splitter.sizes()
+        self._resize_results_for_plot_groups()
+        self._restore_setup_splitter_layout(sizes)
+        if hasattr(self, "document"):
+            self._plot_layout_identity_timer.start()
+
+    def _match_statistics_layout_changed(self, parameter, state):
+        if self.workbook is None:
+            return
+        stage = self.workbook.result_mode
+        variant = "wafer_mean|wafer_sigma|wafer_mean_bias|wafer_sigma_bias"
+        layouts = normalize_plot_layouts({
+            stage: {parameter: {variant: state}}
+        })
+        self._plot_layout_states.setdefault(stage, {}).setdefault(
+            parameter, {}
+        )[variant] = layouts[stage][parameter][variant]
+        if hasattr(self, "document"):
+            self._plot_layout_identity_timer.start()
+
+    def _publish_match_statistics_result(self):
+        if self.result is None or self.workbook is None:
+            return
+        mode = self.workbook.result_mode
+        variant = "wafer_mean|wafer_sigma|wafer_mean_bias|wafer_sigma_bias"
+        layouts = {
+            parameter: states[variant]
+            for parameter, states in self._plot_layout_states.get(mode, {}).items()
+            if variant in states
+        }
+        self.match_statistics_page.set_result(
+            self.result, self._chart_edits, layouts,
+        )
+        self.match_statistics_page.set_label_options(
+            self._plot_label_options["trend"]
+        )
 
     def _can_refresh_parameter_values(self, parameter, group, data):
         """Same ungrouped rows/styles: replace arrays, keeping Qt artists alive."""
@@ -5364,7 +5447,7 @@ class MatchingWindow(QMainWindow):
         )
         source_rows = data["Source row"].tolist() if "Source row" in data else result.source_rows
         source = result.group_plan.raw
-        die_column = next((column for column in source if str(column).lower().replace(" ", "") == "dieseq"), None)
+        die_column = die_sequence_column(source.columns)
         dies_all = source[die_column].astype(str).to_numpy()[list(source_rows)].tolist() if die_column is not None else ["N/A"] * len(source_rows)
         chart_rows = np.asarray(source_rows, dtype=int)[indices]
         group["annotation_data"] = (indices, dies_all, workbook.match_type)
@@ -5668,14 +5751,16 @@ class MatchingWindow(QMainWindow):
         else:
             for item in curves:
                 trend_plot.removeItem(item)
-            place_legend_above_frame(trend_plot)
+            legend = place_legend_above_frame(trend_plot)
+            legend.setLabelTextColor("#30343b")
             for name, values, color in (("PMISH", pmish, "#5b9bd5"),
                                         (workbook.match_type, reference, "#ed7d31")):
                 trend_plot.plot(row, values, pen=pg.mkPen(color, width=TREND_LINE_WIDTH),
                     symbol="o", symbolSize=TREND_MARKER_SIZE, symbolBrush=color, symbolPen=None, name=name)
         for curve in trend_plot.listDataItems():
             trend_plot.set_point_rows(curve.scatter, group["trend_rows"])
-        place_legend_above_frame(trend_plot)
+        legend = place_legend_above_frame(trend_plot)
+        legend.setLabelTextColor("#30343b")
         title = parameter
         trend_plot.setLabel("left", title)
         if hasattr(trend_plot, "set_scope_title"):
@@ -5929,7 +6014,7 @@ class MatchingWindow(QMainWindow):
 
     def _single_wafer_tick_labels(self, detail):
         raw = detail["source_raw"]
-        column = next((c for c in raw if str(c).casefold().replace(" ", "") == "dieseq"), None)
+        column = die_sequence_column(raw.columns)
         labels = [str(v) for v in raw[column]] if column is not None else [str(i + 1) for i in range(len(raw))]
         for name in ("trend", "bias", "bias-percent"):
             plot = detail["plots"].get(name)
@@ -6584,6 +6669,7 @@ class MatchingWindow(QMainWindow):
         self._show_mapping_results()
         self._draw_all_parameters()
         self.group_plot_page.set_result(self.result)
+        self._publish_match_statistics_result()
         if workbook.setup_splitter_sizes is not None:
             self._restore_setup_splitter_layout(workbook.setup_splitter_sizes)
             QTimer.singleShot(

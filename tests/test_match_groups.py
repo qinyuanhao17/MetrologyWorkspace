@@ -12,6 +12,39 @@ from tests.match_fixtures import configure_match_fixture
 
 
 class MatchGroupTests(unittest.TestCase):
+    def test_group_settings_filter_every_identity_and_calculated_column(self):
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.matching_window import MatchingWindow
+        app = QApplication.instance() or QApplication([])
+        window = MatchingWindow()
+        try:
+            ref, raw, flags = self.frames()
+            window.set_reference_frame(ref)
+            window.set_raw_frame(raw)
+            configure_match_fixture(window)
+            window.group_controls.restore({"enabled": True, "mark_enabled": True}, flags)
+            window.run_analysis()
+            window.group_settings_action.trigger()
+            app.processEvents()
+            dialog = window.group_settings_dialog
+            model = dialog.table.model()
+            self.assertEqual(set(dialog.header_filters.buttons), set(range(8)))
+            for column in range(8):
+                self.assertTrue(model.distinct_values(column), column)
+
+            model.set_column_filter(4, {"1"})
+            self.assertTrue(model.rowCount())
+            self.assertTrue(all(str(model._value(row, 4)) == "1" for row in model.rows))
+            model.clear_filters()
+            groups = model.distinct_values(7)
+            model.set_column_filter(7, {groups[0]})
+            self.assertTrue(model.rowCount())
+            self.assertTrue(all(str(model._value(row, 7)) == groups[0] for row in model.rows))
+        finally:
+            window.close()
+            window.deleteLater()
+            app.processEvents()
+
     def test_numeric_source_rebind_retains_classification_but_rejects_metadata_or_filters(self):
         raw = pd.DataFrame({'Wafer ID': ['W1', 'W1', 'W2'], 'Die Seq': ['001', '002', '001'],
                             'Lot ID': ['L1'] * 3, 'CD': ['1.00', '2.00', '3.00']})

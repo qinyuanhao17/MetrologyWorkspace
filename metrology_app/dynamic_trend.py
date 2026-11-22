@@ -28,6 +28,7 @@ from .appearance import (MAX_COPY_PIXELS, MAX_EXPORT_PIXELS, configure_resolutio
                          export_dpi, panel_title_label, resolution_settings,
                          TREND_LINE_WIDTH, TREND_MARKER_SIZE)
 from .appearance import widget_to_qimage
+from .data import die_sequence_column
 from .dynamic import (changed_dynamic_parameters, cycle_trend,
                       prepare_dynamic_frame, selected_measurement_rows)
 from .plotting import InteractivePlotWidget, PanelGrid, PlotPanel
@@ -215,8 +216,9 @@ class DynamicTrendPage(QWidget):
                 parameter: cycle_trend(prepared, parameter)
                 for parameter in parameters
             }
+            dies = prepared[die_sequence_column(prepared.columns)]
             self._trend_source_rows = {(float(cycle), str(die)): int(row)
-                                       for cycle, die, row in zip(prepared["Cycle"], prepared["Die Seq"], rows.index)}
+                                       for cycle, die, row in zip(prepared["Cycle"], dies, rows.index)}
         except ValueError as error:
             self.invalidate(str(error))
             return
@@ -294,8 +296,9 @@ class DynamicTrendPage(QWidget):
                             for parameter, names in self.comparisons.items() if parameter in series}
         for parameter, table in self.panel_specs:
             widget = InteractivePlotWidget(background="w", auto_x_range=self.x_range)
-            widget.point_selection.data = getattr(self, "data_point_edits", None)
-            widget.point_selection.scope = ("Dynamic Trend", parameter)
+            widget.point_selection.set_data(
+                getattr(self, "data_point_edits", None), ("Dynamic Trend",),
+            )
             widget.setMinimumSize(360, 280)
             widget.setToolTip(
                 "Ctrl+scroll to zoom · Left-drag to select · Ctrl+left-drag to zoom · Right-drag to pan · "

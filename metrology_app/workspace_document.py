@@ -755,7 +755,12 @@ class WkbDocument:
         if owner is not None:
             if owner.document.untrusted_recovery:
                 raise ValueError("Save the entire recovered Workbook As before discarding one analysis.")
-            owner.document.write_recovery(exclude=self.window)
+            # The child is forgotten by its close handler immediately after
+            # this decision. Refresh the aggregate draft on the next event-loop
+            # turn so closing stays responsive and the discarded analysis is
+            # no longer part of that snapshot.
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(0, owner.document.request_recovery)
         else:
             self.remove_recovery()
 

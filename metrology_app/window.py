@@ -153,6 +153,7 @@ class MainWindow(QMainWindow):
         self.plot_page = PlotPage()
         self.plot_page.document_scoped = True
         self.plot_page.scroll.data_point_edits = self._chart_edits
+        self._chart_edits.add_preview_listener(self.plot_page.scroll)
         self.plot_page.scroll.add_point_edit_menu()
         self.plot_page.scroll.point_removal_handler = self._refresh_map_after_point_removal
         self.plot_page.draw_state_changed.connect(
@@ -161,6 +162,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.plot_page, "2. Wafer Maps")
         self.radius_page = RadiusPage()
         self.radius_page.scroll.data_point_edits = self._chart_edits
+        self._chart_edits.add_preview_listener(self.radius_page.scroll)
         self.radius_page.scroll.add_point_edit_menu()
         self.radius_page.draw_state_changed.connect(
             lambda _state: self.selection_changed.emit(self.selection_state())
@@ -473,6 +475,10 @@ class MainWindow(QMainWindow):
             # Full data scope. Binding ownership must not replace that choice.
             self._workbook_selection_applies = copy_default and selection_applies
             self.set_copy_from_wkb(copy_default)
+            if hasattr(self, "display_options"):
+                self.display_options.set_workbook_data_copied(
+                    self.display_options.workbook_data_copied()
+                )
         self.document.refresh_identity()
 
     def _update_workbook_data_action(self, *_):
@@ -520,6 +526,10 @@ class MainWindow(QMainWindow):
             populated = any(not frame.empty for frame in self.workspace_snapshot().frames.values())
             if not owner.reset_child_to_workbook(self, confirm=populated):
                 self.set_copy_from_wkb(False)
+            elif hasattr(self, "display_options"):
+                self.display_options.set_workbook_data_copied(
+                    self.display_options.workbook_data_copied()
+                )
             return
         with self.input_update():
             if hasattr(self, "reference_model"):
@@ -533,6 +543,8 @@ class MainWindow(QMainWindow):
                 self.set_table(pd.DataFrame(), "Manual input")
         self._workbook_selection_applies = False
         self.set_copy_from_wkb(False)
+        if hasattr(self, "display_options"):
+            self.display_options.set_workbook_data_copied(False)
         self._use_workbook_data = False
         self._independent_data = True
         self.document.refresh_identity()
@@ -1122,8 +1134,11 @@ class MainWindow(QMainWindow):
         owner = getattr(self, "_managed_owner", None)
         if owner is not None and hasattr(owner, "set_child_chart_flags"):
             if owner.set_child_chart_flags(self, rows, value):
-                return
+                return True
         self._write_sheet_flags(self.model, rows, value)
+        if hasattr(self, "display_options"):
+            self.display_options.set_source_test_flags(rows, value)
+        return False
 
     @staticmethod
     def _write_sheet_flags(model, rows, value):

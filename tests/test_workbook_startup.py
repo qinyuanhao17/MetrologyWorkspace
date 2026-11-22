@@ -112,7 +112,7 @@ class WorkbookStartupTests(unittest.TestCase):
             self.assertEqual(dialog.stack.currentIndex(), 1)
             self.assertEqual(dialog.confirm_button.text(), "Create Workbook")
             self.assertEqual(dialog.settings()["match_type"], "KLA")
-            self.assertEqual(dialog.axis_ratio.value(), 10.)
+            self.assertEqual(dialog.axis_ratio.value(), 1.)
             dialog.match_type.setCurrentText("TEM")
             dialog.axis_mode.setCurrentIndex(dialog.axis_mode.findData("dual"))
             dialog.axis_ratio.setValue(2.75)

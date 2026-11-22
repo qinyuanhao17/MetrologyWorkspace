@@ -16,9 +16,8 @@ SIDEWALL_ANGLE_NAME = re.compile(r"swa", re.IGNORECASE)
 LENGTH_UNIT = "nm"
 RATIO_UNIT = "1"
 ANGLE_UNIT = "degree"
-# Two curves whose median magnitudes differ by more than this are unreadable on
-# one axis even when they share a unit, so they get a linked second axis.
-MAGNITUDE_RATIO_LIMIT = 10
+# Auto uses a second axis when the median magnitude ratio exceeds this limit.
+MAGNITUDE_RATIO_LIMIT = 1.0
 
 
 def parse_unit(column_name):

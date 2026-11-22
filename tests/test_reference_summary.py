@@ -45,16 +45,106 @@ def synthetic_cdsem(path):
 
 
 class ReferenceSummaryTests(unittest.TestCase):
-    def test_ref_save_suggests_wafer_and_date_and_recreates_summary_offline(self):
+    def test_reference_summarizer_exposes_match_workbook_group_controls(self):
+        import pandas as pd
+        from PyQt6.QtWidgets import QApplication
+
+        app = QApplication.instance() or QApplication([])
+        window = ReferenceSummaryWindow()
+        window.document.force_close = True
+        self.addCleanup(window.close)
+        self.assertEqual(
+            [action.text() for action in window.menuBar().actions()],
+            ["File", "Data", "Groups", "Analysis"],
+        )
+        texts = [action.text() for action in window.groups_menu.actions() if not action.isSeparator()]
+        for expected in ("Enable Groups", "Group settings…", "Manage groups…", "Plot labels"):
+            self.assertIn(expected, texts)
+
+        aligned_ref = pd.DataFrame({
+            "Wafer ID": ["R1", "R1", "R2", "R2"],
+            "Lot ID": ["L1"] * 4,
+            "PAD Name": ["P1"] * 4,
+            "Die Seq": [1, 2, 1, 2],
+            "CD": [25.0, 26.0, 27.0, 28.0],
+        })
+        raw = pd.DataFrame({
+            "Wafer ID": ["D1", "D1", "D2", "D2"],
+            "Lot ID": ["L1"] * 4,
+            "PAD Name": ["P1"] * 4,
+            "Die Seq": [1, 2, 1, 2],
+            "TestFlag": [0, 0, 1, 1],
+            "CD": [25.1, 26.1, 27.1, 28.1],
+        })
+        values = pd.DataFrame({"CD Reference": [25.0, 26.0, 27.0, 28.0]})
+        window.analysis.set_alignment_inputs(
+            (aligned_ref, raw, values, ("Field X", "Field Y")), set(), False,
+        )
+        controls = window.analysis.display_options.controls
+        controls.enabled.setChecked(True)
+        self.assertTrue(window.analysis.display_options.apply_groups())
+        plan = window.analysis._group_plan
+        self.assertIsNotNone(plan)
+        self.assertTrue(plan.enabled)
+        self.assertTrue(plan.group_keys)
+        shown = plan.group_keys[0]
+        controls.set_display_groups([], [shown])
+        window.analysis.display_options._context_cache = None
+        window.analysis.display_options.refresh()
+        self.assertEqual(window.analysis._group_plan.state["show_wafer_groups"], [shown])
+        saved = window.workspace_snapshot().states["ui"]["analysis_options"]
+        self.assertTrue(saved["local_applied"])
+        self.assertEqual(saved["grouping"]["show_wafer_groups"], [shown])
+
+        settings = next(action for action in window.groups_menu.actions()
+                        if action.text() == "Group settings…")
+        settings.trigger()
+        dialog = window.analysis.display_options.dialog
+        self.assertIsNotNone(dialog)
+        self.assertTrue(dialog.isVisible())
+        self.assertTrue(dialog.set_flags_button.isEnabled())
+        split = len(window.analysis.reference_model.frame())
+        window.analysis._write_chart_flags({split}, "1")
+        self.assertEqual(window.analysis.display_options.controls.flags_frame().iloc[0, 0], "1")
+        self.assertEqual(window.analysis._group_plan.row_groups[-1], "All:1")
+        dialog.reject()
+        app.processEvents()
+
         from unittest.mock import patch
-        from PyQt6.QtWidgets import QFileDialog
-        from metrology_app.reference_metadata import MARKER
+        from PyQt6.QtWidgets import QDialog
+        from metrology_app.match_group_ui import CombinedGroupDialog
+        manage = next(action for action in window.groups_menu.actions()
+                      if action.text() == "Manage groups…")
+        with patch.object(CombinedGroupDialog, "exec",
+                          return_value=QDialog.DialogCode.Rejected) as open_manage:
+            manage.trigger()
+        open_manage.assert_called_once()
+
+    def test_ref_save_suggests_wafer_and_date_and_writes_only_the_workspace(self):
+        from unittest.mock import patch
+        from PyQt6.QtCore import QDateTime
+        from PyQt6.QtWidgets import QDateTimeEdit, QDialog, QDialogButtonBox, QFileDialog, QLabel
 
         window, reopened = ReferenceSummaryWindow(), ReferenceSummaryWindow()
         for item in (window, reopened):
             item.document.force_close = True
             self.addCleanup(item.deleteLater)
             self.addCleanup(item.close)
+        now = QDateTime.fromString("2026-11-21 22:03:59", "yyyy-MM-dd HH:mm:ss")
+        edited = QDateTime.fromString("2026-11-19 14:07:26", "yyyy-MM-dd HH:mm:ss")
+        observed = []
+
+        def accept_name(dialog):
+            timestamp = dialog.findChild(QDateTimeEdit)
+            preview = dialog.findChild(QLabel, "FileNamePreview")
+            observed.append((timestamp.text(), preview.text()))
+            timestamp.setDateTime(edited)
+            observed.append(preview.text())
+            dialog.findChild(QDialogButtonBox).button(
+                QDialogButtonBox.StandardButton.Ok
+            ).click()
+            return dialog.result()
+
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             source = root / 'NOVA-source.csv'
@@ -62,28 +152,121 @@ class ReferenceSummaryTests(unittest.TestCase):
                               'W01,L03,PAD1,8/18/2026 12:11:14 PM,QH01,LIB1,25.20\n', encoding='utf-8')
             window.set_source_files([source])
             original = window.workspace_snapshot()
-            with patch.object(QFileDialog, 'getSaveFileName', return_value=('', '')):
+            with (patch.object(QDateTime, "currentDateTime", return_value=now),
+                  patch.object(QDialog, "exec", accept_name),
+                  patch.object(QFileDialog, 'getSaveFileName', return_value=('', ''))):
                 self.assertIsNone(window.save_reference())
+            self.assertEqual(observed[0], (
+                "2026-11-21 22:03",
+                "NOVA_Wafer-W01_Lot-L03_PAD-PAD1_20261121_2203.ref",
+            ))
+            self.assertEqual(observed[1], "NOVA_Wafer-W01_Lot-L03_PAD-PAD1_20261119_1407.ref")
             self.assertEqual(window.workspace_snapshot().states, original.states)
 
-            name = 'NOVA_Wafer-W01_Lot-L03_PAD-PAD1_20260818_121114.ref'
+            name = 'NOVA_Wafer-W01_Lot-L03_PAD-PAD1_20261119_1407.ref'
             path = root / name
             unrelated = path.with_suffix('.txt')
             unrelated.write_text('Keep this note', encoding='utf-8')
-            with patch.object(QFileDialog, 'getSaveFileName', return_value=(str(path), '')) as dialog:
+            with (patch.object(QDateTime, "currentDateTime", return_value=now),
+                  patch.object(QDialog, "exec", accept_name),
+                  patch.object(QFileDialog, 'getSaveFileName', return_value=(str(path), '')) as dialog):
                 self.assertEqual(window.save_reference(), path)
             self.assertEqual(Path(dialog.call_args.args[2]).name, name)
             self.assertEqual(unrelated.read_text(encoding='utf-8'), 'Keep this note')
-            summary = path.with_suffix('.summary.txt')
-            text = summary.read_text(encoding='utf-8-sig')
-            self.assertTrue(text.startswith(MARKER))
-            self.assertLess(text.index('ToolName  QH01'), text.index('WaferID  W01'))
-            self.assertIn('MARS_Library_Name  LIB1', text)
+            self.assertEqual(list(root.glob('*.txt')), [unrelated])
+            self.assertEqual(list(root.glob('*.html')), [])
             source.unlink()
-            summary.unlink()
             reopened.load_workspace(path)
-            self.assertEqual(reopened.save_reference(), path)
-            self.assertEqual(summary.read_text(encoding='utf-8-sig'), text)
+            with (patch.object(QDialog, "exec") as naming,
+                  patch.object(QFileDialog, "getSaveFileName") as location):
+                self.assertEqual(reopened.save_reference(), path)
+            naming.assert_not_called()
+            location.assert_not_called()
+            self.assertEqual(list(root.glob('*.txt')), [unrelated])
+            self.assertEqual(list(root.glob('*.html')), [])
+
+    def test_tab_one_loads_selected_ref_output_files(self):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QPushButton
+
+        window = ReferenceSummaryWindow()
+        window.document.force_close = True
+        self.addCleanup(window.deleteLater)
+        self.addCleanup(window.close)
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            outputs = [root / f"NOVA_{wafer}.csv" for wafer in ("W1", "W2")]
+            for index, output in enumerate(outputs, 1):
+                output.write_text(f"WaferID,ToolName,CD\nW{index},Tool{index},25\n", encoding="utf-8")
+            self.assertIn(window.load_files_button, window.tabs.widget(0).findChildren(QPushButton))
+            with patch("metrology_app.reference_summary_window.choose_files", return_value=outputs):
+                window.load_files_button.click()
+            picker = window.summary_output_picker
+            self.assertEqual([picker.itemData(index) for index in range(picker.count())],
+                             [str(output) for output in outputs])
+            picker.setCurrentIndex(1)
+            self.assertIn("Tool2", window.metadata_preview.toPlainText())
+            self.assertEqual(window.alignment.output_picker.currentData(), str(outputs[1]))
+
+    def test_tab_one_loads_ref_folders_and_switches_between_html_summaries(self):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QDialog, QPushButton
+        from metrology_app.reference_metadata import MARKER
+
+        window = ReferenceSummaryWindow()
+        window.document.force_close = True
+        self.addCleanup(window.deleteLater)
+        self.addCleanup(window.close)
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            output = root / 'NOVA_merged.csv'
+            input_text = ('WaferID,LotID,SiteName,DateTime,ToolName,MARS_Library_Name,CD\n'
+                          'W01,L03,PAD1,8/18/2026 12:11:14 PM,QH01,A&B <LIB>,25.20\n')
+            output.write_text(input_text, encoding='utf-8')
+            second = root / 'PMISH_other.csv'
+            second.write_text('WaferID,ToolSN,Recipe,CD\nW02,PM01,R1,25.30\n', encoding='utf-8')
+            note = output.with_suffix('.summary.html')
+            note.write_text('Keep this note', encoding='utf-8')
+            self.assertIn(window.load_folders_button, window.tabs.widget(0).findChildren(QPushButton))
+            for button in window.alignment.findChildren(QPushButton):
+                self.assertFalse(button.text().startswith(('Load CSV', 'Load folders')))
+            with patch('metrology_app.reference_alignment_ui.choose_folders', return_value=(root,)), \
+                    patch.object(QDialog, 'exec', return_value=QDialog.DialogCode.Accepted):
+                window.load_folders_button.click()
+            summary = output.with_suffix('.summary2.html')
+            text = summary.read_text(encoding='utf-8')
+            self.assertTrue(text.startswith(MARKER))
+            self.assertLess(text.index('ToolName'), text.index('WaferID'))
+            self.assertLess(text.index('MARS_Library_Name'), text.index('Measurement time'))
+            for value in ('QH01', 'A&amp;B &lt;LIB&gt;', 'W01', '8/18/2026 12:11:14 PM'):
+                self.assertIn(value, text)
+            self.assertEqual(note.read_text(encoding='utf-8'), 'Keep this note')
+            self.assertEqual(output.read_text(encoding='utf-8'), input_text)
+            picker = window.summary_output_picker
+            self.assertEqual({picker.itemData(index) for index in range(picker.count())},
+                             {str(output), str(second)})
+            self.assertIn('A&B <LIB>', window.metadata_preview.toPlainText())
+            self.assertEqual(window.result_path.text(), str(root))
+            self.assertTrue(window.result_path.isReadOnly())
+            listed = [window.output_list.item(index) for index in range(window.output_list.count())]
+            self.assertEqual({item.text() for item in listed},
+                             {output.name, second.name, summary.name, second.with_suffix('.summary.html').name})
+            html_item = next(item for item in listed if item.text() == summary.name)
+            window.output_list.setCurrentItem(html_item)
+            window.output_list.itemClicked.emit(html_item)
+            self.assertEqual(picker.currentData(), str(output))
+            with patch('metrology_app.reference_summary_window.QDesktopServices.openUrl') as open_url:
+                window.open_output_file()
+            self.assertEqual(open_url.call_args.args[0].toLocalFile(), summary.as_posix())
+            window.output_list.itemClicked.emit(next(item for item in listed if item.text() == second.name))
+            self.assertEqual(picker.currentData(), str(second))
+            self.assertEqual(window.alignment.output_picker.currentData(), str(second))
+            self.assertEqual(window.trend_page.output_picker.currentData(), str(second))
+            self.assertIn('PM01', window.metadata_preview.toPlainText())
+            self.assertTrue(second.with_suffix('.summary.html').is_file())
+            window.trend_page.output_picker.setCurrentIndex(0)
+            self.assertEqual(window.summary_output_picker.currentData(), str(output))
+            self.assertIn('QH01', window.metadata_preview.toPlainText())
 
     def test_every_vendor_selects_and_scans_csv_and_first_sheet_excel(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -120,7 +303,7 @@ class ReferenceSummaryTests(unittest.TestCase):
         from metrology_app.reference_alignment import load_alignment_output
         from metrology_app.file_paths import filesystem_path
         with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder) / ('nested-' * 12)
+            root = Path(folder) / ('nested-' * 16)
             root.mkdir()
             import shutil
             source = root / 'pmish.csv'
@@ -171,13 +354,13 @@ class ReferenceSummaryTests(unittest.TestCase):
             )
             self.assertEqual(window.tabs.widget(0).findChildren(QTableView), [])
             self.assertEqual(window.tabs.widget(0).findChildren(QTableWidget), [])
-            self.assertEqual([window.tabs.tabText(i) for i in range(2, window.tabs.count())],
-                             ["3. XY Bias", "4. Ref Data", "5. Raw Data", "6. Correlation",
-                              "7. Trend", "8. WaferMap", "9. Radius Plot"])
+            self.assertEqual([window.tabs.tabText(i) for i in range(window.tabs.count())],
+                             ["1. Summary", "2. Wafer Alignment", "3. XY Bias", "4. Ref Data", "5. Raw Data",
+                              "6. Correlation", "7. Trend", "8. Ref WaferMap", "9. Ref Radius Plot"])
             self.assertIn(
                 "intentionally not previewed",
                 next(label for label in window.findChildren(QLabel)
-                     if label.text() == "Run summary").toolTip(),
+                     if label.text() == "Output").toolTip(),
             )
             labels = [label.text() for label in window.findChildren(QLabel)]
             self.assertIn("Vendor", labels)
@@ -265,21 +448,50 @@ class ReferenceSummaryTests(unittest.TestCase):
             show.assert_called_once()
 
     def test_nova_summary_keeps_rows_and_removes_duplicate_header_and_lbh(self):
+        from openpyxl import load_workbook
+
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             source = root / "nova.csv"
             source.write_text(
-                "WaferID,CD,CD_LBH\nW1,10,1\nWaferID,CD,CD_LBH\nW2,20,2\n",
+                "WaferID,LotID,SiteName,DateTime,ToolName,MARS_Library_Name,CD,CD_LBH\n"
+                "W1,LOT-01,PAD1,8/18/2026 12:11:14 PM,tool,lib,10,1\n"
+                "W1,LOT-01,PAD1,8/18/2026 12:11:14 PM,tool,lib,10,1\n"
+                "WaferID,LotID,SiteName,DateTime,ToolName,MARS_Library_Name,CD,CD_LBH\n"
+                "W2,LOT-01,PAD1,8/18/2026 12:11:14 PM,tool,lib,20,2\n",
                 encoding="utf-8",
             )
+            broken = root / 'broken.csv'
+            broken.write_text('WaferID,CD\nW3,30,unexpected\n', encoding='utf-8')
             report = run_reference_summary(
-                ReferenceSummaryRequest("NOVA", (source,), root)
+                ReferenceSummaryRequest("NOVA", (source, broken), root)
             )
-            self.assertEqual(report.result.input_rows, 2)
+            self.assertEqual(report.result.input_rows, 3)
             self.assertEqual(report.result.kept_rows, 2)
-            output = report.result.output_dir / "NOVA_merged.csv"
+            self.assertEqual(report.result.duplicates, 1)
+            self.assertEqual(report.result.error_count, 2)
+            self.assertIn('broken.csv', report.issue_lines[0])
+            output = report.result.output_dir / 'NOVA_Wafer-W1(2)_Lot-LOT-01_PAD-PAD1.csv'
+            self.assertTrue(output.parent.name.startswith('NOVA_20260818_121114_'))
             self.assertTrue(output.is_file())
             self.assertNotIn("CD_LBH", output.read_text(encoding="utf-8-sig").splitlines()[0])
+            self.assertEqual({path.name for path in report.output_files},
+                             {output.name, '_reports.xlsx', output.with_suffix('.summary.html').name})
+            book = load_workbook(output.parent / '_reports.xlsx', read_only=True)
+            try:
+                self.assertEqual(book.sheetnames, ['_channels', '_files', '_issues', '_provenance', '_schemas'])
+                self.assertEqual(list(book['_channels'].values)[1], (3, 1, 2, 1, output.name))
+                self.assertEqual(list(book['_files'].values)[1][0], str(broken))
+                self.assertEqual(list(book['_issues'].values)[1][2], 'FILE')
+                self.assertEqual(list(book['_provenance'].values)[1:],
+                                 [(output.name, 2, str(source), 2), (output.name, 3, str(source), 5)])
+                self.assertEqual(list(book['_schemas'].values)[1][2],
+                                 'WaferID | LotID | SiteName | DateTime | ToolName | MARS_Library_Name | CD | LBH')
+            finally:
+                book.close()
+            text = output.with_suffix('.summary.html').read_text(encoding='utf-8')
+            self.assertIn('MARS_Library_Name', text)
+            self.assertIn(output.name, text)
 
     def test_cdsem_summary_reads_first_sheet_and_exports_results_without_row_preview(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -295,6 +507,54 @@ class ReferenceSummaryTests(unittest.TestCase):
             self.assertEqual(report.result.mp_count, 2)
             self.assertEqual(len(list(report.result.output_dir.glob("*_Results.csv"))), 1)
             self.assertEqual(len(list(report.result.output_dir.glob("*.xlsx"))), 1)
+            result_csv = next(report.result.output_dir.glob('*_Results.csv'))
+            self.assertTrue(result_csv.name.startswith('CDSEM1_Wafer-W01_Lot-L1_Slot-01_'))
+            self.assertTrue(result_csv.parent.name.startswith('CDSEM1_20260101_'))
+            text = result_csv.with_suffix('.summary.html').read_text(encoding='utf-8')
+            for value in ('Device', 'Recipe_Name', '2026-01-01', 'W01'):
+                self.assertIn(value, text)
+            window = ReferenceSummaryWindow()
+            window.document.force_close = True
+            self.addCleanup(window.deleteLater)
+            self.addCleanup(window.close)
+            window._completed(report)
+            self.assertEqual(window.summary_output_picker.count(), 1)
+            self.assertEqual(window.summary_output_picker.currentData(), str(result_csv))
+            pivot = next(report.result.output_dir.glob('*.xlsx'))
+            self.assertEqual(window.alignment.output_picker.currentData(), str(pivot))
+
+    def test_sectioned_vendor_html_keeps_original_instrument_fields_and_selected_kla_test(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            pmish = root / 'pmish.csv'
+            pmish.write_text('RcpName:,Recipe A,ToolSN:,PM01,PPID:,pp-01,WaferID:,W02,Date:,2026-10-02\n'
+                             'Num,Seq,Pad name,RefDieCol,RefDieRow,Recipe,Metrology unit,AzimuthAngle,CD\n'
+                             '1,1,P,0,0,Recipe A,UVSE,45,34.20\n', encoding='utf-8')
+            report = run_reference_summary(ReferenceSummaryRequest('PMISH', (pmish,), root))
+            output = next(path for path in report.output_files if path.suffix == '.csv')
+            self.assertTrue(output.name.startswith('PMISH_Wafer-W02_PAD-P_'))
+            self.assertTrue(output.parent.name.startswith('PMISH_20261002_'))
+            summary = next(path for path in report.output_files if path.suffix == '.html')
+            html = summary.read_text(encoding='utf-8')
+            for value in ('RcpName:', 'PM01', 'ToolSN:', 'PPID:', 'pp-01'):
+                self.assertIn(value, html)
+
+            kla = root / 'kla.csv'
+            kla.write_text('TOOL ID,KLA07\nSOFTWARE VERSION,12.0\nRECIPE,R1\nMACHINE TYPE,Offline\n'
+                           'DATE/TIME,2026-11-21 20:00:00\n'
+                           'Head,TEST ID:,A1,TEST LABEL:,First\nSite #,CD\n1,23.40\n'
+                           'Head,TEST ID:,B2,TEST LABEL:,Second\nSite #,CD\n1,25.40\n', encoding='utf-8')
+            report = run_reference_summary(ReferenceSummaryRequest('KLA', (kla,), root))
+            self.assertEqual(report.result.channel_count, 2)
+            self.assertTrue(report.result.output_dir.name.startswith('KLA_20261121_200000_'))
+            for test_id, other in (('A1', 'B2'), ('B2', 'A1')):
+                summary = next(path for path in report.output_files
+                               if f'TestID-{test_id}' in path.name and path.suffix == '.html')
+                html = summary.read_text(encoding='utf-8')
+                for value in ('TOOL ID', 'KLA07', 'SOFTWARE VERSION', 'RECIPE', 'MACHINE TYPE', 'DATE/TIME'):
+                    self.assertIn(value, html)
+                self.assertIn(f'<td>{test_id}</td>', html)
+                self.assertNotIn(f'<td>{other}</td>', html)
 
 
 if __name__ == "__main__":

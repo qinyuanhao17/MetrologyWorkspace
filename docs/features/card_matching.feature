@@ -337,6 +337,15 @@ Feature: Build a card matching workbook
       Then Single-Wafer metrics shows the TEM measurement fits
       And enabling Head or Mark grouping shows Group plots for TEM
 
+    # Automation: MatchWaferStatisticsTests.test_single_wafer_metrics_plots_have_draggable_saved_layout.
+    Scenario: Arrange Single-Wafer metric plots
+      Given Single-Wafer metrics displays the R² and Slope plots
+      When the engineer drags a plot's title to another edge
+      Then the plots remain inside the parameter card and may stack or reorder
+      When the engineer drags the gap between plots
+      Then the plot sizes change without recreating curves or row mapping
+      And the accepted plot arrangement is saved with the Match Workbook
+
   Rule: A grouped trend reads in one clear order
 
     Scenario: Read a grouped trend in the original row order
@@ -370,6 +379,53 @@ Feature: Build a card matching workbook
       Then the workbook has no groups
 
   Rule: Source edits preserve participation
+
+    # Executed by MatchWaferStatisticsTests.
+    Scenario: Review Wafer Mean, Sigma and Bias in the Match Workbook
+      Given the engineer checks one or more Parameter mappings
+      When the engineer opens the Wafer Mean / Sigma result tab
+      Then the page draws only checked parameters
+      And each parameter defaults to a 2 x 2 plot layout
+      And the top row shows Wafer Mean and Wafer Sigma
+      And the bottom row shows Wafer Mean Bias and Wafer Sigma Bias
+      And Mean Bias compares Raw and Reference means
+      And Sigma Bias compares Raw and Reference sample sigma
+      And every plot uses the Single-Wafer matrix row numbers 1, 2, 3 … on its tick axis
+      And Wafer identity and Group captions appear below the numbered ticks
+      And those Wafer captions follow the Plot labels → Trend PAD and Lot ID switches
+      And no duplicate Wafer axis title is shown
+      And dashed Group boundaries cover only the plot data area without overshoot or truncation
+      And both Bias plots keep zero centred with equal positive and negative Y limits
+      And each plot has the same draggable dock title, reorder target and resizable gaps as All parameter plots
+      And the accepted arrangement is saved with the Match Workbook
+      And Mean and Sigma use the current Reference and Raw measurement rows
+      And Bias uses the current Match Bias values
+      And opening a Correlation and Trend child window does not show the Wafer Mean / Sigma tab
+
+    Scenario: Use white plotting surfaces in Match Workbook
+      Given the Match Workbook uses either the light or dark application theme
+      When All parameter plots, Single-Wafer metrics, Group plots or Wafer Mean / Sigma are drawn
+      Then every plot data area uses a white background
+      And axes, titles, legends and controls remain dark and readable
+
+    # Executed by WorkbookCopyDataTests.test_child_without_copied_workbook_data_defaults_to_full_data_and_no_wkb_groups.
+    Scenario: Keep a non-copied child independent of Workbook selection and Groups
+      Given the Match Workbook has an applied Data selection and Groups
+      When the engineer opens a child without Copy WKB Data
+      Then the child uses Full data rather than the Workbook Data selection
+      And the child does not follow Workbook Groups by default
+      And pasting manual child data does not reattach either Workbook setting
+      When the engineer explicitly enables Use WKB Group settings
+      Then that child may follow the Workbook Groups without copying source data
+
+    # Executed by WorkbookCopyDataTests.test_child_test_flag_detaches_groups_without_mutating_parent and CorrelationGroupOptionsTests.test_workbook_child_can_detach_groups_and_labels_without_changing_its_parent.
+    Scenario: Edit Groups locally inside a child analysis
+      Given a child analysis currently follows Workbook Group settings
+      When the engineer sets a TestFlag or edits managed Groups in that child
+      Then the child immediately clears Use WKB Group settings
+      And the child source table and local Group plan use the edited TestFlag or Group definition
+      And the parent Match Workbook keeps its original TestFlags and Group settings
+      And Group settings, Manage groups, Plot labels and local Group changes continue to work in the child
 
     # Executed by tests.test_performance_regressions.WorkbookPerformanceTests.
     Scenario: Keep excluded source rows when classification is disabled

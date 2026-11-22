@@ -8,11 +8,11 @@ from metrology_app.trend import overlay_series, overlay_spec, parse_unit
 
 class TrendLogicTests(unittest.TestCase):
     def test_same_unit_parameters_share_one_axis(self):
-        spec = overlay_spec("DP [nm]", "EW [nm]", [1, 2], [2, 3])
+        spec = overlay_spec("DP [nm]", "EW [nm]", [1, 3], [0, 4])
         self.assertEqual(spec["kind"], "shared")
 
     def test_unnamed_parameters_share_the_nanometre_axis(self):
-        spec = overlay_spec("DP", "EW", [1, 2], [2, 3])
+        spec = overlay_spec("DP", "EW", [1, 2], [2, 3], ratio_limit=2)
         self.assertEqual(spec["kind"], "shared")
         self.assertEqual((spec["unit"], spec["secondary_unit"]), ("nm", "nm"))
 
@@ -54,7 +54,7 @@ class TrendLogicTests(unittest.TestCase):
         self.assertEqual((spec["unit"], spec["secondary_unit"]), ("nm", "nm"))
 
     def test_same_unit_parameters_with_comparable_values_share_one_axis(self):
-        spec = overlay_spec("ASi_BCD", "MCD_TOP", [100, 120], [95, 110])
+        spec = overlay_spec("ASi_BCD", "MCD_TOP", [100, 120], [95, 110], ratio_limit=1.1)
         self.assertEqual(spec["kind"], "shared")
 
     def test_decimal_ratio_threshold_changes_automatic_split(self):

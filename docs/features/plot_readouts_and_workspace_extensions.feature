@@ -33,6 +33,29 @@ Feature: Read literal plotted values and reopen workspaces safely
     And Wafer separators are thin grey lines behind the measurements
     And Group separators remain thick black lines
 
+  # Automation: WaferStatisticsTests.test_draws_wafer_mean_then_sigma_in_a_fixed_two_column_grid
+  Scenario: Keep Wafer Mean and Sigma bars readable while widening a plot
+    Given Wafer Mean and Wafer Sigma bars are drawn
+    Then each title contains only the parameter and statistic name
+    And the title is centred above the plot
+    And individual wafer ticks and the Wafer axis title are not repeated
+    And wafer identity and Group captions remain below the plot
+    When the plot is widened
+    Then every bar keeps the same pixel width and centre spacing
+    And the exported figure omits the duplicate wafer ticks and axis title
+
+  # Automation: PlotPointSelectionTests.test_analysis_pages_register_and_preview_the_same_source_point
+  # Automation: PlotPointSelectionTests.test_wafer_maps_and_radius_paint_the_shared_linked_preview_ring
+  Scenario: Follow one selected measurement across linked plots
+    Given Correlation, Trend, Wafer Map and Radius Plot share a measurement table
+    When the analyst clicks one measurement in any interactive chart
+    Then that source measurement gets the red selected ring in the originating chart
+    And every other visible chart marks the same source row with a yellow ring
+    And Wafer Map and Radius Plot paint the yellow ring on the matching die
+    When the analyst clicks blank chart space
+    Then all linked yellow rings and the red source ring are cleared
+    And linked previews use source rows without rebuilding every record identity
+
   # Automation: RequestedPlotControlsTests.test_new_match_paths_migrate_but_old_wkb_and_backup_contents_remain_readable
   Scenario: Open legacy and backup files without overwriting them
     Given a Match Workbook uses the old wkb extension or is a bak backup

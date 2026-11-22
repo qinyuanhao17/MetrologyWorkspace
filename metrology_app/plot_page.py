@@ -28,6 +28,7 @@ from .appearance import (COLOR_MAP_OPTIONS, MAX_COPY_PIXELS, MAX_EXPORT_PIXELS,
                          configure_resolution_combo, export_dpi, resolution_settings,
                          screen_render_scale)
 from .color_range_bar import ColorRangeBar
+from .data import coordinate_columns
 from .map_selector import MapSelector
 from .plot import auto_cmap_range
 from .settings import get_settings, save_settings
@@ -462,12 +463,10 @@ class PlotPage(QWidget):
         changed_table = self.frame is not frame
         self.signature, self.frame, self.selection = signature, frame, selection.copy()
         if changed_table:
-            names = {"".join(c.lower() for c in name if c.isalnum()): name for name in frame}
             entries = [(name, name) for name in frame]
-            for combo, aliases in ((self.x_column, ("xmm", "fieldx", "x", "diex")),
-                                   (self.y_column, ("ymm", "fieldy", "y", "diey"))):
+            for combo, suggested in zip((self.x_column, self.y_column), coordinate_columns(frame.columns)):
                 previous = combo.currentData()
-                default = previous if previous in frame else next((names[a] for a in aliases if a in names), None)
+                default = previous if previous in frame else suggested
                 self.populate(combo, entries, default)
         self.selector.set_array(selection["wafers"], selection["metrics"], selection.get("labels"), cells)
         replay = (self.has_drawn_once and not grid_changed

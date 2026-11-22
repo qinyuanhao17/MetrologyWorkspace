@@ -856,6 +856,106 @@ class WorkbookCopyDataTests(unittest.TestCase):
             self.assertEqual(len(child.model.frame()), 4)
             self.assertEqual(len(child.participating_positions(child.model.frame())), 3)
 
+    def test_child_without_copied_workbook_data_defaults_to_full_data_and_no_wkb_groups(self):
+        parent = MatchingWindow()
+        self.addCleanup(self.close_window, parent)
+        reference, raw, _mappings = self.sources()
+        parent.match_type.setCurrentText("NOVA")
+        parent.set_reference_frame(reference)
+        parent.set_raw_frame(raw)
+        configure_match_fixture(parent)
+        parent.group_controls.restore(
+            {"enabled": True},
+            pd.DataFrame({"TestFlag": ["0", "0", "1", "1"]}),
+        )
+        parent.run_analysis()
+
+        child = parent.open_correlation_workspace()
+        self.addCleanup(self.close_window, child)
+        self.assertTrue(child.copy_from_wkb_action.isChecked())
+        self.assertTrue(child.display_options.follow_groups.isChecked())
+        self.assertTrue(child._group_plan.enabled)
+        child.copy_from_wkb_action.trigger()
+        self.assertFalse(child.copy_from_wkb_action.isChecked())
+        self.assertFalse(child._workbook_selection_applies)
+        self.assertFalse(child.display_options.follow_groups.isChecked())
+        self.assertTrue(child._group_plan is None or not child._group_plan.enabled)
+
+        child.set_table(raw.copy(), "Manual Raw Data")
+        child.set_reference_table(reference.copy())
+        parent.run_analysis()
+        APP.processEvents()
+        self.assertEqual(child.participating_positions(child.model.frame()), {0, 1, 2, 3})
+        self.assertTrue(child._group_plan is None or not child._group_plan.enabled)
+        child.display_options.follow_groups.trigger()
+        self.assertTrue(child.display_options.follow_groups.isChecked())
+        self.assertTrue(child._group_plan.enabled)
+        parent.run_analysis()
+        APP.processEvents()
+        self.assertTrue(child.display_options.follow_groups.isChecked())
+        self.assertTrue(child._group_plan.enabled)
+
+        parent.match_type.setCurrentText("TEM")
+        wafer = parent.open_stage_workspace("preview")
+        self.addCleanup(self.close_window, wafer)
+        self.assertFalse(wafer.copy_from_wkb_action.isChecked())
+        self.assertFalse(wafer._workbook_selection_applies)
+        self.assertFalse(wafer.display_options.follow_groups.isChecked())
+
+    def test_child_test_flag_detaches_groups_without_mutating_parent(self):
+        parent = MatchingWindow()
+        self.addCleanup(self.close_window, parent)
+        reference, raw, _mappings = self.sources()
+        parent.match_type.setCurrentText("NOVA")
+        parent.set_reference_frame(reference)
+        parent.set_raw_frame(raw)
+        configure_match_fixture(parent)
+        parent.group_controls.restore(
+            {"enabled": True},
+            pd.DataFrame({"TestFlag": ["0", "0", "0", "0"]}),
+        )
+        parent.run_analysis()
+        child = parent.open_correlation_workspace()
+        self.addCleanup(self.close_window, child)
+
+        child._write_chart_flags({0}, "1")
+        APP.processEvents()
+        self.assertEqual(parent.group_controls.flags_frame().iloc[:, 0].tolist(),
+                         ["0", "0", "0", "0"])
+        self.assertEqual(child.model.document_frame()["TestFlag"].tolist(),
+                         ["1", "", "", ""])
+        self.assertFalse(child.display_options.follow_groups.isChecked())
+        self.assertTrue(child.display_options.local_applied)
+        self.assertEqual(child._match_groups["flags"], ["1", "0", "0", "0"])
+        self.assertEqual(child._group_plan.flags, ("1", "0", "0", "0"))
+        self.assertTrue(child.manage_groups_action.isEnabled())
+
+        child.copy_from_wkb_action.trigger()
+        child.set_table(raw.copy(), "Manual Raw Data")
+        child.set_reference_table(reference.copy())
+        child._write_chart_flags({1}, "2")
+        self.assertEqual(child.display_options.controls.flags_frame().iloc[:, 0].tolist()[:2],
+                         ["1", "2"])
+
+    def test_child_test_flag_stays_local_when_workbook_groups_are_disabled(self):
+        parent = MatchingWindow()
+        self.addCleanup(self.close_window, parent)
+        reference, raw, _mappings = self.sources()
+        parent.match_type.setCurrentText("NOVA")
+        parent.set_reference_frame(reference)
+        parent.set_raw_frame(raw)
+        configure_match_fixture(parent)
+        parent.run_analysis()
+        child = parent.open_correlation_workspace()
+        self.addCleanup(self.close_window, child)
+
+        child._write_chart_flags({0}, "1")
+        self.assertFalse(child.display_options.follow_groups.isChecked())
+        self.assertEqual(child.display_options.controls.flags_frame().iloc[:, 0].tolist(),
+                         ["1", "0", "0", "0"])
+        self.assertEqual(parent.group_controls.flags_frame().iloc[:, 0].tolist(),
+                         ["0", "0", "0", "0"])
+
 
 if __name__ == "__main__":
     unittest.main()

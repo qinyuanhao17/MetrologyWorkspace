@@ -8,12 +8,52 @@ persistence paths with a fresh temporary directory before importing the app
     python run_tests.py                    # whole suite
     python run_tests.py tests.test_settings -v
 """
+import gc
 import os
 import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 from pathlib import Path
+
+
+class IsolatedTextTestResult(unittest.TextTestResult):
+    """Release Qt and persisted state between independent cases."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from PyQt6.QtWidgets import QApplication
+        app = QApplication.instance()
+        self._app = app
+        self._font = app.font() if app is not None else None
+        self._palette = app.palette() if app is not None else None
+        self._style_sheet = app.styleSheet() if app is not None else ""
+
+    def stopTest(self, test):
+        super().stopTest(test)
+        from PyQt6.QtWidgets import QApplication
+        app = QApplication.instance()
+        if app is not None:
+            app.processEvents()
+            if app.font() != self._font:
+                app.setFont(self._font)
+            if app.palette() != self._palette:
+                app.setPalette(self._palette)
+            if app.styleSheet() != self._style_sheet:
+                app.setStyleSheet(self._style_sheet)
+        from metrology_app.recovery import wait_for_recovery
+        wait_for_recovery(5)
+        from metrology_app import settings
+        try:
+            settings.SETTINGS_PATH.unlink(missing_ok=True)
+        except OSError:
+            pass
+        settings.load_settings(settings.SETTINGS_PATH)
+        gc.collect()
+
+
+class IsolatedTextTestRunner(unittest.TextTestRunner):
+    resultclass = IsolatedTextTestResult
 
 
 def isolate_settings(directory=None):
@@ -54,11 +94,16 @@ def isolated_suite(argv):
 
 def run_suite(argv):
     if argv:
-        program = unittest.main(module=None, argv=["run_tests.py", *argv], exit=False)
+        program = unittest.main(
+            module=None,
+            argv=["run_tests.py", *argv],
+            exit=False,
+            testRunner=IsolatedTextTestRunner,
+        )
         return 0 if program.result.wasSuccessful() else 1
     tests = str(Path(__file__).resolve().parent / "tests")
     suite = unittest.TestLoader().discover(tests)
-    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    result = IsolatedTextTestRunner(verbosity=2).run(suite)
     return 0 if result.wasSuccessful() else 1
 
 

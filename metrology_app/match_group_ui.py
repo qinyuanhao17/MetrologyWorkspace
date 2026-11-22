@@ -9,7 +9,7 @@ from uuid import uuid4
 import numpy as np
 import pandas as pd
 import pyqtgraph as pg
-from PyQt6.QtCore import QAbstractProxyModel, QEvent, QModelIndex, QPointF, QRectF, QSignalBlocker, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QAbstractProxyModel, QEvent, QModelIndex, QSignalBlocker, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QDrag, QFontMetrics, QIcon, QPalette
 from PyQt6.QtWidgets import (
     QApplication, QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 
 from .appearance import (TREND_LINE_WIDTH, TREND_MARKER_SIZE,
                          fit_window_to_screen, widget_to_qimage)
+from .plotting.sequence_axis import GroupLabelAxis
 from .match_groups import (DEFAULT_FLAGS, GroupPlan, applied_state, copy_group_state,
                            filter_mask, flag_order, flag_value, group_state, normalized,
                            participation_ids, row_ids)
@@ -781,6 +782,13 @@ class GroupControls(QWidget):
         self.state["applied"]["flags"] = self.flags_frame().iloc[:, 0].tolist()
         self.refresh()
 
+    def set_display_groups(self, groups, show_wafer_groups):
+        """Apply caption changes without accepting pending classification edits."""
+        for state in (self.state, self.state.get("applied", {})):
+            state["combined_groups"] = deepcopy(groups)
+            state["show_wafer_groups"] = list(show_wafer_groups)
+        self.refresh()
+
     def clear_filters(self):
         self.state["sort"] = []
         self.change("filters", [])
@@ -923,7 +931,7 @@ class GroupControls(QWidget):
         layout = QVBoxLayout(dialog)
         picker = QPushButton(" / ".join(self.plan.identity_columns) or "Select grouping columns")
         menu = QMenu(picker)
-        columns = [c for c in self.raw if normalized(c) not in {"dieseq", "fieldx", "fieldy", "xmm", "ymm", "testflag"}
+        columns = [c for c in self.raw if normalized(c) not in {"dieseq", "seq", "fieldx", "fieldy", "xmm", "ymm", "xymm", "testflag"}
                    and "path" not in str(c).lower()
                    and (pd.to_numeric(self.raw[c], errors="coerce").isna().any()
                         or any(word in normalized(c) for word in ("wafer", "lot", "pad", "run", "batch", "tool", "recipe")))]
@@ -1274,42 +1282,6 @@ def split_combined_table(matrix, destinations):
     return tuple(output)
 
 
-class GroupLabelAxis(pg.AxisItem):
-    """Solid boundaries extend through the separate group-label strip."""
-    def __init__(self, *, boundary_width=2):
-        super().__init__(orientation="bottom")
-        self.boundaries = []
-        self.boundary_width = boundary_width
-
-    def paint(self, painter, *args):
-        super().paint(painter, *args)
-        view = self.linkedView()
-        if view is None:
-            return
-        low, high = view.viewRange()[0]
-        for position in self.boundaries:
-            if low <= position <= high:
-                x = self.mapFromScene(view.mapViewToScene(QPointF(position, 0))).x()
-                if self.boundary_width == 2 and QApplication.palette().color(QPalette.ColorRole.Base).lightness() < 128:
-                    painter.setPen(pg.mkPen("#eeeeee", width=4))
-                    painter.drawLine(QPointF(x, 0), QPointF(x, self.height()))
-                # Align in device pixels too: fractional Windows display scales
-                # otherwise give identical pens alternating one/two-pixel edges.
-                transform = painter.deviceTransform()
-                inverse, invertible = transform.inverted()
-                if not invertible:
-                    continue
-                device_x = transform.map(QPointF(x, 0)).x()
-                left = np.ceil(transform.map(QPointF(self.boundingRect().left(), 0)).x())
-                right = np.floor(transform.map(QPointF(self.boundingRect().right(), 0)).x()) - self.boundary_width
-                device_x = min(max(round(device_x - self.boundary_width / 2), left), right)
-                top = transform.map(QPointF(0, 0)).y()
-                bottom = transform.map(QPointF(0, self.height())).y()
-                painter.fillRect(QRectF(inverse.map(QPointF(device_x, top)),
-                                        inverse.map(QPointF(device_x + self.boundary_width, bottom))),
-                                 QColor("#000000" if self.boundary_width == 2 else "#929292"))
-
-
 def _group_boundary(plot, position, *, wafer=False):
     line = pg.InfiniteLine(position, angle=90, pen=pg.mkPen("#929292" if wafer else "#000000", width=1 if wafer else 2, style=Qt.PenStyle.DashLine))
     if not wafer and plot.palette().color(QPalette.ColorRole.Base).lightness() < 128:
@@ -1379,7 +1351,8 @@ def set_group_axes(plot, result, data, *, show_wafers=None):
             wafer_spans.append((offset + .5, end + .5, "\n".join(labels)))
             wafer_tooltips.append("\n".join(detail))
             offset = end
-    die_column = next((c for c in plan.raw if normalized(c) == "dieseq"), None)
+    from .data import die_sequence_column
+    die_column = die_sequence_column(plan.raw.columns)
     # Only this column is needed. Reading heterogeneous DataFrame rows here
     # rebuilds a Series for every plotted point, repeated across all panels.
     die_values = plan.raw[die_column].to_numpy() if die_column else None
@@ -1537,6 +1510,7 @@ def draw_group_trend(plot, result, parameter, key="all", card_mode="raw", *, gro
     """Append measurement spans; keep NaN gaps and the shared Trend chrome."""
     plot.clear()
     legend = place_legend_above_frame(plot)
+    legend.setLabelTextColor("#30343b")
     legend.clear()
     legend.setZValue(10)
     if data is None:
@@ -1554,7 +1528,8 @@ def draw_group_trend(plot, result, parameter, key="all", card_mode="raw", *, gro
               pen=pg.mkPen("#5b9bd5", width=TREND_LINE_WIDTH),
               symbol="o", symbolSize=TREND_MARKER_SIZE, symbolBrush="#5b9bd5", symbolPen=None,
               name="PMISH", connect="finite")
-    place_legend_above_frame(plot)
+    legend = place_legend_above_frame(plot)
+    legend.setLabelTextColor("#30343b")
     offset, labels, boundaries, previous_group = 0, [], [], None
     group_axes = group_only or plan.state["trend_order"] == "original" or bool(getattr(plan, "scope_label", ""))
     # Group axes supply their own final boundaries. Do not create hundreds of
@@ -1573,7 +1548,8 @@ def draw_group_trend(plot, result, parameter, key="all", card_mode="raw", *, gro
             offset += len(span["rows"])
             previous_group = groups[offset - 1]
     plot._group_boundaries = boundaries
-    die_column = next((c for c in plan.raw if normalized(c) == "dieseq"), None)
+    from .data import die_sequence_column
+    die_column = die_sequence_column(plan.raw.columns)
     rows = data["Source row"].tolist()
     plot.set_point_rows(reference.scatter, rows)
     plot.set_point_rows(trend.scatter, rows)

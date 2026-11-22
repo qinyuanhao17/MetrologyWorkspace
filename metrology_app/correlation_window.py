@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
 from .appearance import help_title_label
 from .correlation_page import CorrelationPage
 from .data import inspect_table, read_table
-from .measurements import default_identity_columns, detect_measurements
+from .measurements import compare_wafer_inputs, default_identity_columns, detect_measurements
 from .match_groups import GroupPlan, row_ids, participation_source_keys
 from .sequence_page import SequencePage
 from .wafer_statistics_page import WaferStatisticsPage
@@ -36,7 +36,7 @@ IDENTITY_COLUMNS = (
     ("Wafer ID", ("waferid", "wafer", "waferno")),
     ("Lot ID", ("lotid", "lot", "lotno")),
     ("PAD Name", ("padname", "pad")),
-    ("Die Seq", ("dieseq", "diesequence", "diesequenceno", "dieid")),
+    ("Die Seq", ("dieseq", "diesequence", "diesequenceno", "dieid", "seq")),
 )
 
 
@@ -95,6 +95,7 @@ class CorrelationWindow(DataWorkspaceWindow):
 
     def __init__(self):
         self._copy_reference_from_wkb = False
+        self._workbook_wafer_check = None
         self._workbook_reference_rows = ()
         self._workbook_sources = ()
         self._source_mappings = ()
@@ -112,6 +113,11 @@ class CorrelationWindow(DataWorkspaceWindow):
         super().__init__()
         self._chart_edits.point_edit = self._apply_point_participation
         self.setWindowTitle("Correlation and Trend")
+        self.wafer_warning = QLabel(objectName="warning")
+        self.wafer_warning.setTextFormat(Qt.TextFormat.PlainText)
+        self.wafer_warning.setWordWrap(True)
+        self.wafer_warning.hide()
+        self.centralWidget().layout().insertWidget(0, self.wafer_warning)
         self.raw_model = self.model
         self.raw_sheet = self.sheet
         self.tabs.removeTab(2)
@@ -167,9 +173,10 @@ class CorrelationWindow(DataWorkspaceWindow):
 
     def _build_chart_analysis_menu(self):
         self.analysis_menu = self.menuBar().addMenu("Analysis")
-        for name, page in (("Trend Y Axes", self.sequence_page),
-                           ("Mean/Sigma Y Axes", self.wafer_statistics_page)):
-            menu = self.analysis_menu.addMenu(name)
+        self.trend_y_axes_menu = self.analysis_menu.addMenu("Trend Y Axes")
+        statistics_axes_menu = self.analysis_menu.addMenu("Mean/Sigma Y Axes")
+        for menu, page in ((self.trend_y_axes_menu, self.sequence_page),
+                           (statistics_axes_menu, self.wafer_statistics_page)):
             page.set_axis_ratio_control_visible(False)
             modes = QActionGroup(menu)
             for index in range(page.axis_mode.count()):
@@ -219,6 +226,11 @@ class CorrelationWindow(DataWorkspaceWindow):
 
     def configure_workbook_owner(self, owner, scope):
         super().configure_workbook_owner(owner, scope)
+        index = self.tabs.indexOf(self.wafer_statistics_page)
+        if index >= 0:
+            if self.tabs.currentIndex() == index:
+                self.tabs.setCurrentIndex(max(0, index - 1))
+            self.tabs.setTabVisible(index, False)
         self.copy_reference_from_wkb_action.setVisible(True)
         self.data_menu.removeAction(self.reference_selection_action)
         self.reference_selection_action.setVisible(False)
@@ -228,6 +240,15 @@ class CorrelationWindow(DataWorkspaceWindow):
         with QSignalBlocker(self.copy_reference_from_wkb_action):
             self.copy_reference_from_wkb_action.setChecked(checked)
         self._update_workbook_selection_actions(self.copy_from_wkb_action.isEnabled())
+        if self.display_options is not None:
+            self.display_options.set_workbook_data_copied(self.display_options.workbook_data_copied())
+        self._refresh_wafer_warning()
+
+    def set_copy_from_wkb(self, checked):
+        changed = bool(checked) != self._copy_from_wkb
+        super().set_copy_from_wkb(checked)
+        if changed and hasattr(self, "reference_model"):
+            self._refresh_wafer_warning()
 
     def _copy_reference_changed(self, checked):
         owner = getattr(self, "_managed_owner", None)
@@ -237,6 +258,9 @@ class CorrelationWindow(DataWorkspaceWindow):
             owner.set_child_reference_copy(self, checked)
 
     def workbook_reference_frame(self, reference, raw):
+        # A paired Ref copy uses Raw identities. Check the original source
+        # identities before projecting them onto the matching row positions.
+        self._workbook_wafer_check = compare_wafer_inputs(reference, raw)
         if not reference.empty and len(reference) == len(raw):
             self._workbook_reference_rows = participation_source_keys(raw)
             reference = _aligned_reference_frame(reference, raw)
@@ -252,6 +276,8 @@ class CorrelationWindow(DataWorkspaceWindow):
                 self.reference_model.load(reference)
             self._rebuild_source_analysis()
             self.refresh_timer.stop()
+        else:
+            self._refresh_wafer_warning()
 
     def set_workbook_sources(self, raw, mappings, mode="Preview", *, reference=None):
         if self.raw_model.clipboard_locks:
@@ -324,12 +350,17 @@ class CorrelationWindow(DataWorkspaceWindow):
         if checked:
             if not owner.reset_child_to_workbook(self, confirm=not self.raw_model.document_frame().empty):
                 self.set_copy_from_wkb(False)
+            else:
+                self.display_options.set_workbook_data_copied(
+                    self.display_options.workbook_data_copied()
+                )
             return
         with self.input_update():
             self.set_table(pd.DataFrame(), "Manual Raw Data")
         if not self._copy_reference_from_wkb:
             self._workbook_selection_applies = False
         self.set_copy_from_wkb(False)
+        self.display_options.set_workbook_data_copied(False)
         self._use_workbook_data = False
         self._independent_data = True
         self.document.refresh_identity()
@@ -339,10 +370,17 @@ class CorrelationWindow(DataWorkspaceWindow):
         from .correlation_groups import prepare_group_context
         raw = self.raw_model._analysis_view()
         applies = getattr(self, "_workbook_selection_applies", True)
+        if (getattr(self, "_managed_owner", None) is not None
+                and self.display_options is not None and not self.display_options.local_applied
+                and not self.display_options.workbook_data_copied()):
+            self.display_options.remember_workbook(prepare_group_context(book, raw, applies))
+            self._match_groups = self._group_plan = self._group_result_cache = None
+            self.update_plan()
+            return
         if self.display_options is not None and not self.display_options.follow_groups.isChecked():
             context = prepare_group_context(book,raw,applies)
             self.display_options.remember_workbook(context)
-            self._match_groups = self.display_options.context(context)
+            self._match_groups = self.display_options.context(None)
             self._refresh_group_results()
             self.update_plan()
             return
@@ -363,6 +401,11 @@ class CorrelationWindow(DataWorkspaceWindow):
         self._match_groups = prepare_group_context(book, raw, applies)
         if self.display_options is not None:
             self.display_options.remember_workbook(self._match_groups)
+            if (not self.display_options.follow_groups.isChecked()
+                    and not self.display_options.local_applied):
+                self._match_groups = self._group_plan = self._group_result_cache = None
+                self.update_plan()
+                return
         if self._match_groups is None:
             self._group_plan = self._group_result_cache = None
             self.update_plan()
@@ -542,8 +585,15 @@ class CorrelationWindow(DataWorkspaceWindow):
     def _write_chart_flags(self, rows, value):
         raw, reference = self._chart_source_rows(rows)
         if raw:
-            super()._write_chart_flags(raw, value)
+            handled = super()._write_chart_flags(raw, value)
+            if handled:
+                self._write_sheet_flags(self.model, raw, value)
+                if (hasattr(self, "reference_model") and not self._independent_reference_rows()
+                        and len(self.reference_model.frame()) == len(self.model.frame())):
+                    self._write_sheet_flags(self.reference_model, raw, value)
         if reference:
+            if (self._copy_from_wkb and not self._independent_reference_rows()):
+                super()._write_chart_flags(reference, value)
             self._write_sheet_flags(self.reference_model, reference, value)
 
     def _toggle_correlation_point(self, widget, row):
@@ -1367,13 +1417,34 @@ class CorrelationWindow(DataWorkspaceWindow):
             self.wafer_statistics_page.input_refresh_timer.stop()
             self.wafer_statistics_page.compare_timer.stop()
 
+    def _refresh_wafer_warning(self, reference=None, raw=None):
+        if reference is None:
+            reference = _available_source_frame(self.reference_model)
+        if raw is None:
+            raw = _available_source_frame(self.raw_model)
+        sources = "Ref and Raw"
+        if (self._copy_reference_from_wkb and self._copy_from_wkb
+                and self._workbook_wafer_check is not None and not reference.empty and not raw.empty):
+            sources = "Workbook Ref and Raw"
+            order_mismatch, difference = self._workbook_wafer_check
+        else:
+            order_mismatch, difference = compare_wafer_inputs(reference, raw)
+        warnings = []
+        if order_mismatch:
+            warnings.append(f"{sources} wafer order differs. Check the source tables before comparing.")
+        if difference:
+            warnings.append(f"{sources} wafer information differs. {difference}")
+        self.wafer_warning.setText("\n".join(warnings))
+        self.wafer_warning.setVisible(bool(warnings))
+
     def _rebuild_source_analysis(self):
         raw_analysis = _available_source_frame(self.raw_model)
+        ref_input = _available_source_frame(self.reference_model)
+        self._refresh_wafer_warning(ref_input, raw_analysis)
         # A value-only Ref may become row-aligned after ordinary grid edits.
         # Derive its default identity from the current Raw for analysis only;
         # recognizing must not reload the literal table or clear its Undo.
-        reference = _reference_with_default_identity(
-            _available_source_frame(self.reference_model), raw_analysis)
+        reference = _reference_with_default_identity(ref_input, raw_analysis)
         # Recognition and selector changes are read-only. Reloading this model
         # here used to overwrite edited identities and clear the undo history.
         if self.reference_model.literal_version is None:
@@ -1426,6 +1497,7 @@ class CorrelationWindow(DataWorkspaceWindow):
                     len(reference) == len(self._frame) or explicit_identity)):
                 self._rebuild_source_analysis()
             else:
+                self._refresh_wafer_warning()
                 self._populate_reference_choices()
 
     def update_plan(self, *_args):

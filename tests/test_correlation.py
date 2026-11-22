@@ -443,6 +443,62 @@ class CorrelationTests(unittest.TestCase):
             window.deleteLater()
             APP.processEvents()
 
+    def test_trend_with_reversed_source_wafers_follows_reference_axis(self):
+        reference = pd.DataFrame({
+            "Wafer ID": ["W3", "W3", "W2", "W2", "W1", "W1"],
+            "Lot ID": ["L1"] * 6, "PAD Name": ["P1"] * 6,
+            "Seq": [1, 2] * 3, "CD": [30, 31, 20, 21, 10, 11],
+        })
+        raw = reference.iloc[[4, 5, 2, 3, 0, 1]].reset_index(drop=True)
+        window = CorrelationWindow()
+        window.document.force_close = True
+        self.addCleanup(window.deleteLater)
+        self.addCleanup(window.close)
+        window.set_reference_table(reference)
+        window.set_table(raw, "Raw Data")
+        self.assertIn("wafer order differs", window.wafer_warning.text())
+        self.assertNotIn("wafer information differs", window.wafer_warning.text())
+
+        page = window.sequence_page
+        page.selector.selectAll()
+        page.draw_plot()
+        self.assertTrue(page.ready, page.status.text())
+        self.assertEqual([label for _position, label in page.wafer_ticks], ["W3", "W2", "W1"])
+        for widget in page.plot_widgets:
+            item = widget.getPlotItem().listDataItems()[0]
+            np.testing.assert_array_equal(item.xData, np.arange(6))
+            np.testing.assert_array_equal(item.yData, reference["CD"])
+        self.assertEqual(window.raw_model.frame()["Wafer ID"].tolist(), raw["Wafer ID"].tolist())
+        self.assertEqual(window.reference_model.frame()["Wafer ID"].tolist(), reference["Wafer ID"].tolist())
+
+    def test_ref_and_raw_wafer_warning_reports_full_identity_differences(self):
+        reference = pd.DataFrame({
+            "Wafer ID": ["W1"], "Lot ID": ["L1"], "PAD Name": ["P1"],
+            "Slot": ["01"], "CD": [1.2],
+        })
+        window = CorrelationWindow()
+        window.document.force_close = True
+        self.addCleanup(window.deleteLater)
+        self.addCleanup(window.close)
+        window.set_table(reference, "Raw Data")
+        window.set_reference_table(reference.rename(columns={
+            "Wafer ID": "WaferID", "Lot ID": "Lot_No",
+            "PAD Name": "SiteName", "Slot": "Slot_No",
+        }))
+        self.assertTrue(window.wafer_warning.isHidden())
+        for column, value in (("Lot ID", "L2"), ("PAD Name", "P2"), ("Slot", "02"),
+                              ("Wafer ID", "W2")):
+            with self.subTest(column=column):
+                window.set_table(reference.assign(**{column: value}), "Raw Data")
+                self.assertFalse(window.wafer_warning.isHidden())
+                message = window.wafer_warning.text()
+                self.assertIn("wafer information differs", message)
+                self.assertIn("Raw only (1)", message)
+                self.assertIn(f"{column} {value}", message)
+                self.assertNotIn("wafer order differs", message)
+        window.set_reference_table(pd.DataFrame())
+        self.assertTrue(window.wafer_warning.isHidden())
+
     def test_workbook_selection_state_restores_and_redraws_both_pages(self):
         reference = pd.DataFrame({
             "Wafer ID": ["W1"] * 5,
@@ -2118,7 +2174,7 @@ class CorrelationTests(unittest.TestCase):
         """The automatic ratio threshold can split distant same-unit curves."""
         frame = pd.DataFrame({
             "Wafer ID": ["W1"] * 4,
-            "Die Seq": [1, 2, 3, 4],
+            "Seq": [1, 2, 3, 4],
             "ASi_BCD": [1000.0, 1100.0, 1200.0, 1150.0],
             "M1_BCDoff": [0.50, 0.60, 0.55, 0.62],
         })
@@ -2128,6 +2184,7 @@ class CorrelationTests(unittest.TestCase):
             self.select_parameters(window, {"ASi_BCD", "M1_BCDoff"})
             window.tabs.setCurrentIndex(3)
             page = window.sequence_page
+            self.assertEqual(page.die_column, 'Seq')
             page.overlay = {}
             page.selector.selectAll()
             page.draw_plot()
@@ -2161,8 +2218,11 @@ class CorrelationTests(unittest.TestCase):
             APP.processEvents()
 
             self.assertEqual(page.axis_mode_value(), "auto")
-            self.assertEqual(page.axis_ratio_limit(), 10.0)
+            self.assertEqual(page.axis_ratio_limit(), 1.0)
             self.assertTrue(page.set_overlay("ASi_BCD", "M1_BCDoff"))
+            APP.processEvents()
+            self.assertEqual(len(page.plot_widgets[0].secondary_views), 1)
+            page.axis_ratio.setValue(10)
             APP.processEvents()
             self.assertEqual(len(page.plot_widgets[0].secondary_views), 0)
 
@@ -2218,6 +2278,7 @@ class CorrelationTests(unittest.TestCase):
     def test_multiple_parameter_overlay_uses_additional_axes_and_new_colours(self):
         window, page = self._overlay_page(("DP [nm]", "EW [V]", "TG [nm]"))
         try:
+            page.restore_axis_ratio(10)
             self.assertTrue(page.set_overlay("DP [nm]", "EW [V]"))
             self.assertTrue(page.set_overlay("DP [nm]", "TG [nm]"))
             self.assertEqual(page.overlay,

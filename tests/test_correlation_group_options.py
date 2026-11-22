@@ -1,11 +1,14 @@
 """Independent and Workbook-owned Group/Plot Label options use the same rules."""
 from copy import deepcopy
 import unittest
+from unittest.mock import patch
 import pandas as pd
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QApplication, QDialog
 from PyQt6.QtTest import QTest
 
 from metrology_app.correlation_window import CorrelationWindow
+from metrology_app.match_group_ui import CombinedGroupDialog
 
 APP = QApplication.instance() or QApplication([])
 
@@ -72,6 +75,47 @@ class CorrelationGroupOptionsTests(unittest.TestCase):
         restored.plot_labels_enabled_action.setChecked(True)
         self.assertEqual(restored.sequence_page.identity_labels,{'pad':False,'lot':True})
 
+    def test_manage_groups_shows_wafer_and_group_dividers_in_trend_and_statistics(self):
+        self.window.group_settings_action.trigger()
+        controls = self.window.group_controls
+        controls.restore({"enabled": True, "head_names": {"1": "Old", "2": "New"}},
+                         pd.DataFrame({"TestFlag": [1, 2, 1, 2]}))
+        controls.apply_button.click()
+        trend = self.draw()
+        before = trend.plot_widgets[0]
+        self.assertFalse(hasattr(before, "_group_wafer_axis"))
+        self.assertEqual(before._wafer_axis.boundaries, [-.5, 1.5, 3.5])
+
+        def choose_wafer(dialog):
+            dialog.members.topLevelItem(0).setCheckState(1, Qt.CheckState.Checked)
+            return QDialog.DialogCode.Accepted
+
+        with patch.object(CombinedGroupDialog, "exec", new=choose_wafer):
+            self.window.manage_groups_action.trigger()
+        trend.draw_plot()
+        self.assertEqual(trend.plot_widgets[0]._group_wafer_axis.boundaries, [-.5, 1.5])
+        self.assertEqual(trend.plot_widgets[0]._wafer_axis.boundaries, [-.5, 1.5, 3.5])
+        self.assertEqual(trend.plot_widgets[0].group_boundaries.positions, (1.5,))
+        trend.ensure_export_figure()
+        self.assertTrue(any([segment[0, 0] for segment in collection.get_segments()]
+                            == [-.5, 1.5, 3.5] for collection in trend.figure.axes[0].collections))
+        trend.expand_wafer_ids.setChecked(True)
+        plot = trend.plot_widgets[0]
+        self.assertEqual(plot.group_boundaries.positions, (plot._wafer_axis.boundaries[1],))
+        trend.expand_wafer_ids.setChecked(False)
+        self.assertEqual(plot.group_boundaries.positions, (1.5,))
+
+        stats = self.window.wafer_statistics_page
+        self.window.tabs.setCurrentWidget(stats)
+        stats.selector.selectAll()
+        stats.draw_plot()
+        for plot in stats.plot_widgets:
+            self.assertEqual(plot._statistic_caption_axes["wafer"].boundaries, [.5, 1.5])
+            self.assertEqual(plot._statistic_caption_axes["base"].boundaries, [.5, 1.5, 2.5])
+        stats.ensure_export_figure()
+        self.assertTrue(any([segment[0, 0] for segment in collection.get_segments()]
+                            == [-.5, .5, 1.5] for collection in stats.figure.axes[0].collections))
+
     def test_workbook_child_can_detach_groups_and_labels_without_changing_its_parent(self):
         from metrology_app.matching import ParameterMapping
         from metrology_app.matching_window import MatchingWindow
@@ -87,6 +131,16 @@ class CorrelationGroupOptionsTests(unittest.TestCase):
         child.set_reference_table(self.reference)
         self.assertTrue(child.follow_workbook_groups_action.isChecked())
         self.assertEqual(child._group_plan.head('1'),'Parent A')
+
+        def choose_wafer(dialog):
+            dialog.members.topLevelItem(0).setCheckState(1, Qt.CheckState.Checked)
+            return QDialog.DialogCode.Accepted
+
+        with patch.object(CombinedGroupDialog, "exec", new=choose_wafer):
+            child.manage_groups_action.trigger()
+        self.assertFalse(child.follow_workbook_groups_action.isChecked())
+        self.assertEqual(owner.result.group_plan.state["show_wafer_groups"], [])
+        self.assertEqual(child._group_plan.state["show_wafer_groups"], ["All:1"])
         parent_before = deepcopy(owner.group_controls.state)
         child.follow_workbook_groups_action.setChecked(False)
         child.group_settings_action.trigger()

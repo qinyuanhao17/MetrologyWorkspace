@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 
 from ..measurements import default_identity_columns, detect_measurements, wafer_identity_labels
-from ..trend import parse_unit
+from ..trend import MAGNITUDE_RATIO_LIMIT, parse_unit
 
 
 SCHEMA_VERSION = 10
@@ -224,16 +224,14 @@ def _normalized_trend_axis_settings(settings, selections, active_stage):
             if (state := selections.get(stage)) is not None
             and any(key in state for key in ("trend_axis_ratio", "trend_axis_mode"))
         ), {})
-        settings = {
-            "ratio": legacy.get("trend_axis_ratio", 10.0),
-            "mode": legacy.get("trend_axis_mode", "auto"),
-        }
+        settings = ({"ratio": legacy.get("trend_axis_ratio", 10.0),
+                     "mode": legacy.get("trend_axis_mode", "auto")} if legacy else {})
     if not isinstance(settings, dict):
         raise TypeError("Trend axis settings must be a mapping.")
     if set(settings) - {"ratio", "mode"}:
         raise ValueError("Unknown Trend axis setting.")
     try:
-        ratio = float(settings.get("ratio", 10.0))
+        ratio = float(settings.get("ratio", MAGNITUDE_RATIO_LIMIT))
     except (TypeError, ValueError) as error:
         raise TypeError("Trend second-axis ratio must be a number.") from error
     if not np.isfinite(ratio) or not 1 <= ratio <= 1_000_000:

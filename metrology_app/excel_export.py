@@ -1259,12 +1259,13 @@ def _unit(reference_column):
 
 
 def _parameter_data(result, parameter, key="all", labels=None, *, order="group"):
-    from .match_groups import normalized, wafer_identity_keys
+    from .data import die_sequence_column
+    from .match_groups import wafer_identity_keys
     labels = labels or {"pad": True, "lot": True}
     data = result.group_series(parameter, key, trend=True, card_mode="group" if key != "all" else "raw")
     raw = result.group_plan.raw
     identities = wafer_identity_keys(raw)
-    die_column = next((column for column in raw if normalized(column) in ("dieseq", "dieid", "diesequence")), None)
+    die_column = die_sequence_column(raw.columns)
     captions, dies, wafer_captions = [], [], []
     die_values = raw[die_column].tolist() if die_column is not None else None
     for row, group in zip(data["Source row"], data["Group"]):
@@ -1916,9 +1917,10 @@ def write_fullmap(sheet, frame, parameters, *, native=True, images=None, plot_la
     source_column = plot_column + len(mapped) + 3
     sheet._source_start_column = source_column
     _write_frame(sheet, frame, start_column=source_column)
-    from .match_groups import normalized, wafer_identity_keys
+    from .data import die_sequence_column
+    from .match_groups import wafer_identity_keys
     from openpyxl.styles import Alignment
-    die = next((column for column in frame if normalized(column) in ("dieseq", "dieid", "diesequence")), None)
+    die = die_sequence_column(frame.columns)
     dies = frame[die].astype(str).tolist() if die is not None else [""] * len(frame)
     for offset, header in enumerate(["Wafer", "Die Seq", *mapped]):
         sheet.cell(1, plot_column + offset, header).font = Font(name=EXPORT_FONT, bold=True)

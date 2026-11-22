@@ -15,8 +15,11 @@ def normalize_plot_layouts(layouts):
     if not isinstance(layouts, dict) or set(layouts) - {"preview", "final"}:
         raise ValueError("Invalid parameter plot layout stages.")
     result = {}
-    variants = {"match|trend", "match|trend|bias", "match|trend|bias-percent",
-                "match|trend|bias|bias-percent"}
+    allowed_names = {
+        "match", "trend", "bias", "bias-percent",
+        "wafer_r2", "wafer_slope", "wafer_mean", "wafer_sigma",
+        "wafer_mean_bias", "wafer_sigma_bias",
+    }
     for stage, parameters in layouts.items():
         if not isinstance(parameters, dict):
             raise ValueError("Invalid parameter plot layouts.")
@@ -26,7 +29,10 @@ def normalize_plot_layouts(layouts):
                 raise ValueError("Invalid parameter plot layout name.")
             result[stage][parameter] = {}
             for variant, state in states.items():
-                if variant not in variants or not isinstance(state, dict) or set(state) != {"main", "float"} or state["float"] != []:
+                names = set(str(variant).split("|"))
+                if (not names or not names <= allowed_names
+                        or not isinstance(state, dict) or set(state) != {"main", "float"}
+                        or state["float"] != []):
                     raise ValueError("Invalid parameter plot layout; floating plots are not supported.")
                 seen = set()
 
@@ -35,7 +41,7 @@ def normalize_plot_layouts(layouts):
                         raise ValueError("Invalid parameter plot layout tree.")
                     kind, children, options = node
                     if kind == "dock":
-                        if not isinstance(children, str) or children not in variant.split("|") or children in seen or options != {}:
+                        if not isinstance(children, str) or children not in names or children in seen or options != {}:
                             raise ValueError("Invalid or repeated parameter plot.")
                         seen.add(children)
                         return [kind, children, {}]
@@ -50,7 +56,7 @@ def normalize_plot_layouts(layouts):
                     return [kind, [tree(child, depth + 1) for child in children], {"sizes": list(sizes)}]
 
                 main = tree(state["main"])
-                if seen != set(variant.split("|")):
+                if seen != names:
                     raise ValueError("Parameter plot layout is incomplete.")
                 result[stage][parameter][variant] = {"main": main, "float": []}
     return result
@@ -58,8 +64,10 @@ def normalize_plot_layouts(layouts):
 
 class _PlotLabel(DockLabel):
     def updateStyle(self):
-        self.setObjectName("plotDragHandle")
-        self.setStyleSheet("")  # Use the workspace's light/dark theme.
+        if self.objectName() != "plotDragHandle":
+            self.setObjectName("plotDragHandle")
+        if self.styleSheet():
+            self.setStyleSheet("")  # Use the workspace's light/dark theme.
 
 
 def _local_drop(target, event):
@@ -73,7 +81,8 @@ def _local_drop(target, event):
 
 class _PlotDock(Dock):
     def updateStyle(self):
-        self.widgetArea.setStyleSheet("")
+        if self.widgetArea.styleSheet():
+            self.widgetArea.setStyleSheet("")
 
     def dragEnterEvent(self, event):
         if _local_drop(self, event):
@@ -94,7 +103,8 @@ class ParameterPlotArea(DockArea):
     layoutChanged = pyqtSignal()
     LABEL_HEIGHT = 24
 
-    def __init__(self, plots, *, plot_height=330, parent=None):
+    def __init__(self, plots, *, plot_height=330, parent=None, titles=None,
+                 initial_sizes=None):
         super().__init__(parent=parent)
         self.plot_height = plot_height
         self._variant = "|".join(plots)
@@ -106,7 +116,14 @@ class ParameterPlotArea(DockArea):
         self._compact_restore_timer.timeout.connect(self._restore_compact_sizes)
         self.setMinimumWidth(0)
         self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
-        titles = {"match": "Match", "trend": "Trend", "bias": "Bias", "bias-percent": "Bias %"}
+        all_titles = {
+            "match": "Match", "trend": "Trend", "bias": "Bias",
+            "bias-percent": "Bias %", "wafer_r2": "R²", "wafer_slope": "Slope",
+            "wafer_mean": "Wafer Mean", "wafer_sigma": "Wafer Sigma",
+            "wafer_statistics_bias": "Wafer Bias",
+        }
+        titles = {name: (titles or all_titles).get(name, name) for name in plots}
+        self._initial_sizes = tuple(initial_sizes) if initial_sizes is not None else None
         for name, plot in plots.items():
             label = _PlotLabel("::  " + titles[name])
             label.setFixedHeight(self.LABEL_HEIGHT)
@@ -244,6 +261,12 @@ class ParameterPlotArea(DockArea):
     def _apply_default_sizes(self):
         if self._default_sizes_pending and isinstance(self.topContainer, QSplitter):
             count = self.topContainer.count()
+            if (self._initial_sizes is not None
+                    and len(self._initial_sizes) == count):
+                self.topContainer.setSizes(list(self._initial_sizes))
+                for index in range(count):
+                    self.topContainer.setStretchFactor(index, 1)
+                return
             total = self.width() - self.topContainer.handleWidth() * (count - 1)
             match_width = min(340, max(1, total - 180 * (count - 1)))
             other = max(1, (total - match_width) // max(1, count - 1))

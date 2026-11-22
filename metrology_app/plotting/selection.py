@@ -26,6 +26,7 @@ class BoxDrag(QObject):
 
     def eventFilter(self, watched, event):
         kind = event.type()
+        start = getattr(self, "start", None)
         if kind in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonDblClick):
             self.start = None
             self.band.hide()
@@ -34,9 +35,9 @@ class BoxDrag(QObject):
                 target = self.target_at(point)
                 if target is not None or self.on_click is not None:
                     self.start = point, target, event.modifiers()
-        elif self.start is not None and kind in (QEvent.Type.MouseMove, QEvent.Type.MouseButtonRelease):
+        elif start is not None and kind in (QEvent.Type.MouseMove, QEvent.Type.MouseButtonRelease):
             point = event.position().toPoint()
-            start, target, modifiers = self.start
+            start, target, modifiers = start
             rect = QRect(start, point).normalized()
             dragged = self.band.isVisible() or (start - point).manhattanLength() >= QApplication.startDragDistance()
             if kind == QEvent.Type.MouseMove and event.buttons() & Qt.MouseButton.LeftButton:
@@ -87,6 +88,20 @@ class DataPointEdits:
         self._selections.add(selection)
         selection.update_preview()
 
+    def _live_selections(self):
+        from PyQt6 import sip
+
+        live = []
+        for selection in tuple(self._selections):
+            try:
+                if sip.isdeleted(selection.plot):
+                    continue
+            except RuntimeError:
+                continue
+            live.append(selection)
+        self._selections = WeakSet(live)
+        return live
+
     def highlight(self, keys, context=None, source=None, rows=()):
         self.preview_keys = set(keys)
         self.preview_rows = {
@@ -94,7 +109,7 @@ class DataPointEdits:
             if isinstance(row, Integral)
         }
         self.preview_context = context
-        for selection in list(self._selections):
+        for selection in self._live_selections():
             if selection is not source and selection.in_context(context):
                 selection.selected.clear()
                 selection.update_highlight()
@@ -106,7 +121,7 @@ class DataPointEdits:
         self.preview_keys.clear()
         self.preview_rows.clear()
         self.preview_context = None
-        for selection in list(self._selections):
+        for selection in self._live_selections():
             if selection.in_context(context):
                 selection.selected.clear()
                 selection.update_highlight()
@@ -409,7 +424,48 @@ class CurveSelection:
                 and (not isinstance(self.scope, tuple) or len(self.scope) <= 2
                      or self.scope[2] != self.data.preview_context)):
             return set()
+        if self.data.preview_rows:
+            picked = self.tokens_for_rows(self.data.preview_rows)
+            if picked:
+                return picked - self.selected
         return self.tokens_for_keys(self.data.preview_keys)
+
+    def tokens_for_rows(self, source_rows):
+        """Map shared source rows to plot tokens without rebuilding identities."""
+        import numpy as np
+
+        wanted = {int(row) for row in source_rows if isinstance(row, Integral)}
+        if not wanted:
+            return set()
+        wanted_values = np.fromiter(wanted, dtype=int, count=len(wanted))
+        picked = set()
+        for _view, item in self.series(include_hidden=False):
+            rows = self._item_rows(item)
+            if rows is None:
+                continue
+            hidden = self.masks.get(item, (None, None, set(), None))[2]
+            try:
+                compact = np.asarray(rows)
+            except (TypeError, ValueError):
+                compact = None
+            if (compact is not None and compact.ndim in (1, 2)
+                    and np.issubdtype(compact.dtype, np.integer)):
+                matches = np.isin(compact, wanted_values)
+                if compact.ndim == 2:
+                    matches = matches.any(axis=1)
+                indexes = np.flatnonzero(matches)
+            else:
+                indexes = (
+                    index for index, row in enumerate(rows)
+                    if any(isinstance(value, Integral) and int(value) in wanted
+                           for value in (row if isinstance(row, (tuple, list, set, frozenset))
+                                         else (row,)))
+                )
+            for index in indexes:
+                if index in hidden:
+                    continue
+                picked.add((item, int(index)))
+        return picked
 
     def tokens_for_keys(self, keys):
         if self.data is None or not keys:

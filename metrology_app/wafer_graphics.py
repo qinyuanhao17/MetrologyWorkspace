@@ -8,6 +8,7 @@ from functools import lru_cache
 from copy import copy
 from hashlib import sha256
 from math import floor
+from numbers import Integral
 
 import numpy as np
 import contourpy
@@ -22,7 +23,7 @@ from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QTransform
 from PyQt6.QtWidgets import QGraphicsView, QMenu, QToolTip
 
-from .appearance import SELECTION_HIGHLIGHT_COLOR
+from .appearance import SELECTION_HIGHLIGHT_COLOR, SELECTION_LINKED_COLOR
 from .plot import ValueLabels, contour_colour, display_colormap, map_statistics_text
 from .plotting.identity_labels import measurement_caption
 from .plotting.selection import BoxDrag, add_selection_actions
@@ -40,6 +41,7 @@ class StaticMapView(pg.GraphicsView):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.data_point_edits = None
+        self.chart_preview_rows = frozenset()
         self.point_removal_handler = None
         self._box_selection = {}
         self._removed_rows = {}
@@ -79,6 +81,13 @@ class StaticMapView(pg.GraphicsView):
         self._removed_rows.clear()
         self._removed_positions.clear()
         self._unchecked_positions.clear()
+        self.chart_preview_rows = frozenset()
+
+    def set_chart_preview_rows(self, rows):
+        preview = frozenset(int(row) for row in rows if isinstance(row, Integral))
+        if preview != self.chart_preview_rows:
+            self.chart_preview_rows = preview
+            self.update()
 
     def _remove_panel_points(self, panel, rows):
         key = self._panel_key(panel)
@@ -265,6 +274,15 @@ def panel_point_state(panel):
     return (), ()
 
 
+def panel_chart_preview(panel):
+    scene = panel.scene()
+    if scene is not None:
+        for view in scene.views():
+            if isinstance(view, StaticMapView):
+                return view.chart_preview_rows
+    return ()
+
+
 def paint_point_selection(panel, painter):
     selected, removed = panel_point_state(panel)
     if not selected:
@@ -275,6 +293,20 @@ def paint_point_selection(panel, painter):
     for row, position in zip(panel.point_rows(), panel._pixel_positions):
         if row in selected and row not in removed:
             painter.drawEllipse(QPointF(*position), 5, 5)
+    painter.restore()
+
+
+def paint_chart_preview(panel, painter, *, rows=None):
+    preview = panel_chart_preview(panel) if rows is None else rows
+    if not preview:
+        return
+    _selected, removed = panel_point_state(panel) if hasattr(panel, "scene") else ((), ())
+    painter.save()
+    painter.setPen(QPen(QColor(SELECTION_LINKED_COLOR), 2.4))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    for row, position in zip(panel.point_rows(), panel._pixel_positions):
+        if row in preview and row not in removed:
+            painter.drawEllipse(QPointF(*position), 6, 6)
     painter.restore()
 
 
@@ -718,6 +750,7 @@ class WaferPanel(pg.GraphicsObject):
             else:
                 self._paint_remaining_labels(painter, removed)
         paint_point_selection(self, painter)
+        paint_chart_preview(self, painter)
         painter.restore()
 
     def _ticks(self, center, name):

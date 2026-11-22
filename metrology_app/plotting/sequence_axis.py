@@ -4,7 +4,8 @@ from math import ceil
 
 import numpy as np
 import pyqtgraph as pg
-from PyQt6.QtGui import QFontMetricsF
+from PyQt6.QtCore import QPointF, QRectF
+from PyQt6.QtGui import QColor, QFontMetricsF, QPalette
 from PyQt6.QtWidgets import QApplication
 
 
@@ -168,13 +169,14 @@ def space_wafer_plot(plot, spacing):
         if isinstance(axis, (SpanLabelAxis, DieSequenceAxis)):
             axis.spacing = spacing
             axis.refresh()
-    boundaries = getattr(plot, "wafer_boundaries", None)
-    if boundaries is not None:
-        if not hasattr(boundaries, "_wafer_ordinals"):
-            boundaries._wafer_ordinals = boundaries.positions
-        boundaries.positions = tuple(spacing.forward(boundaries._wafer_ordinals) if spacing is not None
-                                     else boundaries._wafer_ordinals)
-        boundaries.update()
+    for name in ("group_boundaries", "wafer_boundaries"):
+        boundaries = getattr(plot, name, None)
+        if boundaries is not None:
+            if not hasattr(boundaries, "_wafer_ordinals"):
+                boundaries._wafer_ordinals = boundaries.positions
+            boundaries.positions = tuple(spacing.forward(boundaries._wafer_ordinals) if spacing is not None
+                                         else boundaries._wafer_ordinals)
+            boundaries.update()
     for line in getattr(plot, "_group_boundaries", ()):
         if not hasattr(line, "_wafer_ordinal"):
             line._wafer_ordinal = line.value()
@@ -189,13 +191,51 @@ def space_wafer_plot(plot, spacing):
         plot._refresh_group_axis()
 
 
-class SpanLabelAxis(pg.AxisItem):
+class GroupLabelAxis(pg.AxisItem):
+    """Solid boundaries extend through the separate group-label strip."""
+    def __init__(self, *, boundary_width=2):
+        super().__init__(orientation="bottom")
+        self.boundaries = []
+        self.boundary_width = boundary_width
+
+    def paint(self, painter, *args):
+        super().paint(painter, *args)
+        view = self.linkedView()
+        if view is None:
+            return
+        low, high = view.viewRange()[0]
+        for position in self.boundaries:
+            if low <= position <= high:
+                x = self.mapFromScene(view.mapViewToScene(QPointF(position, 0))).x()
+                if self.boundary_width == 2 and QApplication.palette().color(QPalette.ColorRole.Base).lightness() < 128:
+                    painter.setPen(pg.mkPen("#eeeeee", width=4))
+                    painter.drawLine(QPointF(x, 0), QPointF(x, self.height()))
+                # Align in device pixels too: fractional Windows display scales
+                # otherwise give identical pens alternating one/two-pixel edges.
+                transform = painter.deviceTransform()
+                inverse, invertible = transform.inverted()
+                if not invertible:
+                    continue
+                device_x = transform.map(QPointF(x, 0)).x()
+                left = np.ceil(transform.map(QPointF(self.boundingRect().left(), 0)).x())
+                right = np.floor(transform.map(QPointF(self.boundingRect().right(), 0)).x()) - self.boundary_width
+                device_x = min(max(round(device_x - self.boundary_width / 2), left), right)
+                top = transform.map(QPointF(0, 0)).y()
+                bottom = transform.map(QPointF(0, self.height())).y()
+                painter.fillRect(QRectF(inverse.map(QPointF(device_x, top)),
+                                        inverse.map(QPointF(device_x + self.boundary_width, bottom))),
+                                 QColor("#000000" if self.boundary_width == 2 else "#929292"))
+
+
+class SpanLabelAxis(GroupLabelAxis):
     """Linked axis that restores full labels after resizing, zooming or panning."""
-    def __init__(self, spans, *, optional_fields=True, font=None, reserve_lines=0):
+    def __init__(self, spans, *, optional_fields=True, font=None, reserve_lines=0,
+                 show_boundaries=False):
         self.spans = list(spans)
         self.optional_fields = optional_fields
         self.reserve_lines = reserve_lines
-        super().__init__(orientation="bottom")
+        self.show_boundaries = show_boundaries
+        super().__init__()
         self.setStyle(tickLength=0, tickTextOffset=4,
                       tickFont=font or QApplication.font(), autoExpandTextSpace=False)
         self.setToolTip(" · ".join(label for _, _, label in self.spans))
@@ -222,6 +262,11 @@ class SpanLabelAxis(pg.AxisItem):
         metrics = QFontMetricsF(self.style.get("tickFont") or QApplication.font())
         spacing = getattr(self, "spacing", None)
         spans = spacing.spans(self.spans) if spacing is not None else self.spans
+        if self.show_boundaries:
+            boundaries = sorted({edge for start, end, _ in spans for edge in (start, end)})
+            if self.boundaries != boundaries:
+                self.boundaries = boundaries
+                self.update()
         ticks = span_label_ticks(spans, view.viewRange()[0],
                                  width, metrics.horizontalAdvance,
                                  optional_fields=self.optional_fields)

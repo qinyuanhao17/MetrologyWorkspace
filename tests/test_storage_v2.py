@@ -6,6 +6,7 @@ from unittest.mock import patch
 import os
 import sqlite3
 from contextlib import closing
+from time import monotonic
 
 import pandas as pd
 from PyQt6.QtCore import QCoreApplication, QDateTime, QEvent, Qt
@@ -107,6 +108,11 @@ class StorageV2Tests(unittest.TestCase):
             self.match.close()
         self.match.deleteLater()
         APP.processEvents()
+        deadline = monotonic() + 5
+        while self.match.document.recovery_pending and monotonic() < deadline:
+            QTest.qWait(10)
+        from metrology_app.recovery import wait_for_recovery
+        wait_for_recovery(5)
         self.scratch.cleanup()
 
     def test_copy_contains_current_child_draft_without_saving_match(self):

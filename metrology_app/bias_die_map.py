@@ -6,6 +6,7 @@ import math
 import numpy as np
 import pandas as pd
 
+from .data import coordinates, die_sequence_column
 from .match_groups import normalized
 from .selection_script import canonical_die
 from .sme_spectra import SpectrumIdentity
@@ -42,10 +43,13 @@ def die_map_points(raw, source_rows, metadata=()):
     def column(*aliases):
         return next((columns[a] for a in aliases if a in columns), None)
     identities = [column("waferid", "wafer", "waferno"), column("lotid", "lot"),
-                  column("padname", "pad"), column("dieseq", "dieid", "dieorder", "die")]
+                  column("padname", "pad"), die_sequence_column(raw.columns) or column("dieorder", "die")]
     if identities[0] is None or identities[3] is None:
         raise ValueError("Die Map requires Wafer ID and Die Seq columns.")
     xy = column("xmm"), column("ymm")
+    if not all(xy) and (combined := column("xymm")) is not None:
+        xy = combined, combined
+    embedded = coordinates(raw, *xy).to_numpy(dtype=float, na_value=np.nan) if all(xy) else None
     fields = column("fieldx", "colx", "refdiecol"), column("fieldy", "rowy", "refdierow")
     tool = column("toolsn")
     lookup = {}
@@ -69,8 +73,8 @@ def die_map_points(raw, source_rows, metadata=()):
             return "" if name is None or pd.isna(values[name]) else str(values[name]).strip()
         key = tuple(text(name) for name in identities[:3]) + (canonical_die(text(identities[3])),)
         try:
-            if all(xy):
-                pos = tuple(float(text(name)) for name in xy)
+            if embedded is not None:
+                pos = tuple(embedded[row])
             else:
                 candidates = lookup.get(key, set())
                 if len(candidates) != 1:

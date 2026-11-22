@@ -4,14 +4,13 @@ from math import ceil
 
 import numpy as np
 import pyqtgraph as pg
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFontMetrics
 from PyQt6.QtWidgets import QSizePolicy, QWidget
 
 from .appearance import panel_title_label
 from .plotting import InteractivePlotWidget, PanelGrid, PlotPanel
 from .plotting.annotations import plain_matplotlib_y, plain_y_axes, set_plot_statistics
-from .plotting.sequence_axis import DieSequenceAxis
 from .sequence_page import COMPARE_CONTROL_WIDTH, LINE_COLOR, SequencePage
 from .trend import overlay_spec
 
@@ -22,6 +21,8 @@ class WaferStatisticsPage(SequencePage):
     STATISTICS = (("mean", "Wafer Mean"), ("sigma", "Wafer Sigma"))
     BAR_WIDTH = .18
     BAR_STEP = .22
+    BAR_WIDTH_PIXELS = 22
+    BAR_STEP_PIXELS = 27
     BIAS_COLOR = "#6b7280"
 
     def __init__(self):
@@ -168,7 +169,7 @@ class WaferStatisticsPage(SequencePage):
         comparisons = tuple(panel.get("comparisons", ()))
         comparison_colours = self._comparison_colours(panel)
         title_name = self._legend_label(source, metric)
-        title = f"{title_name} · {statistic_label}"
+        title = f"{metric} · {statistic_label}"
         labels, primary_groups, comparison_groups = self._aligned_panel(panel, metric, groups)
         compare_source = compare_metric = compare_groups = None
         if plot_kind == "bias":
@@ -177,29 +178,23 @@ class WaferStatisticsPage(SequencePage):
                 panel, panel["comparison"]
             )
             compare_groups = comparison_groups[comparison_index]
-            title = (
-                f"{statistic_label} Bias · "
-                f"{self._legend_label(compare_source, compare_metric)} − "
-                f"{title_name}"
-            )
+            title = f"{metric} · {statistic_label} Bias"
         x = np.arange(1, len(labels) + 1, dtype=float)
         widget = InteractivePlotWidget(background="w")
         widget.setMinimumSize(420, 280)
         widget.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
-        widget.point_selection.data = getattr(self, "data_point_edits", None)
-        scope = ("Wafer Statistics", (source or {}).get("name"), metric, statistic)
-        if plot_kind == "bias":
-            scope += ("bias", (compare_source or {}).get("name"), compare_metric)
-        widget.point_selection.scope = scope
+        widget.point_selection.set_data(
+            getattr(self, "data_point_edits", None), ("Wafer Statistics",),
+        )
         widget._statistic_category_count = len(labels)
         plot = widget.getPlotItem()
-        bottom = DieSequenceAxis(list(zip(x, labels)), font=widget.font())
-        bottom.setStyle(tickFont=widget.font(), tickTextOffset=4)
+        bottom = pg.AxisItem(orientation="bottom")
+        bottom.setStyle(tickLength=0, showValues=False, tickFont=widget.font())
+        bottom.setHeight(0)
         bottom.setPen(pg.mkPen("#30343b"))
         bottom.setTextPen(pg.mkPen("#30343b"))
         plot.setAxisItems({"bottom": bottom})
-        bottom.linkToView(plot.getViewBox())
-        plot.setLabel("bottom", "Wafer")
+        plot.setLabel("bottom", "")
         plot.setLabel("left", title, color="#30343b")
         plot.setTitle(None)
         plot.showGrid(x=False, y=True, alpha=.16)
@@ -272,6 +267,7 @@ class WaferStatisticsPage(SequencePage):
         legend = plot.addLegend(
             offset=(8, 6), colCount=min(3, len(bar_definitions))
         )
+        widget._statistic_bars = []
         all_statistics = []
         secondary_views = []
         for definition, offset in zip(bar_definitions, offsets):
@@ -304,6 +300,9 @@ class WaferStatisticsPage(SequencePage):
             )
             target.addItem(bar)
             widget.set_point_rows(bar, definition["rows"])
+            bar._statistic_bases = np.asarray(x, dtype=float)
+            bar._statistic_offset = float(offset)
+            widget._statistic_bars.append(bar)
             legend.addItem(bar, series_label)
             all_statistics.append((series_label, values))
             zero = pg.InfiniteLine(pos=0, angle=0, pen=pg.mkPen(
@@ -312,11 +311,12 @@ class WaferStatisticsPage(SequencePage):
         plain_y_axes(widget, self.plot_decimals)
         wafers, bases, combined = self._bar_caption_spans(primary_groups, comparison_groups, x)
         widget.group_boundaries = widget.add_vertical_boundaries(
-            [start for start, _, _ in bases[1:]], pg.mkPen("#30343b", style=Qt.PenStyle.DashLine))
+            [start for start, _, _ in bases[1:]], pg.mkPen("#000000", width=2, style=Qt.PenStyle.DashLine))
         widget._statistic_caption_axes = {}
         for row, (kind, spans) in enumerate(zip(("wafer", "base", "combined"), (wafers, bases, combined)), 4):
             if spans:
-                widget._statistic_caption_axes[kind] = self._add_caption_axis(widget, spans, row, optional_fields=row == 4)
+                widget._statistic_caption_axes[kind] = self._add_caption_axis(
+                    widget, spans, row, optional_fields=row == 4, show_boundaries=True)
         left = plot.getAxis("left")
         left_width = QFontMetrics(widget.font()).horizontalAdvance("-0." + "0" * self.plot_decimals + "e-00") + 34
         left.setWidth(left_width)
@@ -325,6 +325,8 @@ class WaferStatisticsPage(SequencePage):
         view.setMouseMode(pg.ViewBox.RectMode)
         view.setXRange(.4, len(labels) + .6, padding=0)
         view.enableAutoRange(axis=pg.ViewBox.YAxis)
+        view.sigResized.connect(lambda *_args, target=widget: self._sync_statistic_bar_geometry(target))
+        view.sigXRangeChanged.connect(lambda *_args, target=widget: self._sync_statistic_bar_geometry(target))
         for secondary in secondary_views:
             secondary.setMouseMode(pg.ViewBox.RectMode)
             secondary.setXLink(view)
@@ -333,6 +335,27 @@ class WaferStatisticsPage(SequencePage):
         grid.add_panel(container)
         self.plot_widgets.append(widget)
         self.panel_hosts.append(container)
+        timer = QTimer(widget, interval=0, singleShot=True)
+        timer.timeout.connect(lambda target=widget: self._sync_statistic_bar_geometry(target))
+        timer.start()
+        widget._bar_sync_timer = timer
+
+    def _sync_statistic_bar_geometry(self, widget):
+        """Keep bar width and centre spacing fixed in screen pixels."""
+        view = widget.getViewBox()
+        width = float(view.sceneBoundingRect().width())
+        low, high = view.viewRange()[0]
+        if width <= 1 or high <= low:
+            return
+        per_unit = width / (high - low)
+        bar_width = self.BAR_WIDTH_PIXELS / per_unit
+        bar_step = self.BAR_STEP_PIXELS / per_unit
+        for bar in getattr(widget, "_statistic_bars", ()):
+            offset = getattr(bar, "_statistic_offset", 0.0)
+            bases = getattr(bar, "_statistic_bases", None)
+            if bases is not None:
+                bar.setOpts(x=bases + offset * bar_step)
+            bar.setOpts(width=bar_width)
 
     def expand_layout(self, *_args):
         if self.plot_host is None or not self.plot_widgets:
@@ -384,11 +407,7 @@ class WaferStatisticsPage(SequencePage):
                 compare_values = self.statistic_values(
                     compare_metric, statistic, compare_groups
                 )
-                title = (
-                    f"{panel['statistic_label']} Bias · "
-                    f"{self._legend_label(compare_source, compare_metric)} − "
-                    f"{self._legend_label(source, metric)}"
-                )
+                title = f"{metric} · {panel['statistic_label']} Bias"
                 series.append(dict(_series(
                     title, labels, compare_values - primary_values,
                     line=False, markers=False,
@@ -417,10 +436,7 @@ class WaferStatisticsPage(SequencePage):
                         self._legend_label(owner, name), labels, values,
                         line=False, markers=False,
                     ), color=color))
-                title = (
-                    f"{self._legend_label(source, metric)} · "
-                    f"{panel['statistic_label']}"
-                )
+                title = f"{metric} · {panel['statistic_label']}"
                 y_column = statistic.title()
             plots.append({"sheet": "Wafer Mean and Sigma", "title": title,
                           "kind": "bar", "x": "Wafer", "y": y_column,
@@ -511,8 +527,8 @@ class WaferStatisticsPage(SequencePage):
             max_secondary = max(max_secondary, len(secondary_axes))
             axis.set_title(title, fontsize=base + 1, fontweight="semibold")
             axis.set_ylabel(title, fontsize=max(7, base - 1))
-            axis.set_xticks(x, labels, fontsize=max(6, base - 2))
-            axis.tick_params(axis="x", rotation=35)
+            axis.set_xticks([])
+            axis.tick_params(axis="x", bottom=False, labelbottom=False)
             axis.grid(axis="y", color="#d6d8dc", linewidth=.7)
             axis.set_axisbelow(True)
             if len(bars) > 1:
@@ -520,8 +536,10 @@ class WaferStatisticsPage(SequencePage):
                             ncol=min(3, len(bars)))
             spans = self._bar_caption_spans(primary_groups, comparison_groups, x)
             captions.append((axis, spans))
+            if spans[1]:
+                axis.set_xlim(-.6, len(labels) - .4)
             for start, _, _ in spans[1][1:]:
-                axis.axvline(start, color="#30343b", linestyle="--", linewidth=.8, zorder=0)
+                axis.axvline(start, color="#000000", linestyle="--", linewidth=2, zorder=0)
             for spine in axis.spines.values():
                 spine.set_color("#c9ccd1")
         for axis in axes.flat[len(panels):]:
@@ -532,7 +550,7 @@ class WaferStatisticsPage(SequencePage):
                                     hspace=.52 if classified else .34,
                                     wspace=.36 if max_secondary else .2)
         for axis, layers in captions:
-            offset = 3 * base + 10
+            offset = base + 8
             for layer, spans in enumerate(layers):
                 if spans:
                     self._add_export_caption_row(axis, spans, offset, base, wafer=layer == 0)

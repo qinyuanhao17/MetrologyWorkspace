@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from .data import combined_xy_column, combined_xy_unit, coordinates
 from .reference_merge import compact
 from .file_paths import filesystem_path
 
@@ -31,6 +32,11 @@ def infer_alignment_columns(frame, vendor="Raw"):
     unit = next((unit for unit, suffix in (("mm", "mm"), ("µm", "um"), ("nm", "nm"))
                  if x and y and compact(x).replace('µ','u').replace('μ','u') == "x" + suffix
                  and compact(y).replace('µ','u').replace('μ','u') == "y" + suffix), "")
+    if x is None or y is None:
+        combined = combined_xy_column(frame.columns)
+        if combined is not None:
+            x = y = combined
+            unit = combined_xy_unit(combined)
     pad = find("padname", "pad", "sitename")
     if pad is None and vendor == "KLA":
         pad = find("slot")
@@ -68,12 +74,12 @@ def wafer_row_order(frame, columns, keys):
 
 def coordinate_row_order(frame, columns, basis="field", primary="x", ascending=(True, True)):
     x, y = (columns.field_x, columns.field_y) if basis == "field" else (columns.x, columns.y)
-    if not x or not y or x == y or x not in frame or y not in frame:
+    if not x or not y or (x == y and combined_xy_unit(x) is None) or x not in frame or y not in frame:
         raise ValueError("Choose distinct X and Y columns for sorting.")
-    numeric = frame[[x, y]].apply(pd.to_numeric, errors="coerce").reset_index(drop=True)
-    if not np.isfinite(numeric.to_numpy(float)).all():
+    numeric = coordinates(frame, x, y).reset_index(drop=True)
+    if not np.isfinite(numeric.to_numpy(dtype=float, na_value=np.nan)).all():
         raise ValueError("Sorting coordinates must all be finite numbers; no rows were removed.")
-    sort_columns = [x, y] if primary == "x" else [y, x]
+    sort_columns = ["x", "y"] if primary == "x" else ["y", "x"]
     return [int(row) for rows in wafer_groups(frame, columns).values()
             for row in numeric.iloc[list(rows)].sort_values(sort_columns, ascending=list(ascending), kind="stable").index]
 
@@ -88,8 +94,41 @@ def _field_positions(frame, columns, rows):
     return {tuple(pair): row for pair, row, valid in zip(values, rows, unique) if valid}
 
 
+def linked_row_order(target, anchor, target_columns, anchor_columns, links):
+    """Order rows in the target table using the linked wafers in the anchor table."""
+    if not links:
+        raise ValueError('Link at least one Ref/Raw wafer pair first.')
+    target_groups = wafer_groups(target, target_columns)
+    anchor_groups = wafer_groups(anchor, anchor_columns)
+    by_anchor = {anchor_key: target_key for target_key, anchor_key in links.items()}
+    if len(by_anchor) != len(links) or not links.keys() <= target_groups.keys() or not by_anchor.keys() <= anchor_groups.keys():
+        raise ValueError('Rebuild the one-to-one wafer links before reordering.')
+
+    keys, order = [], []
+    for anchor_key, anchor_rows in anchor_groups.items():
+        if anchor_key not in by_anchor:
+            continue
+        target_key = by_anchor[anchor_key]
+        target_rows = target_groups[target_key]
+        target_fields = _field_positions(target, target_columns, target_rows)
+        anchor_fields = _field_positions(anchor, anchor_columns, anchor_rows)
+        matched = [target_fields[field] for field in anchor_fields if field in target_fields]
+        keys.append(target_key)
+        # Equal-length pairs are compared by row position. Only a full match
+        # can replace that order without shifting ambiguously matched points.
+        if matched and (len(target_rows) != len(anchor_rows) or len(matched) == len(target_rows)):
+            matched_set = set(matched)
+            target_rows = [*matched, *(row for row in target_rows if row not in matched_set)]
+        order.extend(target_rows)
+    for target_key, rows in target_groups.items():
+        if target_key not in links:
+            keys.append(target_key)
+            order.extend(rows)
+    return order, keys
+
+
 def _absolute_xy(label, frame, columns, rows, source_rows):
-    data = frame[[columns.x, columns.y]].iloc[list(rows)].apply(pd.to_numeric, errors="coerce").to_numpy(float)
+    data = coordinates(frame.iloc[list(rows)], columns.x, columns.y).to_numpy(dtype=float, na_value=np.nan)
     invalid = np.flatnonzero(~np.isfinite(data).all(axis=1))
     if len(invalid):
         lines = ', '.join(str(source_rows[rows[i]]) for i in invalid[:5])
@@ -134,7 +173,8 @@ def coordinate_bias(ref, raw, ref_columns, raw_columns, links, *,
     for label, frame, columns in (("Ref", ref, ref_columns), ("Raw", raw, raw_columns)):
         if columns.unit not in scales:
             raise ValueError(f"{label}: choose the coordinate unit (mm, µm or nm).")
-        if not columns.x or not columns.y or columns.x == columns.y or columns.x not in frame or columns.y not in frame:
+        if (not columns.x or not columns.y or (columns.x == columns.y and combined_xy_unit(columns.x) is None)
+                or columns.x not in frame or columns.y not in frame):
             raise ValueError(f"{label}: choose distinct absolute X/Y coordinate columns; Field indices are not physical coordinates.")
     ref_source_rows = list(range(2, len(ref) + 2)) if ref_source_rows is None else ref_source_rows
     raw_source_rows = list(range(2, len(raw) + 2)) if raw_source_rows is None else raw_source_rows
@@ -180,7 +220,7 @@ def aligned_reference_data(ref, raw, raw_columns, results, ref_source_rows, raw_
         'Wafer ID': raw_columns.wafer, 'Lot ID': raw_columns.lot or names.get('lotno'),
         'Tool SN': names.get('toolsn', names.get('toolserialnumber')),
         'PAD Name': raw_columns.pad,
-        'Die Seq': next((names[key] for key in ('dieseq', 'diesequence', 'diesequenceno', 'dieid') if key in names), None),
+        'Die Seq': next((names[key] for key in ('dieseq', 'diesequence', 'diesequenceno', 'dieid', 'seq') if key in names), None),
         'FIELD X': raw_columns.field_x, 'FIELD Y': raw_columns.field_y,
         axes[0]: raw_columns.x, axes[1]: raw_columns.y,
     }
@@ -188,7 +228,7 @@ def aligned_reference_data(ref, raw, raw_columns, results, ref_source_rows, raw_
                            for label, source in metadata.items()}, index=raw_values.index)
     reserved = set(prefix) | set(ref_values)
     identity_aliases = {compact(label) for label in prefix} | {
-        'wafer', 'waferno', 'lot', 'lotno', 'pad', 'diesequence', 'diesequenceno', 'dieid',
+        'wafer', 'waferno', 'lot', 'lotno', 'pad', 'diesequence', 'diesequenceno', 'dieid', 'seq',
     }
     display_names = {}
     for column in ref_values:

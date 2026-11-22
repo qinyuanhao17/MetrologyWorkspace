@@ -194,16 +194,15 @@ class GroupDetailsModel(QAbstractTableModel):
     def _filtered_rows(self):
         rows = self._source_rows
         for column, allowed in self.filters.items():
-            values = self.identities[column]
             rows = tuple(row for row in rows
-                         if values is not None and row < len(values) and values[row] in allowed)
+                         if str(self._value(row, column, Qt.ItemDataRole.DisplayRole)) in allowed)
         return rows
 
     def distinct_values(self, column):
-        values = self.identities[column] if 0 <= column < len(self.identities) else None
-        if values is None:
+        if not 0 <= column < len(self.headers):
             return ()
-        return tuple(sorted({str(values[row]) for row in self._source_rows if row < len(values)},
+        return tuple(sorted({str(self._value(row, column, Qt.ItemDataRole.DisplayRole))
+                             for row in self._source_rows},
                             key=_natural))
 
     def filter_for(self, column):
@@ -230,7 +229,15 @@ class GroupDetailsModel(QAbstractTableModel):
         return self.rows[row]
 
     def refresh(self, *_):
-        if self.rows:
+        if self.filters:
+            rows = self._filtered_rows()
+            if rows != self.rows:
+                self.beginResetModel()
+                self.rows = rows
+                self.endResetModel()
+            elif self.rows:
+                self.dataChanged.emit(self.index(0, 4), self.index(len(self.rows) - 1, 7))
+        elif self.rows:
             self.dataChanged.emit(self.index(0,4),self.index(len(self.rows)-1,7))
 
     def rowCount(self, parent=QModelIndex()):
@@ -245,17 +252,19 @@ class GroupDetailsModel(QAbstractTableModel):
                 return self.headers[section]
             return str((self.source_row(section) if self.number_source_rows else section) + 1)
 
-    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
-        if not index.isValid():
-            return None
-        row = self.source_row(index.row())
-        if index.column() < 4:
+    def _value(self, row, column, role=Qt.ItemDataRole.DisplayRole):
+        if column < 4:
             if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole, Qt.ItemDataRole.ToolTipRole):
-                values = self.identities[index.column()]
+                values = self.identities[column]
                 return "" if values is None or row >= len(values) else values[row]
             return None
         model = self.controls.order_model
-        return model.data(model.index(row+1,index.column()-4),role)
+        return model.data(model.index(row + 1, column - 4), role)
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if not index.isValid():
+            return None
+        return self._value(self.source_row(index.row()), index.column(), role)
 
     def flags(self, index):
         value = super().flags(index)
@@ -342,14 +351,15 @@ class GroupSettingsDialog(QDialog):
             classification.addWidget(widget)
         self.set_flags_button = QPushButton('Set Test Flag…')
         flag_editor = getattr(owner, 'open_test_flags', None)
-        if (getattr(owner, 'workspace_type', None) == 'match_workbook'
-                and callable(getattr(controls, 'test_flag_values', None))
+        if callable(flag_editor) and getattr(owner, 'workspace_type', None) == 'spectra_viewer':
+            # Spectra Viewer owns flag definitions and assignments globally;
+            # Match Workbook uses the selected rows in this dialog instead.
+            self.flag_menu = None
+            self.set_flags_button.clicked.connect(flag_editor)
+        elif (callable(getattr(controls, 'test_flag_values', None))
                 and callable(getattr(controls, 'set_test_flags', None))):
             self.flag_menu = None
             self.set_flags_button.clicked.connect(self.choose_test_flag)
-        elif callable(flag_editor):
-            self.flag_menu = None
-            self.set_flags_button.clicked.connect(flag_editor)
         else:
             self.flag_menu = None
             self.set_flags_button.setEnabled(False)
@@ -410,7 +420,7 @@ class GroupSettingsDialog(QDialog):
         if model is None:
             model = GroupDetailsModel(self.controls, sources, self.table, number_source_rows=self.number_source_rows)
             self.table.setModel(model)
-            self.header_filters = ExcelHeaderFilters(self.table, range(4))
+            self.header_filters = ExcelHeaderFilters(self.table, range(len(GroupDetailsModel.headers)))
             attach_copy_feedback(self.table)
             for column,width in enumerate((150,140,130,70,80,110,110)):
                 self.table.setColumnWidth(column,width)
