@@ -74,32 +74,32 @@ QToolButton#newReminder:disabled { background: #e4e4e7; color: #9a9aa0; }
 QPushButton#reminderCompleted { background: #f4f4f5; border: 1px solid transparent; border-radius: 7px; color: #6b6b70; padding: 6px 10px; font-weight: 500; }
 QPushButton#reminderCompleted:hover, QPushButton#reminderCompleted:focus { border-color: #93c5fd; }
 QPushButton#reminderCompleted:checked { color: #1d4ed8; background: #eff6ff; }
-QDialog#reminderDialog { background: #f7f7f8; }
-QDialog#reminderDialog QDateEdit, QDialog#reminderDialog QTimeEdit, QDialog#reminderDialog QPlainTextEdit { background: #ffffff; color: #18181b; border: 1px solid #d9d9de; border-radius: 6px; padding: 6px 10px; min-height: 20px; selection-background-color: #eff6ff; selection-color: #1d4ed8; }
-QDialog#reminderDialog QDateEdit:focus, QDialog#reminderDialog QTimeEdit:focus, QDialog#reminderDialog QPlainTextEdit:focus { border-color: #2563eb; }
-QDialog#reminderDialog QDateEdit:disabled, QDialog#reminderDialog QTimeEdit:disabled { background: #f2f2f3; color: #9a9aa0; border-color: #e4e4e7; }
-QDialog#reminderDialog QDateEdit { padding-right: 38px; }
-QDialog#reminderDialog QTimeEdit { padding-right: 34px; }
-QDialog#reminderDialog QDateEdit::drop-down { subcontrol-origin: border; subcontrol-position: top right; width: 30px; border-left: 1px solid #e4e4e7; border-top-right-radius: 6px; border-bottom-right-radius: 6px; background: #f4f4f5; }
-QDialog#reminderDialog QDateEdit::drop-down:hover { background: #eff6ff; }
-QDialog#reminderDialog QDateEdit::down-arrow { image: url("__ARROW_DOWN__"); width: 10px; height: 6px; }
-QDialog#reminderDialog QTimeEdit::up-button, QDialog#reminderDialog QTimeEdit::down-button { subcontrol-origin: border; width: 26px; border: none; border-left: 1px solid #e4e4e7; background: #f4f4f5; }
-QDialog#reminderDialog QTimeEdit::up-button { subcontrol-position: top right; border-top-right-radius: 6px; }
-QDialog#reminderDialog QTimeEdit::down-button { subcontrol-position: bottom right; border-bottom-right-radius: 6px; }
-QDialog#reminderDialog QTimeEdit::up-arrow { image: url("__ARROW_UP__"); width: 9px; height: 6px; }
-QDialog#reminderDialog QTimeEdit::down-arrow { image: url("__ARROW_DOWN__"); width: 9px; height: 6px; }
-QCalendarWidget#reminderCalendar { background: #ffffff; color: #18181b; border: 1px solid #d9d9de; selection-background-color: #2563eb; selection-color: #ffffff; }
-QCalendarWidget#reminderCalendar QWidget#qt_calendar_navigationbar { background: #f7f7f8; border-bottom: 1px solid #e4e4e7; }
-QCalendarWidget#reminderCalendar QToolButton { background: transparent; color: #18181b; border: 1px solid transparent; border-radius: 6px; padding: 5px 6px; min-width: 24px; min-height: 24px; font-weight: 600; }
-QCalendarWidget#reminderCalendar QToolButton:hover, QCalendarWidget#reminderCalendar QToolButton:pressed { background: #eff6ff; border-color: #bfdbfe; }
-QCalendarWidget#reminderCalendar QToolButton#qt_calendar_monthbutton { padding-right: 20px; }
-QCalendarWidget#reminderCalendar QToolButton#qt_calendar_prevmonth { qproperty-icon: url("__ARROW_LEFT__"); }
-QCalendarWidget#reminderCalendar QToolButton#qt_calendar_nextmonth { qproperty-icon: url("__ARROW_RIGHT__"); }
-QCalendarWidget#reminderCalendar QToolButton::menu-indicator { image: url("__ARROW_DOWN__"); width: 10px; height: 6px; subcontrol-position: right center; subcontrol-origin: padding; }
-QCalendarWidget#reminderCalendar QSpinBox { background: #ffffff; color: #18181b; border: 1px solid #93c5fd; padding: 3px; min-height: 24px; }
-QCalendarWidget#reminderCalendar QTableView { background: #ffffff; alternate-background-color: #ffffff; color: #18181b; border: none; selection-background-color: #2563eb; selection-color: #ffffff; outline: none; }
-QCalendarWidget#reminderCalendar QTableView::item { padding: 0; border: none; }
-QCalendarWidget#reminderCalendar QTableView::item:selected { background: #2563eb; color: #ffffff; }
+QDialog#reminderDialog, QDialog#workbookNameDialog { background: #f7f7f8; }
+QDialog#reminderDialog QDateEdit, QDialog#reminderDialog QTimeEdit, QDialog#reminderDialog QPlainTextEdit, QDialog#workbookNameDialog QDateEdit, QDialog#workbookNameDialog QTimeEdit { background: #ffffff; color: #18181b; border: 1px solid #d9d9de; border-radius: 6px; padding: 6px 10px; min-height: 20px; selection-background-color: #eff6ff; selection-color: #1d4ed8; }
+QDialog#reminderDialog QDateEdit:focus, QDialog#reminderDialog QTimeEdit:focus, QDialog#reminderDialog QPlainTextEdit:focus, QDialog#workbookNameDialog QDateEdit:focus, QDialog#workbookNameDialog QTimeEdit:focus { border-color: #2563eb; }
+QDialog#reminderDialog QDateEdit:disabled, QDialog#reminderDialog QTimeEdit:disabled, QDialog#workbookNameDialog QDateEdit:disabled, QDialog#workbookNameDialog QTimeEdit:disabled { background: #f2f2f3; color: #9a9aa0; border-color: #e4e4e7; }
+QDialog#reminderDialog QDateEdit, QDialog#workbookNameDialog QDateEdit { padding-right: 38px; }
+QDialog#reminderDialog QTimeEdit, QDialog#workbookNameDialog QTimeEdit { padding-right: 34px; }
+QDialog#reminderDialog QDateEdit::drop-down, QDialog#workbookNameDialog QDateEdit::drop-down { subcontrol-origin: border; subcontrol-position: top right; width: 30px; border-left: 1px solid #e4e4e7; border-top-right-radius: 6px; border-bottom-right-radius: 6px; background: #f4f4f5; }
+QDialog#reminderDialog QDateEdit::drop-down:hover, QDialog#workbookNameDialog QDateEdit::drop-down:hover { background: #eff6ff; }
+QDialog#reminderDialog QDateEdit::down-arrow, QDialog#workbookNameDialog QDateEdit::down-arrow { image: url("__ARROW_DOWN__"); width: 10px; height: 6px; }
+QDialog#reminderDialog QTimeEdit::up-button, QDialog#reminderDialog QTimeEdit::down-button, QDialog#workbookNameDialog QTimeEdit::up-button, QDialog#workbookNameDialog QTimeEdit::down-button { subcontrol-origin: border; width: 26px; border: none; border-left: 1px solid #e4e4e7; background: #f4f4f5; }
+QDialog#reminderDialog QTimeEdit::up-button, QDialog#workbookNameDialog QTimeEdit::up-button { subcontrol-position: top right; border-top-right-radius: 6px; }
+QDialog#reminderDialog QTimeEdit::down-button, QDialog#workbookNameDialog QTimeEdit::down-button { subcontrol-position: bottom right; border-bottom-right-radius: 6px; }
+QDialog#reminderDialog QTimeEdit::up-arrow, QDialog#workbookNameDialog QTimeEdit::up-arrow { image: url("__ARROW_UP__"); width: 9px; height: 6px; }
+QDialog#reminderDialog QTimeEdit::down-arrow, QDialog#workbookNameDialog QTimeEdit::down-arrow { image: url("__ARROW_DOWN__"); width: 9px; height: 6px; }
+QCalendarWidget#appDateCalendar { background: #ffffff; color: #18181b; border: 1px solid #d9d9de; selection-background-color: #2563eb; selection-color: #ffffff; }
+QCalendarWidget#appDateCalendar QWidget#qt_calendar_navigationbar { background: #f7f7f8; border-bottom: 1px solid #e4e4e7; }
+QCalendarWidget#appDateCalendar QToolButton { background: transparent; color: #18181b; border: 1px solid transparent; border-radius: 6px; padding: 5px 6px; min-width: 24px; min-height: 24px; font-weight: 600; }
+QCalendarWidget#appDateCalendar QToolButton:hover, QCalendarWidget#appDateCalendar QToolButton:pressed { background: #eff6ff; border-color: #bfdbfe; }
+QCalendarWidget#appDateCalendar QToolButton#qt_calendar_monthbutton { padding-right: 20px; }
+QCalendarWidget#appDateCalendar QToolButton#qt_calendar_prevmonth { qproperty-icon: url("__ARROW_LEFT__"); }
+QCalendarWidget#appDateCalendar QToolButton#qt_calendar_nextmonth { qproperty-icon: url("__ARROW_RIGHT__"); }
+QCalendarWidget#appDateCalendar QToolButton::menu-indicator { image: url("__ARROW_DOWN__"); width: 10px; height: 6px; subcontrol-position: right center; subcontrol-origin: padding; }
+QCalendarWidget#appDateCalendar QSpinBox { background: #ffffff; color: #18181b; border: 1px solid #93c5fd; padding: 3px; min-height: 24px; }
+QCalendarWidget#appDateCalendar QTableView { background: #ffffff; alternate-background-color: #ffffff; color: #18181b; border: none; selection-background-color: #2563eb; selection-color: #ffffff; outline: none; }
+QCalendarWidget#appDateCalendar QTableView::item { padding: 0; border: none; }
+QCalendarWidget#appDateCalendar QTableView::item:selected { background: #2563eb; color: #ffffff; }
 QDialog#reminderDialog QPushButton#primary { background: #2563eb; color: #ffffff; border-color: #2563eb; }
 QDialog#reminderDialog QPushButton#primary:hover { background: #1d4ed8; border-color: #1d4ed8; }
 QDialog#reminderDialog QPushButton#primary:pressed { background: #1e40af; border-color: #1e40af; }
@@ -149,7 +149,16 @@ QPushButton#subtle { padding: 5px 9px; font-size: 12px; }
 QPushButton#compareRemove { padding: 0; font-size: 16px; }
 QPushButton#link { background: transparent; border: none; color: #2563eb; padding: 3px 5px; font-size: 12px; }
 QPushButton#link:hover { background: #e8eefb; }
-QPushButton#groupPicker { text-align: left; background: #ffffff; border-color: #c4c4cb; padding: 8px 11px; }
+QPushButton#groupPicker, QComboBox#diePicker {
+  text-align: left; background: #ffffff; border: 1px solid #c4c4cb; border-radius: 7px;
+  padding: 8px 32px 8px 11px; min-height: 18px; max-height: 18px; font-weight: 500;
+}
+QPushButton#groupPicker, QComboBox#diePicker { color: #18181b; }
+QPushButton#groupPicker:hover, QComboBox#diePicker:hover { border-color: #94949e; }
+QPushButton#groupPicker:focus, QComboBox#diePicker:focus { border-color: #2563eb; }
+QPushButton#groupPicker:disabled, QComboBox#diePicker:disabled { color: #74747d; }
+QComboBox#diePicker::down-arrow { image: none; width: 0; height: 0; }
+QComboBox#diePicker::drop-down { subcontrol-origin: border; subcontrol-position: top right; width: 24px; }
 QMenu { background: #ffffff; border: 1px solid #d9d9de; padding: 4px; }
 QMenu::item { padding: 8px 35px 8px 12px; }
 QMenu::item:selected { background: #ececee; }

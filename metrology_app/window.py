@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtWidgets import QApplication
 
 from .data import inspect_table, read_table
+from .widgets import DieColumnComboBox, WaferColumnButton
 from .diagnostics import get_logger
 from .sheet import (
     DuplicateHeaderBanner, SheetModel, SheetView, clipboard_rows, column_letter, table_size_text,
@@ -108,6 +109,47 @@ class CheckMenu(QMenu):
             event.accept()
         else:
             super().mouseReleaseEvent(event)
+
+
+class WaferSelectionPanel(QFrame):
+    def __init__(self, *, include_die=False):
+        super().__init__(objectName="panel")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 16, 18, 14)
+        layout.setSpacing(10)
+        heading = QHBoxLayout()
+        heading.addWidget(help_title_label("Wafers", "Checked metadata headers form one measurement identity."))
+        heading.addStretch()
+        self.all_button = QPushButton("All", objectName="link")
+        self.none_button = QPushButton("None", objectName="link")
+        heading.addWidget(self.all_button)
+        heading.addWidget(self.none_button)
+        layout.addLayout(heading)
+        self.group_picker = WaferColumnButton("Select grouping columns", objectName="groupPicker")
+        self.group_menu = CheckMenu(self.group_picker)
+        self.group_picker.setMenu(self.group_menu)
+        self.group_menu.aboutToShow.connect(lambda: self.group_menu.setMinimumWidth(self.group_picker.width()))
+        layout.addWidget(self.group_picker)
+        if include_die:
+            self.die_picker = DieColumnComboBox()
+            layout.addWidget(self.die_picker)
+        record_row = QHBoxLayout()
+        record_row.addWidget(label("Records >", "muted"))
+        self.min_records = QSpinBox()
+        self.min_records.setRange(0, 1_000_000)
+        self.min_records.setToolTip(
+            "Measurement sets at or below this count are hidden and unchecked. 0 disables the filter."
+        )
+        record_row.addWidget(self.min_records)
+        record_row.addStretch(1)
+        layout.addLayout(record_row)
+        self.wafer_list = choices(["Wafer ID", "Records"])
+        self.wafer_list.setUniformRowHeights(False)
+        self.wafer_list.setHeaderHidden(True)
+        self.wafer_list.setMinimumHeight(170)
+        layout.addWidget(self.wafer_list, 1)
+        self.wafer_count = label("No Wafers detected", "hint")
+        layout.addWidget(self.wafer_count)
 
 
 class MainWindow(QMainWindow):
@@ -723,37 +765,40 @@ class MainWindow(QMainWindow):
         layout.addLayout(heading)
 
     def build_wafer_card(self):
-        card = QFrame(objectName="panel")
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(18, 16, 18, 14)
-        layout.setSpacing(10)
-        self.wafer_list = choices(["Wafer ID", "Records"])
-        self.wafer_list.setUniformRowHeights(False)
-        self.wafer_list.setHeaderHidden(True)
-        self.wafer_list.setMinimumHeight(170)
-        self.card_header(layout, "Wafers", "Checked metadata headers form one measurement identity.", self.wafer_list)
-        self.group_picker = QPushButton("Select grouping columns", objectName="groupPicker")
-        self.group_menu = CheckMenu(self.group_picker)
-        self.group_picker.setMenu(self.group_menu)
-        self.group_menu.aboutToShow.connect(lambda: self.group_menu.setMinimumWidth(self.group_picker.width()))
+        include_die = self.workspace_type in ("dynamic", "correlation_trend")
+        card = WaferSelectionPanel(include_die=include_die)
+        self.group_picker, self.group_menu = card.group_picker, card.group_menu
+        self.wafer_list, self.wafer_count = card.wafer_list, card.wafer_count
+        self.min_records = card.min_records
         self.group_checks = {}
-        layout.addWidget(self.group_picker)
-        record_row = QHBoxLayout()
-        record_row.addWidget(label("Records >", "muted"))
-        self.min_records = QSpinBox()
-        self.min_records.setRange(0, 1_000_000)
-        self.min_records.setToolTip(
-            "Only measurement sets with more records than this stay usable; "
-            "smaller sets are hidden and unchecked. 0 disables the filter.")
+        card.all_button.clicked.connect(lambda: self.check_all(self.wafer_list, True))
+        card.none_button.clicked.connect(lambda: self.check_all(self.wafer_list, False))
         self.min_records.valueChanged.connect(self.apply_record_filter)
-        record_row.addWidget(self.min_records)
-        record_row.addStretch(1)
-        layout.addLayout(record_row)
-        layout.addWidget(self.wafer_list, 1)
         self.wafer_list.itemChanged.connect(self.update_plan)
-        self.wafer_count = label("No Wafers detected", "hint")
-        layout.addWidget(self.wafer_count)
+        if include_die:
+            self.die_picker = card.die_picker
+            self.die_picker.currentIndexChanged.connect(self._die_picker_changed)
         return card
+
+    def _add_die_picker(self, layout):
+        picker = DieColumnComboBox()
+        layout.addWidget(picker)
+        picker.currentIndexChanged.connect(self._die_picker_changed)
+        return picker
+
+    def _die_picker_changed(self):
+        self.update_plan()
+        if hasattr(self, "document"):
+            self.document.identity_timer.start()
+
+    @staticmethod
+    def _populate_die_picker(picker, columns):
+        picker.set_columns(columns)
+
+    @staticmethod
+    def _restore_die_picker(picker, column):
+        with QSignalBlocker(picker):
+            picker.setCurrentIndex(max(0, picker.findData(column)))
 
     def build_parameter_card(self):
         card = QFrame(objectName="panel")
@@ -809,13 +854,16 @@ class MainWindow(QMainWindow):
 
     def selection_state(self):
         """Return the user choices that remain meaningful across table reloads."""
-        return {
+        state = {
             "wafers": tuple(self.selected(self.wafer_list)),
             "metrics": tuple(self.selected(self.parameter_list)),
             "map_draw": self.plot_page.draw_state(),
             "radius_draw": self.radius_page.draw_state(),
             "min_records": int(self.min_records.value()) if hasattr(self, "min_records") else 0,
         }
+        if hasattr(self, "die_picker") and self.die_picker.currentData() is not None:
+            state["die_column"] = self.die_picker.currentData()
+        return state
 
     @staticmethod
     def _set_checked_values(tree, values, *, keep_current_if_missing=False):
@@ -851,6 +899,8 @@ class MainWindow(QMainWindow):
             self.parameter_list,
             state.get("metrics", ()),
         )
+        if hasattr(self, "die_picker"):
+            self._restore_die_picker(self.die_picker, state.get("die_column"))
 
     def restore_selection(self, state):
         """Restore surviving wafer/parameter choices and refresh every plot page."""
@@ -932,6 +982,9 @@ class MainWindow(QMainWindow):
         self.update_group_picker()
         self.group_picker.setEnabled(bool(columns))
 
+    def _measurement_frame(self, frame):
+        return frame
+
     def recognize(self):
         self.refresh_timer.stop()
         reset = self._reset_selection
@@ -942,7 +995,7 @@ class MainWindow(QMainWindow):
             frame = self.model._analysis_view()
             # The table keeps the loaded values; the Card option only changes
             # what the plots and their statistics are computed from.
-            frame = self.carded_frame(frame)
+            frame = self.carded_frame(self._measurement_frame(frame))
             from .input_planning import prepare_measurement_choices
             prepared = getattr(self, "_prepared_recognition", None)
             if (reset and prepared is not None
@@ -1007,6 +1060,8 @@ class MainWindow(QMainWindow):
         finally:
             self.wafer_list.blockSignals(False)
             self.parameter_list.blockSignals(False)
+        if hasattr(self, "die_picker"):
+            self._populate_die_picker(self.die_picker, self._frame.columns)
         pending_selection = self._pending_selection_state
         self._pending_selection_state = None
         if pending_selection is not None:
@@ -1340,6 +1395,8 @@ class MainWindow(QMainWindow):
         self.selection = {"wafers": wafers, "metrics": metrics, "wafer_column": primary,
                           "groups": {m.key: m.rows for m in self.measurements},
                           "labels": {m.key: m.label for m in self.measurements}}
+        if hasattr(self, "die_picker"):
+            self.selection["die_column"] = self.die_picker.currentData()
         allowed = self.participating_positions(self._frame)
         self.selection["groups"] = {key: tuple(row for row in rows if row in allowed)
                                     for key, rows in self.selection["groups"].items()}

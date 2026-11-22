@@ -17,12 +17,13 @@ from PyQt6.QtWidgets import (
 
 from .appearance import help_title_label
 from .correlation_page import CorrelationPage
-from .data import inspect_table, read_table
+from .data import die_sequence_column, inspect_table, read_table
 from .measurements import compare_wafer_inputs, default_identity_columns, detect_measurements
 from .match_groups import GroupPlan, row_ids, participation_source_keys
 from .sequence_page import SequencePage
 from .wafer_statistics_page import WaferStatisticsPage
 from .sheet import DuplicateHeaderBanner, SheetModel, SheetView, clipboard_rows
+from .widgets import WaferColumnButton
 from .window import (
     CheckMenu, MainWindow as DataWorkspaceWindow, choices, label,
     parameter_checked_by_default,
@@ -427,7 +428,7 @@ class CorrelationWindow(DataWorkspaceWindow):
             self._group_plan = cached[2]
             return
         self._group_plan = None
-        raw = self.raw_model.frame()
+        raw = self._measurement_frame(self.raw_model.frame())
         if (list(row_ids(raw)) != context["identities"] or
                 ("provenance" in context and list(participation_source_keys(raw)) != context["provenance"])):
             self._match_groups = None
@@ -490,6 +491,26 @@ class CorrelationWindow(DataWorkspaceWindow):
         self._reference_excluded = set(excluded)
         self._reference_selection_view = deepcopy(view)
         super().restore_workspace(snapshot)
+
+    def _reference_follows_raw_die(self):
+        return bool(
+            self._copy_reference_from_wkb and self._copy_from_wkb
+            and self._workbook_reference_rows and not self._independent_reference_rows()
+        )
+
+    def _sync_reference_die_picker(self):
+        picker = self.reference_die_picker
+        if self._reference_follows_raw_die():
+            raw_text = self.die_picker.currentText() or "Auto"
+            text = f"Raw · {raw_text}"
+            if picker.currentText() != text:
+                with QSignalBlocker(picker):
+                    picker.clear()
+                    picker.addItem(text, None)
+            picker.setEnabled(False)
+        elif not picker.isEnabled():
+            reference = _available_source_frame(self.reference_model)
+            self._populate_die_picker(picker, reference.columns)
 
     def _independent_reference_rows(self):
         if not hasattr(self, "reference_model"):
@@ -906,7 +927,7 @@ class CorrelationWindow(DataWorkspaceWindow):
             "Checked metadata headers form one Reference measurement identity.",
             self.reference_wafer_list,
         )
-        self.reference_group_picker = QPushButton(
+        self.reference_group_picker = WaferColumnButton(
             "Select grouping columns", objectName="groupPicker"
         )
         self.reference_group_menu = CheckMenu(self.reference_group_picker)
@@ -918,6 +939,7 @@ class CorrelationWindow(DataWorkspaceWindow):
         )
         self.reference_group_checks = {}
         layout.addWidget(self.reference_group_picker)
+        self.reference_die_picker = self._add_die_picker(layout)
         layout.addWidget(self.reference_wafer_list, 1)
         self.reference_wafer_list.itemChanged.connect(self.update_plan)
         self.reference_wafer_count = label("No Wafers detected", "hint")
@@ -1051,6 +1073,8 @@ class CorrelationWindow(DataWorkspaceWindow):
                             for index in range(self.reference_parameter_list.topLevelItemCount())
                             if self.reference_parameter_list.topLevelItem(index).data(0, Qt.ItemDataRole.UserRole + 1)}
         previous_groups = self._reference_group_columns()
+        if not self._reference_follows_raw_die():
+            self._populate_die_picker(self.reference_die_picker, frame.columns)
         detected_wafer, counts, metrics = inspect_table(frame)
         # A newly pasted Wafer field gets useful defaults. An existing field's
         # explicit grouping choice (including none) remains authoritative even
@@ -1307,7 +1331,7 @@ class CorrelationWindow(DataWorkspaceWindow):
         """Return independent Ref/Raw choices plus both page draw states."""
         if not hasattr(self, "reference_wafer_list"):
             return super().selection_state()
-        return {
+        state = {
             "source_parameter_names": True,
             "reference_column_names": True,
             "reference": {
@@ -1330,6 +1354,10 @@ class CorrelationWindow(DataWorkspaceWindow):
             "mean_sigma_axis_mode": self.wafer_statistics_page.axis_mode_value(),
             "plot_decimal_places": self.plot_decimal_places.value(),
         }
+        for source, picker in (("reference", self.reference_die_picker), ("raw", self.die_picker)):
+            if picker.currentData() is not None:
+                state[source]["die_column"] = picker.currentData()
+        return state
 
     def _apply_selection_state(self, state):
         """Apply source choices without publishing a plan or drawing a page."""
@@ -1341,6 +1369,8 @@ class CorrelationWindow(DataWorkspaceWindow):
             return
         reference = state.get("reference", {})
         raw = state.get("raw", {})
+        self._restore_die_picker(self.reference_die_picker, reference.get("die_column"))
+        self._restore_die_picker(self.die_picker, raw.get("die_column"))
         self._set_checked_values(
             self.reference_wafer_list,
             reference.get("wafers", ()),
@@ -1438,7 +1468,7 @@ class CorrelationWindow(DataWorkspaceWindow):
         self.wafer_warning.setVisible(bool(warnings))
 
     def _rebuild_source_analysis(self):
-        raw_analysis = _available_source_frame(self.raw_model)
+        raw_analysis = self._measurement_frame(_available_source_frame(self.raw_model))
         ref_input = _available_source_frame(self.reference_model)
         self._refresh_wafer_warning(ref_input, raw_analysis)
         # A value-only Ref may become row-aligned after ordinary grid edits.
@@ -1471,12 +1501,12 @@ class CorrelationWindow(DataWorkspaceWindow):
         )
         self._workbook_sources = tuple(source for source in (
             {"name": "Reference", "color": REFERENCE_COLOR,
-             "die_column": _first_column(reference, IDENTITY_COLUMNS[-1][1]),
+             "die_column": die_sequence_column(reference.columns),
              "identity_columns": {aliases[0]: _first_column(reference, aliases)
                                   for _target, aliases in IDENTITY_COLUMNS[:3]},
              "rows": tuple(range(split)), "keys": reference_keys},
             {"name": "Raw Data", "color": RAW_COLOR,
-             "die_column": _first_column(raw_analysis, IDENTITY_COLUMNS[-1][1]),
+             "die_column": die_sequence_column(raw_analysis.columns),
              "identity_columns": {aliases[0]: _first_column(raw_analysis, aliases)
                                   for _target, aliases in IDENTITY_COLUMNS[:3]},
              "rows": tuple(range(split, len(self._analysis_frame))),
@@ -1507,6 +1537,8 @@ class CorrelationWindow(DataWorkspaceWindow):
         if self._restoring_source_tables or self._workbook_sources is True:
             return  # No provisional selection/plots between the two table loads.
         self._refresh_table_projection()
+        if hasattr(self, "reference_die_picker"):
+            self._sync_reference_die_picker()
         if not self._workbook_sources:
             super().update_plan()
             return
@@ -1538,6 +1570,18 @@ class CorrelationWindow(DataWorkspaceWindow):
         ) or (
             source["name"] == "Raw Data" and selected_raw_keys and raw_metrics
         ))
+        chosen_dies = {"Reference": self.reference_die_picker.currentData(), "Raw Data": self.die_picker.currentData()}
+        raw_source = next((source for source in self._workbook_sources if source["name"] == "Raw Data"), None)
+        paired = self._reference_follows_raw_die() and raw_source is not None
+        plot_sources = []
+        for source in sources:
+            die_source = raw_source if paired and source["name"] == "Reference" else source
+            plot_sources.append({
+                **source,
+                "die_column": chosen_dies[die_source["name"]] or die_source["die_column"],
+                "die_rows": die_source["rows"],
+            })
+        sources = tuple(plot_sources)
         labels = {
             ("Reference", measurement.key):
             f"Reference · {measurement.label}"

@@ -37,6 +37,7 @@ from PyQt6.QtWidgets import (
 
 from .appearance import fit_window_to_screen, help_title_label
 from .cdsem1 import merge_cdsem1
+from .reference_alignment import aligned_raw_analysis_frame
 from .reference_merge import merge, scan_reference_files
 from .reference_input import SOURCE_EXTENSIONS
 from .reference_metadata import (BATCH_SUMMARY, find_output_summary, frame_metadata, measurement_csv_path,
@@ -216,6 +217,8 @@ class ReferenceSummaryWindow(QMainWindow):
         from .reference_analysis_ui import ReferenceAnalysisPages
         self.document = WkbDocument(self)
         self.analysis = ReferenceAnalysisPages(self.tabs, self)
+        for picker in (self.analysis.reference_die_picker, self.analysis.die_picker):
+            picker.currentIndexChanged.connect(lambda _: self.document.identity_timer.start())
         self.groups_menu = self.menuBar().addMenu("Groups")
         for action in self.analysis.display_options.menu.actions():
             self.groups_menu.addAction(action)
@@ -309,7 +312,7 @@ class ReferenceSummaryWindow(QMainWindow):
         state = self.alignment._dataset.data_selection or {}
         allowed, excluded = set(), set()
         if inputs is not None:
-            raw = inputs[1]
+            raw = aligned_raw_analysis_frame(inputs[1], inputs[4])
             allowed = set(participation_rows(raw, state))
             if len(allowed) < len(raw):
                 excluded = {key for row, key in enumerate(participation_source_keys(raw)) if row not in allowed}
@@ -325,7 +328,8 @@ class ReferenceSummaryWindow(QMainWindow):
         from .match_groups import GroupPlan
 
         dataset = self.alignment._dataset
-        reference, raw, _, _ = self._aligned_inputs
+        reference, raw, _, _, metadata = self._aligned_inputs
+        raw = aligned_raw_analysis_frame(raw, metadata)
         try:
             plan = GroupPlan(raw, state={'data_selection': dataset.data_selection}, reference=reference)
         except ValueError as error:
@@ -343,7 +347,8 @@ class ReferenceSummaryWindow(QMainWindow):
 
         if self._aligned_inputs is None:
             return set()
-        raw = self._aligned_inputs[1]
+        _, raw, _, _, metadata = self._aligned_inputs
+        raw = aligned_raw_analysis_frame(raw, metadata)
         dataset = self.alignment._dataset
         state = dataset.data_selection or {}
         excluded = set(state.get('excluded', ()))
@@ -565,7 +570,7 @@ class ReferenceSummaryWindow(QMainWindow):
         index = picker.findData(str(path))
         if index >= 0:
             picker.setCurrentIndex(index)
-        elif path.suffix.casefold() == '.html':
+        elif path.suffix.casefold() in ('.html', '.htm'):
             try:
                 self._show_html_summary(path)
             except (OSError, UnicodeError) as error:
@@ -937,9 +942,18 @@ class ReferenceSummaryWindow(QMainWindow):
             QDesktopServices.openUrl(QUrl.fromLocalFile(directory))
 
     def open_output_file(self):
-        if item := self.output_list.currentItem():
-            path = item.data(Qt.ItemDataRole.UserRole)
+        item = self.output_list.currentItem()
+        if item is None:
+            return
+        path = item.data(Qt.ItemDataRole.UserRole)
+        suffix = path.suffix.casefold()
+        if suffix in ('.html', '.htm'):
+            self._select_listed_output(item)
+            self.tabs.setCurrentIndex(0)
+        elif suffix in ('.csv', '.xlsx', '.txt'):
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+        else:
+            self.statusBar().showMessage("This file type cannot be opened from Reference Summary.", 10000)
 
     def closeEvent(self, event):
         if self.worker is not None and self.worker.isRunning():

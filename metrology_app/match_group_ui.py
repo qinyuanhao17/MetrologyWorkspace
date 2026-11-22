@@ -1351,8 +1351,7 @@ def set_group_axes(plot, result, data, *, show_wafers=None):
             wafer_spans.append((offset + .5, end + .5, "\n".join(labels)))
             wafer_tooltips.append("\n".join(detail))
             offset = end
-    from .data import die_sequence_column
-    die_column = die_sequence_column(plan.raw.columns)
+    die_column = result.die_column
     # Only this column is needed. Reading heterogeneous DataFrame rows here
     # rebuilds a Series for every plotted point, repeated across all panels.
     die_values = plan.raw[die_column].to_numpy() if die_column else None
@@ -1548,8 +1547,7 @@ def draw_group_trend(plot, result, parameter, key="all", card_mode="raw", *, gro
             offset += len(span["rows"])
             previous_group = groups[offset - 1]
     plot._group_boundaries = boundaries
-    from .data import die_sequence_column
-    die_column = die_sequence_column(plan.raw.columns)
+    die_column = result.die_column
     rows = data["Source row"].tolist()
     plot.set_point_rows(reference.scatter, rows)
     plot.set_point_rows(trend.scatter, rows)

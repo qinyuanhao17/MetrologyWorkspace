@@ -347,13 +347,14 @@ class ReferenceAlignmentTests(unittest.TestCase):
             'WaferID': ['R1', 'R1', 'R1', 'R2'],
             'FIELD X': [2, 0, 1, 0], 'FIELD Y': [0] * 4,
             'X(mm)': [20, 0, 10, 99], 'Y(mm)': [0] * 4,
+            'Die Seq': [80, 81, 82, 83],
             'CD': ['002.00', '000.00', '001.00', '999.00'],
             'Depth': ['12', '10', '11', '99'],
         }))
         alignment.raw.set_frame(pd.DataFrame({
             'Wafer ID': ['D1', 'D2', 'D1', 'D1'],
             'Lot ID': ['L'] * 4, 'Tool SN': ['T'] * 4, 'PAD Name': ['P'] * 4,
-            'Seq': ['02', '01', '03', '01'],
+            'Seq': ['02', '01', '03', '01'], 'Site Order': [30, 98, 10, 20],
             'FIELD X': [1, 0, 2, 0], 'FIELD Y': [0] * 4,
             'X(mm)': ['X12', 'X99', 'X23', 'X1'], 'Y(mm)': ['Y1', 'Y99', 'Y2', 'Y3'],
             'CD': ['7.10', '999', '8.20', '6.00'], 'Width': ['21', '99', '22', '20'],
@@ -375,13 +376,15 @@ class ReferenceAlignmentTests(unittest.TestCase):
                          ['4. Ref Data', '5. Raw Data', '6. Correlation', '7. Trend', '8. Ref WaferMap', '9. Ref Radius Plot'])
         data = analysis.reference_model.document_frame()
         raw_data = analysis.raw_model.document_frame()
-        self.assertEqual(list(data.columns[:9]), ['Wafer ID', 'Lot ID', 'Tool SN', 'PAD Name',
+        self.assertEqual(data.columns.tolist()[:9], ['Wafer ID', 'Lot ID', 'Tool SN', 'PAD Name',
                          'Die Seq', 'FIELD X', 'FIELD Y', 'X(mm)', 'Y(mm)'])
         self.assertEqual(data['Wafer ID'].tolist(), ['D1'] * 3)
         self.assertEqual(data['CD'].tolist(), ['001.00', '002.00', '000.00'])
-        self.assertEqual(data['Die Seq'].tolist(), ['02', '03', '01'])
-        self.assertEqual(data['X(mm)'].tolist(), ['X12', 'X23', 'X1'])
+        self.assertEqual(data['Ref Die Seq'].tolist(), ['82', '80', '81'])
+        self.assertEqual(data['Ref X(mm)'].tolist(), ['10', '20', '0'])
+        self.assertEqual(raw_data.columns.tolist(), alignment.raw.frame().columns.tolist())
         self.assertEqual(raw_data['Wafer ID'].tolist(), ['D1'] * 3)
+        self.assertEqual(raw_data['Seq'].tolist(), ['02', '03', '01'])
         self.assertEqual(raw_data['CD'].tolist(), ['7.10', '8.20', '6.00'])
         for page in (analysis.correlation_page, analysis.sequence_page):
             self.assertEqual(page.frame['CD'].tolist(), data['CD'].tolist() + raw_data['CD'].tolist())
@@ -389,11 +392,20 @@ class ReferenceAlignmentTests(unittest.TestCase):
             self.assertEqual({key[0] for key, metric in page.selection['available_cells'] if metric == 'CD'},
                              {'Reference', 'Raw Data'})
         for page in (analysis.plot_page, analysis.radius_page):
-            pd.testing.assert_frame_equal(page.frame, data)
+            self.assertEqual(page.frame['CD'].tolist(), data['CD'].tolist())
+            self.assertEqual(page.frame['Wafer ID'].tolist(), ['D1'] * 3)
+            self.assertEqual(page.frame['Die Seq'].tolist(), ['02', '03', '01'])
+            self.assertEqual(page.frame['X(mm)'].tolist(), ['X12', 'X23', 'X1'])
             self.assertNotIn('Width', page.selection['metrics'])
             self.assertEqual({key[0] for key, _ in page.selection['available_cells']}, {'Reference'})
         self.assertEqual(analysis.plot_page.x_column.currentData(), 'X(mm)')
         self.assertEqual(analysis.radius_page.y_column.currentData(), 'Y(mm)')
+        for page in (analysis.plot_page, analysis.radius_page):
+            self.assertFalse(page.x_column.isEnabled())
+            self.assertFalse(page.y_column.isEnabled())
+        self.assertFalse(analysis.reference_die_picker.isEnabled())
+        analysis.die_picker.setCurrentText("Site Order")
+        self.assertEqual(analysis.reference_die_picker.currentText(), "Raw · Site Order")
         for page in (analysis.correlation_page, analysis.sequence_page, analysis.plot_page, analysis.radius_page):
             window.tabs.setCurrentWidget(page)
             page.selector.selectAll()
@@ -409,6 +421,9 @@ class ReferenceAlignmentTests(unittest.TestCase):
                 self.assertTrue(page.ready, page.status.text())
                 if page is analysis.sequence_page:
                     self.assertEqual({group['source']['name'] for group in page.groups}, {'Reference', 'Raw Data'})
+                    for group in page.groups:
+                        self.assertEqual(group["coordinate_label"], "Site Order")
+                        self.assertEqual(group["frame"]["__die"].tolist(), [10, 20, 30])
                 elif page is analysis.radius_page:
                     self.assertEqual({plot['wafer'][0] for plot in page.plot_sources if not plot.get('skip')},
                                      {'Reference'})
@@ -476,6 +491,65 @@ class ReferenceAlignmentTests(unittest.TestCase):
             menu = reopened.analysis_menu.actions()[0].menu()
             self.assertTrue(next(action for action in menu.actions() if action.text() == 'Always one Y axis').isChecked())
 
+    def test_replacement_reference_rows_use_their_own_test_flags(self):
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.reference_summary_window import ReferenceSummaryWindow
+
+        app = QApplication.instance() or QApplication([])
+        window = ReferenceSummaryWindow()
+        window.document.force_close = True
+        self.addCleanup(window.deleteLater)
+        self.addCleanup(window.close)
+        page = window.alignment
+        xy = {"X(mm)": [0, 1, 2, 3], "Y(mm)": [0, 0, 0, 0]}
+        page.ref.set_frame(pd.DataFrame({"WaferID": ["Ref"] * 4, "CD": [1, 2, 3, 4], **xy}))
+        options = window.analysis.display_options
+
+        def plot(flags):
+            page.raw.set_frame(pd.DataFrame({
+                "WaferID": ["Raw"] * 4, "Die Seq": [1, 2, 3, 4],
+                "CD": [2, 3, 4, 5], "TestFlag": flags, **xy,
+            }))
+            page.link_aligned()
+            page.draw()
+            app.processEvents()
+
+        plot([0, 0, 1, 1])
+        options.controls.enabled.setChecked(True)
+        self.assertTrue(options.apply_groups())
+        self.assertEqual(window.analysis._match_groups["flags"], ["0", "0", "1", "1"])
+        plot([1, 1, 0, 0])
+        self.assertEqual(window.analysis._match_groups["flags"], ["1", "1", "0", "0"])
+        options.controls.set_test_flags([0], "7")
+        self.assertTrue(options.apply_groups())
+        plot([1, 0, 0, 0])
+        self.assertEqual(window.analysis._match_groups["flags"], ["7", "0", "0", "0"])
+
+    def test_invalid_saved_group_options_leave_current_reference_document_intact(self):
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.reference_summary_window import ReferenceSummaryWindow
+        from metrology_app.workspace_store import save_workspace
+
+        app = QApplication.instance() or QApplication([])
+        current, candidate = ReferenceSummaryWindow(), ReferenceSummaryWindow()
+        for window in (current, candidate):
+            window.document.force_close = True
+            self.addCleanup(window.deleteLater)
+            self.addCleanup(window.close)
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            current.alignment.ref.set_frame(pd.DataFrame({"WaferID": ["Current"], "CD": [1]}))
+            original = current.save_reference(root / "current.ref")
+            candidate.alignment.ref.set_frame(pd.DataFrame({"WaferID": ["Other"], "CD": [2]}))
+            saved = candidate.workspace_snapshot()
+            saved.states["ui"]["analysis_options"]["flags"] = "invalid saved format"
+            path = save_workspace(root / "invalid.ref", saved)
+            with self.assertRaises(ValueError):
+                current.load_workspace(path)
+            self.assertEqual(current.document.path, original)
+            self.assertEqual(current.alignment.ref.frame()["WaferID"].tolist(), ["Current"])
+        app.processEvents()
+
     def test_reference_group_settings_survive_workspace_reopen(self):
         from PyQt6.QtWidgets import QApplication
         from metrology_app.reference_summary_window import ReferenceSummaryWindow
@@ -507,8 +581,10 @@ class ReferenceAlignmentTests(unittest.TestCase):
         window.analysis.display_options.refresh()
 
         with tempfile.TemporaryDirectory() as folder:
+            window.analysis.die_picker.setCurrentText("X(mm)")
             path = window.save_reference(Path(folder) / 'groups.ref')
             reopened.load_workspace(path)
+        self.assertEqual(reopened.analysis.die_picker.currentData(), "X(mm)")
         restored = reopened.analysis._group_plan
         self.assertIsNotNone(restored)
         self.assertTrue(restored.enabled)

@@ -273,6 +273,32 @@ class CorrelationTests(unittest.TestCase):
             window.deleteLater()
             APP.processEvents()
 
+    def test_trend_uses_independent_explicit_die_columns(self):
+        window = CorrelationWindow()
+        try:
+            reference = pd.DataFrame({"Wafer ID": ["W1"] * 3, "Seq": [1, 2, 3],
+                                      "Ref Order": [30, 20, 10], "CD": [100, 200, 300]})
+            raw = pd.DataFrame({"Wafer ID": ["W1"] * 3, "Die Seq": [1, 2, 3],
+                                "Raw Order": [9, 7, 8], "CD": [1, 2, 3]})
+            window.set_sources(reference, raw, [ParameterMapping("CD", "CD", "CD")], align_reference=False)
+            self.assertEqual(window.reference_die_picker.currentText(), "Auto (Seq)")
+            self.assertEqual(window.die_picker.currentText(), "Auto (Die Seq)")
+            window.reference_die_picker.setCurrentText("Ref Order")
+            window.die_picker.setCurrentText("Raw Order")
+            page = window.sequence_page
+            page.selector.selectAll()
+            page.draw_plot()
+            self.assertTrue(page.ready, page.status.text())
+            groups = {group["source"]["name"]: group for group in page.groups}
+            self.assertEqual(groups["Reference"]["frame"]["__die"].tolist(), [10, 20, 30])
+            self.assertEqual(groups["Raw Data"]["frame"]["__die"].tolist(), [7, 8, 9])
+            self.assertEqual(groups["Raw Data"]["frame"]["CD"].tolist(), ["2", "3", "1"])
+            self.assertEqual(window.selection_state()["reference"]["die_column"], "Ref Order")
+        finally:
+            window.document.force_close = True
+            window.close()
+            window.deleteLater()
+
     def test_workbook_trend_appends_wafers_with_real_die_labels_and_tight_limits(self):
         raw = pd.DataFrame({
             "Wafer ID": ["W1"] * 5 + ["W2"] * 5 + ["W3"] * 5,

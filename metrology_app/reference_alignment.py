@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .data import combined_xy_column, combined_xy_unit, coordinates
+from .data import combined_xy_column, combined_xy_unit, coordinates, die_sequence_column
 from .reference_merge import compact
 from .file_paths import filesystem_path
 
@@ -220,12 +220,30 @@ def aligned_reference_data(ref, raw, raw_columns, results, ref_source_rows, raw_
         'Wafer ID': raw_columns.wafer, 'Lot ID': raw_columns.lot or names.get('lotno'),
         'Tool SN': names.get('toolsn', names.get('toolserialnumber')),
         'PAD Name': raw_columns.pad,
-        'Die Seq': next((names[key] for key in ('dieseq', 'diesequence', 'diesequenceno', 'dieid', 'seq') if key in names), None),
+        'Die Seq': die_sequence_column(raw.columns),
         'FIELD X': raw_columns.field_x, 'FIELD Y': raw_columns.field_y,
         axes[0]: raw_columns.x, axes[1]: raw_columns.y,
     }
-    prefix = pd.DataFrame({label: raw_values[source] if source in raw_values else ''
-                           for label, source in metadata.items()}, index=raw_values.index)
+    prefix = _raw_metadata_frame(raw_values, metadata)
+    clipboard = ref_values.set_axis(list(source_rows)).reindex(sorted(raw_source_rows), fill_value='')
+    return _reference_with_raw_metadata(ref_values, prefix), raw_values, clipboard, axes, metadata
+
+
+def _raw_metadata_frame(raw, metadata):
+    return pd.DataFrame({label: raw[source] if source in raw else ''
+                         for label, source in metadata.items()}, index=raw.index)
+
+
+def aligned_raw_analysis_frame(raw, metadata):
+    """Normalize mapped fields for analysis while keeping the Raw worksheet literal."""
+    if not metadata or raw.empty:
+        return raw
+    prefix = _raw_metadata_frame(raw, metadata)
+    columns = [column for column in raw if column not in prefix and column not in metadata.values()]
+    return pd.concat([prefix, raw.loc[:, columns]], axis=1)
+
+
+def _reference_with_raw_metadata(ref_values, prefix):
     reserved = set(prefix) | set(ref_values)
     identity_aliases = {compact(label) for label in prefix} | {
         'wafer', 'waferno', 'lot', 'lotno', 'pad', 'diesequence', 'diesequenceno', 'dieid', 'seq',
@@ -237,11 +255,7 @@ def aligned_reference_data(ref, raw, raw_columns, results, ref_source_rows, raw_
             while name in reserved or name in display_names.values():
                 name = f'Ref {name}'
         display_names[column] = name
-    clipboard = ref_values.set_axis(list(source_rows)).reindex(sorted(raw_source_rows), fill_value='')
-    raw_measurements = raw_values.drop(columns=[column for column in raw_values
-                                               if column in prefix or column in metadata.values()])
-    return (pd.concat([prefix, ref_values.rename(columns=display_names)], axis=1),
-            pd.concat([prefix, raw_measurements], axis=1), clipboard, axes)
+    return pd.concat([prefix, ref_values.rename(columns=display_names)], axis=1)
 
 
 def scan_alignment_outputs(folders):

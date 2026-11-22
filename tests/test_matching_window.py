@@ -201,7 +201,7 @@ class MatchingWindowTests(unittest.TestCase):
         dialog = window.open_group_settings()
         table = dialog.table
         model = table.model()
-        self.assertEqual(window.inputs_splitter.count(), 2)
+        self.assertEqual(window.inputs_splitter.count(), 3)
         self.assertTrue(dialog.isAncestorOf(table))
         self.assertEqual(model.headers, ("Wafer ID", "Lot ID", "PAD Name", "Die Seq",
                                          "TestFlag", "Head", "Mark", "Group"))
@@ -1422,7 +1422,7 @@ class MatchingWindowTests(unittest.TestCase):
             self.assertEqual((card.height(), view.mapTo(card, QPoint()).y()), baseline)
             self.assertEqual(
                 group["wafer_plot_area"].mapTo(card, QPoint()).y(),
-                group["wafer_table_column"].geometry().y(),
+                view.mapTo(card, QPoint()).y(),
             )
 
     def test_display_filter_does_not_remove_participating_points_in_original_row_order(self):
@@ -2178,7 +2178,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertEqual(view.height(), 280)
         table_position = view.mapTo(group["wafer_card"], QPoint())
         plot_position = group["wafer_plot_area"].mapTo(group["wafer_card"], QPoint())
-        self.assertEqual(group["wafer_table_column"].geometry().y(), plot_position.y())
+        self.assertEqual(table_position.y(), plot_position.y())
         self.assertGreater(plot_position.x(), table_position.x() + view.width())
         self.assertEqual(view.verticalScrollBarPolicy(), Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         for key in ("wafer_r2", "wafer_slope"):
@@ -2326,6 +2326,56 @@ class MatchingWindowTests(unittest.TestCase):
                         sorted(curve.name() for curve in trend.listDataItems()),
                         sorted([match_type, "PMISH"]),
                     )
+
+    def test_single_wafer_matrix_follows_applied_group_order_and_keeps_draw_with_wafer(self):
+        window = self.window
+        source_order = ["W9", "W7", "W2", "W3"]
+        raw = pd.DataFrame({"Wafer ID": np.repeat(source_order, 3),
+                            "Die Seq": [1, 2, 3] * 4, "CD": [1., 2., 3.] * 4})
+        window.set_reference_frame(pd.DataFrame({
+            "CD Reference": [2., 4., 6., 3., 6., 9., 4., 8., 12., 5., 10., 15.],
+        }))
+        window.set_raw_frame(raw)
+        configure_match_fixture(window)
+        window.run_analysis()
+        group = window.plot_groups["CD"]
+        model = group["wafer_model"]
+        self.assertEqual(model.frame["Wafer"].tolist(), source_order)
+        self.assertTrue(model.setData(model.index(0, 0), Qt.CheckState.Checked, Qt.ItemDataRole.CheckStateRole))
+
+        state = {"enabled": True, "group_order": ["All:0", "All:1"], "trend_order": "original"}
+        flags = pd.DataFrame({"TestFlag": [1] * 3 + [0] * 3 + [1] * 3 + [0] * 3})
+        window.group_controls.restore(state, flags)
+        window.run_analysis()
+        group = window.plot_groups["CD"]
+        frame = group["wafer_model"].frame
+        self.assertEqual(frame["Wafer"].tolist(), ["W7", "W3", "W9", "W2"])
+        self.assertEqual(frame["Row"].tolist(), [1, 2, 3, 4])
+        self.assertEqual(frame.loc[frame["Draw"], "Wafer"].tolist(), ["W9"])
+        slope = group["wafer_slope"].listDataItems()[0]
+        np.testing.assert_allclose(slope.yData, [3., 5., 2., 4.])
+        self.assertEqual(tuple(slope.scatter._selection_rows), (
+            (3, 4, 5), (9, 10, 11), (0, 1, 2), (6, 7, 8),
+        ))
+        detail = group["wafer_details"]["W9"]
+        self.assertEqual(detail["source_raw"]["Wafer ID"].tolist(), ["W9"] * 3)
+        self.assertEqual(detail["source_reference"]["CD Reference"].astype(float).tolist(), [2., 4., 6.])
+        statistics = window.match_statistics_page
+        statistics.render()
+        ticks = statistics.plots_by_parameter["CD"][0].getAxis("bottom").ticks
+        self.assertEqual([label for _, label in ticks], ["3", "1", "4", "2"])
+
+        state["group_order"].reverse()
+        window.group_controls.restore(state, flags)
+        window.run_analysis()
+        frame = window.plot_groups["CD"]["wafer_model"].frame
+        self.assertEqual(frame["Wafer"].tolist(), ["W9", "W2", "W7", "W3"])
+        self.assertEqual(frame.loc[frame["Draw"], "Wafer"].tolist(), ["W9"])
+
+        state["enabled"] = False
+        window.group_controls.restore(state, flags)
+        window.run_analysis()
+        self.assertEqual(window.plot_groups["CD"]["wafer_model"].frame["Wafer"].tolist(), source_order)
 
     def test_single_wafer_table_shows_applied_group_membership_after_filtering(self):
         from metrology_app.match_groups import row_ids
@@ -2625,6 +2675,167 @@ class MatchingWindowTests(unittest.TestCase):
             self.window.final_raw_model.headers(), ["Wafer ID", "DP", "DP_1"]
         )
         self.assertTrue(self.window.raw_duplicate_banner.isHidden())
+
+    def test_match_wafers_use_raw_for_participation_and_die_labels(self):
+        window = self.window
+        raw = pd.DataFrame({"Wafer ID": ["W1"] * 3 + ["W2"] * 2,
+                            "Die Seq": [1, 2, 3, 1, 2], "Site": ["A", "B", "C", "D", "E"],
+                            "CD": [1., 2., 3., 4., 5.]})
+        ref = pd.DataFrame({"Wafer ID": ["Ref-only"] * 5, "Seq": [5, 4, 3, 2, 1],
+                            "CD Reference": [2., 4., 6., 8., 10.]})
+        window.set_reference_frame(ref)
+        window.set_raw_frame(raw)
+        configure_match_fixture(window)
+        window.run_analysis()
+        panel = window.wafer_panel
+        self.assertIs(window.inputs_splitter.widget(2), panel)
+        items = [panel.wafer_list.topLevelItem(i) for i in range(panel.wafer_list.topLevelItemCount())]
+        self.assertEqual([(item.text(0), item.text(1)) for item in items], [("W1", "3"), ("W2", "2")])
+
+        panel.die_picker.setCurrentIndex(panel.die_picker.findData("Site"))
+        self.assertEqual(window.result.die_column, "Site")
+        self.assertEqual(window.plot_groups["CD"]["annotation_data"][1], list("ABCDE"))
+        items[1].setCheckState(0, Qt.CheckState.Unchecked)
+        self.assertEqual(window.result.source_rows, (0, 1, 2))
+        panel.all_button.click()
+        self.assertEqual(window.result.source_rows, (0, 1, 2, 3, 4))
+        panel.min_records.setValue(2)
+        self.assertTrue(panel.wafer_list.topLevelItem(1).isHidden())
+        panel.none_button.click()
+        self.assertEqual(window.result.source_rows, ())
+        panel.all_button.click()
+        self.assertEqual(window.result.source_rows, (0, 1, 2))
+        self.assertEqual(window.raw_frame["Die Seq"].tolist(), raw["Die Seq"].tolist())
+        self.assertEqual(window.reference_frame["Wafer ID"].tolist(), ref["Wafer ID"].tolist())
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "wafer-selection.mwkb"
+            window.save_workbook(path)
+            reopened = MatchingWindow()
+            try:
+                reopened.load_workbook(path)
+                self.assertEqual(reopened.wafer_panel.die_picker.currentData(), "Site")
+                self.assertEqual(reopened.wafer_panel.min_records.value(), 2)
+                self.assertEqual(reopened.result.source_rows, (0, 1, 2))
+                export_stages = reopened.excel_export_snapshot()["stages"]
+                self.assertEqual(export_stages[0][1].die_column, "Site")
+            finally:
+                reopened.document.force_close = True
+                reopened.close()
+
+    def test_partial_data_selection_survives_reopen_and_wafer_row_height_refresh(self):
+        from metrology_app.match_groups import applied_state
+
+        window = self.window
+        raw = pd.DataFrame({"Wafer ID": ["W1"] * 13, "Die Seq": range(1, 14), "CD": range(1, 14)})
+        window.set_reference_frame(pd.DataFrame({"CD Reference": range(2, 28, 2)}))
+        window.set_raw_frame(raw)
+        configure_match_fixture(window)
+        window.run_analysis()
+
+        def choose():
+            dialog = APP.activeModalWidget()
+            model = dialog.model
+            for row in (3, 8):
+                model.setData(model.index(row, 0), Qt.CheckState.Unchecked, Qt.ItemDataRole.CheckStateRole)
+            dialog.accept()
+
+        QTimer.singleShot(0, choose)
+        window.data_selection_action.trigger()
+        expected = tuple(row for row in range(13) if row not in (3, 8))
+        self.assertEqual(window.result.source_rows, expected)
+        saved_selection = applied_state(window.group_controls.state)["data_selection"]
+        path = window.save_workbook(Path(self._documents.name) / "partial-wafer.mwkb")
+        reopened = MatchingWindow()
+        try:
+            reopened.load_workbook(path)
+            tree = reopened.wafer_panel.wafer_list
+            wafer = tree.topLevelItem(0)
+            self.assertEqual(wafer.checkState(0), Qt.CheckState.PartiallyChecked)
+            font = tree.font()
+            font.setPointSize(font.pointSize() + 2)
+            tree.setFont(font)
+            APP.processEvents()
+            self.assertEqual(reopened.result.source_rows, expected)
+            self.assertEqual(applied_state(reopened.group_controls.state)["data_selection"], saved_selection)
+            self.assertEqual(wafer.checkState(0), Qt.CheckState.PartiallyChecked)
+            self.assertFalse(reopened.isWindowModified())
+            wafer.setCheckState(0, Qt.CheckState.Checked)
+            self.assertEqual(reopened.result.source_rows, tuple(range(13)))
+        finally:
+            reopened.document.force_close = True
+            reopened.close()
+            reopened.deleteLater()
+            APP.processEvents()
+
+    def test_match_wafer_picks_preserve_unapplied_group_settings(self):
+        window = self.window
+        raw = pd.DataFrame({"Wafer ID": ["W1", "W1", "W2", "W2", "W3", "W3"],
+                            "CD": [1., 2., 3., 4., 5., 6.]})
+        window.set_reference_frame(pd.DataFrame({"CD Reference": [2., 4., 6., 8., 10., 12.]}))
+        window.set_raw_frame(raw)
+        configure_match_fixture(window)
+        window.group_controls.restore({"data_selection": None}, None)
+        window.run_analysis()
+        window.group_controls.change("filters", [{"table": "raw", "column": "Wafer ID", "values": ["W2"]}])
+
+        tree = window.wafer_panel.wafer_list
+        self.assertEqual(tree.topLevelItem(2).checkState(0), Qt.CheckState.Checked)
+        tree.topLevelItem(2).setCheckState(0, Qt.CheckState.Unchecked)
+        self.assertEqual(window.result.source_rows, (0, 1, 2, 3))
+        self.assertTrue(window.group_controls.pending)
+
+    def test_match_wafer_panel_can_collapse_and_reopen_with_its_divider(self):
+        window = self.window
+        window.show()
+        APP.processEvents()
+        inputs = window.inputs_splitter
+        self.assertGreater(inputs.sizes()[2], 0)
+        inputs.moveSplitter(inputs.width(), 2)
+        self.assertEqual(inputs.sizes()[2], 0)
+        self.assertGreater(min(inputs.sizes()[:2]), 0)
+        inputs.moveSplitter(inputs.width() - 260, 2)
+        self.assertGreater(inputs.sizes()[2], 0)
+
+    def test_match_wafer_picks_follow_active_raw_across_stages(self):
+        window = self.window
+        raw = pd.DataFrame({"Wafer ID": ["P1", "P1", "P2", "P2"], "CD": [1., 2., 3., 4.]})
+        window.set_reference_frame(pd.DataFrame({"CD Reference": [2., 4., 6., 8.]}))
+        window.set_raw_frame(raw)
+        configure_match_fixture(window)
+        window.result_mode.setCurrentText("Final")
+        window.set_raw_frame(raw.assign(**{"Wafer ID": ["F1", "F1", "F2", "F2"]}))
+        window.result_mode.setCurrentText("Preview")
+        window.run_analysis()
+
+        tree = window.wafer_panel.wafer_list
+        tree.topLevelItem(1).setCheckState(0, Qt.CheckState.Unchecked)
+        self.assertEqual(window.result.source_rows, (0, 1))
+        window.result_mode.setCurrentText("Final")
+        self.assertEqual(tree.topLevelItem(0).text(0), "F1")
+        self.assertEqual(window.result.result_mode, "final")
+        self.assertEqual(window.result.source_rows, (0, 1, 2, 3))
+        tree.topLevelItem(0).setCheckState(0, Qt.CheckState.Unchecked)
+        self.assertEqual(window.result.source_rows, (2, 3))
+        window.result_mode.setCurrentText("Preview")
+        self.assertEqual(tree.topLevelItem(0).text(0), "P1")
+        self.assertEqual(window.result.source_rows, (0, 1))
+
+    def test_match_warns_on_die_order_without_reordering_pairs(self):
+        window = self.window
+        raw = pd.DataFrame({"Wafer ID": ["W1"] * 3, "Die Seq": [1, 2, 3], "CD": [1., 2., 3.]})
+        ref = pd.DataFrame({"Wafer ID": ["W1"] * 3, "Seq": [3, 2, 1], "CD Reference": [30., 20., 10.]})
+        window.set_reference_frame(ref)
+        window.set_raw_frame(raw)
+        configure_match_fixture(window)
+        self.assertFalse(window.wafer_warning.isHidden())
+        self.assertIn("die order differs", window.wafer_warning.text().lower())
+        window.run_analysis()
+        self.assertEqual(window.result.series("CD")["Reference"].tolist(), [30., 20., 10.])
+        window.set_reference_frame(ref.assign(Seq=[1.0, 2.0, float("nan")]))
+        self.assertTrue(window.wafer_warning.isHidden())
+        window.set_reference_frame(ref.drop(columns="Seq"))
+        self.assertTrue(window.wafer_warning.isHidden())
 
     def test_match_warns_when_ref_and_raw_wafer_order_differs(self):
         reference = pd.DataFrame({
@@ -3006,6 +3217,52 @@ class MatchingWindowTests(unittest.TestCase):
             self.assertEqual(reopened.workbook_path, path.resolve())
             self.assertEqual(MatchWorkbook.load(path).match_type, "TEM")
             reopened.close()
+
+    def test_match_naming_uses_the_main_window_calendar_and_minute_time(self):
+        from PyQt6.QtCore import QDate, QTime
+        from PyQt6.QtWidgets import QDateEdit, QDialogButtonBox, QTimeEdit
+        from metrology_app.matching_window import _match_save_filename
+
+        errors = []
+
+        def select():
+            dialog = APP.activeModalWidget()
+            try:
+                date = dialog.findChild(QDateEdit, "workbookDateInput")
+                time = dialog.findChild(QTimeEdit, "workbookTimeInput")
+                self.assertIsNotNone(date)
+                self.assertIsNotNone(time)
+                calendar = date.calendarWidget()
+                self.assertEqual(calendar.firstDayOfWeek(), Qt.DayOfWeek.Monday)
+                self.assertEqual(calendar.locale().monthName(11), "November")
+                self.assertGreaterEqual(calendar.minimumWidth(), 330)
+                self.assertGreaterEqual(calendar.minimumHeight(), 280)
+                self.assertEqual(time.displayFormat(), "HH:mm")
+                for field, value in zip(("Project", "Layer", "Site", "Version"), ("P", "L", "S", "V")):
+                    dialog.findChild(QLineEdit, field).setText(value)
+                date.setDate(QDate(2026, 11, 22))
+                time.setTime(QTime(14, 33))
+                include_date = dialog.findChild(QCheckBox, "workbookDateEnabled")
+                include_time = dialog.findChild(QCheckBox, "workbookTimeEnabled")
+                for day, minute, suffix in ((True, True, "_20261122_1433"), (False, True, "_1433"),
+                                            (True, False, "_20261122"), (False, False, "")):
+                    include_date.setChecked(day)
+                    include_time.setChecked(minute)
+                    self.assertEqual(date.isEnabled(), day)
+                    self.assertEqual(time.isEnabled(), minute)
+                    self.assertIn(f"P_L_S_V{suffix}.mwkb",
+                                  [label.text() for label in dialog.findChildren(QLabel)])
+                include_date.setChecked(True)
+                include_time.setChecked(True)
+                dialog.findChild(QDialogButtonBox).button(QDialogButtonBox.StandardButton.Ok).click()
+            except Exception as error:
+                errors.append(error)
+                dialog.reject()
+
+        QTimer.singleShot(0, select)
+        filename = _match_save_filename(self.window)
+        self.assertEqual(errors, [])
+        self.assertEqual(filename, "P_L_S_V_20261122_1433.mwkb")
 
     def test_save_as_selects_a_new_current_wkb_for_later_saves(self):
         self.assertEqual(

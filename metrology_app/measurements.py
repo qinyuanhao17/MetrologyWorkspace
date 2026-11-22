@@ -7,7 +7,7 @@ import json
 import numpy as np
 import pandas as pd
 
-from .data import number
+from .data import die_sequence_column, number
 
 
 _MEASUREMENT_CACHE = []  # Four owned metadata snapshots, never measurement values.
@@ -68,6 +68,35 @@ def compare_wafer_inputs(reference, raw):
     difference = " ".join(filter(None, (differences("Ref", ref_runs, raw_runs),
                                         differences("Raw", raw_runs, ref_runs))))
     return order_mismatch, difference
+
+
+def compare_match_row_order(reference, raw):
+    """Check metadata on positional Match pairs, leaving partial Reference gaps alone."""
+    if any(frame.empty or not frame.columns.is_unique for frame in (reference, raw)):
+        return False, False
+
+    size = min(len(reference), len(raw))
+
+    def differs(ref_col, raw_col, *, numeric=False):
+        if ref_col is None or raw_col is None:
+            return False
+        left = reference[ref_col].iloc[:size].fillna("").astype(str).str.strip().to_numpy()
+        right = raw[raw_col].iloc[:size].fillna("").astype(str).str.strip().to_numpy()
+        mismatch = (left != "") & (right != "") & (left != right)
+        if numeric and mismatch.any():
+            # An Excel numeric cell can display the same Die as a Raw string.
+            # Compare those values without rewriting the source identifiers.
+            return bool((number(pd.Series(left[mismatch])) != number(pd.Series(right[mismatch]))).any())
+        return bool(mismatch.any())
+
+    def wafer_column(frame):
+        aliases = _COMPARABLE_WAFER_FIELDS[0][1]
+        return next((c for c in frame if "".join(x.lower() for x in str(c) if x.isalnum()) in aliases), None)
+
+    wafer_mismatch, _ = compare_wafer_inputs(reference, raw)
+    wafer_mismatch = wafer_mismatch or differs(wafer_column(reference), wafer_column(raw))
+    die_mismatch = differs(die_sequence_column(reference.columns), die_sequence_column(raw.columns), numeric=True)
+    return wafer_mismatch, die_mismatch
 
 
 @dataclass

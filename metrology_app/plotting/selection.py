@@ -129,7 +129,7 @@ class DataPointEdits:
         self._notify_preview()
 
     def add_preview_listener(self, listener):
-        """Let a separate map mirror the same chart highlight without selecting it."""
+        """Update a plot view with this window’s selected source rows."""
         self._preview_listeners.add(listener)
         self._notify_preview(listener)
 

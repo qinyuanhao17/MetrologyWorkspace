@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
     QFrame, QLabel, QScrollArea, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
 )
 
+from .appearance import TREND_LINE_WIDTH, TREND_MARKER_SIZE
 from .plotting import InteractivePlotWidget
 from .plotting.annotations import plain_y_axes, set_plot_statistics
 from .plotting.parameter_layout import ParameterPlotArea
@@ -20,6 +21,8 @@ class MatchWaferStatisticsPage(QWidget):
 
     layout_changed = pyqtSignal(str, object)
 
+    PLOT_TYPES = {"bar": "Bar", "line": "Line with Markers"}
+    DEFAULT_PLOT_TYPE = "bar"
     BAR_WIDTH_PIXELS = 20
     BAR_STEP_PIXELS = 25
     Y_DECIMALS = 3
@@ -33,6 +36,7 @@ class MatchWaferStatisticsPage(QWidget):
         self.data_point_edits = None
         self.layouts = {}
         self.label_options = {"pad": True, "lot": True}
+        self.plot_type = self.DEFAULT_PLOT_TYPE
         self._dirty = True
         self._render_timer = QTimer(self, interval=0, singleShot=True)
         self._render_timer.timeout.connect(self.render)
@@ -80,6 +84,16 @@ class MatchWaferStatisticsPage(QWidget):
         }
         if options != self.label_options:
             self.label_options = options
+            self._dirty = True
+            if self.isVisible():
+                self._render_timer.start()
+
+    def set_plot_type(self, plot_type):
+        if plot_type not in self.PLOT_TYPES:
+            raise ValueError("Invalid Wafer Mean / Sigma plot type.")
+        if plot_type != self.plot_type:
+            self.plot_type = plot_type
+            self._dirty = True
             if self.isVisible():
                 self._render_timer.start()
 
@@ -103,7 +117,7 @@ class MatchWaferStatisticsPage(QWidget):
             self.empty.setText("Check at least one Parameter mapping.")
             self.stack.setCurrentWidget(self.empty)
             return
-        spans = self.result.group_plan.trend_spans()
+        spans = self._statistics_spans()
         if not spans:
             self.empty.setText("No included measurements are available for Wafer statistics.")
             self.stack.setCurrentWidget(self.empty)
@@ -113,9 +127,9 @@ class MatchWaferStatisticsPage(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(10)
         stats = self._series_statistics(spans)
-        caption_labels = self._caption_labels(spans)
+        caption_spans = self._caption_spans(spans)
         for parameter in self.rendered_parameters:
-            row = self._statistics_for_parameter(parameter, spans, stats)
+            row = self._statistics_for_parameter(parameter, stats)
             plots = {}
             for kind, title, values, series_definitions in (
                 ("mean", "Wafer Mean", row["mean"], row["mean_bars"]),
@@ -125,7 +139,7 @@ class MatchWaferStatisticsPage(QWidget):
             ):
                 plot = self._build_plot(
                     parameter, kind, title, spans, values, series_definitions,
-                    caption_labels,
+                    caption_spans,
                 )
                 key = f"wafer_{kind}"
                 plots[key] = plot
@@ -186,39 +200,51 @@ class MatchWaferStatisticsPage(QWidget):
             card.setFixedHeight(area.height() + extra + 24)
         self.layout_changed.emit(parameter, state)
 
-    @staticmethod
-    def _caption_label(span, raw=None, options=None):
-        group, separator, measurement = str(span.get("label", "")).partition("\n")
-        if raw is not None:
-            options = options or {"pad": True, "lot": True}
-            measurement = wafer_identity_labels(
-                raw,
-                [span["rows"]],
-                show_pad=options.get("pad", True),
-                show_lot=options.get("lot", True),
-            )[0]
-        if separator and measurement:
-            return measurement + ("\n" + group if group else "")
-        return group
+    def _statistics_spans(self):
+        plan = self.result.group_plan
+        try:
+            rows_by_wafer = self.result.wafer_measurement_rows(group_order=True)
+        except ValueError:
+            rows_by_wafer = ()
+        matrix_rows = {
+            row: number
+            for number, rows in enumerate(rows_by_wafer, start=1)
+            for row in rows
+        }
+        spans = []
+        for span in plan.trend_spans():
+            rows_by_number = {}
+            for row in span["rows"]:
+                rows_by_number.setdefault(matrix_rows.get(row), []).append(row)
+            for number, rows in rows_by_number.items():
+                spans.append({**span, "rows": rows, "matrix_row": number})
+        return spans
 
-    def _caption_labels(self, spans):
-        raw = self.result.group_plan.raw
-        if raw is None:
-            return [self._caption_label(span) for span in spans]
-        measurements = wafer_identity_labels(
-            raw,
-            [span["rows"] for span in spans],
-            show_pad=self.label_options.get("pad", True),
-            show_lot=self.label_options.get("lot", True),
-        )
-        labels = []
-        for span, measurement in zip(spans, measurements):
-            group, separator, _default = str(span.get("label", "")).partition("\n")
-            labels.append(
-                measurement + ("\n" + group if group else "")
-                if separator and measurement else group
-            )
-        return labels
+    @staticmethod
+    def _caption_label(span, measurement=None):
+        group, _, former_measurement = str(span.get("label", "")).partition("\n")
+        measurement = former_measurement if measurement is None else measurement
+        return measurement + ("\n" + group if group else "") if measurement else group
+
+    def _caption_spans(self, spans):
+        plan = self.result.group_plan
+        show = set(plan.state["show_wafer_groups"])
+        groups = [span["group"] for span in spans]
+        showing_wafer = [not plan.enabled or group in show for group in groups]
+        measurements = [span["rows"] for span, showing in zip(spans, showing_wafer) if showing]
+        wafer_labels = iter(wafer_identity_labels(
+            plan.raw, measurements,
+            show_pad=self.label_options["pad"], show_lot=self.label_options["lot"],
+        ))
+        captions, previous_group = [], None
+        for index, (span, group, showing) in enumerate(zip(spans, groups, showing_wafer), start=1):
+            label = self._caption_label(span, next(wafer_labels) if showing else "")
+            if not showing and group == previous_group and captions:
+                captions[-1] = (captions[-1][0], index + .5, label)
+            else:
+                captions.append((index - .5, index + .5, label))
+            previous_group = None if showing else group
+        return captions
 
     def _series_statistics(self, spans):
         series = {}
@@ -251,7 +277,7 @@ class MatchWaferStatisticsPage(QWidget):
             series[parameter] = values
         return series
 
-    def _statistics_for_parameter(self, parameter, spans, stats):
+    def _statistics_for_parameter(self, parameter, stats):
         values = stats[parameter]
         mean = (
             np.asarray([entry["reference"][0] for entry in values], dtype=float),
@@ -282,7 +308,7 @@ class MatchWaferStatisticsPage(QWidget):
         ]
 
     def _build_plot(self, parameter, kind, statistic, spans, values, definitions,
-                    caption_labels=None):
+                    caption_spans):
         title = f"{parameter} · {statistic}"
         plot = InteractivePlotWidget(background="w")
         plot.setBackground("w")
@@ -298,14 +324,9 @@ class MatchWaferStatisticsPage(QWidget):
             self.data_point_edits,
             ("Match Workbook", self.result.result_mode.title(), parameter, "wafer-statistics", kind),
         )
-        if caption_labels is None:
-            caption_labels = self._caption_labels(spans)
-        caption_spans = [
-            (index - .5, index + .5, label)
-            for index, label in enumerate(caption_labels, start=1)
-        ]
         bottom = DieSequenceAxis(
-            [(float(index), str(index)) for index in range(1, len(spans) + 1)],
+            [(float(index), str(span["matrix_row"]))
+             for index, span in enumerate(spans, start=1) if span["matrix_row"] is not None],
             font=plot.font(),
         )
         bottom.setStyle(
@@ -354,21 +375,23 @@ class MatchWaferStatisticsPage(QWidget):
             np.arange(len(definitions)) - (len(definitions) - 1) / 2
         ) * (self.BAR_STEP_PIXELS / 24.0)
         for definition, initial_offset in zip(definitions, offsets):
-            bar_values, color, label, rows = definition
-            bar = pg.BarGraphItem(
-                x=x + initial_offset,
-                height=np.nan_to_num(bar_values, nan=0.0),
-                width=.16,
-                brush=pg.mkBrush(color),
-                pen=pg.mkPen(color),
-            )
-            plot.addItem(bar)
-            plot.set_point_rows(bar, rows)
-            legend.addItem(bar, label)
-            bar._statistics_bases = x.copy()
-            bar._statistics_offset = len(bars) - (len(definitions) - 1) / 2
-            bars.append(bar)
-            statistics.append((label, bar_values))
+            series, color, label, rows = definition
+            if self.plot_type == "line":
+                item = plot.plot(x, series, connect="finite", pen=pg.mkPen(color, width=TREND_LINE_WIDTH),
+                                 symbol="o", symbolSize=TREND_MARKER_SIZE, symbolBrush=color, symbolPen=None)
+                plot.set_point_rows(item.scatter, rows)
+            else:
+                item = pg.BarGraphItem(
+                    x=x + initial_offset, height=np.nan_to_num(series, nan=0.0),
+                    width=.16, brush=pg.mkBrush(color), pen=pg.mkPen(color),
+                )
+                plot.addItem(item)
+                plot.set_point_rows(item, rows)
+                item._statistics_bases = x
+                item._statistics_offset = len(bars) - (len(definitions) - 1) / 2
+                bars.append(item)
+            legend.addItem(item, label)
+            statistics.append((label, series))
         plot.addItem(pg.InfiniteLine(
             pos=0, angle=0,
             pen=pg.mkPen("#777777", width=1, style=Qt.PenStyle.DashLine),
@@ -402,12 +425,13 @@ class MatchWaferStatisticsPage(QWidget):
             view.disableAutoRange(axis=pg.ViewBox.YAxis)
             view.setYRange(-limit, limit, padding=0)
         plot._statistics_bars = bars
-        view.sigResized.connect(lambda *_args, target=plot: self._sync_bar_geometry(target))
-        view.sigXRangeChanged.connect(lambda *_args, target=plot: self._sync_bar_geometry(target))
-        timer = QTimer(plot, interval=0, singleShot=True)
-        timer.timeout.connect(lambda target=plot: self._sync_bar_geometry(target))
-        timer.start()
-        plot._statistics_sync_timer = timer
+        if bars:
+            view.sigResized.connect(lambda *_args, target=plot: self._sync_bar_geometry(target))
+            view.sigXRangeChanged.connect(lambda *_args, target=plot: self._sync_bar_geometry(target))
+            timer = QTimer(plot, interval=0, singleShot=True)
+            timer.timeout.connect(lambda target=plot: self._sync_bar_geometry(target))
+            timer.start()
+            plot._statistics_sync_timer = timer
         return plot
 
     def _sync_bar_geometry(self, plot):

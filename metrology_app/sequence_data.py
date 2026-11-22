@@ -52,8 +52,9 @@ def prepare_sequence_groups(frame, selection, cells, wafer_column, die_column):
             if column is None:
                 die[rows] = np.arange(len(rows), dtype=float) + 2
             else:
-                die[rows] = number(frame[column].iloc[rows]).to_numpy()
-            coordinate_labels[source["name"]] = "Die Seq" if column is not None else "Row Number"
+                die_rows = np.asarray(source.get("die_rows", rows), dtype=int)
+                die[rows] = number(frame[column].iloc[die_rows]).to_numpy()
+            coordinate_labels[source["name"]] = str(column) if column is not None else "Row Number"
             if source.get('identity_columns'):
                 identity_columns = source['identity_columns']
                 identity_values[source['name']] = tuple(
@@ -125,7 +126,7 @@ def prepare_sequence_groups(frame, selection, cells, wafer_column, die_column):
         groups.append({"key": key, "span_key": span_key, "wafer": wafer_id, "frame": ordered,
                        "coordinate_label": coordinate_labels.get(
                            (source or {}).get("name"),
-                           "Die Seq" if die_column is not None else "Row Number"),
+                           str(die_column) if die_column is not None else "Row Number"),
                        "source_positions": source_positions,
                        "group_label": selection.get("group_labels", {}).get(
                            key, str(labels.get(key, wafer_id)).split(" · ", 1)[-1]),

@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
 from .appearance import fit_window_to_screen
 from .correlation_window import CorrelationWindow
 from .metadata_locks import is_metadata_column
+from .reference_alignment import aligned_raw_analysis_frame
 from .widgets import CheckableListWidget
 from .window import MainWindow as DataWorkspaceWindow
 
@@ -25,7 +26,9 @@ class ReferenceAnalysisPages(CorrelationWindow):
         self.owner = owner
         self.reference_values = pd.DataFrame()
         self.reference_parameters = ()
+        self._raw_metadata = {}
         self._loaded_inputs = object()
+        self._flag_source = (None, {})
         super().__init__()
         self.setParent(tabs)
         self.hide()
@@ -40,6 +43,18 @@ class ReferenceAnalysisPages(CorrelationWindow):
             tabs.addTab(page, title)
         self.document.force_close = True
         self.document.timer.stop()
+
+    def _reference_follows_raw_die(self):
+        return True  # Both analysis tables follow the same aligned Raw row order.
+
+    def _measurement_frame(self, frame):
+        return aligned_raw_analysis_frame(frame, self._raw_metadata)
+
+    def participating_positions(self, frame):
+        # Saved participation uses the same mapped identity as Wafer Alignment.
+        if self._raw_metadata and len(frame) == self.raw_model.document_shape()[0]:
+            frame = self._measurement_frame(self.raw_model._analysis_view())
+        return super().participating_positions(frame)
 
     def _change_chart_checks(self, rows, checked):
         from .match_groups import participation_source_keys
@@ -94,19 +109,11 @@ class ReferenceAnalysisPages(CorrelationWindow):
                 self.update_plan()
             return
         self._loaded_inputs = inputs
-        frame, raw, values, axes = inputs if inputs is not None else (pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), ())
-        flag_cells = self.display_options.controls.order_model.cells
-        has_flags = any(row > 0 and column == 0 and str(value).strip()
-                        for (row, column), value in flag_cells.items())
-        if not has_flags and len(raw):
-            flag_column = next((name for name in raw
-                                if ''.join(character.lower() for character in str(name)
-                                           if character.isalnum()) in ('testflag', 'testflags')),
-                               None)
-            if flag_column is not None:
-                self.display_options.controls.order_model.load(
-                    pd.DataFrame({'TestFlag': raw[flag_column].fillna('').astype(str)})
-                )
+        frame, raw, values, axes, self._raw_metadata = inputs if inputs is not None else (
+            pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), (), {},
+        )
+        if not raw.empty:
+            self._refresh_source_flags(self._measurement_frame(raw))
         source = 'Aligned Reference' if len(frame) else 'Link the wafers and plot XY Bias in Wafer Alignment.'
         self.reference_values = values
         columns = self.owner.alignment.ref.columns()
@@ -121,6 +128,8 @@ class ReferenceAnalysisPages(CorrelationWindow):
         for page in (self.plot_page, self.radius_page):
             for combo, column in zip((page.x_column, page.y_column), axes):
                 combo.setCurrentIndex(combo.findData(column))
+                combo.setEnabled(False)
+                combo.setToolTip("Coordinates from the paired Raw rows. Change the mapping in Wafer Alignment.")
         self.copy_reference_button.setEnabled(bool(len(frame)))
         self.copy_reference_button.setToolTip(source)
         if not len(frame):
@@ -128,6 +137,38 @@ class ReferenceAnalysisPages(CorrelationWindow):
             self.message.show()
             self.warning_banner.show()
         self.document.mark_clean()
+
+    def _refresh_source_flags(self, raw):
+        from .match_groups import flag_value, normalized, row_ids
+
+        dataset = self.owner.alignment._dataset
+        previous_dataset, previous_flags = self._flag_source
+        keys = list(row_ids(raw))
+        column = next((name for name in raw if normalized(name) in ('testflag', 'testflags')), None)
+        source_flags = [flag_value(value) for value in raw[column]] if column is not None else [''] * len(keys)
+        defaults = dict(zip(keys, source_flags))
+        if dataset is previous_dataset and list(previous_flags.items()) == list(defaults.items()):
+            return
+
+        options = self.display_options
+        controls = options.controls
+        model = controls.order_model
+        applied = controls.state.get("applied", {})
+        draft_flags = model.flags_frame(len(previous_flags))["TestFlag"].tolist()
+
+        def by_identity(flags):
+            # A source flag changed explicitly, so keep its new value even
+            # if the previous Group table had an edit for that row.
+            retained = dict(zip(previous_flags, flags)) if dataset is previous_dataset else {}
+            return [retained.get(key, value) if previous_flags.get(key) == value else value
+                    for key, value in defaults.items()]
+
+        model.load(pd.DataFrame({"TestFlag": by_identity(draft_flags)}))
+        if options.local_applied:
+            applied["flags"] = by_identity(applied.get("flags", []))
+            options.local_identities = keys
+        options._context_cache = None
+        self._flag_source = dataset, defaults
 
     def _publish_plot_inputs(self, frame, selection):
         if not hasattr(self, 'sequence_page'):

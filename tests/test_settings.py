@@ -20,6 +20,13 @@ from metrology_app.settings import (
 
 
 class RecentWkbSettingsTests(unittest.TestCase):
+    def test_light_is_the_default_and_a_saved_dark_theme_takes_priority(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "settings.yaml"
+            self.assertEqual(load_settings(path)["theme"], "light")
+            path.write_text("theme: dark\n", encoding="utf-8")
+            self.assertEqual(load_settings(path)["theme"], "dark")
+
     def test_legacy_preferences_keep_overlay_and_color_defaults_on_partial_save(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "settings.yaml"
@@ -43,7 +50,7 @@ class RecentWkbSettingsTests(unittest.TestCase):
             for content in (b"theme: [unfinished", b"- not a settings mapping", b"\xff\xfe\x00"):
                 with self.subTest(content=content):
                     path.write_bytes(content)
-                    self.assertEqual(load_settings(path)["theme"], "dark")
+                    self.assertEqual(load_settings(path)["theme"], "light")
                     with self.assertRaisesRegex(OSError, "read|invalid"):
                         save_settings({"font_size": 12}, path)
                     self.assertEqual(path.read_bytes(), content)

@@ -69,6 +69,7 @@ def snapshot(window):
         "plot_order": window.trend_page._order, "tab": window.tabs.currentIndex(),
         "trend_axis_mode": trend.axis_mode_value(), "trend_axis_ratio": trend.axis_ratio_limit(),
         "analysis_options": window.analysis.display_options.snapshot(readonly=True),
+        "die_columns": {"raw": window.analysis.die_picker.currentData()},
     }})
 
 
@@ -95,6 +96,48 @@ def _read_sheet(snapshot, entry, name, index):
     return frame, state, columns
 
 
+def _validate_analysis_options(options):
+    from .match_groups import group_state
+
+    if options is None:
+        return
+    if not isinstance(options, dict):
+        raise ValueError("Invalid Reference analysis options.")
+    for key in ("enabled", "follow_groups", "labels_enabled", "follow_labels", "local_applied"):
+        if key in options and type(options[key]) is not bool:
+            raise ValueError(f"Invalid Reference analysis option: {key}.")
+    for key in ("labels", "workbook_labels"):
+        labels = options.get(key, {})
+        if not isinstance(labels, dict) or any(type(value) is not bool for value in labels.values()):
+            raise ValueError(f"Invalid Reference analysis labels: {key}.")
+    identities = options.get("local_identities")
+    if identities is not None and (
+        not isinstance(identities, list) or any(not isinstance(key, str) for key in identities)
+    ):
+        raise ValueError("Invalid Reference analysis row identities.")
+
+    def validate_flags(flags):
+        if not isinstance(flags, list) or any(not isinstance(flag, str) for flag in flags):
+            raise ValueError("Invalid Reference analysis TestFlags.")
+
+    validate_flags(options.get("flags", []))
+    grouping = options.get("grouping")
+    if grouping is not None:
+        if not isinstance(grouping, dict):
+            raise ValueError("Invalid Reference analysis Group settings.")
+        for config in (grouping, grouping.get("applied", {})):
+            if not isinstance(config, dict) or any(
+                key in config and type(config[key]) is not bool
+                for key in ("enabled", "use_group_card")
+            ):
+                raise ValueError("Invalid Reference analysis Group settings.")
+            validate_flags(config.get("flags", []))
+        try:
+            group_state(grouping)
+        except (AttributeError, KeyError, TypeError) as error:
+            raise ValueError("Invalid Reference analysis Group settings.") from error
+
+
 def prepare(snapshot):
     """Validate the snapshot and recover Bias data before replacing UI state."""
     from .cdsem1 import CDSEM1Result
@@ -114,6 +157,12 @@ def prepare(snapshot):
         raise ValueError("Invalid Reference workspace controls.")
     if version == 1 and ui["tab"] >= 4:
         ui = {**ui, "tab": ui["tab"] + 1}
+    _validate_analysis_options(ui.get("analysis_options"))
+    die_columns = ui.get("die_columns", {})
+    if not isinstance(die_columns, dict) or any(
+        value is not None and not isinstance(value, str) for value in die_columns.values()
+    ):
+        raise ValueError("Invalid Reference Die columns.")
     metadata = ui.get("source_metadata", {})
     if not isinstance(metadata, dict) or any(
             vendor not in VENDOR_DETAILS or not isinstance(paths, dict)
@@ -231,11 +280,19 @@ def install(window, prepared):
     trend.source_output = active
     trend.show_results(page.results)
     page.active_output_changed.emit(active)
+    display_options = window.analysis.display_options
+    analysis_options = ui.get("analysis_options")
+    if not analysis_options:
+        display_options.restore({})
     page.alignment_changed.emit()
-    sequence = window.analysis.sequence_page
+    analysis = window.analysis
+    die_columns = ui.get("die_columns", {})
+    analysis._restore_die_picker(analysis.die_picker, die_columns.get("raw"))
+    analysis.update_plan()
+    sequence = analysis.sequence_page
     sequence.restore_axis_ratio(ui.get("trend_axis_ratio", MAGNITUDE_RATIO_LIMIT))
     sequence.restore_axis_mode(ui.get("trend_axis_mode", "auto"))
-    if analysis_options := ui.get("analysis_options"):
-        window.analysis.display_options.restore(analysis_options)
-        window.analysis.display_options.refresh()
+    if analysis_options:
+        display_options.restore(analysis_options)
+        display_options.refresh()
     window.tabs.setCurrentIndex(ui["tab"])

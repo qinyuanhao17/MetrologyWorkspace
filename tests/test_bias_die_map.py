@@ -6,10 +6,12 @@ from tempfile import TemporaryDirectory
 import json
 
 import pandas as pd
-from PyQt6.QtCore import QPoint, QTimer, Qt
+import pyqtgraph as pg
+from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QDoubleSpinBox
 
+from metrology_app.appearance import SELECTION_LINKED_COLOR
 from metrology_app.bias_die_map import die_map_points, out_of_range_rows
 from metrology_app.matching_window import MatchingWindow
 from metrology_app.sme_spectra import LoadResult
@@ -19,7 +21,7 @@ from tests.test_spectra_viewer import APP, make_spectrum
 
 
 class BiasDieMapTests(unittest.TestCase):
-    def test_chart_selection_marks_the_matching_die_map_point_with_a_yellow_ring(self):
+    def test_chart_selection_does_not_highlight_the_separate_bias_die_map(self):
         owner = MatchingWindow()
         owner.document.force_close = True
         self.addCleanup(owner.close)
@@ -51,20 +53,20 @@ class BiasDieMapTests(unittest.TestCase):
         QTest.mouseClick(chart.viewport(), Qt.MouseButton.LeftButton, pos=position)
         APP.processEvents()
 
-        self.assertEqual(len(map_plot.preview.data), 1)
-        self.assertEqual(
-            map_plot.preview.opts["pen"].color().name().upper(),
-            "#F2B705",
-        )
-        preview = map_plot.preview.points()[0]
-        self.assertAlmostEqual(preview.pos().x(), 20 * source_row)
-        self.assertAlmostEqual(preview.pos().y(), 10 * source_row)
-        self.assertEqual(len(map_plot.selection.data), 0)
+        self.assertEqual(owner._chart_edits.preview_rows, {source_row})
         self.assertFalse(map_window._selected_keys)
+        self.assertFalse(any(
+            len(item.data) for item in map_plot.plot.getViewBox().addedItems
+            if isinstance(item, pg.ScatterPlotItem)
+            and pg.mkPen(item.opts["pen"]).color().name().lower() == SELECTION_LINKED_COLOR.lower()
+        ))
 
-        QTest.mouseClick(chart.viewport(), Qt.MouseButton.LeftButton, pos=QPoint(2, 2))
+        die = next(p for p in map_plot.scatter.points() if "source-row:2" in p.data()["keys"])
+        position = map_plot.plot.mapFromScene(map_plot.scatter.mapToScene(die.pos()))
+        QTest.mouseClick(map_plot.plot.viewport(), Qt.MouseButton.LeftButton, pos=position)
         APP.processEvents()
-        self.assertEqual(len(map_plot.preview.data), 0)
+        self.assertEqual(map_window._selected_keys, {"source-row:2"})
+        self.assertEqual(owner._chart_edits.preview_rows, {source_row})
 
     def test_closed_deferred_spectra_supply_metadata_coordinates_without_opening_viewer(self):
         from metrology_app.workspace_store import WorkspaceSnapshot, save_workspace, load_workspace

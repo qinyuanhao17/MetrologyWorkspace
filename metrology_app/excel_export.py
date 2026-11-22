@@ -1259,13 +1259,12 @@ def _unit(reference_column):
 
 
 def _parameter_data(result, parameter, key="all", labels=None, *, order="group"):
-    from .data import die_sequence_column
     from .match_groups import wafer_identity_keys
     labels = labels or {"pad": True, "lot": True}
     data = result.group_series(parameter, key, trend=True, card_mode="group" if key != "all" else "raw")
     raw = result.group_plan.raw
     identities = wafer_identity_keys(raw)
-    die_column = die_sequence_column(raw.columns)
+    die_column = result.die_column
     captions, dies, wafer_captions = [], [], []
     die_values = raw[die_column].tolist() if die_column is not None else None
     for row, group in zip(data["Source row"], data["Group"]):

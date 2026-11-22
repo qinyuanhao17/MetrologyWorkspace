@@ -47,7 +47,8 @@ class StaticMapView(pg.GraphicsView):
         self._removed_rows = {}
         self._removed_positions = {}
         self._unchecked_positions = {}
-        BoxDrag(self, self._panel_at, self._select_panel_points, self._zoom_to_box)
+        BoxDrag(self, self._panel_at, self._select_panel_points, self._zoom_to_box,
+                on_click=self._click_panel_point)
 
     @staticmethod
     def _panel_key(panel):
@@ -59,6 +60,8 @@ class StaticMapView(pg.GraphicsView):
                      if hasattr(item, "point_rows") and item.point_bounds().contains(item.mapFromScene(scene))), None)
 
     def _select_panel_points(self, panel, rect, modifiers):
+        if panel is None:
+            return
         area = panel.mapFromScene(self.mapToScene(rect)).boundingRect()
         positions = panel._pixel_positions
         rows = panel.point_rows()
@@ -66,28 +69,53 @@ class StaticMapView(pg.GraphicsView):
             return
         keep = ((positions[:, 0] >= area.left()) & (positions[:, 0] <= area.right())
                 & (positions[:, 1] >= area.top()) & (positions[:, 1] <= area.bottom()))
+        picked = set(rows[keep]) - self._removed_rows.get(self._panel_key(panel), set())
+        self._set_panel_selection(panel, picked, modifiers)
+
+    def _click_panel_point(self, panel, point, modifiers):
+        if panel is None:
+            if self.data_point_edits is not None:
+                self.data_point_edits.clear_highlight()
+            return
+        local = panel.mapFromScene(self.mapToScene(point))
+        row = panel.point_row(local)
+        self._set_panel_selection(panel, {row} if row is not None else set(), modifiers)
+
+    def _set_panel_selection(self, panel, picked, modifiers=Qt.KeyboardModifier.NoModifier):
         key = self._panel_key(panel)
-        picked = set(rows[keep]) - self._removed_rows.get(key, set())
         if modifiers & Qt.KeyboardModifier.ShiftModifier:
             picked |= self._box_selection.get(key, set())
-        self._box_selection[key] = picked
+        if self.data_point_edits is not None and panel.has_source_rows():
+            # Listeners clear the old origin in both tabs before this panel
+            # claims the red ring. Other panels only need the source rows.
+            if picked:
+                self.data_point_edits.highlight((), rows=picked)
+            else:
+                self.data_point_edits.clear_highlight()
+        if picked:
+            self._box_selection[key] = picked
+        else:
+            self._box_selection.pop(key, None)
         panel.update()
 
-    def _zoom_to_box(self, _panel, rect):
-        self.fitInView(self.mapToScene(rect).boundingRect(), Qt.AspectRatioMode.KeepAspectRatio)
+    def _zoom_to_box(self, panel, rect):
+        if panel is not None:
+            self.fitInView(self.mapToScene(rect).boundingRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
     def clear_point_edits(self):
         self._box_selection.clear()
         self._removed_rows.clear()
         self._removed_positions.clear()
         self._unchecked_positions.clear()
-        self.chart_preview_rows = frozenset()
+        if self.data_point_edits is not None and self.chart_preview_rows:
+            self.data_point_edits.clear_highlight()
 
     def set_chart_preview_rows(self, rows):
         preview = frozenset(int(row) for row in rows if isinstance(row, Integral))
-        if preview != self.chart_preview_rows:
+        if preview != self.chart_preview_rows or self._box_selection:
+            self._box_selection.clear()
             self.chart_preview_rows = preview
-            self.update()
+            self.viewport().update()
 
     def _remove_panel_points(self, panel, rows):
         key = self._panel_key(panel)
@@ -99,7 +127,9 @@ class StaticMapView(pg.GraphicsView):
                 self._removed_positions[(key, int(row))] = self._relative_point(
                     panel, QPointF(float(position[0]), float(position[1])))
         self._removed_rows.setdefault(key, set()).update(rows)
-        self._box_selection.setdefault(key, set()).difference_update(rows)
+        selected = self._box_selection.get(key, set())
+        if selected.intersection(rows):
+            self._set_panel_selection(panel, selected - rows)
         if hasattr(panel, "refresh_point_visibility"):
             panel.refresh_point_visibility()
         panel.update()
@@ -276,10 +306,11 @@ def panel_point_state(panel):
 
 def panel_chart_preview(panel):
     scene = panel.scene()
-    if scene is not None:
+    if scene is not None and panel.has_source_rows():
         for view in scene.views():
             if isinstance(view, StaticMapView):
-                return view.chart_preview_rows
+                selected, _removed = view.panel_point_state(panel)
+                return view.chart_preview_rows.difference(selected)
     return ()
 
 

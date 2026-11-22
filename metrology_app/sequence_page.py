@@ -31,7 +31,7 @@ from .appearance import (MAX_COPY_PIXELS, MAX_EXPORT_PIXELS, configure_resolutio
                          TREND_LINE_WIDTH, TREND_MARKER_SIZE)
 from .appearance import widget_to_qimage
 from .array_plot import drawn_axes
-from .data import number
+from .data import die_sequence_column, number
 from .map_selector import MapSelector
 from .plotting import InteractivePlotWidget, PanelGrid, PlotPanel
 from .plotting.parameter_filter import ParameterFilterBar
@@ -393,7 +393,7 @@ class SequencePage(QWidget):
         self.frame = frame
         self.selection = selection.copy()
         self.wafer_column = find_column(frame, ("waferid", "wafer", "waferno"))
-        self.die_column = find_column(frame, ("dieseq", "diesequence", "diesequenceno", "dieid", "seq"))
+        self.die_column = selection.get("die_column") or die_sequence_column(frame.columns)
         if self._defer_input and not self.isVisible():
             # There are no box edits before the first visit. Build the grid
             # using the latest data when the page first needs the selector.
@@ -1118,7 +1118,7 @@ class SequencePage(QWidget):
             groups, extent = ((prepared["groups"], prepared["extent"]) if prepared is not None
                               else self._sequence_groups(cells))
             if not groups:
-                raise ValueError("The selected measurement sets contain no valid Die Seq values.")
+                raise ValueError("The selected measurement sets contain no valid values in their Die columns.")
 
             drawn_wafers, drawn_metrics = drawn_axes(wafers, metrics, cells)
             if not drawn_metrics:

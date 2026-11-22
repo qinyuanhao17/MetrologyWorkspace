@@ -161,6 +161,7 @@ Feature: Summarize multi-vendor reference exports
       When the engineer loads its folder from the Summary tab
       Then an HTML summary is written beside the CSV with instrument and recipe information first
       And choosing a Ref output in the Summary tab shows that output's HTML and selects it in the analysis tabs
+      And opening an HTML summary shows it inside the Summary tab
       And the selected output's folder path and files are visible in the Summary tab
       And the selected CSV and any preexisting notes are preserved
 
@@ -186,6 +187,21 @@ Feature: Summarize multi-vendor reference exports
       When the engineer applies Data selection from the Data menu
       Then the analysis tabs and XY Bias use the same included rows for this output
       And hiding unchecked rows leaves the original aligned tables intact
+
+    # Automation: ReferenceAlignmentTests.test_invalid_saved_group_options_leave_current_reference_document_intact
+    Scenario: Reject invalid saved Group settings without changing the open Reference workspace
+      Given the engineer already has a Reference workspace open
+      When another workspace cannot be opened because its Group settings are invalid
+      Then the open workspace retains its data and save location
+
+    # Automation: ReferenceAlignmentTests.test_analysis_data_waits_for_plot_and_copies_reference_in_raw_input_order
+    Scenario: Use Raw coordinates for paired Reference plots
+      Given Ref and Raw have been aligned and each has its own original Die identifiers
+      Then Raw Data displays the original Raw columns in their original column order
+      And Ref Data includes the aligned Wafer, Die and coordinate columns
+      When the engineer chooses a different Die column on the Raw side
+      Then both Trend sources use that Raw Die column for their paired rows
+      And the Ref WaferMap and Radius use the aligned Raw X and Y coordinates
 
     Scenario: Reopen a saved Reference workspace
       Given the Ref outputs have distinct Raw tables, links, mappings and plot states
@@ -220,3 +236,9 @@ Feature: Summarize multi-vendor reference exports
       When the engineer opens Manage groups and selects Show Wafer
       Then wafer identity captions and group boundaries follow that selection
       And saving and reopening the Reference workspace restores the grouping choices
+
+    # Automation: ReferenceAlignmentTests.test_replacement_reference_rows_use_their_own_test_flags
+    Scenario: Group replacement Raw measurements by their own TestFlag
+      Given a Reference analysis already has applied Groups
+      When the engineer replaces the Raw measurements with values containing different TestFlags
+      Then the affected measurements are grouped using the replacement TestFlags

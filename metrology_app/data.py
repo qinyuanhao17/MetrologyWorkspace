@@ -23,8 +23,10 @@ def coordinate_name(name):
 
 
 def die_sequence_column(columns):
+    if "Die Seq" in columns:
+        return "Die Seq"
     names = {coordinate_name(column): column for column in columns}
-    return next((names[name] for name in ('dieseq', 'diesequence', 'diesequenceno', 'dieid', 'seq') if name in names), None)
+    return next((names[name] for name in ('dieseq', 'seq', 'diesequence', 'diesequenceno', 'dieid') if name in names), None)
 
 
 def combined_xy_column(columns):

@@ -175,6 +175,91 @@ class MatchWaferStatisticsTests(unittest.TestCase):
         self.assertTrue(all("PAD: P1" in label for label in labels))
         self.assertTrue(all("LOT:" not in label for label in labels))
 
+    def test_grouped_statistics_only_show_wafer_captions_for_checked_groups(self):
+        self.load(second=False)
+        window = self.window
+        window.group_controls.restore(
+            {"enabled": True, "trend_order": "groups", "show_wafer_groups": ["All:0"]},
+            pd.DataFrame({"TestFlag": [1, 1, 1, 0, 0, 0]}),
+        )
+        window.run_analysis()
+        page = window.match_statistics_page
+        page.render()
+        captions = page.plots_by_parameter["CD"][0]._statistics_caption_axis.spans
+        self.assertTrue(any("W2" in label for _, _, label in captions))
+        self.assertFalse(any("W1" in label for _, _, label in captions))
+
+        window.group_controls.set_display_groups([], [])
+        window.run_analysis(apply_groups=False)
+        page.render()
+        captions = page.plots_by_parameter["CD"][0]._statistics_caption_axis.spans
+        self.assertFalse(any("W1" in label or "W2" in label for _, _, label in captions))
+
+    def test_statistics_follow_trend_order_and_label_single_wafer_matrix_rows(self):
+        self.load(second=False)
+        window = self.window
+        window.group_controls.restore(
+            {"enabled": True, "trend_order": "groups"},
+            pd.DataFrame({"TestFlag": [1, 1, 1, 0, 0, 0]}),
+        )
+        window.run_analysis()
+        menu = next(action.menu() for action in window.analysis_menu.actions()
+                    if action.text() == "Wafer Mean / Sigma Plot Type")
+        bar, line = menu.actions()
+        self.assertTrue(bar.isChecked())
+        page = window.match_statistics_page
+        page.render()
+        mean = page.plots_by_parameter["CD"][0]
+        self.assertEqual(mean.getAxis("bottom").ticks, [(1., "1"), (2., "2")])
+        np.testing.assert_allclose(mean._statistics_bars[1].opts["height"], [4., 3.])
+        line.trigger()
+        self.assertTrue(line.isChecked())
+        self.assertFalse(bar.isChecked())
+
+        page.render()
+        mean = page.plots_by_parameter["CD"][0]
+        raw = mean.listDataItems()[1]
+        matrix = window.plot_groups["CD"]["wafer_model"].frame
+        self.assertEqual(matrix["Wafer"].tolist(), ["W2", "W1"])
+        self.assertEqual(mean.getAxis("bottom").ticks, [(1., str(matrix["Row"].iloc[0])),
+                                                      (2., str(matrix["Row"].iloc[1]))])
+        self.assertEqual(mean._statistics_group_boundaries.positions, (1.5,))
+        np.testing.assert_equal(raw.xData, [1., 2.])
+        np.testing.assert_allclose(raw.yData, [4., 3.])
+        self.assertEqual(raw.opts["symbol"], "o")
+
+        with TemporaryDirectory() as folder:
+            path = window.save_workbook(Path(folder) / "line.mwkb")
+            reopened = MatchingWindow()
+            reopened.document.force_close = True
+            try:
+                reopened.load_workbook(path)
+                restored = reopened.match_statistics_page
+                restored.render()
+                self.assertIsInstance(restored.plots_by_parameter["CD"][0].listDataItems()[1],
+                                      pg.PlotDataItem)
+            finally:
+                reopened.close()
+                reopened.deleteLater()
+                APP.processEvents()
+
+    def test_single_wafer_matrix_divider_starts_at_three_fifths_and_can_move(self):
+        self.load(second=False)
+        window = self.window
+        window.resize(1560, 930)
+        window.run_analysis()
+        window.results_tabs.setCurrentIndex(1)
+        window.show()
+        APP.processEvents()
+        group = window.plot_groups["CD"]
+        splitter = group["wafer_view"].parentWidget()
+        self.assertIsInstance(splitter, QSplitter)
+        left, right = splitter.sizes()
+        self.assertAlmostEqual(left / (left + right), 3 / 5, delta=.02)
+        splitter.moveSplitter(splitter.width() // 2, 1)
+        self.assertLess(splitter.sizes()[0], left)
+        self.assertGreater(splitter.sizes()[1], right)
+
     def test_statistics_include_only_checked_parameter_mappings(self):
         self.load(second=True)
         self.window.mapping_table.item(1, 0).setCheckState(Qt.CheckState.Unchecked)

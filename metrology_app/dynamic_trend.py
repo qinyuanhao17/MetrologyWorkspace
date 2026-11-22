@@ -176,8 +176,10 @@ class DynamicTrendPage(QWidget):
         if not changed:
             return True
         try:
-            prepared = prepare_dynamic_frame(selected_measurement_rows(self.frame, self.selection))
-            series = {parameter: cycle_trend(prepared, parameter) for parameter in changed}
+            rows = selected_measurement_rows(self.frame, self.selection)
+            die_column = self.selection.get("die_column") or die_sequence_column(rows.columns)
+            prepared = prepare_dynamic_frame(rows, die_column=die_column)
+            series = {parameter: cycle_trend(prepared, parameter, die_column=die_column) for parameter in changed}
         except ValueError:
             return False
         if any(not table.index.equals(self.panel_tables[parameter].index)
@@ -209,14 +211,13 @@ class DynamicTrendPage(QWidget):
                     "parameter in Data."
                 )
             rows = selected_measurement_rows(self.frame, self.selection)
-            prepared = prepare_dynamic_frame(
-                rows.drop(columns=["Cycle"], errors="ignore")
-            )
+            die_column = self.selection.get("die_column") or die_sequence_column(rows.columns)
+            prepared = prepare_dynamic_frame(rows, die_column=die_column)
             series = {
-                parameter: cycle_trend(prepared, parameter)
+                parameter: cycle_trend(prepared, parameter, die_column=die_column)
                 for parameter in parameters
             }
-            dies = prepared[die_sequence_column(prepared.columns)]
+            dies = prepared[die_column]
             self._trend_source_rows = {(float(cycle), str(die)): int(row)
                                        for cycle, die, row in zip(prepared["Cycle"], dies, rows.index)}
         except ValueError as error:

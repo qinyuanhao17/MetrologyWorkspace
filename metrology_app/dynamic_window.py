@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import pandas as pd
+
+from . import dynamic_grr
+from .data import die_sequence_column
 from .dynamic import prepare_dynamic_frame
 from .dynamic_page import DynamicPage
 from .dynamic_trend import DynamicTrendPage
@@ -34,7 +38,10 @@ class DynamicWindow(DataWorkspaceWindow):
         return bool(numeric and str(column).strip().lower() != "cycle")
 
     def set_table(self, frame, source, **kwargs):
-        prepared = prepare_dynamic_frame(frame)
+        frame = pd.DataFrame(frame)
+        chosen = self.die_picker.currentData()
+        column = chosen if chosen in frame.columns else die_sequence_column(frame.columns)
+        prepared = prepare_dynamic_frame(frame, die_column=column) if column else frame.reset_index(drop=True)
         self.dynamic_page.set_baseline(prepared)
         super().set_table(prepared, source, **kwargs)
 
@@ -50,7 +57,9 @@ class DynamicWindow(DataWorkspaceWindow):
         super().restore_workspace(snapshot)
 
     def prepare_grr_save(self):
-        if self.dynamic_page.grr_requested and self.refresh_timer.isActive():
+        if self.refresh_timer.isActive() and (
+            self.dynamic_page.grr_requested or dynamic_grr.cached_template_path().is_file()
+        ):
             self.recognize()
 
     def change_tab(self, index):
@@ -67,6 +76,7 @@ class DynamicWindow(DataWorkspaceWindow):
     def closeEvent(self, event):
         super().closeEvent(event)
         if event.isAccepted():
+            self.dynamic_page.close_grr_preview()
             self.measurement_floating_editor.dock()
 
 

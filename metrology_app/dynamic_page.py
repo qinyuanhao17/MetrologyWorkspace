@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from tempfile import NamedTemporaryFile, TemporaryDirectory
+
 import numpy as np
 import pandas as pd
 import pyqtgraph as pg
 from PyQt6.QtCore import (
-    QAbstractTableModel, QItemSelection, QItemSelectionModel, QModelIndex, QRectF, Qt, QTimer, pyqtSignal,
+    QAbstractTableModel, QItemSelection, QItemSelectionModel, QModelIndex, QRectF, Qt, QTimer, QUrl, pyqtSignal,
 )
-from PyQt6.QtGui import QFont, QKeySequence
+from PyQt6.QtGui import QDesktopServices, QFont, QKeySequence
 from PyQt6.QtWidgets import (
-    QApplication, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QMessageBox, QPushButton,
+    QApplication, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox,
+    QPushButton,
     QScrollArea, QSplitter, QTableView, QVBoxLayout, QWidget,
 )
 from pyqtgraph.graphicsItems.LegendItem import ItemSample, LegendItem
@@ -30,6 +34,7 @@ from .table_selection import RangeSelectionTableView
 PLOT_WIDTH = 420
 PLOT_HEIGHT = 270
 PLOT_SPACING = 14
+GRR_LABEL_GAP = 5
 PLOT_COLUMNS = 3
 GRR_COLOURS = {
     "dark": ("#4ade80", "#fbbf24", "#60a5fa", "#c4b5fd", "#f87171", "#f9a8d4"),
@@ -308,10 +313,37 @@ class DynamicPage(QWidget):
         self.grr_status.setTextFormat(Qt.TextFormat.PlainText)
         controls.addWidget(self.grr_status, 1)
         layout.addLayout(controls)
+
+        self._saved_grr_report = None
+        self._grr_saved_inputs = None
+        self._grr_report = None
+        self._grr_preview_directory = None
+        self._grr_preview_path = None
+        self._grr_display_path = None
+        self.grr_report_controls = QWidget()
+        report_row = QHBoxLayout(self.grr_report_controls)
+        report_row.setContentsMargins(0, 0, 0, 0)
+        self.grr_report_label = QLabel(objectName="subtitle")
+        report_row.addWidget(self.grr_report_label)
+        self.grr_report_path = QLineEdit()
+        self.grr_report_path.setReadOnly(True)
+        self.grr_report_path.setAccessibleName("Saved GRR Excel path")
+        report_row.addWidget(self.grr_report_path, 1)
+        self.open_grr_file_button = QPushButton("Open file", objectName="link")
+        self.open_grr_file_button.clicked.connect(lambda: self._open_grr_report())
+        report_row.addWidget(self.open_grr_file_button)
+        self.open_grr_folder_button = QPushButton("Open folder", objectName="link")
+        self.open_grr_folder_button.clicked.connect(lambda: self._open_grr_report(folder=True))
+        report_row.addWidget(self.open_grr_folder_button)
+        layout.addWidget(self.grr_report_controls)
+        self.grr_report_controls.hide()
+
         self._grr_requested = False
         self._grr_axes = ((), ())
         self._grr_labels = {}
         self._grr_messages = {}
+        self._grr_alignment_timer = QTimer(self, interval=0, singleShot=True)
+        self._grr_alignment_timer.timeout.connect(self._layout_grr_results)
         self._grr_grades = {}
         self._grr_job = None
         self._grr_timer = QTimer(self, interval=200, singleShot=True)
@@ -323,7 +355,7 @@ class DynamicPage(QWidget):
         self.message = QLabel(objectName="subtitle")
         self.message.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.message.setWordWrap(True)
-        layout.addWidget(self.message)
+        layout.addWidget(self.message, 1)
 
         self.content = QFrame(objectName="panel")
         content_layout = QVBoxLayout(self.content)
@@ -380,6 +412,8 @@ class DynamicPage(QWidget):
 
     def set_input(self, frame, selection):
         changed = changed_dynamic_parameters(self.frame, frame, self.selection, selection)
+        if not self.isVisible() and (changed is None or changed):
+            self._cancel_grr()
         self.frame = pd.DataFrame(frame).copy()
         self.selection = dict(selection)
         if (changed is not None and self.parameter_models
@@ -393,8 +427,10 @@ class DynamicPage(QWidget):
         if not changed:
             return True
         try:
-            prepared = prepare_dynamic_frame(self._selected_rows())
-            pivots = {parameter: dynamic_pivot(prepared, parameter) for parameter in changed}
+            selected = self._selected_rows()
+            die_column = self.selection.get("die_column") or die_sequence_column(selected.columns)
+            prepared = prepare_dynamic_frame(selected, die_column=die_column)
+            pivots = {parameter: dynamic_pivot(prepared, parameter, die_column=die_column) for parameter in changed}
         except ValueError:
             return False
         if any(not pivot.index.equals(self.parameter_models[parameter].frame.index)
@@ -461,12 +497,12 @@ class DynamicPage(QWidget):
     def _selected_rows(self):
         return selected_measurement_rows(self.frame, self.selection)
 
-    def _pivot_cell_sources(self, prepared, source_rows, pivot, column):
+    def _pivot_cell_sources(self, prepared, source_rows, pivot, column, die_column):
         """Map each editable pivot cell to its Data sheet cell."""
         positions = {
             (cycle, die): row
             for row, (cycle, die) in zip(
-                source_rows, zip(prepared["Cycle"], prepared[die_sequence_column(prepared.columns)])
+                source_rows, zip(prepared["Cycle"], prepared[die_column])
             )
         }
         return {
@@ -500,10 +536,11 @@ class DynamicPage(QWidget):
             return
         try:
             rows = self._selected_rows().drop(columns=["Cycle"], errors="ignore")
-            prepared = prepare_dynamic_frame(rows)
+            die_column = self.selection.get("die_column") or die_sequence_column(rows.columns)
+            prepared = prepare_dynamic_frame(rows, die_column=die_column)
             source_rows = list(rows.index)
             pivots = {
-                parameter: dynamic_pivot(prepared, parameter)
+                parameter: dynamic_pivot(prepared, parameter, die_column=die_column)
                 for parameter in parameters
             }
         except ValueError as error:
@@ -513,7 +550,7 @@ class DynamicPage(QWidget):
             self._refresh_grr()
             return
 
-        dies = prepared[die_sequence_column(prepared.columns)]
+        dies = prepared[die_column]
         self._grr_axes = (
             _sort_measurement_labels(prepared["Cycle"].dropna().unique())[:dynamic_grr.CYCLE_COUNT],
             _sort_measurement_labels(dies.dropna().unique())[:dynamic_grr.DIE_COUNT],
@@ -529,7 +566,7 @@ class DynamicPage(QWidget):
                 pivots[parameter],
                 self._pivot_cell_sources(
                     prepared, source_rows, pivots[parameter],
-                    self.frame.columns.get_loc(parameter),
+                    self.frame.columns.get_loc(parameter), die_column,
                 ),
             )
             self._add_parameter_plot(
@@ -579,7 +616,7 @@ class DynamicPage(QWidget):
         )
         plot.point_selection.set_data(getattr(self, "data_point_edits", None), ("Dynamic",))
         plot.setFixedSize(PLOT_WIDTH, PLOT_HEIGHT)
-        plot.setLabel("bottom", "Die Seq")
+        plot.setLabel("bottom", self.selection.get("die_column") or die_sequence_column(self.frame.columns) or "Die Seq")
         plot.setLabel("left", "3 Sigma (nm)")
         plot.setToolTip(
             "Ctrl+scroll to zoom · Left-drag to select · Ctrl+left-drag to zoom · Ordinary scrolling moves the page"
@@ -600,7 +637,13 @@ class DynamicPage(QWidget):
             accessible_title = "selected parameters"
         plot.setAccessibleName(f"Dynamic 3 Sigma — {accessible_title}")
         row, column = divmod(len(self.plots), PLOT_COLUMNS)
-        self.plot_layout.addWidget(plot, row * 2, column)
+        card = QWidget()
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(GRR_LABEL_GAP)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        layout.addWidget(plot)
+        self.plot_layout.addWidget(card, row, column)
         self.plots.append(plot)
         return plot
 
@@ -705,7 +748,6 @@ class DynamicPage(QWidget):
         bars._selection_rows = [self._die_source_rows.get(str(die), []) for die, valid in zip(dies, finite) if valid]
         plot.addItem(bars)
         self.bar_items.append(bars)
-        row, column = divmod(len(self.plots) - 1, PLOT_COLUMNS)
         label = QLabel(objectName="dynamicGrrResult")
         label.setProperty("parameter", parameter)
         label.setTextFormat(Qt.TextFormat.PlainText)
@@ -713,12 +755,68 @@ class DynamicPage(QWidget):
         label.setWordWrap(True)
         label.setFixedWidth(PLOT_WIDTH)
         label.hide()
-        self.plot_layout.addWidget(label, row * 2 + 1, column)
+        plot.parentWidget().layout().addWidget(label)
+        plot.getAxis("bottom").geometryChanged.connect(self._grr_alignment_timer.start)
         self._grr_labels[parameter] = label
+
+    @staticmethod
+    def _align_grr_label(plot, label):
+        axis = plot.getAxis("bottom")
+        center = plot.mapFromScene(axis.label.sceneBoundingRect().center())
+        center_x = label.mapFromGlobal(plot.viewport().mapToGlobal(center)).x()
+        offset = 2 * center_x - label.width()
+        left, right = max(0, offset), max(0, -offset)
+        margins = label.contentsMargins()
+        if (margins.left(), margins.right()) != (left, right):
+            label.setContentsMargins(left, 0, right, 0)
 
     def showEvent(self, event):
         super().showEvent(event)
         self._refresh_grr(activate=True)
+
+    def set_grr_report_path(self, path):
+        self._saved_grr_report = Path(path) if path is not None else None
+        self._grr_saved_inputs = (self.frame, self.selection) if path is not None else None
+        self._refresh_grr_report_path()
+
+    def _refresh_grr_report_path(self):
+        report = None
+        if self._grr_saved_inputs is not None and self._saved_grr_report.is_file():
+            saved_frame, saved_selection = self._grr_saved_inputs
+            if self.selection == saved_selection and (self.frame is saved_frame or self.frame.equals(saved_frame)):
+                report = self._saved_grr_report
+        if report is None and self._grr_report is not None:
+            try:
+                if self._grr_preview_path is None or not self._grr_preview_path.is_file():
+                    if self._grr_preview_directory is None:
+                        self._grr_preview_directory = TemporaryDirectory(
+                            prefix="metrology-grr-preview-", ignore_cleanup_errors=True,
+                        )
+                    with NamedTemporaryFile(dir=self._grr_preview_directory.name, prefix="GRR_",
+                                            suffix=".xlsx", delete=False) as preview:
+                        preview.write(self._grr_report.content)
+                    self._grr_preview_path = Path(preview.name)
+                report = self._grr_preview_path
+            except OSError as error:
+                self.grr_status.setText(f"Could not write temporary GRR Excel: {error}")
+        self._grr_display_path = report
+        text = str(report) if report is not None else ""
+        self.grr_report_label.setText(
+            "GRR Excel (saved)" if report == self._saved_grr_report else "GRR Excel (temporary)"
+        )
+        self.grr_report_path.setText(text)
+        self.grr_report_path.setToolTip(text)
+        self.grr_report_controls.setVisible(bool(text))
+
+    def _open_grr_report(self, *, folder=False):
+        self._refresh_grr_report_path()
+        report = self._grr_display_path
+        if report is None:
+            self.grr_status.setText("The GRR Excel report could not be found.")
+            return
+        target = report.parent if folder else report
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(target))):
+            self.grr_status.setText(f"Could not open {target}")
 
     def _load_grr(self):
         source, _ = QFileDialog.getOpenFileName(self, "Load GRR Template", "", "Excel Workbook (*.xlsx)")
@@ -729,19 +827,21 @@ class DynamicPage(QWidget):
         except Exception as error:
             QMessageBox.warning(self, "Could not load GRR template", str(error))
             return
-        self._grr_job = None
+        self._cancel_grr()
+        self._grr_saved_inputs = None
         self._refresh_grr(activate=True)
 
     @property
     def grr_requested(self):
-        return self._grr_requested
+        # Saving can consume the selected pivots even if the Dynamic tab was never shown.
+        return self._grr_requested or (bool(self.parameter_models) and dynamic_grr.cached_template_path().is_file())
 
     def restore_grr(self, state):
         self._grr_requested = bool(state)
         self._cancel_grr()
 
     def grr_state(self):
-        if not self._grr_requested:
+        if not self.grr_requested:
             return None
         valid, errors = self._grr_measurements()
         return {"parameters": [[str(name), [list(row) for row in valid[name]] if name not in errors else None]
@@ -763,14 +863,31 @@ class DynamicPage(QWidget):
             self._grr_task.cancel()
         self._grr_job = None
         self._grr_messages = {}
+        self._grr_report = None
+        if self._grr_preview_path is not None:
+            try:
+                self._grr_preview_path.unlink(missing_ok=True)
+            except OSError:
+                pass  # Excel may still hold an older temporary preview open.
+            self._grr_preview_path = None
+
+    def close_grr_preview(self):
+        self._cancel_grr()
+        if self._grr_preview_directory is not None:
+            self._grr_preview_directory.cleanup()
+            self._grr_preview_directory = None
 
     def _refresh_grr(self, *, activate=False):
-        template = dynamic_grr.template_path()
-        if not template.is_file():
+        template = dynamic_grr.cached_template_path()
+        installed = template.is_file()
+        self.load_grr_button.setToolTip(
+            "Select a different GRR master template." if installed else "Install an Excel GRR master template."
+        )
+        self.grr_status.setText("Using saved GRR template." if installed else "")
+        self.grr_status.setToolTip(str(template) if installed else "")
+        if not installed:
             self._cancel_grr()
-            self.grr_status.clear()
         elif self.isVisible():
-            self.grr_status.setText("" if self.parameter_models else "GRR template loaded.")
             valid, errors = self._grr_measurements()
             if self.parameter_models and (activate or not self._grr_requested):
                 self._grr_requested = True
@@ -794,11 +911,14 @@ class DynamicPage(QWidget):
                     else:
                         self._grr_messages.update(messages)
         self._show_grr_results()
+        self._refresh_grr_report_path()
 
     def _start_grr(self):
         self._grr_task.submit(self._grr_job)
 
     def _accept_grr(self, report):
+        self._grr_report = report
+        self._refresh_grr_report_path()
         palette = GRR_COLOURS["dark" if get_settings().get("theme") == "dark" else "light"]
         for name, text in report.results:
             grade = text.strip().casefold().rstrip(".!")
@@ -816,22 +936,34 @@ class DynamicPage(QWidget):
         self._show_grr_results()
 
     def _show_grr_results(self):
-        label_heights = {}
         for parameter, label in self._grr_labels.items():
             text, colour = self._grr_messages.get(parameter, ("", ""))
             label.setText(text)
             label.setStyleSheet(f"color: {colour}; font-weight: 600;" if colour else "")
             label.setVisible(bool(text))
-            if text:
-                row, _, _, _ = self.plot_layout.getItemPosition(self.plot_layout.indexOf(label))
-                height = max(26, label.heightForWidth(PLOT_WIDTH))
+        self._update_plot_host_size()
+        self._grr_alignment_timer.start()
+
+    def _layout_grr_results(self):
+        for label in self._grr_labels.values():
+            if label.isVisible():
+                self._align_grr_label(label.parentWidget().layout().itemAt(0).widget(), label)
+        self._update_plot_host_size()
+
+    def _update_plot_host_size(self):
+        label_heights = {}
+        for label in self._grr_labels.values():
+            if not label.isHidden():
+                card = label.parentWidget()
+                row, _, _, _ = self.plot_layout.getItemPosition(self.plot_layout.indexOf(card))
+                height = max(label.fontMetrics().height(), label.heightForWidth(PLOT_WIDTH))
                 label.setFixedHeight(height)
                 label_heights[row] = max(label_heights.get(row, 0), height)
         columns = min(PLOT_COLUMNS, len(self.plots))
         rows = (len(self.plots) + PLOT_COLUMNS - 1) // PLOT_COLUMNS
         width = columns * PLOT_WIDTH + max(0, columns - 1) * PLOT_SPACING
         height = rows * PLOT_HEIGHT + max(0, rows - 1) * PLOT_SPACING
-        height += sum(label_height + PLOT_SPACING for label_height in label_heights.values())
+        height += sum(label_height + GRR_LABEL_GAP for label_height in label_heights.values())
         self.plot_host.setFixedSize(width, height)
 
 

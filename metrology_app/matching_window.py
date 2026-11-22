@@ -21,7 +21,7 @@ from PyQt6 import sip
 from .plotting.parameter_layout import ParameterPlotArea, normalize_plot_layouts
 from PyQt6.QtCore import (
     QAbstractTableModel, QDateTime, QEasingCurve, QEvent, QMimeData, QModelIndex, QPoint, QRect, QRectF,
-    QPropertyAnimation, QSignalBlocker, Qt, QTimer, pyqtSignal,
+    QPropertyAnimation, QSignalBlocker, QSize, Qt, QTimer, pyqtSignal,
 )
 from PyQt6.QtGui import (
     QAction, QActionGroup, QBrush, QColor, QDrag, QKeySequence, QPainter,
@@ -32,7 +32,7 @@ from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
-    QDateTimeEdit,
+    QDateEdit,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
@@ -60,7 +60,9 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem,
     QTabBar,
     QTabWidget,
+    QTimeEdit,
     QToolButton,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
     QWidgetAction,
@@ -71,14 +73,14 @@ from .appearance import (CORRELATION_FIT_COLOR, CORRELATION_POINT_COLOR,
                          fit_window_to_screen, help_title_label)
 from . import dynamic_grr
 from .analysis_windows import LABELS as WINDOW_LABELS, scope_parts, validate_windows, window_entries, window_metadata
-from .data import die_sequence_column, inspect_table
+from .data import inspect_table
 from .excel_export import write_workbook
 from .trend import MAGNITUDE_RATIO_LIMIT, parse_unit
 from .diagnostics import get_logger
 from .matching import MAX_ROWS, MatchWorkbook, ParameterMapping, extrema_sample_indices
 from .match_groups import copy_group_state, group_state, row_ids
 from .match_wafer_statistics_page import MatchWaferStatisticsPage
-from .measurements import compare_wafer_inputs
+from .measurements import compare_match_row_order
 from .match_group_ui import CombinedGroupDialog, GroupControls, GroupPlotPage, ProjectedSheetModel, draw_group_trend, set_group_axes
 from .data_selection import DataSelectionDialog
 from .plotting import InteractivePlotWidget, place_legend_above_frame
@@ -91,7 +93,8 @@ from .settings import (
 from .sheet import DuplicateHeaderBanner, SheetModel, SheetView, column_letter
 from .table_clipboard import attach_copy_feedback
 from .table_selection import RangeSelectionTableView, RangeSelectionTableWidget
-from .widgets import ScrollSafeComboBox
+from .widgets import ScrollSafeComboBox, configure_date_calendar
+from .window import WaferSelectionPanel
 from .workspace_store import EXTENSIONS, MATCH_FILTER, WorkspaceSnapshot, file_revision, file_stamp, load_workspace, save_workspace
 from .workspace_document import WkbDocument, commit_editors, local_snapshot, local_ui, recovery_decision, recovery_directory, writable_path
 from .workbook_startup import AXIS_MODE_LABELS, analysis_settings as normalized_analysis_settings
@@ -781,6 +784,12 @@ class MatchingWindow(QMainWindow):
         self._statistics_state = {}
         self._plot_layout_states = {}
         self._single_wafer_checks = {"preview": {}, "final": {}}
+        self._wafer_panel_states = {"preview": {}, "final": {}}
+        self._wafer_panel_source = None
+        self._wafer_panel_choice = None
+        self._wafer_panel_items = None
+        self._wafer_measurements = []
+        self._wafer_panel_actions = {}
         self._plot_label_options = plot_label_options()
         self._plot_layout_identity_timer = QTimer(self)
         self._plot_layout_identity_timer.setSingleShot(True)
@@ -796,6 +805,7 @@ class MatchingWindow(QMainWindow):
         self._map_selection_states = {"preview": None, "final": None}
         self._dynamic_selection_states = {"preview": None, "final": None}
         self._grr_scope = None
+        self._saved_grr_report = None
         self._correlation_selection_states = {
             "preview": None, "final": None
         }
@@ -826,6 +836,9 @@ class MatchingWindow(QMainWindow):
         self._workspace_frames = {}
         self._spectra_windows = {}
         self._bias_die_maps = {}
+        from .plotting.selection import DataPointEdits
+        self._chart_edits = DataPointEdits(self._change_chart_checks, self._set_chart_flags,
+                                           self._chart_records, flag_values=self.test_flag_values)
         self._recovered_children = {}
         self.second_axis_ratio = MAGNITUDE_RATIO_LIMIT
         self.metric_highlighting = _metric_highlighting_limits()
@@ -905,8 +918,10 @@ class MatchingWindow(QMainWindow):
               "removed_mapping_columns": sorted(self._removed_mapping_columns),
               "metric_highlighting": dict(self.metric_highlighting),
               "single_wafer_checks": capture(self._single_wafer_checks),
+              "wafer_panel": capture(self._wafer_panel_states),
               "group_plots": self.group_plot_page.selection_state(),
               "plot_layouts": capture(self._plot_layout_states),
+              "wafer_statistics_plot_type": self.match_statistics_page.plot_type,
               "plot_labels": capture(self._plot_label_options),
               "expand_wafer_ids": self.expand_wafer_ids.isChecked(),
               "trend_cards": [[list(key), value] for key, value in self._trend_card_state.items()],
@@ -958,6 +973,11 @@ class MatchingWindow(QMainWindow):
         group_state(snapshot.states["match"].get("grouping_state"))
         metric_limits = _metric_highlighting_limits(snapshot.states.get("match_ui", {}).get("metric_highlighting"))
         plot_layouts = normalize_plot_layouts(snapshot.states.get("match_ui", {}).get("plot_layouts"))
+        statistics_plot_type = snapshot.states.get("match_ui", {}).get(
+            "wafer_statistics_plot_type", MatchWaferStatisticsPage.DEFAULT_PLOT_TYPE,
+        )
+        if not isinstance(statistics_plot_type, str) or statistics_plot_type not in MatchWaferStatisticsPage.PLOT_TYPES:
+            raise ValueError("Invalid Wafer Mean / Sigma plot type.")
         labels = plot_label_options(snapshot.states.get("match_ui", {}).get("plot_labels"))
         expanded = snapshot.states.get("match_ui", {}).get("expand_wafer_ids", False)
         if type(expanded) is not bool:
@@ -978,6 +998,19 @@ class MatchingWindow(QMainWindow):
                 for name, labels in selections.items()
             ):
                 raise ValueError("Invalid single-wafer plot selection.")
+        wafer_states = snapshot.states.get("match_ui", {}).get("wafer_panel", {})
+        if not isinstance(wafer_states, dict) or set(wafer_states) - {"preview", "final"}:
+            raise ValueError("Invalid Wafers panel settings.")
+        for choices in wafer_states.values():
+            if not isinstance(choices, dict):
+                raise ValueError("Invalid Wafers panel settings.")
+            groups, die = choices.get("group_columns", []), choices.get("die_column")
+            threshold = choices.get("min_records", 0)
+            if (not isinstance(groups, list) or any(not isinstance(c, str) for c in groups)
+                    or (die is not None and not isinstance(die, str))
+                    or type(threshold) is not int or not 0 <= threshold <= 1_000_000):
+                raise ValueError("Invalid Wafer or Die selection.")
+
         if self._spectra_windows:
             from .spectra_workbook import close_children
             close_children(self)
@@ -998,7 +1031,10 @@ class MatchingWindow(QMainWindow):
         self._trend_card_state = {tuple(key): value for key, value in snapshot.states.get("match_ui", {}).get("trend_cards", [])}
         self._statistics_state = {tuple(key): bool(value) for key, value in snapshot.states.get("match_ui", {}).get("statistics", [])}
         self._plot_layout_states = plot_layouts
+        self.set_wafer_statistics_plot_type(statistics_plot_type, refresh_identity=False)
         self._single_wafer_checks = {stage: deepcopy(checks.get(stage, {})) for stage in ("preview", "final")}
+        self._wafer_panel_states = {stage: deepcopy(wafer_states.get(stage, {})) for stage in ("preview", "final")}
+        self._wafer_panel_choice = None
         if not state.get("draft"):
             workbook = MatchWorkbook.from_snapshot(snapshot)
             return self._restore_analyzed_workbook(
@@ -1265,6 +1301,16 @@ class MatchingWindow(QMainWindow):
         self.analysis_menu.addAction(self.run_action)
         self.metric_highlighting_action = self.analysis_menu.addAction("Metric highlighting…")
         self.metric_highlighting_action.triggered.connect(self.edit_metric_highlighting)
+        wafer_plot_type_menu = self.analysis_menu.addMenu("Wafer Mean / Sigma Plot Type")
+        wafer_plot_type_group = QActionGroup(wafer_plot_type_menu)
+        wafer_plot_type_group.setExclusive(True)
+        self.wafer_statistics_plot_actions = {}
+        for plot_type, label in MatchWaferStatisticsPage.PLOT_TYPES.items():
+            action = QAction(label, wafer_plot_type_group, checkable=True)
+            action.setChecked(plot_type == MatchWaferStatisticsPage.DEFAULT_PLOT_TYPE)
+            action.triggered.connect(lambda _checked, mode=plot_type: self.set_wafer_statistics_plot_type(mode))
+            wafer_plot_type_menu.addAction(action)
+            self.wafer_statistics_plot_actions[plot_type] = action
         self.match_type_menu = self.analysis_menu.addMenu("Match Type")
         self.match_type_group = QActionGroup(self)
         self.match_type_group.setExclusive(True)
@@ -1474,7 +1520,7 @@ class MatchingWindow(QMainWindow):
         stage = self.result_mode.currentText()
         return tuple((stage, key) for key in row_ids(self._active_raw_frame()))
 
-    def _change_chart_checks(self, rows, checked):
+    def _set_row_checks(self, rows, checked, *, included=None):
         from .match_groups import applied_state, missing_excluded_records, participation_ids, row_ids
 
         raw = self._active_raw_frame()
@@ -1482,6 +1528,9 @@ class MatchingWindow(QMainWindow):
         keys = row_ids(raw)
         ids = participation_ids(raw, previous)
         excluded = set((previous or {}).get("excluded", ()))
+        if previous is None and included is not None:
+            included_rows = set(included)
+            excluded.update(identifier for row, identifier in enumerate(ids) if row not in included_rows)
         changed = {int(row) for row in rows if 0 <= row < len(keys) and (ids[row] in excluded) == checked}
         if not changed:
             return set()
@@ -1492,15 +1541,27 @@ class MatchingWindow(QMainWindow):
         selection = {**(previous or {}), "records": records, "excluded": sorted(excluded)}
         for state in (self.group_controls.state, self.group_controls.state["applied"]):
             state["data_selection"] = deepcopy(selection)
-        self.group_controls.refresh()
         self._stage_sync_inputs = None
+        return changed
+
+    def _change_chart_checks(self, rows, checked, *, from_wafer_panel=False):
+        included = self._match_wafer_included_rows() if from_wafer_panel else None
+        changed = self._set_row_checks(rows, checked, included=included)
+        if changed:
+            self.group_controls.refresh()
+            self._apply_wafer_participation()
+        return changed
+
+    def _apply_wafer_participation(self):
         try:
-            self.run_analysis(apply_groups=False)
+            if self.result is not None:
+                self.run_analysis(apply_groups=False)
+                return
+            self._refresh_group_projection(apply_wafer_threshold=True)
         except ValueError as error:
             self._set_status(str(error), warning=True)
-            self.sync_stage_windows()
-            self.document.refresh_identity()
-        return changed
+        self.sync_stage_windows()
+        self.document.refresh_identity()
 
     def _set_chart_flags(self, rows, value):
         self._edit_test_flags(rows, self, value)
@@ -1578,6 +1639,8 @@ class MatchingWindow(QMainWindow):
         self._update_mode_actions()
 
     def _result_mode_changed(self, index):
+        if self._chart_edits.preview_rows:
+            self._chart_edits.clear_highlight()
         if hasattr(self, "_linked_task"):
             self._cancel_linked_refresh()
         had_result = self.result is not None
@@ -1687,8 +1750,21 @@ class MatchingWindow(QMainWindow):
         )
         inputs.addWidget(self.reference_card)
         inputs.addWidget(self.raw_card)
-        inputs.setSizes([570, 650])
+        self.wafer_panel = WaferSelectionPanel(include_die=True)
+        self.wafer_panel.setMinimumWidth(235)
+        self.wafer_panel.wafer_list.setMinimumHeight(72)
+        self.wafer_panel.all_button.clicked.connect(lambda: self._check_match_wafers(True))
+        self.wafer_panel.none_button.clicked.connect(lambda: self._check_match_wafers(False))
+        self.wafer_panel.wafer_list.model().dataChanged.connect(self._match_wafer_changed)
+        self.wafer_panel.min_records.valueChanged.connect(self._match_wafer_threshold_changed)
+        self.wafer_panel.die_picker.currentIndexChanged.connect(self._match_die_column_changed)
+        inputs.addWidget(self.wafer_panel)
+        inputs.setSizes([560, 640, 290])
+        inputs.setStretchFactor(0, 1)
+        inputs.setStretchFactor(1, 1)
         inputs.setChildrenCollapsible(False)
+        inputs.setCollapsible(2, True)
+        inputs.handle(2).setToolTip("Drag right to hide Wafers, or left to show it.")
         inputs.setMinimumHeight(280)
         from .floating_editor import FloatingEditor
         self.raw_floating_editor = FloatingEditor(self, self.raw_card, self.raw_view, inputs)
@@ -2351,10 +2427,140 @@ class MatchingWindow(QMainWindow):
         available |= {f"Raw Data / {column}" for column in self._active_raw_frame().columns}
         self._selection_columns_missing = used - available
 
-    def _refresh_group_projection(self):
+    def _refresh_match_wafer_choices(self, raw):
+        from .input_planning import prepare_measurement_choices
+
+        panel = self.wafer_panel
+        stage = self.result_mode.currentText().lower()
+        state = self._wafer_panel_states[stage]
+        groups = state.get("group_columns")
+        choice = (stage, None if groups is None else tuple(groups))
+        if raw is not self._wafer_panel_source or choice != self._wafer_panel_choice:
+            panel.die_picker.set_columns(raw.columns)
+            counts, _, candidates, selected, primary, measurements = prepare_measurement_choices(
+                raw, groups is None, groups or (),
+            )
+            if list(self._wafer_panel_actions) != candidates:
+                panel.group_menu.clear()
+                self._wafer_panel_actions = {}
+                for column in candidates:
+                    action = QAction(column, panel.group_menu, checkable=True)
+                    panel.group_menu.addAction(action)
+                    action.toggled.connect(self._match_wafer_groups_changed)
+                    self._wafer_panel_actions[column] = action
+            for column, action in self._wafer_panel_actions.items():
+                with QSignalBlocker(action):
+                    action.setChecked(column in selected)
+            panel.group_picker.setText(" / ".join(selected) or "Select grouping columns")
+            panel.group_picker.setEnabled(bool(candidates))
+            panel.wafer_count.setText(f"{len(measurements)} measurement sets / {len(counts)} {primary or 'groups'} values")
+            self._wafer_panel_source, self._wafer_panel_choice = raw, choice
+            self._wafer_measurements = measurements
+            self._wafer_panel_items = None
+
+        with QSignalBlocker(panel.min_records), QSignalBlocker(panel.die_picker):
+            panel.min_records.setValue(state.get("min_records", 0))
+            panel.die_picker.setCurrentIndex(max(0, panel.die_picker.findData(state.get("die_column"))))
+
+    def _refresh_match_wafer_items(self, included):
+        panel = self.wafer_panel
+        threshold = panel.min_records.value()
+        signature = (included, threshold)
+        if signature == self._wafer_panel_items:
+            return
+        metadata_changed = self._wafer_panel_items is None
+        self._wafer_panel_items = signature
+        selected = set(included)
+        with QSignalBlocker(panel.wafer_list):
+            if panel.wafer_list.topLevelItemCount() != len(self._wafer_measurements) or any(
+                panel.wafer_list.topLevelItem(i).data(0, Qt.ItemDataRole.UserRole) != measurement.key
+                or panel.wafer_list.topLevelItem(i).text(1) != str(len(measurement.rows))
+                for i, measurement in enumerate(self._wafer_measurements)
+            ):
+                panel.wafer_list.clear()
+                for measurement in self._wafer_measurements:
+                    item = QTreeWidgetItem([measurement.label, str(len(measurement.rows))])
+                    item.setData(0, Qt.ItemDataRole.UserRole, measurement.key)
+                    panel.wafer_list.addTopLevelItem(item)
+            for i, measurement in enumerate(self._wafer_measurements):
+                item = panel.wafer_list.topLevelItem(i)
+                if metadata_changed:
+                    item.setText(0, measurement.label)
+                    item.setToolTip(0, measurement.detail)
+                    item.setToolTip(1, measurement.detail)
+                    item.setSizeHint(0, QSize(0, 20 * len(measurement.label.splitlines()) + 12))
+                active = sum(row in selected for row in measurement.rows)
+                item.setCheckState(0, Qt.CheckState.Checked if active == len(measurement.rows)
+                                   else Qt.CheckState.PartiallyChecked if active else Qt.CheckState.Unchecked)
+                item.setHidden(len(measurement.rows) <= threshold)
+
+    def _match_wafer_changed(self, top_left, _bottom_right, roles):
+        tree = self.wafer_panel.wafer_list
+        # Font and layout updates also change item data, even on a partially checked wafer.
+        if tree.signalsBlocked() or Qt.ItemDataRole.CheckStateRole not in roles:
+            return
+        index = top_left.row()
+        item = tree.topLevelItem(index)
+        if item is not None and not item.isHidden():
+            state = item.checkState(0)
+            if state != Qt.CheckState.PartiallyChecked:
+                self._change_chart_checks(self._wafer_measurements[index].rows,
+                                          state == Qt.CheckState.Checked, from_wafer_panel=True)
+
+    def _check_match_wafers(self, checked):
+        threshold = self.wafer_panel.min_records.value()
+        rows = [row for measurement in self._wafer_measurements if len(measurement.rows) > threshold
+                for row in measurement.rows]
+        self._change_chart_checks(rows, checked, from_wafer_panel=True)
+
+    def _match_wafer_groups_changed(self):
+        state = self._wafer_panel_states[self.result_mode.currentText().lower()]
+        state["group_columns"] = [column for column, action in self._wafer_panel_actions.items() if action.isChecked()]
+        self._apply_wafer_participation()
+
+    def _match_wafer_threshold_changed(self, threshold):
+        self._wafer_panel_states[self.result_mode.currentText().lower()]["min_records"] = threshold
+        self._apply_wafer_participation()
+
+    def _match_die_column_changed(self):
+        state = self._wafer_panel_states[self.result_mode.currentText().lower()]
+        state["die_column"] = self.wafer_panel.die_picker.currentData()
+        self._apply_wafer_participation()
+
+    def _match_wafer_included_rows(self):
+        from .match_groups import GroupPlan, participation_rows
+
         controls = self.group_controls
-        controls.set_sources(self.reference_frame, self._active_raw_frame())
+        if controls.plan is not None and not controls.pending:
+            return controls.plan.included_rows
+        applied = controls.state["applied"]
+        selection = applied.get("data_selection")
+        if controls.plan is not None and selection is None and applied.get("filters"):
+            try:
+                return GroupPlan(controls.raw, controls.flags_frame(), applied,
+                                 controls.reference).included_rows
+            except (ValueError, IndexError):
+                # A table edit can temporarily make the applied filters unusable.
+                pass
+        return participation_rows(controls.raw, selection)
+
+    def _refresh_group_projection(self, *, apply_wafer_threshold=False):
+        controls = self.group_controls
+        raw = self._active_raw_frame()
+        controls.set_sources(self.reference_frame, raw)
+        self._refresh_match_wafer_choices(raw)
         plan = controls.plan
+        included_rows = self._match_wafer_included_rows()
+        threshold = self.wafer_panel.min_records.value()
+        if apply_wafer_threshold and threshold:
+            hidden = {row for measurement in self._wafer_measurements if len(measurement.rows) <= threshold
+                      for row in measurement.rows}
+            hidden.intersection_update(included_rows)
+            if hidden and self._set_row_checks(hidden, False, included=included_rows):
+                controls.refresh()
+                plan = controls.plan
+                included_rows = self._match_wafer_included_rows()
+        self._refresh_match_wafer_items(included_rows)
         selection = controls.state.get("applied", controls.state).get("data_selection") or {}
         hide = bool(selection.get("hide_excluded"))
         projected = plan is not None and len(plan.raw) > 0 and bool(hide or controls.state["filters"] or controls.state["sort"])
@@ -2438,6 +2644,8 @@ class MatchingWindow(QMainWindow):
 
     def _analysis_input_changed(self, *_, view_state=None, prepare_groups=True):
         """Refresh valid post-run edits without blanking plots or layout first."""
+        if self._chart_edits.preview_rows:
+            self._chart_edits.clear_highlight()
         model = self.final_raw_model if self.result_mode.currentText().lower() == 'final' else self.raw_model
         changed = model.changed_cells
         # This is a cost hint, never proof of correctness. Sparse updates still
@@ -3115,8 +3323,13 @@ class MatchingWindow(QMainWindow):
         wafer_inputs = (self.reference_frame, raw_frame)
         if any(current is not previous for current, previous in zip(
                 wafer_inputs, getattr(self, "_checked_wafer_inputs", (None, None)))):
-            order_mismatch, _difference = compare_wafer_inputs(*wafer_inputs)
-            self.wafer_warning.setVisible(order_mismatch)
+            wafer_mismatch, die_mismatch = compare_match_row_order(*wafer_inputs)
+            mismatches = [f"Ref and Raw {name} order differs." for name, differs in
+                          (("wafer", wafer_mismatch), ("Die", die_mismatch)) if differs]
+            self.wafer_warning.setText(
+                " ".join([*mismatches, "Align the source rows before running Match."]) if mismatches else ""
+            )
+            self.wafer_warning.setVisible(bool(mismatches))
             self._checked_wafer_inputs = wafer_inputs
         self.raw_view.setEnabled(True)
         valid_rows = has_reference and has_raw and len(self.reference_frame) <= len(raw_frame)
@@ -4832,6 +5045,14 @@ class MatchingWindow(QMainWindow):
         except Exception as error:
             QMessageBox.warning(self, f"Cannot open {stage.title()}", str(error))
 
+    def _set_saved_grr_report(self, path, scope=None):
+        self._saved_grr_report = (scope, path) if path is not None else None
+        for workspace in self._stage_windows:
+            page = getattr(workspace, "dynamic_page", None)
+            if page is not None and not sip.isdeleted(page):
+                is_saved_scope = path is not None and getattr(workspace, "_managed_scope", None) == scope
+                page.set_grr_report_path(path if is_saved_scope and not workspace.document.is_dirty() else None)
+
     def open_dynamic_workspace(self, stage, *, scope=None):
         scope = scope or f"dynamic.{stage}"
         existing = self._prepare_stage_window("dynamic", stage, scope=scope)
@@ -4876,6 +5097,10 @@ class MatchingWindow(QMainWindow):
         if page is not None:
             page.grr_activated.connect(lambda: setattr(self, "_grr_scope", scope))
         self._register_stage_workspace(workspace, "dynamic", stage)
+        if page is not None and self._saved_grr_report is not None:
+            saved_scope, report = self._saved_grr_report
+            if scope == saved_scope and not workspace.document.is_dirty():
+                page.set_grr_report_path(report)
         workspace.show()
         self.remember_stage_inputs()
         return workspace
@@ -4935,6 +5160,7 @@ class MatchingWindow(QMainWindow):
         reuse = cached[1] if cached is not None and cached[0] == inputs else None
         result = workbook.analyze(reuse=reuse, prepared_plan=self.group_controls.plan,
                                   metadata_from=cached[1] if cached is not None else None)
+        result.selected_die_column = self._wafer_panel_states[workbook.result_mode].get("die_column")
         self._result_cache[workbook.result_mode] = (inputs, result)
         return result
 
@@ -4946,15 +5172,21 @@ class MatchingWindow(QMainWindow):
         still preserves the surviving plot's zoom.
         """
         plan = self.result.group_plan
+        die_column = self.result.die_column
+        # The standard Die Seq is already part of plan.ids.
+        die_identity = (die_column, tuple(plan.raw[die_column].astype(str))) if (
+            die_column is not None and die_column != "Die Seq"
+        ) else (die_column,)
         if not plan.enabled:
             # Classification names are irrelevant without Groups, but collecting
             # Wafer identities changes both the curve order and its captions.
-            return (False, plan.ids, plan.included_rows,
+            return (False, plan.ids, plan.included_rows, die_identity,
                     plan.state["trend_order"] == "wafers" or self._trend_collects_wafers(),
                     tuple(self._plot_label_options["trend"].items()))
         return (
             plan.ids,
             plan.included_rows,
+            die_identity,
             plan.row_groups,
             plan.labels,
             plan.group_keys,
@@ -4971,12 +5203,14 @@ class MatchingWindow(QMainWindow):
         self._auto_run_pending = False
         self._pending_auto_view_state = None
         scroll_value = self.setup_scroll.verticalScrollBar().value()
-        self._refresh_group_projection()
+        self._refresh_group_projection(apply_wafer_threshold=not apply_groups)
         if apply_groups:
             if self.group_controls.plan is None:
                 raise ValueError(self.group_controls.status.text())
             self.group_controls.accept_changes()
             self._stage_sync_inputs = None
+            if self.wafer_panel.min_records.value():
+                self._refresh_group_projection(apply_wafer_threshold=True)
         self.workbook = self.current_workbook()
         self.result = self._analyze_workbook(self.workbook)
         self._analysis_current = True
@@ -5260,12 +5494,10 @@ class MatchingWindow(QMainWindow):
         wafer_model.checkedChanged.connect(lambda row, checked: self._wafer_checked(parameter, row, checked))
         wafer_view.selectionModel().selectionChanged.connect(lambda *_: self._wafer_selection_changed(parameter))
         wafer_view.clearRequested.connect(lambda: self._clear_wafer_selection(parameter))
-        wafer_metrics_layout = QHBoxLayout()
-        wafer_metrics_layout.setSpacing(14)
-        wafer_table_column = QVBoxLayout()
-        wafer_table_column.setContentsMargins(0, 0, 0, 0)
-        wafer_table_column.addWidget(wafer_view, 1)
-        wafer_metrics_layout.addLayout(wafer_table_column, 0)
+        wafer_metrics_splitter = QSplitter(Qt.Orientation.Horizontal)
+        wafer_metrics_splitter.setHandleWidth(8)
+        wafer_metrics_splitter.setChildrenCollapsible(False)
+        wafer_metrics_splitter.addWidget(wafer_view)
         wafer_r2 = self._plot_widget("Wafer", "R²")
         wafer_slope = self._plot_widget("Wafer", "Slope")
         for plot in (wafer_r2, wafer_slope):
@@ -5296,8 +5528,12 @@ class MatchingWindow(QMainWindow):
             shortcut = QShortcut(QKeySequence(Qt.Key.Key_Escape), widget)
             shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
             shortcut.activated.connect(lambda: self._clear_wafer_selection(parameter))
-        wafer_metrics_layout.addWidget(wafer_plot_area, 1)
-        wafer_layout.addLayout(wafer_metrics_layout)
+        wafer_plot_area.setMinimumWidth(416)
+        wafer_metrics_splitter.addWidget(wafer_plot_area)
+        wafer_metrics_splitter.setStretchFactor(0, 1)
+        wafer_metrics_splitter.setStretchFactor(1, 1)
+        wafer_metrics_splitter.setSizes([900, 600])
+        wafer_layout.addWidget(wafer_metrics_splitter)
         wafer_detail_layout = QVBoxLayout()
         wafer_detail_layout.setSpacing(12)
         wafer_layout.addLayout(wafer_detail_layout)
@@ -5322,8 +5558,7 @@ class MatchingWindow(QMainWindow):
             "wafer_view": wafer_view,
             "wafer_draw_delegate": draw_delegate,
             "wafer_header": wafer_header,
-            "wafer_metrics_layout": wafer_metrics_layout,
-            "wafer_table_column": wafer_table_column,
+            "wafer_metrics_splitter": wafer_metrics_splitter,
             "wafer_plot_area": wafer_plot_area,
             "wafer_uncheck_all": uncheck_all,
             "wafer_r2": wafer_r2,
@@ -5373,6 +5608,12 @@ class MatchingWindow(QMainWindow):
         )[variant] = layouts[stage][parameter][variant]
         if hasattr(self, "document"):
             self._plot_layout_identity_timer.start()
+
+    def set_wafer_statistics_plot_type(self, plot_type, *, refresh_identity=True):
+        self.match_statistics_page.set_plot_type(plot_type)
+        self.wafer_statistics_plot_actions[plot_type].setChecked(True)
+        if refresh_identity:
+            self.document.refresh_identity()
 
     def _publish_match_statistics_result(self):
         if self.result is None or self.workbook is None:
@@ -5447,7 +5688,7 @@ class MatchingWindow(QMainWindow):
         )
         source_rows = data["Source row"].tolist() if "Source row" in data else result.source_rows
         source = result.group_plan.raw
-        die_column = die_sequence_column(source.columns)
+        die_column = result.die_column
         dies_all = source[die_column].astype(str).to_numpy()[list(source_rows)].tolist() if die_column is not None else ["N/A"] * len(source_rows)
         chart_rows = np.asarray(source_rows, dtype=int)[indices]
         group["annotation_data"] = (indices, dies_all, workbook.match_type)
@@ -5465,10 +5706,6 @@ class MatchingWindow(QMainWindow):
             f"{len(data):,} rows" if not display_note else display_note.removeprefix(" · ")
         )
         plots = group["plots"]
-        if not hasattr(self, "_chart_edits"):
-            from .plotting.selection import DataPointEdits
-            self._chart_edits = DataPointEdits(self._change_chart_checks, self._set_chart_flags,
-                                               self._chart_records, flag_values=self.test_flag_values)
         for name, plot in plots.items():
             plot.point_selection.set_data(
                 self._chart_edits,
@@ -5775,9 +6012,11 @@ class MatchingWindow(QMainWindow):
         group["wafer_metrics_pending"] = False
         enabled = True
         try:
-            summary = self.result.wafer_summary(parameter)
+            summary = self.result.wafer_summary(parameter, group_order=True)
+            measurement_rows = self.result.wafer_measurement_rows(group_order=True)
         except ValueError:
             summary = pd.DataFrame()
+            measurement_rows = ()
             enabled = False
         group["wafer_card"].setVisible(enabled)
         previous = group.get("wafer_summary")
@@ -5846,8 +6085,6 @@ class MatchingWindow(QMainWindow):
             curve = wafer_slope.plot(x[valid_slope], slope[valid_slope], pen=None,
                                     symbol="o", symbolSize=8, symbolBrush="#e09f3e", data=np.flatnonzero(valid_slope))
             curve.sigPointsClicked.connect(lambda _curve, points, _event: self._select_wafer(parameter, int(points[0].data()), toggle=True))
-        _source, measurements = self.result._measurement_groups()
-        source_rows = self.result.source_rows
         for key, valid in (("wafer_r2", valid_r2), ("wafer_slope", valid_slope)):
             chart = group[key]
             curves = chart.listDataItems()
@@ -5857,8 +6094,7 @@ class MatchingWindow(QMainWindow):
                     ("Wafer metrics", self.result_mode.currentText(), parameter, key),
                 )
                 chart.set_point_rows(curves[0].scatter, [
-                    tuple(source_rows[row] for row in measurement.rows)
-                    for measurement, present in zip(measurements, valid) if present
+                    rows for rows, present in zip(measurement_rows, valid) if present
                 ])
         wafer_r2.setTitle("Single-Wafer R²")
         wafer_slope.setTitle("Single-Wafer slope")
@@ -5960,14 +6196,15 @@ class MatchingWindow(QMainWindow):
                 removed.hide()
                 removed.deleteLater()
         mapping = next(m for m in self.workbook.mappings if m.name == parameter)
-        signature = (mapping, self.workbook.result_mode, self._selected_bias_views())
+        die_column = self.result.die_column
+        signature = (mapping, self.workbook.result_mode, self._selected_bias_views(), die_column)
         for label in selected:
             if label not in labels:
                 continue
             row = labels.index(label)
             if pd.isna(summary.iloc[row]["Slope"]):
                 continue
-            reference, raw = self.result.wafer_frames(row)
+            reference, raw = self.result.wafer_frames(row, group_order=True)
             detail = details.get(label)
             if (detail is not None and detail["source_reference"].equals(reference)
                     and detail["source_raw"].equals(raw) and detail["signature"] == signature):
@@ -5988,6 +6225,7 @@ class MatchingWindow(QMainWindow):
                                      bias_mode=self.workbook.bias_mode, bias_limit=self.workbook.bias_limit)
                 detail.update(workbook=book, result=book.analyze(metadata_from=detail["result"]),
                               source_reference=reference, source_raw=raw)
+                detail["result"].selected_die_column = die_column
                 self._draw_parameter_group(parameter, detail, refresh="values")
                 continue
             if detail is not None:
@@ -6001,6 +6239,7 @@ class MatchingWindow(QMainWindow):
                                               result_mode=self.workbook.result_mode, bias_views=self.workbook.bias_views,
                                               bias_mode=self.workbook.bias_mode, bias_limit=self.workbook.bias_limit)
             detail["result"] = detail["workbook"].analyze()
+            detail["result"].selected_die_column = die_column
             detail.update(source_reference=reference, source_raw=raw, signature=signature)
             details[label] = detail
             self._draw_parameter_group(parameter, detail)
@@ -6014,7 +6253,7 @@ class MatchingWindow(QMainWindow):
 
     def _single_wafer_tick_labels(self, detail):
         raw = detail["source_raw"]
-        column = die_sequence_column(raw.columns)
+        column = detail["result"].die_column
         labels = [str(v) for v in raw[column]] if column is not None else [str(i + 1) for i in range(len(raw))]
         for name in ("trend", "bias", "bias-percent"):
             plot = detail["plots"].get(name)
@@ -6035,7 +6274,7 @@ class MatchingWindow(QMainWindow):
                         ticks.append((int(i) + 1, labels[i]))
                         previous_edge = x + half
                 target.getAxis("bottom").setTicks([ticks])
-            plot.setLabel("bottom", "Die Seq" if column is not None else "Measurement order")
+            plot.setLabel("bottom", str(column) if column is not None else "Measurement order")
             plot.getAxis("bottom").setHeight(40)
             plot.getViewBox().sigResized.connect(refresh)
             plot.getViewBox().sigRangeChanged.connect(refresh)
@@ -6093,7 +6332,7 @@ class MatchingWindow(QMainWindow):
                 margins = layout.contentsMargins()
                 wafer_height = (margins.top() + margins.bottom()
                                 + group["wafer_header"].sizeHint().height() + layout.spacing()
-                                + group["wafer_metrics_layout"].sizeHint().height())
+                                + group["wafer_metrics_splitter"].sizeHint().height())
                 details = group["wafer_details"]
                 if details:
                     wafer_height += (layout.spacing() + sum(d["card"].height() for d in details.values())
@@ -6158,6 +6397,7 @@ class MatchingWindow(QMainWindow):
             book = copy(self.workbook)
             book.result_mode = mode
             result = book.analyze()
+            result.selected_die_column = self._wafer_panel_states[mode].get("die_column")
             extra = []
             if (getattr(book, f"{mode}_map") is not None
                     or getattr(book, f"{mode}_raw") is not None):
@@ -6320,6 +6560,7 @@ class MatchingWindow(QMainWindow):
             self._recovered_children.clear()
         # Everything below is auxiliary to an already committed file.
         try:
+            self._set_saved_grr_report(None)
             self.document.mark_clean(snapshot)
             # The background write can process close/open events. Only update
             # the live instances whose data was included in this snapshot.
@@ -6359,7 +6600,7 @@ class MatchingWindow(QMainWindow):
                 self.document.write_recovery()
             else:
                 self.document.remove_recovery()
-            grr_inputs = dynamic_grr.match_inputs(snapshot)
+            grr_scope, grr_inputs = dynamic_grr.match_inputs(snapshot)
             if grr_inputs and grr_inputs.get("parameters"):
                 try:
                     grr_warning = document_io(
@@ -6369,6 +6610,15 @@ class MatchingWindow(QMainWindow):
                 except Exception as error:
                     grr_warning = f"GRR report was not saved: {error}"
                     LOGGER.warning(grr_warning)
+                    if isinstance(error, dynamic_grr.GrrReportWriteError):
+                        QMessageBox.warning(
+                            self, "Could not update GRR Excel",
+                            f"The Match Workbook was saved. The GRR Excel report could not be updated.\n\n"
+                            f"{error.path}\n\nIf this file is open in Excel, close it and save the Match Workbook again.",
+                        )
+                else:
+                    if self.document.path == saved and self.document.revision == snapshot.revision:
+                        self._set_saved_grr_report(dynamic_grr.match_report_path(saved), grr_scope)
                 if grr_warning:
                     self.document.last_warning = "; ".join(filter(None, (self.document.last_warning, grr_warning)))
             warning = f" · Warning: {self.document.last_warning}" if self.document.last_warning else ""
@@ -6530,6 +6780,7 @@ class MatchingWindow(QMainWindow):
             from .spectra_workbook import close_children
             close_children(self)
         self._close_stage_workspaces(tuple(self._stage_windows))
+        self._saved_grr_report = None
         if "recovery" in snapshot.states:
             self.document.recover(path, snapshot)
             return self.workbook or snapshot
@@ -6548,6 +6799,9 @@ class MatchingWindow(QMainWindow):
         self.document.revision = snapshot.revision
         self.document.untrusted_recovery = False
         self.document.mark_clean(baseline if changed_settings else None)
+        grr_scope, grr_inputs = dynamic_grr.match_inputs(snapshot)
+        if grr_inputs and grr_inputs.get("parameters"):
+            self._set_saved_grr_report(dynamic_grr.existing_match_report(self.workbook_path), grr_scope)
         self._remember_recent_wkb(path)
         return self.workbook or snapshot
 
@@ -6709,6 +6963,7 @@ class MatchingWindow(QMainWindow):
             self._auto_run_enabled = False
             self._auto_run_pending = False
             self.workbook_path = None
+            self._saved_grr_report = None
             self.document.path = None
             self.document.revision = None
             self.document.untrusted_recovery = False
@@ -6726,7 +6981,12 @@ class MatchingWindow(QMainWindow):
 def _match_save_filename(parent):
     dialog = QDialog(parent)
     dialog.setWindowTitle("Name Match Workbook")
+    dialog.setObjectName("workbookNameDialog")
+    dialog.setMinimumWidth(460)
     form = QFormLayout(dialog)
+    form.setContentsMargins(20, 20, 20, 20)
+    form.setVerticalSpacing(10)
+    form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
     form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
     fields = []
     for label in ("Project", "Layer", "Site", "Version"):
@@ -6735,10 +6995,19 @@ def _match_save_filename(parent):
         form.addRow(label, field)
         fields.append(field)
 
-    timestamp = QDateTimeEdit(QDateTime.currentDateTime(), dialog)
-    timestamp.setDisplayFormat("yyyy-MM-dd HH:mm")
-    timestamp.setCalendarPopup(True)
-    form.addRow("Date and Time", timestamp)
+    now = QDateTime.currentDateTime()
+    date_input = QDateEdit(now.date(), dialog, objectName="workbookDateInput")
+    configure_date_calendar(date_input)
+    time_input = QTimeEdit(now.time(), dialog, objectName="workbookTimeInput")
+    time_input.setDisplayFormat("HH:mm")
+    date_enabled = QCheckBox("Date", objectName="workbookDateEnabled")
+    date_enabled.setChecked(True)
+    date_enabled.toggled.connect(date_input.setEnabled)
+    time_enabled = QCheckBox("Time", objectName="workbookTimeEnabled")
+    time_enabled.setChecked(True)
+    time_enabled.toggled.connect(time_input.setEnabled)
+    form.addRow(date_enabled, date_input)
+    form.addRow(time_enabled, time_input)
 
     preview = QLabel(dialog)
     preview.setTextFormat(Qt.TextFormat.PlainText)
@@ -6750,14 +7019,19 @@ def _match_save_filename(parent):
     )
     proceed = buttons.button(QDialogButtonBox.StandardButton.Ok)
     proceed.setText("Continue")
+    proceed.setObjectName("primary")
     buttons.accepted.connect(dialog.accept)
     buttons.rejected.connect(dialog.reject)
     form.addRow(buttons)
 
     def update_preview():
         parts = [field.text().strip() for field in fields]
-        stamp = timestamp.dateTime().toString("yyyyMMdd_HHmm")
-        filename = "_".join([*parts, stamp]) + EXTENSIONS["match_workbook"]
+        timestamp = []
+        if date_enabled.isChecked():
+            timestamp.append(date_input.date().toString("yyyyMMdd"))
+        if time_enabled.isChecked():
+            timestamp.append(time_input.time().toString("HHmm"))
+        filename = "_".join([*parts, *timestamp]) + EXTENSIONS["match_workbook"]
         message = ""
         if not all(parts):
             message = "Enter Project, Layer, Site and Version."
@@ -6770,7 +7044,10 @@ def _match_save_filename(parent):
 
     for field in fields:
         field.textChanged.connect(update_preview)
-    timestamp.dateTimeChanged.connect(update_preview)
+    date_input.dateChanged.connect(update_preview)
+    time_input.timeChanged.connect(update_preview)
+    date_enabled.toggled.connect(update_preview)
+    time_enabled.toggled.connect(update_preview)
     update_preview()
     try:
         if dialog.exec() == QDialog.DialogCode.Accepted:

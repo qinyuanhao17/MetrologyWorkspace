@@ -24,7 +24,18 @@ _EXCEL_LOCK = Lock()
 
 
 def template_path():
-    return settings.SETTINGS_PATH.parent / "grr_template.xlsx"
+    directory = settings.SETTINGS_PATH.parent
+    if directory == settings.APP_DIRECTORY:
+        directory = settings.APPLICATION_ROOT
+    return directory / "grr_template.xlsx"
+
+
+def cached_template_path():
+    target = template_path()
+    if target.is_file():
+        return target
+    legacy = settings.SETTINGS_PATH.with_name(target.name)
+    return legacy if legacy.is_file() else target
 
 
 def input_values(pivot, *, cycles=None, dies=None):
@@ -63,7 +74,7 @@ def _stamp(path):
 
 
 def request(parameters, template=None):
-    path = Path(template) if template is not None else template_path()
+    path = Path(template) if template is not None else cached_template_path()
     inputs = tuple((str(name), _validated_values(values)) for name, values in parameters)
     if not inputs:
         raise ValueError("No selected Dynamic parameters have complete GRR measurements.")
@@ -289,18 +300,46 @@ def match_inputs(snapshot):
     """Select the most recently used Dynamic window's accepted GRR measurements."""
     scopes = snapshot.states
     preferred = scopes.get("match_ui", {}).get("grr_scope")
-    dynamic = {
-        scope: state["analysis_states"]["grr"]
-        for scope, state in scopes.items()
-        if state.get("workspace_type") == "dynamic" and "grr" in state.get("analysis_states", {})
-    }
-    return dynamic.get(preferred) or next(iter(dynamic.values()), None)
+    dynamic = {}
+    for scope, state in scopes.items():
+        if state.get("workspace_type") == "dynamic":
+            grr = state.get("analysis_states", {}).get("grr") or {}
+            if grr.get("parameters"):
+                dynamic[scope] = grr
+    if preferred in dynamic:
+        return preferred, dynamic[preferred]
+    return next(iter(dynamic.items()), (None, None))
+
+
+def match_report_path(path):
+    path = Path(path)
+    return path.with_name(f"GRR_{path.stem}.xlsx")
+
+
+def existing_match_report(path):
+    """Find the companion report published after the latest Workbook save."""
+    path = Path(path)
+    report = match_report_path(path)
+    try:
+        if report.is_file() and report.stat().st_mtime_ns >= path.stat().st_mtime_ns:
+            return report
+    except OSError:
+        pass
+    return None
+
+
+class GrrReportWriteError(OSError):
+    """The companion Excel file could not be replaced or written."""
+
+    def __init__(self, path):
+        super().__init__(str(path))
+        self.path = path
 
 
 def save_match_report(path, revision, inputs):
     from .workspace_store import file_revision
 
-    target = path.with_name(f"GRR_{path.stem}.xlsx")
+    target = match_report_path(path)
     parameters = inputs.get("parameters", ())
     if not parameters:
         return ""
@@ -313,6 +352,9 @@ def save_match_report(path, revision, inputs):
         if file_revision(path) != revision:
             raise OSError("The Match Workbook changed before its GRR report was saved.")
 
-    write_report(target, report.content, before_replace=verify_revision)
+    try:
+        write_report(target, report.content, before_replace=verify_revision)
+    except PermissionError as error:
+        raise GrrReportWriteError(target) from error
     skipped = [name for name, values in parameters if values is None]
     return f"GRR omitted incomplete parameters: {', '.join(skipped)}" if skipped else ""

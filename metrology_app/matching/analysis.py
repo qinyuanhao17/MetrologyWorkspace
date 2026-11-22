@@ -12,6 +12,7 @@ import sqlite3
 import numpy as np
 import pandas as pd
 
+from ..data import die_sequence_column
 from ..measurements import default_identity_columns, detect_measurements, wafer_identity_labels
 from ..trend import MAGNITUDE_RATIO_LIMIT, parse_unit
 
@@ -75,6 +76,8 @@ def _normalized_workspace_selections(selections):
                         f"Workspace selection {field} cannot contain duplicates."
                     )
                 saved[field] = values
+            if kind == "dynamic":
+                _save_die_column(state, saved)
             if kind == "map":
                 for field, label in (
                     ("map_draw", "Wafer Map"),
@@ -120,6 +123,14 @@ def _normalized_workspace_selections(selections):
     return normalized
 
 
+def _save_die_column(source, target):
+    column = source.get("die_column")
+    if column is not None:
+        if not isinstance(column, str) or not column.strip():
+            raise ValueError("Die column must be a non-empty column name.")
+        target["die_column"] = column
+
+
 def _normalized_correlation_selections(selections):
     """Return durable per-stage Correlation/Trend sidebar and draw state."""
     normalized = {stage: None for stage in _WORKSPACE_STAGES}
@@ -163,6 +174,7 @@ def _normalized_correlation_selections(selections):
                         f"Correlation {source} {field} cannot contain duplicates."
                     )
                 selected[field] = values
+            _save_die_column(source_state, selected)
             saved[source] = selected
         for field, label in (
             ("correlation_draw", "Correlation"),
@@ -298,6 +310,8 @@ class MatchAnalysisResult:
         )
         self._mapping_by_name = {mapping.name: mapping for mapping in mappings}
         self._measurements = {}
+        self._grouped_measurements = {}
+        self.selected_die_column = None
         self._measurement_spans = {}
         self.summary = pd.DataFrame([
             {
@@ -347,6 +361,12 @@ class MatchAnalysisResult:
         except KeyError as error:
             raise ValueError(f"Unknown parameter: {parameter}") from error
 
+    @property
+    def die_column(self):
+        if self.selected_die_column in self._raw.columns:
+            return self.selected_die_column
+        return die_sequence_column(self._raw.columns)
+
     def raw_column(self, parameter):
         """The Raw Data column one parameter is fitted against."""
         try:
@@ -380,13 +400,13 @@ class MatchAnalysisResult:
             "Selected Bias": selected,
         }, index=self._reference.index.copy())
 
-    def wafer_summary(self, parameter, wafer_column=None):
-        """Fit each Raw Data measurement identity independently, in source order."""
+    def wafer_summary(self, parameter, wafer_column=None, *, group_order=False):
+        """Fit each Raw Data measurement identity independently."""
         try:
             mapping = self._mapping_by_name[parameter]
         except KeyError as error:
             raise ValueError(f"Unknown parameter: {parameter}") from error
-        source, measurements = self._measurement_groups(wafer_column)
+        source, measurements = self._wafer_summary_groups(wafer_column, group_order=group_order)
         reference = pd.to_numeric(self._reference[mapping.reference_column], errors="coerce").to_numpy(float)
         raw = pd.to_numeric(self._raw[mapping.raw_column], errors="coerce").to_numpy(float)
         rows = []
@@ -456,9 +476,14 @@ class MatchAnalysisResult:
             result.set_bias_limit(limit, name)
         return result
 
-    def wafer_frames(self, row):
-        """Paired sources for exactly the measurement identity in wafer_summary."""
-        _, measurements = self._measurement_groups()
+    def wafer_measurement_rows(self, *, group_order=False):
+        """Source rows for each Single-Wafer metrics row, in the same order."""
+        _, measurements = self._wafer_summary_groups(group_order=group_order)
+        return tuple(tuple(self.source_rows[row] for row in measurement.rows) for measurement in measurements)
+
+    def wafer_frames(self, row, *, group_order=False):
+        """Paired sources for the same ordering as wafer_summary."""
+        _, measurements = self._wafer_summary_groups(group_order=group_order)
         if not 0 <= row < len(measurements):
             raise ValueError("Unknown single-wafer row.")
         indices = list(measurements[row].rows)
@@ -542,12 +567,39 @@ class MatchAnalysisResult:
         self._measurement_spans[key] = tuple(spans)
         return spans
 
+    def _wafer_summary_groups(self, wafer_column=None, *, group_order):
+        source, measurements = self._measurement_groups(wafer_column)
+        if not group_order or not self.group_plan.enabled:
+            return source, measurements
+        if wafer_column in self._grouped_measurements:
+            return source, self._grouped_measurements[wafer_column]
+
+        plan = self.group_plan
+        group_positions = {group: position for position, group in enumerate(plan.group_keys)}
+        wafer_positions = {
+            row: position
+            for position, measurement in enumerate(plan.measurements)
+            for row in measurement.rows
+        }
+
+        def sort_key(measurement):
+            # Keep a mixed measurement intact and place it at its first group
+            # in the same Group/Wafer order used by the grouped Trend.
+            rows = (self.source_rows[row] for row in measurement.rows)
+            return min(
+                (group_positions[plan.row_groups[row]], wafer_positions[row]) for row in rows
+            )
+
+        ordered = sorted(measurements, key=sort_key)
+        self._grouped_measurements[wafer_column] = ordered
+        return source, ordered
+
     def _measurement_groups(self, wafer_column=None):
         # Analysis owns its paired source slices. Metadata is shared by its
         # parameters, but never by a later analysis or a newly created scope.
         if wafer_column in self._measurements:
             return self._measurements[wafer_column]
-        source, column = _wafer_groups(self._reference, self._raw, wafer_column)
+        source, column = _wafer_groups(self._raw, wafer_column)
         names = {_normalized(candidate): candidate for candidate in source.columns}
         lot_column = next(
             (names[name] for name in ("lotid", "lot", "lotno") if name in names),
@@ -783,7 +835,9 @@ class MatchWorkbook:
                 and {k: v for k, v in plan.state.items() if k != 'flags'} == expected
                 and plan.order_frame['TestFlag'].tolist() == expected_flags):
             plan = GroupPlan(analysis_raw, flags, state, self.reference)
-        if (plan.enabled or state.get("data_selection") is not None) and self.result_mode == "final" and self.final_match_raw is not None:
+        # Participation follows stored record identities. Head/Mark classifications
+        # still require equivalent source rows across the two stages.
+        if plan.enabled and self.result_mode == "final" and self.final_match_raw is not None:
             from ..match_groups import row_ids
             if row_ids(self.raw) != row_ids(analysis_raw):
                 raise ValueError("Preview/Final source identities differ; classifications cannot be shared by row count alone.")
@@ -819,6 +873,7 @@ class MatchWorkbook:
         plan, analysis_raw = self.plan_inputs(prepared_plan)
         if self.reuses(reuse, plan):
             reuse._measurement_spans.clear()
+            reuse._grouped_measurements.clear()
             reuse.group_plan = plan
             reuse.source_rows = plan.included_rows
             reuse._group_cards = {}
@@ -856,7 +911,7 @@ class MatchWorkbook:
                 and plan.state == metadata_from.group_plan.state):
             for requested, (old_source, measurements) in metadata_from._measurements.items():
                 try:
-                    source, column = _wafer_groups(result._reference, result._raw, requested)
+                    source, column = _wafer_groups(result._raw, requested)
                 except ValueError:
                     continue
                 aliases = {"waferid", "wafer", "waferno", "lotid", "lot", "lotno", "padname", "pad"}
@@ -1175,19 +1230,15 @@ class MatchWorkbook:
         )
 
 
-def _wafer_groups(reference, raw, requested=None):
-    if requested:
+def _wafer_groups(raw, requested=None):
+    if requested is not None:
         if requested in raw.columns:
             return raw, requested
-        if requested in reference.columns:
-            return reference, requested
-        raise ValueError(f"Wafer column not found: {requested}")
-    preferred = {"waferid", "wafer"}
-    for frame in (raw, reference):
-        for column in frame.columns:
-            if _normalized(column) in preferred:
-                return frame, column
-    raise ValueError("No Wafer ID column was found for single-wafer metrics.")
+        raise ValueError(f"Raw Wafer column not found: {requested}")
+    for column in raw.columns:
+        if _normalized(column) in {"waferid", "wafer", "waferno", "wafernumber"}:
+            return raw, column
+    raise ValueError("No Raw Wafer ID column was found for single-wafer metrics.")
 
 def _normalized(value):
     return "".join(character.lower() for character in str(value) if character.isalnum())

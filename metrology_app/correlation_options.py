@@ -131,7 +131,8 @@ class CorrelationOptions(QObject):
 
     def frames(self):
         reference = getattr(self.owner,'reference_model',None)
-        return self.owner.model._analysis_view(),reference._analysis_view() if reference is not None else pd.DataFrame()
+        raw = self.owner._measurement_frame(self.owner.model._analysis_view())
+        return raw, reference._analysis_view() if reference is not None else pd.DataFrame()
 
     def remember_workbook(self, context):
         self.workbook_context = context

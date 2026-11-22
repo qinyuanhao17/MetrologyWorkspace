@@ -1,8 +1,28 @@
 """Small widgets shared by more than one workspace."""
 
-from PyQt6.QtCore import QEvent, QObject, QPointF, Qt
+from PyQt6.QtCore import QEvent, QLocale, QObject, QPointF, QSignalBlocker, QSize, Qt
 from PyQt6.QtGui import QWheelEvent
-from PyQt6.QtWidgets import QAbstractScrollArea, QApplication, QComboBox, QListWidget
+from PyQt6.QtWidgets import (
+    QAbstractScrollArea, QApplication, QComboBox, QListWidget, QStyle,
+    QPushButton, QStyleOption, QStyleOptionButton, QStyleOptionComboBox, QStylePainter,
+)
+
+
+from .data import die_sequence_column
+
+
+def configure_date_calendar(date_input):
+    locale = QLocale(QLocale.Language.English, QLocale.Country.UnitedKingdom)
+    date_input.setLocale(locale)
+    date_input.setDisplayFormat("yyyy-MM-dd")
+    date_input.setCalendarPopup(True)
+    calendar = date_input.calendarWidget()
+    calendar.setLocale(locale)
+    calendar.setObjectName("appDateCalendar")
+    calendar.setMinimumSize(336, 300)
+    calendar.setFirstDayOfWeek(Qt.DayOfWeek.Monday)
+    calendar.setVerticalHeaderFormat(calendar.VerticalHeaderFormat.NoVerticalHeader)
+    calendar.setHorizontalHeaderFormat(calendar.HorizontalHeaderFormat.ShortDayNames)
 
 
 class ScrollSafeComboBox(QComboBox):
@@ -33,6 +53,63 @@ class ScrollSafeComboBox(QComboBox):
         )
         QApplication.sendEvent(viewport, forwarded)
         event.setAccepted(forwarded.isAccepted())
+
+
+def _draw_picker_arrow(widget, painter):
+    option = QStyleOption()
+    option.initFrom(widget)
+    area = widget.rect()
+    area.setWidth(24)
+    area.moveRight(widget.rect().right())
+    option.rect = QStyle.alignedRect(
+        widget.layoutDirection(), Qt.AlignmentFlag.AlignCenter, QSize(10, 10), area,
+    )
+    QApplication.style().drawPrimitive(QStyle.PrimitiveElement.PE_IndicatorArrowDown, option, painter)
+
+
+class WaferColumnButton(QPushButton):
+    """Keep the multi-select menu and use the same arrow as the Die picker."""
+
+    def paintEvent(self, _event):
+        option = QStyleOptionButton()
+        self.initStyleOption(option)
+        option.features &= ~QStyleOptionButton.ButtonFeature.HasMenu
+        painter = QStylePainter(self)
+        painter.drawControl(QStyle.ControlElement.CE_PushButton, option)
+        _draw_picker_arrow(self, painter)
+
+
+class DieColumnComboBox(ScrollSafeComboBox):
+    """Show the Die field name in the closed control."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent, objectName="diePicker")
+        self.setAccessibleName("Die column")
+        self.setToolTip("Raw column used for Die labels in the plots.")
+
+    def set_columns(self, columns):
+        selected = self.currentData()
+        choices = tuple(name for name in columns if str(name).casefold() != "cycle")
+        if tuple(self.itemData(i) for i in range(self.count())) == (None, *choices):
+            return
+        default = die_sequence_column(choices)
+        with QSignalBlocker(self):
+            self.clear()
+            self.addItem(f"Auto ({default})" if default is not None else "Auto", None)
+            for column in choices:
+                self.addItem(str(column), column)
+            self.setCurrentIndex(max(0, self.findData(selected)))
+            self.setEnabled(bool(choices))
+
+    def paintEvent(self, _event):
+        option = QStyleOptionComboBox()
+        self.initStyleOption(option)
+        option.currentText = f"Die: {option.currentText}"
+        painter = QStylePainter(self)
+        painter.drawComplexControl(QStyle.ComplexControl.CC_ComboBox, option)
+        painter.drawControl(QStyle.ControlElement.CE_ComboBoxLabel, option)
+
+        _draw_picker_arrow(self, painter)
 
 
 class CheckableListWidget(QListWidget):

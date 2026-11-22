@@ -8,8 +8,9 @@ import tempfile
 import yaml
 
 
-APP_DIRECTORY = (Path(sys.executable).resolve().parent if getattr(sys, "frozen", False)
-                 else Path(__file__).resolve().parent.parent / "config")
+FROZEN = getattr(sys, "frozen", False)
+APPLICATION_ROOT = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parent.parent
+APP_DIRECTORY = APPLICATION_ROOT if FROZEN else APPLICATION_ROOT / "config"
 # The settings file holds user state (theme, recent workbooks). Tooling and the
 # test suite point METROLOGY_SETTINGS_PATH at a scratch copy so a run can never
 # rewrite the file the application is using.
@@ -19,7 +20,7 @@ SETTINGS_PATH = (Path(os.environ["METROLOGY_SETTINGS_PATH"]).expanduser()
 MAX_RECENT_WKBS = 20
 
 DEFAULTS = {
-    "theme": "dark",
+    "theme": "light",
     "resolution": "High",
     "color_map": "turbo",
     "color_range_low": 0.1019607843,

@@ -226,6 +226,105 @@ class PlotPointSelectionTests(unittest.TestCase):
         window._chart_edits.highlight({key}, None, rows={0})
         self.assertGreater(sum(len(plot.point_selection.preview.data) for plot in plots), 0)
 
+    def open_match_map(self, raw, *, reorder=False):
+        from metrology_app.matching import ParameterMapping
+        from metrology_app.matching_window import MatchingWindow
+        from tests.match_fixtures import configure_match_fixture
+
+        owner = MatchingWindow()
+        owner.document.force_close = True
+        self.addCleanup(owner.close)
+        owner.set_reference_frame(pd.DataFrame({"P1 Ref": np.arange(len(raw)) + 1.}))
+        owner.set_raw_frame(raw)
+        configure_match_fixture(owner, ParameterMapping("P1", "P1 Ref", "P1"))
+        owner.run_analysis()
+        child = owner.open_stage_workspace("preview")
+        child.document.force_close = True
+        child.set_table(raw.iloc[::-1].reset_index(drop=True) if reorder else raw, "Wafer map")
+        child._set_checked_values(child.parameter_list, ["P0", "P1"])
+        child.update_plan()
+        return owner, child
+
+    def test_match_and_map_windows_keep_separate_point_selections(self):
+        from tests.test_wafer_static import finish_graphics, map_fixture
+
+        raw, _ = map_fixture(1, 2)
+        raw["Seq"] = np.arange(1, len(raw) + 1)
+        owner, child = self.open_match_map(raw, reorder=True)
+        child.resize(1250, 750)
+        page = child.plot_page
+        child.tabs.setCurrentWidget(page)
+        page.selector.selectAll()
+        page.draw_maps()
+        finish_graphics(page)
+        chart = owner.plot_groups["P1"]["plots"]["match"]
+        curve = chart.listDataItems()[0]
+        chart.point_selection.selected = {(curve, 0)}
+        chart.point_selection._sync_shared_highlight()
+        for linked_page in (page, child.radius_page):
+            self.assertFalse(linked_page.scroll.chart_preview_rows)
+        panel = page.map_grid.panels[0]
+        self.paint_map_ring(panel).drawEllipse.assert_not_called()
+
+        row = int(panel.point_rows()[10])
+        self.click_map_panel(page, panel, 10)
+        self.assertEqual(page.scroll.chart_preview_rows, {row})
+        self.assertEqual(owner._chart_edits.preview_rows, {0})
+        self.assertEqual(chart.point_selection.selected, {(curve, 0)})
+
+    def test_map_and_radius_link_the_same_die_across_parameters_inside_one_window(self):
+        from tests.test_wafer_static import finish_graphics, map_fixture
+
+        raw, _ = map_fixture(2, 2)
+        raw.loc[3, "P0"] = ""
+        _, child = self.open_match_map(raw)
+        child.resize(1350, 780)
+        page, radius = child.plot_page, child.radius_page
+        child.tabs.setCurrentWidget(radius)
+        radius.selector.selectAll()
+        radius.draw_plot()
+        child.tabs.setCurrentWidget(page)
+        page.selector.selectAll()
+        page.draw_maps()
+        finish_graphics(page)
+        origin = next(panel for panel in page.map_grid.panels
+                      if 11 in panel.point_rows() and panel.source["metric"] == "P0")
+        linked = next(panel for panel in page.map_grid.panels
+                      if 11 in panel.point_rows() and panel.source["metric"] == "P1")
+        unrelated = next(panel for panel in page.map_grid.panels
+                         if panel.source["wafer"] != origin.source["wafer"])
+        radius_linked = next(panel for panel in radius.radius_grid.panels
+                             if 11 in panel.point_rows() and panel.source["metric"] == "P1")
+
+        self.assertEqual(origin.point_rows()[10], 11)
+        self.click_map_panel(page, origin, 10)
+        self.assertEqual(page.scroll.panel_point_state(origin)[0], {11})
+        self.paint_map_ring(origin).drawEllipse.assert_not_called()
+        self.paint_map_ring(linked).drawEllipse.assert_called_once_with(
+            QPointF(*linked._pixel_positions[11]), 6, 6)
+        self.paint_map_ring(radius_linked).drawEllipse.assert_called_once_with(
+            QPointF(*radius_linked._pixel_positions[11]), 6, 6)
+        self.paint_map_ring(unrelated).drawEllipse.assert_not_called()
+
+        QTest.mouseClick(page.scroll.viewport(), Qt.MouseButton.LeftButton, pos=QPoint(2, 2))
+        self.assertFalse(page.scroll.panel_point_state(origin)[0])
+        self.paint_map_ring(linked).drawEllipse.assert_not_called()
+        self.paint_map_ring(radius_linked).drawEllipse.assert_not_called()
+
+    @staticmethod
+    def paint_map_ring(panel):
+        from metrology_app.wafer_graphics import paint_chart_preview
+
+        painter = Mock()
+        paint_chart_preview(panel, painter)
+        return painter
+
+    @staticmethod
+    def click_map_panel(page, panel, index):
+        center = panel.mapToScene(QPointF(*panel._pixel_positions[index]))
+        QTest.mouseClick(page.scroll.viewport(), Qt.MouseButton.LeftButton,
+                         pos=page.scroll.mapFromScene(center))
+
     def test_wafer_maps_and_radius_paint_the_shared_linked_preview_ring(self):
         from metrology_app.window import MainWindow
         from metrology_app.wafer_graphics import paint_chart_preview

@@ -78,7 +78,7 @@ class ReferenceSummaryTests(unittest.TestCase):
         })
         values = pd.DataFrame({"CD Reference": [25.0, 26.0, 27.0, 28.0]})
         window.analysis.set_alignment_inputs(
-            (aligned_ref, raw, values, ("Field X", "Field Y")), set(), False,
+            (aligned_ref, raw, values, ("Field X", "Field Y"), {}), set(), False,
         )
         controls = window.analysis.display_options.controls
         controls.enabled.setChecked(True)
@@ -257,7 +257,13 @@ class ReferenceSummaryTests(unittest.TestCase):
             self.assertEqual(picker.currentData(), str(output))
             with patch('metrology_app.reference_summary_window.QDesktopServices.openUrl') as open_url:
                 window.open_output_file()
-            self.assertEqual(open_url.call_args.args[0].toLocalFile(), summary.as_posix())
+            open_url.assert_not_called()
+            self.assertIn('A&B <LIB>', window.metadata_preview.toPlainText())
+            csv_item = next(item for item in listed if item.text() == output.name)
+            window.output_list.setCurrentItem(csv_item)
+            with patch('metrology_app.reference_summary_window.QDesktopServices.openUrl') as open_url:
+                window.open_output_file()
+            self.assertEqual(open_url.call_args.args[0].toLocalFile(), output.as_posix())
             window.output_list.itemClicked.emit(next(item for item in listed if item.text() == second.name))
             self.assertEqual(picker.currentData(), str(second))
             self.assertEqual(window.alignment.output_picker.currentData(), str(second))

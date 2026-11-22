@@ -56,6 +56,22 @@ Feature: Read literal plotted values and reopen workspaces safely
     Then all linked yellow rings and the red source ring are cleared
     And linked previews use source rows without rebuilding every record identity
 
+  # Automation: PlotPointSelectionTests.test_match_and_map_windows_keep_separate_point_selections
+  # Automation: BiasDieMapTests.test_chart_selection_does_not_highlight_the_separate_bias_die_map
+  Scenario: Keep plot selections in the window where the analyst made them
+    Given a Match Workbook and a child window show the same measurements
+    When the analyst selects a point in either window
+    Then the point selection in the other window stays as it was
+
+  # Automation: PlotPointSelectionTests.test_map_and_radius_link_the_same_die_across_parameters_inside_one_window
+  Scenario: Follow the same die across parameter plots in one Wafer Map window
+    Given the Wafer Map window shows several parameters for a wafer
+    When the analyst clicks a die in one parameter plot
+    Then that plot shows the selected die in red
+    And the other parameter maps and Radius Plot in the same window show that die in yellow
+    When the analyst clicks blank space
+    Then the red and yellow rings disappear
+
   # Automation: RequestedPlotControlsTests.test_new_match_paths_migrate_but_old_wkb_and_backup_contents_remain_readable
   Scenario: Open legacy and backup files without overwriting them
     Given a Match Workbook uses the old wkb extension or is a bak backup

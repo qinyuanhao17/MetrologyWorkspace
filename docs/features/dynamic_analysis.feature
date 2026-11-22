@@ -47,6 +47,19 @@ Feature: Review Dynamic repeatability by cycle and die
     Then the analysis reports the duplicate pair
     And no average is substituted
 
+  # Automation: DynamicWindowTests.test_selected_die_column_drives_pivot_and_trend
+  Scenario: Choose the die identifier from Wafers
+    Given Dynamic data includes Die Seq and Site Order
+    When the engineer chooses Site Order as the Die column
+    Then the charts and pivot use Site Order to identify each die
+    And reopening the Dynamic workspace restores the choice
+
+  # Automation: DynamicWindowTests.test_pivot_edits_prefer_canonical_die_sequence_over_a_second_alias
+  Scenario: Edit Dynamic measurements with two Die Sequence headers
+    Given Dynamic data contains conflicting Die Seq and DieSeq columns
+    When the engineer edits the displayed value for a Cycle and Die
+    Then the edit updates the measurement identified by Die Seq
+
   Scenario: Drop outlier grid points from a Dynamic table
     Given DP has a Cycle by Die Seq table
     When the engineer selects a value cell and presses Delete
@@ -130,8 +143,29 @@ Feature: Review Dynamic repeatability by cycle and die
   Scenario: Reuse the GRR template and save one report sheet per parameter
     Given the engineer loaded a GRR template and selected CD and EW
     When the engineer edits a Dynamic measurement
-    Then the assessment below the corresponding chart updates
+    Then Dynamic displays the current temporary GRR report path
+    And any previously saved GRR report retains its saved values
+    And the assessment updates directly below the corresponding Die Seq axis label
+    And the assessment is horizontally centered on that axis label
     And the template remains available when the workbook is reopened
     When the engineer saves the Match Workbook as project.mwkb
     Then GRR_project.xlsx is saved alongside it with CD_GRR and EW_GRR sheets
     And each assessment formula is retained in the Excel report
+    And the Dynamic page shows the saved Excel path and can open the file or its directory
+
+  # Automation: DynamicGrrWorkflowTests.test_new_workbook_uses_the_installed_master_even_before_opening_the_dynamic_tab
+  Scenario: Save a GRR report in a new workbook using the installed master
+    Given a GRR master was previously installed
+    And a new Match Workbook has selected Dynamic measurements
+    When the engineer saves the workbook from the Data tab
+    Then the GRR report is generated from the installed master without an import prompt
+    And the installed master is unchanged
+    And Dynamic shows that it is using the saved master beside Load GRR
+
+  # Automation: DynamicGrrWorkflowTests.test_excel_lock_warns_after_saving_mwkb_and_report_can_be_retried
+  Scenario: Save when Excel holds the GRR report open
+    Given an existing GRR Excel report cannot be replaced
+    When the engineer saves edited Dynamic measurements
+    Then the Match Workbook is saved and the existing Excel report is preserved
+    And Dynamic continues to show the temporary report
+    And a dialog identifies the report and explains how to retry the save

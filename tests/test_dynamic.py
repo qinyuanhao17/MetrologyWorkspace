@@ -151,6 +151,47 @@ class DynamicWindowTests(unittest.TestCase):
                 })
         return pd.DataFrame(rows)
 
+    def test_pivot_edits_prefer_canonical_die_sequence_over_a_second_alias(self):
+        self.window.set_table(pd.DataFrame({
+            "Wafer ID": ["W1"] * 4,
+            "Die Seq": [1, 2, 1, 2],
+            "DieSeq": [2, 1, 2, 1],
+            "CD": [10, 20, 11, 21],
+        }), "Dynamic.csv")
+        self.select_parameters("CD")
+        pivot = self.window.dynamic_page.parameter_models["CD"]
+        self.assertEqual(pivot.frame.loc[1, "1"], 10)
+        self.assertTrue(pivot.edit({(0, 0): "99"}))
+        self.assertEqual(self.window.model.document_frame()["CD"].tolist(), ["99", "20", "11", "21"])
+
+    def test_selected_die_column_drives_pivot_and_trend(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        self.window.set_table(pd.DataFrame({
+            "Wafer ID": ["W1"] * 4,
+            "Die Seq": [1, 2, 1, 2],
+            "Site Order": [20, 10, 20, 10],
+            "CD": [1, 2, 3, 4],
+        }), "Dynamic.csv")
+        self.select_parameters("CD")
+        self.assertEqual(self.window.die_picker.currentText(), "Auto (Die Seq)")
+        self.window.die_picker.setCurrentText("Site Order")
+        self.assertEqual(self.window.dynamic_page.parameter_models["CD"].frame.columns.tolist(), ["10", "20"])
+        self.assertEqual(self.window.dynamic_trend.panel_tables["CD"].columns.tolist(), ["10", "20"])
+        self.assertEqual(self.window.dynamic_page.plots[-1].getAxis("bottom").labelText, "Site Order")
+        with TemporaryDirectory() as folder:
+            path = self.window.document.save(Path(folder) / "dynamic.wdyn")
+            reopened = DynamicWindow()
+            try:
+                reopened.load_workspace(path)
+                self.assertEqual(reopened.die_picker.currentData(), "Site Order")
+                self.assertEqual(reopened.dynamic_page.parameter_models["CD"].frame.columns.tolist(), ["10", "20"])
+            finally:
+                reopened.document.force_close = True
+                reopened.close()
+                reopened.deleteLater()
+
     def test_selected_parameters_render_separate_vertical_table_and_plot_sections(self):
         self.window.set_table(self.frame(), "dynamic.csv")
         self.assertEqual(

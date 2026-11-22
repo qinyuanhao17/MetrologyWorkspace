@@ -31,7 +31,7 @@ from PyQt6.QtWidgets import (
 from .appearance import fit_window_to_screen, style_titlebar
 from .settings import apply_theme as apply_window_theme, get_settings, theme_stylesheet
 from .sme_spectra import SpectrumFile, natural_key
-from .appearance import SELECTION_HIGHLIGHT_COLOR, SELECTION_LINKED_COLOR
+from .appearance import SELECTION_HIGHLIGHT_COLOR
 from .spectra_plots import HIGHLIGHT_COLOR, test_flag_color
 
 TILE_WIDTH, TILE_HEIGHT = 420, 496
@@ -210,17 +210,6 @@ class WaferPointPlot(QWidget):
         )
         self.selection.setEnabled(False)
         self.plot.addItem(self.selection)
-        self.preview = pg.ScatterPlotItem(
-            antialias=True,
-            size=20,
-            symbol="o",
-            pen=pg.mkPen(SELECTION_LINKED_COLOR, width=2.4),
-            brush=pg.mkBrush(None),
-        )
-        self.preview.setZValue(21)
-        self.preview.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
-        self.preview.setEnabled(False)
-        self.plot.addItem(self.preview, ignoreBounds=True)
         flag = QPainterPath()
         flag.moveTo(5, -3)
         flag.lineTo(5, -12)
@@ -242,7 +231,6 @@ class WaferPointPlot(QWidget):
         self.wafer_diameter = 300
         self._selected_keys: set[str] = set()
         self._highlighted_keys: set[str] = set()
-        self._previewed_keys: set[str] = set()
         self._spot_keys: list[tuple[str, ...]] = []
         self._checked_keys = set()
         self._participating_keys = None
@@ -311,7 +299,6 @@ class WaferPointPlot(QWidget):
         self.scatter.setData(spots)
         self.set_checked({s.key for s in spectra} if checked_keys is None else checked_keys)
         self._update_selection(selected)
-        self._update_preview()
 
         radius = max(
             (
@@ -353,12 +340,6 @@ class WaferPointPlot(QWidget):
         if set(selected_keys) == self._selected_keys:
             return
         self._update_selection(set(selected_keys))
-
-    def set_previewed(self, keys):
-        keys = set(keys)
-        if keys != self._previewed_keys:
-            self._previewed_keys = keys
-            self._update_preview()
 
     def set_checked(self, checked_keys):
         self._checked_keys = set(checked_keys)
@@ -449,13 +430,6 @@ class WaferPointPlot(QWidget):
         self._avoid_label_collisions(self._selected_keys)
         self._update_summary()
 
-    def _update_preview(self):
-        self.preview.setData([
-            {"pos": position}
-            for position, keys in zip(self._plot_positions, self._spot_keys)
-            if self._previewed_keys.intersection(keys)
-        ])
-
     @staticmethod
     def _point_tip(x, y, data):
         details = data if isinstance(data, dict) else {}
@@ -542,8 +516,6 @@ class SpectraMapWindow(QMainWindow):
         self._test_flags = {}
         self._group_labels = {}
         self._highlighted_keys = set()
-        self._previewed_keys = set()
-        self._linked_chart_edits = None
         self._flag_values = [0, 1, -1]
         self._selected_keys: set[str] = set()
         self._source_signature = None
@@ -818,21 +790,6 @@ class SpectraMapWindow(QMainWindow):
         self._highlighted_keys = set(keys)
         for plot in self.wafer_plots.values():
             plot.set_highlighted(self._highlighted_keys)
-
-    def bind_chart_preview(self, edits):
-        """Mirror Match/Trend hover-selection rows as yellow rings only."""
-        self._linked_chart_edits = edits
-        edits.add_preview_listener(self)
-
-    def set_chart_preview_rows(self, rows):
-        self.update_selection_preview({
-            f"source-row:{int(row)}" for row in rows
-        })
-
-    def update_selection_preview(self, keys):
-        self._previewed_keys = {str(key) for key in keys}
-        for plot in self.wafer_plots.values():
-            plot.set_previewed(self._previewed_keys)
 
     def select_spectrum_keys(self, keys):
         selected = {str(key) for key in keys}
@@ -1187,6 +1144,5 @@ class SpectraMapWindow(QMainWindow):
         plot.set_data(visible, self._selected_keys, scale_spectra=spectra, checked_keys=self._checked_keys)
         plot.set_test_flags(self._test_flags)
         plot.set_highlighted(self._highlighted_keys)
-        plot.set_previewed(self._previewed_keys)
         plot.set_group_labels(self._group_labels)
         plot.set_participating(self._participating_keys)

@@ -2,7 +2,33 @@ Feature: Build a card matching workbook
   Metrology engineers need one reusable workflow for Reference and Raw Data
   so that daily matching no longer depends on rebuilding an Excel workbook.
 
+  Scenario: Choose which timestamp parts appear in the Workbook name
+    Given the Match Workbook naming dialog has a date and time
+    When the engineer toggles the Date and Time checkboxes
+    Then the file name preview includes only the selected timestamp parts
+
+  Scenario: Collapse the Wafers panel
+    When the engineer drags the Wafers divider to the far right
+    Then the Wafers panel closes and the source tables stay visible
+    When the engineer drags the divider left
+    Then the Wafers panel opens again
+
   Rule: Reference defines the parameters that can be matched
+
+    Scenario: Review row order and select active Raw measurement sets
+      Given the Reference and Raw tables contain different Wafer or Die order
+      Then Match warns about the differing order and retains the original pairing
+      And the Wafers panel lists measurement sets and Die choices from the active Raw Data
+      When the engineer unchecks a measurement set or filters it out by record count
+      Then its paired rows are excluded from matching and remain in the source tables
+      And plotted Die labels use the selected Raw column
+
+    # Automation: MatchingWindowTests.test_partial_data_selection_survives_reopen_and_wafer_row_height_refresh
+    Scenario: Reopen a saved partial selection within one wafer
+      Given a saved matching workbook has some unchecked records within one wafer
+      When the engineer reopens the workbook and the wafer list is laid out
+      Then the wafer remains partially checked
+      And the same measurements participate in matching
 
     Scenario: Locate a parameter's out-of-range Bias measurements
       Given an analyzed parameter has included source rows and millimetre coordinates
@@ -346,6 +372,23 @@ Feature: Build a card matching workbook
       Then the plot sizes change without recreating curves or row mapping
       And the accepted plot arrangement is saved with the Match Workbook
 
+    # Automation: MatchWaferStatisticsTests.test_single_wafer_matrix_divider_starts_at_three_fifths_and_can_move.
+    Scenario: Resize the Single-Wafer matrix beside its plots
+      Given Single-Wafer metrics displays the matrix and plots in a wide window
+      Then the matrix takes about three fifths of the available width by default
+      When the engineer drags the divider between the matrix and the plots
+      Then the two panes resize together
+
+    # Automation: MatchingWindowTests.test_single_wafer_matrix_follows_applied_group_order_and_keeps_draw_with_wafer.
+    Scenario: Arrange the Single-Wafer matrix by the applied groups
+      Given wafers from different groups are interleaved in Raw Data
+      When the engineer applies a group order
+      Then the matrix follows that group order and the Raw Data wafer order within each group
+      And the R² and Slope plots use the resulting matrix row numbers
+      And Draw stays checked for the same measurement sets
+      When the engineer disables grouping
+      Then the matrix shows measurement sets in order of first appearance in the participating Raw Data
+
   Rule: A grouped trend reads in one clear order
 
     Scenario: Read a grouped trend in the original row order
@@ -390,7 +433,7 @@ Feature: Build a card matching workbook
       And the bottom row shows Wafer Mean Bias and Wafer Sigma Bias
       And Mean Bias compares Raw and Reference means
       And Sigma Bias compares Raw and Reference sample sigma
-      And every plot uses the Single-Wafer matrix row numbers 1, 2, 3 … on its tick axis
+      And every plot labels each statistic with its Single-Wafer matrix row number
       And Wafer identity and Group captions appear below the numbered ticks
       And those Wafer captions follow the Plot labels → Trend PAD and Lot ID switches
       And no duplicate Wafer axis title is shown
@@ -401,6 +444,20 @@ Feature: Build a card matching workbook
       And Mean and Sigma use the current Reference and Raw measurement rows
       And Bias uses the current Match Bias values
       And opening a Correlation and Trend child window does not show the Wafer Mean / Sigma tab
+
+    # Automation: MatchWaferStatisticsTests.test_grouped_statistics_only_show_wafer_captions_for_checked_groups.
+    Scenario: Control Wafer captions by group on the statistics plots
+      Given Wafer Mean / Sigma shows multiple groups
+      When the engineer enables Show Wafer for one group in Manage Groups
+      Then only that group shows Wafer captions and the group names stay visible
+
+    # Automation: MatchWaferStatisticsTests.test_statistics_follow_trend_order_and_label_single_wafer_matrix_rows.
+    Scenario: Read Wafer statistics in the same group and wafer order as Trend
+      Given Raw Data interleaves wafers from different groups and Trend is ordered by group
+      When the engineer views Bars or Line with Markers in Wafer Mean / Sigma
+      Then the statistics follow the Trend order and show dividers only at group transitions
+      And the axis labels show the corresponding Single-Wafer matrix row numbers
+      And Line with Markers remains selected when the engineer saves and reopens the workbook
 
     Scenario: Use white plotting surfaces in Match Workbook
       Given the Match Workbook uses either the light or dark application theme

@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .reminders import Reminder, ReminderStore
+from .widgets import configure_date_calendar
 
 
 class _ReminderSymbolButton(QToolButton):
@@ -67,15 +68,8 @@ class ReminderDialog(QDialog):
         self.date_enabled = QCheckBox('Date', objectName='reminderDateEnabled')
         self.date_enabled.setChecked(self.reminder.due_date is not None)
         self.date_input = QDateEdit(QDate(self.reminder.due_date or date.today()),
-                                    calendarPopup=True, objectName='reminderDateInput')
-        self.date_input.setDisplayFormat('yyyy-MM-dd')
-        calendar = self.date_input.calendarWidget()
-        calendar.setLocale(self.locale())
-        calendar.setObjectName('reminderCalendar')
-        calendar.setMinimumSize(336, 300)
-        calendar.setFirstDayOfWeek(Qt.DayOfWeek.Monday)
-        calendar.setVerticalHeaderFormat(calendar.VerticalHeaderFormat.NoVerticalHeader)
-        calendar.setHorizontalHeaderFormat(calendar.HorizontalHeaderFormat.ShortDayNames)
+                                    objectName='reminderDateInput')
+        configure_date_calendar(self.date_input)
         self.date_input.setEnabled(self.date_enabled.isChecked())
         self.date_enabled.toggled.connect(self.date_input.setEnabled)
         layout.addRow(self.date_enabled, self.date_input)

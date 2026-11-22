@@ -70,6 +70,8 @@ def prepare_dynamic_frame(
     prepared = prepared.iloc[:, :separator].copy()
     if die_column == "Die Seq" and die_column not in prepared:
         die_column = die_sequence_column(prepared.columns) or die_column
+    if die_column not in prepared:
+        raise ValueError("Select a Die column in Wafers.")
     if cycle_column in prepared:
         prepared = prepared.drop(columns=[cycle_column])
     cycles = _cycle_from_run_paths(prepared, path_column)
@@ -170,7 +172,8 @@ def changed_dynamic_parameters(before, after, old_selection, selection):
             or not before.columns.equals(after.columns)
             or not before.index.equals(after.index)):
         return None
-    structural = [column for column in ("Cur SME File Path", die_sequence_column(after.columns), "Cycle")
+    die_column = selection.get("die_column") or die_sequence_column(after.columns)
+    structural = [column for column in ("Cur SME File Path", die_column, "Cycle")
                   if column in after]
     if not before[structural].equals(after[structural]):
         return None
