@@ -12,7 +12,7 @@ import pandas as pd
 from PyQt6.QtCore import QCoreApplication, QDateTime, QEvent, Qt
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import (
-    QApplication, QDateTimeEdit, QDialog, QDialogButtonBox, QFileDialog, QLineEdit, QMessageBox,
+    QApplication, QCheckBox, QDateEdit, QDialog, QDialogButtonBox, QFileDialog, QLabel, QLineEdit, QMessageBox, QTimeEdit,
 )
 from metrology_app.matching_window import MatchingWindow
 from metrology_app.workspace_store import EXTENSIONS, WorkspaceSnapshot, load_workspace, save_workspace
@@ -275,11 +275,14 @@ class StorageV2Tests(unittest.TestCase):
         edited = QDateTime.fromString("2026-11-19 14:07:26", "yyyy-MM-dd HH:mm:ss")
         expected = "Project A_M2_FAB1_v1.2_20261119_1407.mwkb"
         observed = []
+        previews = []
 
         def fill_name(dialog):
-            timestamp = dialog.findChild(QDateTimeEdit)
-            observed.append(timestamp.text())
-            timestamp.setDateTime(edited)
+            date = dialog.findChild(QDateEdit, "workbookDateInput")
+            time = dialog.findChild(QTimeEdit, "workbookTimeInput")
+            observed.append((date.text(), time.text()))
+            date.setDate(edited.date())
+            time.setTime(edited.time())
             ok = dialog.findChild(QDialogButtonBox).button(QDialogButtonBox.StandardButton.Ok)
             observed.append(ok.isEnabled())
             self._fill_match_filename(dialog)
@@ -287,6 +290,13 @@ class StorageV2Tests(unittest.TestCase):
             project.setText("A/B")
             observed.append(ok.isEnabled())
             project.setText("Project A")
+            date_enabled = dialog.findChild(QCheckBox, "workbookDateEnabled")
+            time_enabled = dialog.findChild(QCheckBox, "workbookTimeEnabled")
+            preview = next(label for label in dialog.findChildren(QLabel) if label.text().endswith(".mwkb"))
+            for include_date, include_time in ((False, False), (True, False), (False, True), (True, True)):
+                date_enabled.setChecked(include_date)
+                time_enabled.setChecked(include_time)
+                previews.append(preview.text())
             ok.click()
             return dialog.result()
 
@@ -300,7 +310,9 @@ class StorageV2Tests(unittest.TestCase):
         ):
             saved = self.match.save_wkb()
 
-        self.assertEqual(observed, ["2026-11-20 08:09", False, False])
+        self.assertEqual(observed, [("2026-11-20", "08:09"), False, False])
+        self.assertEqual(previews, ["Project A_M2_FAB1_v1.2.mwkb", "Project A_M2_FAB1_v1.2_20261119.mwkb",
+                                    "Project A_M2_FAB1_v1.2_1407.mwkb", expected])
         self.assertEqual(saved, self.folder / expected)
         self.assertEqual(load_workspace(saved).workspace_type, "match_workbook")
         with patch.object(QDialog, "exec") as naming, patch.object(QFileDialog, "getSaveFileName") as location:

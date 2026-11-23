@@ -47,6 +47,29 @@ Feature: Review Dynamic repeatability by cycle and die
     Then the analysis reports the duplicate pair
     And no average is substituted
 
+  # Automation: DynamicWindowTests.test_detrend_updates_dynamic_bars_and_keeps_raw_data
+  Scenario: Review optional detrended Dynamic results
+    Given a Dynamic measurement set includes one drifting parameter and one flat parameter
+    When the engineer selects Linear Detrend in Analysis
+    Then Dynamic shows Raw 3 Sigma, Detrended 3 Sigma and fit diagnostics by Die
+    And the Dynamic bars use Detrended 3 Sigma for validated results
+    And the flat parameter retains its Raw 3 Sigma and has no corrected value
+    And the source measurements remain unchanged
+    When the engineer enables Show Detrend Fit in Trend
+    Then the Trend view and PNG export include the fitted curve for validated results
+    And the raw and corrected curves remain visible when the fit display is turned off
+    And the corrected curve uses square points in the Trend view and PNG export
+    When the engineer saves and reopens the workspace
+    Then the method and fitted curve display choice are restored
+    When the engineer switches the method to None / Raw
+    Then the Dynamic bars use Raw 3 Sigma again
+
+  Scenario: Set the Detrend fit threshold
+    When the engineer sets Detrend Minimum R² in Analysis
+    Then the selected method revalidates each Die against that threshold
+    And saving and reopening the workspace preserves the threshold
+    And the Dynamic Detrend and GRR Detrend exports use the same validation
+
   # Automation: DynamicWindowTests.test_selected_die_column_drives_pivot_and_trend
   Scenario: Choose the die identifier from Wafers
     Given Dynamic data includes Die Seq and Site Order

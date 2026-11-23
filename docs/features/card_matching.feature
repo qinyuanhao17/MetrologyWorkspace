@@ -2,6 +2,7 @@ Feature: Build a card matching workbook
   Metrology engineers need one reusable workflow for Reference and Raw Data
   so that daily matching no longer depends on rebuilding an Excel workbook.
 
+  # Automation: StorageV2Tests.test_first_match_save_suggests_filename_with_editable_local_date_and_minute
   Scenario: Choose which timestamp parts appear in the Workbook name
     Given the Match Workbook naming dialog has a date and time
     When the engineer toggles the Date and Time checkboxes
@@ -29,6 +30,28 @@ Feature: Build a card matching workbook
       When the engineer reopens the workbook and the wafer list is laid out
       Then the wafer remains partially checked
       And the same measurements participate in matching
+      When the engineer disables the wafer and saves the workbook
+      Then the wafer remains disabled after reopening the workbook
+      And re-enabling it restores the original participation of its records
+
+    # Automation: MatchingWindowTests.test_wafer_row_click_preserves_point_choices_and_blank_clears_highlight
+    Scenario: Toggle an entire wafer while keeping its point choices
+      Given Data Selection has some unchecked points on a wafer
+      When the engineer unchecks that wafer in the Wafers list
+      Then its points do not participate in the plots and appear unchecked in Data Selection
+      When the engineer rechecks the wafer
+      Then its prior point choices and partially checked indicator return
+      When the engineer chooses Check All from the wafer's context menu
+      Then all points on that wafer participate
+      And another wafer's point choices stay the same
+      When the engineer clicks a blank area in the Wafers list
+      Then the row highlight clears
+
+    # Automation: StageSelectionAndPointPrecisionTests.test_selection_survives_stage_specific_literal_id_representations
+    Scenario: Keep point choices across equivalent Die Seq formats
+      Given the same points have Die Seq values such as 1 in Preview and 1.0 in Final
+      When the engineer unchecks a point and switches between stages
+      Then the point stays unchecked and each source retains its Die Seq text
 
     Scenario: Locate a parameter's out-of-range Bias measurements
       Given an analyzed parameter has included source rows and millimetre coordinates
@@ -450,6 +473,13 @@ Feature: Build a card matching workbook
       Given Wafer Mean / Sigma shows multiple groups
       When the engineer enables Show Wafer for one group in Manage Groups
       Then only that group shows Wafer captions and the group names stay visible
+
+    # Automation: MatchingWindowTests.test_manage_groups_adds_editable_rows_and_loads_their_checkbox_members.
+    Scenario: Clear row highlights in Manage Groups
+      Given a row is highlighted in each of the Base Groups and Combined Groups lists
+      When the engineer clicks a blank area of either list or the dialog
+      Then both row highlights clear
+      And the membership and Show Wafer checkboxes retain their values
 
     # Automation: MatchWaferStatisticsTests.test_statistics_follow_trend_order_and_label_single_wafer_matrix_rows.
     Scenario: Read Wafer statistics in the same group and wafer order as Trend

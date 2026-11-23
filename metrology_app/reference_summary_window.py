@@ -192,6 +192,8 @@ class ReferenceSummaryWindow(QMainWindow):
     """Select vendor exports, run in the background, and review a compact report."""
 
     workspace_type = "reference_summary"
+    ANALYSIS_TAB_TITLES = ('4. Ref Data', '5. Raw Data', '6. Correlation',
+                           '7. Trend', '8. Ref WaferMap', '9. Ref Radius Plot')
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -209,37 +211,66 @@ class ReferenceSummaryWindow(QMainWindow):
         self._close_when_finished = False
         self._aligned_results = None
         self._aligned_inputs = None
+        self._analysis = None
         self._build_ui()
         self._vendor_changed()
         from .settings import apply_theme
         apply_theme(self)
         from .workspace_document import WkbDocument
-        from .reference_analysis_ui import ReferenceAnalysisPages
         self.document = WkbDocument(self)
-        self.analysis = ReferenceAnalysisPages(self.tabs, self)
-        for picker in (self.analysis.reference_die_picker, self.analysis.die_picker):
-            picker.currentIndexChanged.connect(lambda _: self.document.identity_timer.start())
         self.groups_menu = self.menuBar().addMenu("Groups")
-        for action in self.analysis.display_options.menu.actions():
-            self.groups_menu.addAction(action)
         self.analysis_menu = self.menuBar().addMenu('Analysis')
-        trend_axes = self.analysis.trend_y_axes_menu
-        self.analysis.analysis_menu.removeAction(trend_axes.menuAction())
-        trend_axes.setParent(self.analysis_menu, trend_axes.windowFlags())
-        self.analysis_menu.addMenu(trend_axes)
-        self.trend_page.data_point_edits = self.analysis._chart_edits
+        for menu in (self.groups_menu, self.analysis_menu):
+            menu.aboutToShow.connect(self._load_analysis)
+        self.tabs.currentChanged.connect(self._analysis_tab_opened)
         self.alignment.alignment_changed.connect(self._refresh_analysis)
         self._refresh_analysis()
         self.alignment.alignment_changed.connect(self.document.identity_timer.start)
         self.source_list.itemChanged.connect(lambda *_: self.document.identity_timer.start())
         self.output_path.textChanged.connect(lambda *_: self.document.identity_timer.start())
         self.tabs.currentChanged.connect(lambda *_: self.document.identity_timer.start())
-        trend = self.analysis.sequence_page
-        trend.axis_mode.currentIndexChanged.connect(lambda _: self.document.identity_timer.start())
-        trend.axis_ratio.valueChanged.connect(lambda _: self.document.identity_timer.start())
         for button in self.trend_page.order_buttons.values():
             button.clicked.connect(lambda *_: self.document.identity_timer.start())
         self.document.mark_clean()
+
+    @property
+    def analysis(self):
+        self._load_analysis()
+        return self._analysis
+
+    def _analysis_tab_opened(self, index):
+        if index >= self._first_analysis_tab:
+            self._load_analysis()
+
+    def _load_analysis(self):
+        if self._analysis is not None:
+            return
+        from .reference_analysis_ui import ReferenceAnalysisPages
+
+        analysis = self._analysis = ReferenceAnalysisPages(self.tabs, self)
+        current = self.tabs.currentIndex()
+        with QSignalBlocker(self.tabs):
+            for index, (page, title) in enumerate(zip(analysis.embedded_pages, self.ANALYSIS_TAB_TITLES),
+                                                  start=self._first_analysis_tab):
+                placeholder = self.tabs.widget(index)
+                self.tabs.removeTab(index)
+                self.tabs.insertTab(index, page, title)
+                placeholder.deleteLater()
+            self.tabs.setCurrentIndex(current)
+        for picker in (analysis.reference_die_picker, analysis.die_picker):
+            picker.currentIndexChanged.connect(lambda _: self.document.identity_timer.start())
+        for action in analysis.display_options.menu.actions():
+            self.groups_menu.addAction(action)
+        trend_axes = analysis.trend_y_axes_menu
+        analysis.analysis_menu.removeAction(trend_axes.menuAction())
+        trend_axes.setParent(self.analysis_menu, trend_axes.windowFlags())
+        self.analysis_menu.addMenu(trend_axes)
+        self.trend_page.data_point_edits = analysis._chart_edits
+        trend = analysis.sequence_page
+        trend.axis_mode.currentIndexChanged.connect(lambda _: self.document.identity_timer.start())
+        trend.axis_ratio.valueChanged.connect(lambda _: self.document.identity_timer.start())
+        if self._aligned_inputs is None:
+            analysis.set_alignment_inputs(None, set(), False)
 
     @property
     def vendor_name(self):
@@ -269,6 +300,9 @@ class ReferenceSummaryWindow(QMainWindow):
         self.load_folders_button.clicked.connect(self.alignment.choose_output_folders)
         self.tabs.addTab(self.alignment, '2. Wafer Alignment')
         self.tabs.addTab(self.trend_page, '3. XY Bias')
+        self._first_analysis_tab = self.tabs.count()
+        for title in self.ANALYSIS_TAB_TITLES:
+            self.tabs.addTab(QWidget(), title)
         self.setCentralWidget(self.tabs)
         self.alignment.plotted.connect(lambda: self.tabs.setCurrentIndex(2))
         self.file_menu = self.menuBar().addMenu("File")
@@ -316,7 +350,8 @@ class ReferenceSummaryWindow(QMainWindow):
             allowed = set(participation_rows(raw, state))
             if len(allowed) < len(raw):
                 excluded = {key for row, key in enumerate(participation_source_keys(raw)) if row not in allowed}
-        self.analysis.set_alignment_inputs(inputs, excluded, state.get('hide_excluded', False))
+        if inputs is not None or self._analysis is not None:
+            self.analysis.set_alignment_inputs(inputs, excluded, state.get('hide_excluded', False))
         self.data_selection_action.setEnabled(inputs is not None and not inputs[1].empty)
         self.trend_page.refresh_point_checks(allowed)
 
@@ -964,7 +999,7 @@ class ReferenceSummaryWindow(QMainWindow):
         if not self.document.confirm_close():
             event.ignore()
             return
-        if not self.analysis.close():
+        if self._analysis is not None and not self._analysis.close():
             event.ignore()
             return
         self.document.closed()

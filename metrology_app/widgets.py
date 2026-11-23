@@ -8,9 +8,6 @@ from PyQt6.QtWidgets import (
 )
 
 
-from .data import die_sequence_column
-
-
 def configure_date_calendar(date_input):
     locale = QLocale(QLocale.Language.English, QLocale.Country.UnitedKingdom)
     date_input.setLocale(locale)
@@ -88,6 +85,8 @@ class DieColumnComboBox(ScrollSafeComboBox):
         self.setToolTip("Raw column used for Die labels in the plots.")
 
     def set_columns(self, columns):
+        from .data import die_sequence_column
+
         selected = self.currentData()
         choices = tuple(name for name in columns if str(name).casefold() != "cycle")
         if tuple(self.itemData(i) for i in range(self.count())) == (None, *choices):

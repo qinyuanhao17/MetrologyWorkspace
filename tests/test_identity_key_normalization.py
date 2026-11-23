@@ -5,10 +5,20 @@ import unittest
 
 import numpy as np
 import pandas as pd
-from metrology_app.match_groups import participation_source_keys, row_identity_columns
+from metrology_app.match_groups import participation_rows, participation_source_keys, row_identity_columns, row_ids
 
 
 class IdentityKeyNormalizationTests(unittest.TestCase):
+    def test_numeric_die_aliases_match_only_unambiguous_participation_records(self):
+        raw = pd.DataFrame({"Wafer ID": ["W1", "W1", "W2"], "Die Seq": ["01", "1", "1"]})
+        selection = {"records": [{"id": str(index), "key": key} for index, key in enumerate(row_ids(raw))],
+                     "excluded": ["0", "2"]}
+        # W1's two original records have distinct literal IDs. An alias may
+        # reuse W2's unique record without transferring an ambiguous W1 choice.
+        aliases = raw.assign(**{"Die Seq": ["001", "1", "1.0"]})
+        self.assertEqual(participation_rows(aliases, selection), (0, 1))
+        self.assertEqual(participation_rows(raw, selection), (1,))
+
     def test_literal_identity_keys_match_original_row_encoding(self):
         fixtures = [
             pd.DataFrame({"Wafer ID": [" 001 ", "001", None, "晶圆"],

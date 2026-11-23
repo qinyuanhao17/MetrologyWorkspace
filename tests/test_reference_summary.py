@@ -6,6 +6,8 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtCore import Qt
+from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QLabel, QTableView, QTableWidget
 from metrology_app.reference_merge import parse_file
 
@@ -57,9 +59,20 @@ class ReferenceSummaryTests(unittest.TestCase):
             [action.text() for action in window.menuBar().actions()],
             ["File", "Data", "Groups", "Analysis"],
         )
+        self.assertIsNone(window._analysis)
+        startup_ui = window.workspace_snapshot().states["ui"]
+        self.assertIsNone(window._analysis)
+        window.show()
+        menu_bar = window.menuBar()
+        QTest.mouseClick(menu_bar, Qt.MouseButton.LeftButton,
+                         pos=menu_bar.actionGeometry(window.groups_menu.menuAction()).center())
+        app.processEvents()
         texts = [action.text() for action in window.groups_menu.actions() if not action.isSeparator()]
         for expected in ("Enable Groups", "Group settings…", "Manage groups…", "Plot labels"):
             self.assertIn(expected, texts)
+        window.groups_menu.hide()
+        self.assertEqual(window.workspace_snapshot().states["ui"], startup_ui)
+        self.assertIs(window.tabs.widget(3), window.analysis.reference_page)
 
         aligned_ref = pd.DataFrame({
             "Wafer ID": ["R1", "R1", "R2", "R2"],

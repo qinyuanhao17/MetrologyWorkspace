@@ -332,10 +332,66 @@ def filter_mask(series, spec):
     return mask
 
 
+@lru_cache(maxsize=16384)
+def _participation_identity(key):
+    """Read the saved row identity with an equivalent integer Die Seq spelling."""
+    from .selection_script import canonical_die
+
+    try:
+        columns, values, _ordinal = json.loads(key)
+    except (TypeError, ValueError):
+        return None
+    if (not isinstance(columns, list) or not isinstance(values, list)
+            or len(columns) != len(values)
+            or not all(isinstance(value, str) for value in (*columns, *values))):
+        return None
+    for position, column in enumerate(columns):
+        if normalized(column) == "dieseq":
+            try:
+                values[position] = canonical_die(values[position])
+            except (ArithmeticError, ValueError):
+                return None
+            return tuple(columns), tuple(values)
+    return None
+
+
+def match_source_ids(keys, previous):
+    """Match literal keys first, then try a Die Seq alias if both sides are unambiguous."""
+    matches = [previous.get(key) for key in keys]
+    if not previous or all(matches):
+        return matches
+    claimed = {identifier for identifier in matches if identifier}
+    if claimed == set(previous.values()):
+        return matches
+    candidates = {}
+    for key, identifier in previous.items():
+        identity = _participation_identity(key)
+        if identity is not None:
+            candidates.setdefault(identity, set()).add(identifier)
+    identities = [_participation_identity(key) for key in keys]
+    counts = Counter(identities)
+    for position, (identifier, identity) in enumerate(zip(matches, identities)):
+        alternatives = candidates.get(identity)
+        if not identifier and alternatives and len(alternatives) == 1 and counts[identity] == 1:
+            candidate = next(iter(alternatives))
+            if candidate not in claimed:
+                matches[position] = candidate
+    return matches
+
+
+def stage_rows_align(preview, final):
+    """Allow equivalent Die Seq text while preserving positional classifications."""
+    preview_keys, final_keys = row_ids(preview), row_ids(final)
+    if preview_keys == final_keys:
+        return True
+    return (len(preview_keys) == len(final_keys)
+            and match_source_ids(final_keys, dict(zip(preview_keys, preview_keys))) == list(preview_keys))
+
+
 def participation_ids(raw, selection):
     """Persisted record IDs survive value edits and display sorting; new rows opt in."""
     previous = {record["key"]: record["id"] for record in (selection or {}).get("records", [])}
-    return tuple(previous.get(key) or uuid4().hex for key in row_ids(raw))
+    return tuple(identifier or uuid4().hex for identifier in match_source_ids(row_ids(raw), previous))
 
 
 def missing_excluded_records(previous, records):
@@ -374,11 +430,12 @@ def participation_rows(raw, selection):
 class GroupPlan:
     """Resolve inclusion, table order and grouped Trend spans from complete sources."""
 
-    def __init__(self, raw, test_flags=None, state=None, reference=None):
+    def __init__(self, raw, test_flags=None, state=None, reference=None, *, wafer_excluded=()):
         self.raw = raw
         self.reference = reference if reference is not None else pd.DataFrame(index=range(len(raw)))
         self.state = applied_state(state)
         self.ids = row_ids(raw)
+        self.wafer_excluded = frozenset(wafer_excluded)
         self.mark_enabled = self.state["mark_enabled"]
         if "flags" in self.state:
             test_flags = pd.DataFrame({"TestFlag": self.state["flags"]})
@@ -400,7 +457,7 @@ class GroupPlan:
                     parsed_values[key] = flag_value(value)
                 return parsed_values[key]
             except ValueError:
-                if i in selected:
+                if i in selected and i not in self.wafer_excluded:
                     raise
                 return ""
         self.flags = tuple(parsed_flag(i, value) for i, value in enumerate(values))
@@ -422,7 +479,8 @@ class GroupPlan:
         for mark_id, assigned_ids in self.state["mark_rows"].items():
             for row_id in assigned_ids:
                 assigned[row_id] = mark_id
-        self.marks = tuple(assigned.get(row_id, self.fallback_mark) for row_id in self.ids)
+        marked = match_source_ids(self.ids, dict(zip(assigned, assigned))) if assigned else self.ids
+        self.marks = tuple(assigned.get(row_id, self.fallback_mark) for row_id in marked)
         self.row_groups = tuple(
             f"{mark if self.mark_enabled else 'All'}:{'' if mark_groups else flag}"
             for mark, flag in zip(self.marks, self.flags)
@@ -450,7 +508,9 @@ class GroupPlan:
                 spec = {**spec, "values": [heads.get(value, value) for value in spec["values"]]}
             mask &= filter_mask(series, spec)
         self.visible_rows = tuple(int(i) for i in np.flatnonzero(mask))
-        self.included_rows = (tuple(sorted(selected)) if self.state["data_selection"] is not None else self.visible_rows)
+        self.point_selected_rows = (tuple(sorted(selected)) if self.state["data_selection"] is not None else self.visible_rows)
+        self.included_rows = (tuple(row for row in self.point_selected_rows if row not in self.wafer_excluded)
+                              if self.wafer_excluded else self.point_selected_rows)
         # Sort the complete source once: view filters must not silently remove
         # participating records from the "Current table order" Trend.
         displayed = pd.DataFrame(index=(range(len(raw)) if self.state["data_selection"] is not None else list(self.visible_rows)))

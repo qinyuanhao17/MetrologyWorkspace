@@ -15,7 +15,6 @@ from PyQt6.QtTest import QSignalSpy
 from PyQt6.QtWidgets import QApplication, QLabel, QSplitter
 
 from metrology_app.matching import ParameterMapping
-from metrology_app.match_wafer_statistics_page import MatchWaferStatisticsPage
 from metrology_app.matching_window import MatchingWindow
 from tests.match_fixtures import configure_match_fixture
 
@@ -129,14 +128,6 @@ class MatchWaferStatisticsTests(unittest.TestCase):
             for plot in page.plots_by_parameter["CD"]
         ))
 
-    def test_wafer_caption_keeps_wafer_identity_before_group_name(self):
-        self.assertEqual(
-            MatchWaferStatisticsPage._caption_label({
-                "label": "POR+\nAI0357.00-01\nLOT: AI0357.32",
-            }),
-            "AI0357.00-01\nLOT: AI0357.32\nPOR+",
-        )
-
     def test_wafer_statistics_caption_follows_trend_plot_label_switches(self):
         from copy import deepcopy
 
@@ -174,26 +165,57 @@ class MatchWaferStatisticsTests(unittest.TestCase):
         ]
         self.assertTrue(all("PAD: P1" in label for label in labels))
         self.assertTrue(all("LOT:" not in label for label in labels))
+        self.assertTrue(all(label.splitlines()[-1] != "All" for label in labels))
 
     def test_grouped_statistics_only_show_wafer_captions_for_checked_groups(self):
-        self.load(second=False)
+        self.load()
         window = self.window
+        raw = window.raw_frame
+        raw = pd.concat([raw, raw.iloc[:3].assign(**{"Wafer ID": "W3"})], ignore_index=True)
+        reference = window.reference_frame
+        window.set_reference_frame(pd.concat([reference, reference.iloc[:3]], ignore_index=True))
+        window.set_raw_frame(raw)
         window.group_controls.restore(
-            {"enabled": True, "trend_order": "groups", "show_wafer_groups": ["All:0"]},
-            pd.DataFrame({"TestFlag": [1, 1, 1, 0, 0, 0]}),
+            {"enabled": True, "trend_order": "groups", "show_wafer_groups": ["All:0"],
+             "head_names": {"0": "POR", "1": "New"}},
+            pd.DataFrame({"TestFlag": [1] * 3 + [0] * 3 + [1] * 3}),
         )
         window.run_analysis()
-        page = window.match_statistics_page
-        page.render()
-        captions = page.plots_by_parameter["CD"][0]._statistics_caption_axis.spans
-        self.assertTrue(any("W2" in label for _, _, label in captions))
-        self.assertFalse(any("W1" in label for _, _, label in captions))
+
+        def captions_for(workbook):
+            page = workbook.match_statistics_page
+            page.render()
+            APP.processEvents()
+            self.assertEqual(set(page.plots_by_parameter), {"CD", "Depth"})
+            return [tuple(plot._statistics_caption_axis.spans)
+                    for plots in page.plots_by_parameter.values() for plot in plots]
+
+        expected = ((0.5, 1.5, "W2\nPOR"), (1.5, 3.5, "New"))
+        self.assertEqual(captions_for(window), [expected] * 8)
+        window.result_mode.setCurrentText("Final")
+        window.set_raw_frame(raw)
+        window.run_analysis()
+        self.assertEqual(window.result.result_mode, "final")
+        self.assertEqual(captions_for(window), [expected] * 8)
+
+        with TemporaryDirectory() as folder:
+            path = window.save_workbook(Path(folder) / "group-wafer-labels.mwkb")
+            reopened = MatchingWindow()
+            reopened.document.force_close = True
+            try:
+                reopened.load_workbook(path)
+                self.assertEqual(reopened.result.result_mode, "final")
+                self.assertEqual(captions_for(reopened), [expected] * 8)
+            finally:
+                reopened.match_statistics_page.clear()
+                APP.processEvents()
+                reopened.close()
+                reopened.deleteLater()
+                APP.processEvents()
 
         window.group_controls.set_display_groups([], [])
         window.run_analysis(apply_groups=False)
-        page.render()
-        captions = page.plots_by_parameter["CD"][0]._statistics_caption_axis.spans
-        self.assertFalse(any("W1" in label or "W2" in label for _, _, label in captions))
+        self.assertEqual(captions_for(window), [((0.5, 1.5, "POR"), (1.5, 3.5, "New"))] * 8)
 
     def test_statistics_follow_trend_order_and_label_single_wafer_matrix_rows(self):
         self.load(second=False)
@@ -217,7 +239,10 @@ class MatchWaferStatisticsTests(unittest.TestCase):
         self.assertFalse(bar.isChecked())
 
         page.render()
-        mean = page.plots_by_parameter["CD"][0]
+        mean, sigma, *_ = page.plots_by_parameter["CD"]
+        for plot in (mean, sigma):
+            reference, raw = plot.listDataItems()
+            self.assertGreater(reference.zValue(), raw.zValue())
         raw = mean.listDataItems()[1]
         matrix = window.plot_groups["CD"]["wafer_model"].frame
         self.assertEqual(matrix["Wafer"].tolist(), ["W2", "W1"])
@@ -239,6 +264,8 @@ class MatchWaferStatisticsTests(unittest.TestCase):
                 self.assertIsInstance(restored.plots_by_parameter["CD"][0].listDataItems()[1],
                                       pg.PlotDataItem)
             finally:
+                reopened.match_statistics_page.clear()
+                APP.processEvents()
                 reopened.close()
                 reopened.deleteLater()
                 APP.processEvents()

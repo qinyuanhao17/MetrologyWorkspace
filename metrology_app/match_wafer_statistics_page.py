@@ -220,62 +220,39 @@ class MatchWaferStatisticsPage(QWidget):
                 spans.append({**span, "rows": rows, "matrix_row": number})
         return spans
 
-    @staticmethod
-    def _caption_label(span, measurement=None):
-        group, _, former_measurement = str(span.get("label", "")).partition("\n")
-        measurement = former_measurement if measurement is None else measurement
-        return measurement + ("\n" + group if group else "") if measurement else group
-
     def _caption_spans(self, spans):
         plan = self.result.group_plan
-        show = set(plan.state["show_wafer_groups"])
+        show_wafer_groups = set(plan.state["show_wafer_groups"])
         groups = [span["group"] for span in spans]
-        showing_wafer = [not plan.enabled or group in show for group in groups]
-        measurements = [span["rows"] for span, showing in zip(spans, showing_wafer) if showing]
+        show_wafer = [not plan.enabled or group in show_wafer_groups for group in groups]
+        measurements = [span["rows"] for span, showing in zip(spans, show_wafer) if showing]
         wafer_labels = iter(wafer_identity_labels(
             plan.raw, measurements,
             show_pad=self.label_options["pad"], show_lot=self.label_options["lot"],
         ))
-        captions, previous_group = [], None
-        for index, (span, group, showing) in enumerate(zip(spans, groups, showing_wafer), start=1):
-            label = self._caption_label(span, next(wafer_labels) if showing else "")
-            if not showing and group == previous_group and captions:
+        captions = []
+        previous_hidden_group = None
+        for index, (group, showing) in enumerate(zip(groups, show_wafer), start=1):
+            wafer_label = next(wafer_labels) if showing else ""
+            group_label = plan.label(group) if plan.enabled else ""
+            label = "\n".join(filter(None, (wafer_label, group_label)))
+            if not showing and group == previous_hidden_group and captions:
                 captions[-1] = (captions[-1][0], index + .5, label)
             else:
                 captions.append((index - .5, index + .5, label))
-            previous_group = None if showing else group
+            previous_hidden_group = None if showing else group
         return captions
 
     def _series_statistics(self, spans):
-        series = {}
-        rows = tuple(int(row) for row in self.result.source_rows)
-        positions = {row: index for index, row in enumerate(rows)}
-        for parameter in self.rendered_parameters:
-            frame = self.result.series(parameter)
-            values = []
-            for span in spans:
-                indexes = [positions[row] for row in span["rows"] if row in positions]
-                if indexes:
-                    selected = frame.iloc[indexes]
-                    reference = selected["Reference"].to_numpy(float)
-                    raw = selected["Raw"].to_numpy(float)
-                else:
-                    reference = raw = np.array([], dtype=float)
-                reference = reference[np.isfinite(reference)]
-                raw = raw[np.isfinite(raw)]
-                values.append({
-                    "reference": (
-                        (float(reference.mean()), float(reference.std(ddof=0)))
-                        if len(reference) else (np.nan, np.nan)
-                    ),
-                    "raw": (
-                        (float(raw.mean()), float(raw.std(ddof=0)))
-                        if len(raw) else (np.nan, np.nan)
-                    ),
-                    "rows": tuple(int(row) for row in span["rows"]),
-                })
-            series[parameter] = values
-        return series
+        rows = [tuple(int(row) for row in span["rows"]) for span in spans]
+        return {
+            parameter: [
+                {"reference": reference, "raw": raw, "rows": source_rows}
+                for source_rows, (reference, raw) in zip(
+                    rows, self.result.wafer_series_statistics(parameter, rows))
+            ]
+            for parameter in self.rendered_parameters
+        }
 
     def _statistics_for_parameter(self, parameter, stats):
         values = stats[parameter]
@@ -379,6 +356,8 @@ class MatchWaferStatisticsPage(QWidget):
             if self.plot_type == "line":
                 item = plot.plot(x, series, connect="finite", pen=pg.mkPen(color, width=TREND_LINE_WIDTH),
                                  symbol="o", symbolSize=TREND_MARKER_SIZE, symbolBrush=color, symbolPen=None)
+                if label == "Reference":
+                    item.setZValue(5)
                 plot.set_point_rows(item.scatter, rows)
             else:
                 item = pg.BarGraphItem(

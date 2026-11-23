@@ -25,7 +25,17 @@ def cache_available_outputs(page):
 
 def snapshot(window):
     page = window.alignment
-    trend = window.analysis.sequence_page
+    analysis = window._analysis
+    if analysis is None:
+        axis_mode, axis_ratio, die_column = "auto", MAGNITUDE_RATIO_LIMIT, None
+        options = {"enabled": True, "follow_groups": True, "labels_enabled": True, "follow_labels": True,
+                   "labels": {"pad": True, "lot": True}, "workbook_labels": {"pad": True, "lot": True},
+                   "local_applied": False, "local_identities": None, "grouping": None, "flags": []}
+    else:
+        trend = analysis.sequence_page
+        axis_mode, axis_ratio = trend.axis_mode_value(), trend.axis_ratio_limit()
+        die_column = analysis.die_picker.currentData()
+        options = analysis.display_options.snapshot(readonly=True)
     paths = [Path(page.output_picker.itemData(index)) for index in range(page.output_picker.count())]
     active = page._dataset.path
     if active is None:
@@ -67,9 +77,8 @@ def snapshot(window):
         "primary": page.primary.currentData(), "x_order": page.x_order.currentData(),
         "y_order": page.y_order.currentData(), "plot_columns": window.trend_page.columns.currentText(),
         "plot_order": window.trend_page._order, "tab": window.tabs.currentIndex(),
-        "trend_axis_mode": trend.axis_mode_value(), "trend_axis_ratio": trend.axis_ratio_limit(),
-        "analysis_options": window.analysis.display_options.snapshot(readonly=True),
-        "die_columns": {"raw": window.analysis.die_picker.currentData()},
+        "trend_axis_mode": axis_mode, "trend_axis_ratio": axis_ratio,
+        "analysis_options": options, "die_columns": {"raw": die_column},
     }})
 
 

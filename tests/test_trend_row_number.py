@@ -82,13 +82,15 @@ class TrendRowNumberTests(unittest.TestCase):
                 pd.testing.assert_frame_equal(self.window.raw_model.document_frame(), raw)
 
     def test_present_but_blank_die_seq_does_not_silently_change_semantics(self):
-        self.window.set_table(pd.DataFrame({"Wafer ID": ["W1", "W1"],
-                                          "Die Seq": ["", ""], "CD": ["1", "2"]}), "Raw")
+        raw = pd.DataFrame({"Wafer ID": ["W1", "W1"], "Die Seq": ["", ""], "CD": ["1", "2"]})
+        self.window.set_table(raw, "Raw")
         page = self.window.sequence_page
         page.selector.selectAll()
         page.draw_plot()
         self.assertFalse(page.ready)
-        self.assertIn("no valid Die Seq", page.status.text())
+        self.assertIn("no valid values in their Die columns", page.status.text())
+        self.assertFalse(page.plot_widgets)
+        pd.testing.assert_frame_equal(self.window.raw_model.document_frame(), raw)
 
     def test_reference_only_without_die_seq_can_draw(self):
         reference = pd.DataFrame({"Wafer ID": ["REF1", "REF1"], "CD": ["1.000", "3.000"]})

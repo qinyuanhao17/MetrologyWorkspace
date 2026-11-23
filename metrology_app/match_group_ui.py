@@ -1313,6 +1313,51 @@ def _combined_captions(plan, groups, starts, scope):
     return captions
 
 
+def _group_wafer_captions(plan, show_wafers, options):
+    spans, tooltips = [], []
+    visible = set(plan.state["show_wafer_groups"])
+    if plan.state["trend_order"] == "original" or not (show_wafers or (show_wafers is None and visible)):
+        return spans, tooltips
+    names = {normalized(column): column for column in plan.raw}
+    fields = []
+    for label, option, aliases in (
+            ("Wafer ID", None, ("waferid", "wafer", "waferno")),
+            ("Lot ID", "lot", ("lotid", "lot", "lotno")),
+            ("PAD Name", "pad", ("padname", "pad"))):
+        column = next((names[key] for key in aliases if key in names), None)
+        if column is not None:
+            values = plan.raw[column].fillna("").astype(str).str.strip().to_numpy()
+            fields.append((label, option, values))
+    offset = 0
+    for span in plan.trend_spans():
+        end = offset + len(span["rows"])
+        if show_wafers or span["group"] in visible:
+            labels, detail = [], []
+            for label, option, values in fields:
+                text = ", ".join(dict.fromkeys(values[row] or "(blank)" for row in span["rows"]))
+                if option is None or options.get(option, True):
+                    labels.append(f"{option.upper()}: {text}" if option else text)
+                detail.append(f"{label}: {text}")
+            spans.append((offset + .5, end + .5, "\n".join(labels)))
+            tooltips.append("\n".join(detail))
+        offset = end
+    return spans, tooltips
+
+
+def refresh_group_wafer_labels(plot, result, *, show_wafers=None, cache):
+    """Update caption text in place when its options change without moving rows."""
+    plan = result.group_plan
+    key = plan, show_wafers
+    if key not in cache:
+        cache[key] = _group_wafer_captions(plan, show_wafers, plot._identity_labels)
+    spans, tooltips = cache[key]
+    die, groups, _old_spans = plot._group_tick_data
+    plot._group_tick_data = die, groups, spans
+    plot._wafer_axis.setVisible(bool(spans))
+    plot._wafer_axis.setToolTip(" · ".join(tooltips))
+    plot._refresh_group_axis()
+
+
 def set_group_axes(plot, result, data, *, show_wafers=None):
     """Group axes; None uses per-Group visibility, bool overrides scoped plots."""
     plan = result.group_plan
@@ -1323,34 +1368,9 @@ def set_group_axes(plot, result, data, *, show_wafers=None):
     spans = [(start + .5, end + .5, plan.label(groups[start], multiline=True))
              for start, end in zip(starts, starts[1:]) if start < end]
     combined = [] if row_order else _combined_captions(plan, groups, starts, getattr(plot, "_combined_scope", None))
-    wafer_spans, wafer_tooltips = [], []
     if row_order:
         spans = []
-    elif show_wafers or (show_wafers is None and plan.state["show_wafer_groups"]):
-        offset = 0
-        names = {normalized(column): column for column in plan.raw}
-        fields = [(label, next((names[key] for key in aliases if key in names), None))
-                  for label, aliases in (("Wafer ID", ("waferid", "wafer", "waferno")),
-                                         ("Lot ID", ("lotid", "lot", "lotno")),
-                                         ("PAD Name", ("padname", "pad")))]
-        for span in plan.trend_spans():
-            end = offset + len(span["rows"])
-            if show_wafers is None and span["group"] not in plan.state["show_wafer_groups"]:
-                offset = end
-                continue
-            labels, detail = [], []
-            for label, column in fields:
-                if column is not None:
-                    values = plan.raw.iloc[span["rows"]][column].fillna("").astype(str).str.strip()
-                    text = ", ".join(dict.fromkeys(value or "(blank)" for value in values))
-                    options = getattr(plot, "_identity_labels", {})
-                    field = {"Lot ID": "lot", "PAD Name": "pad"}.get(label)
-                    if field is None or options.get(field, True):
-                        labels.append(f"{field.upper()}: {text}" if field else text)
-                    detail.append(f"{label}: {text}")
-            wafer_spans.append((offset + .5, end + .5, "\n".join(labels)))
-            wafer_tooltips.append("\n".join(detail))
-            offset = end
+    wafer_spans, wafer_tooltips = _group_wafer_captions(plan, show_wafers, getattr(plot, "_identity_labels", {}))
     die_column = result.die_column
     # Only this column is needed. Reading heterogeneous DataFrame rows here
     # rebuilds a Series for every plotted point, repeated across all panels.
@@ -1372,14 +1392,28 @@ def set_group_axes(plot, result, data, *, show_wafers=None):
                         if wafers.get(rows[i]) != wafers.get(rows[i - 1])]
     else:
         wafer_starts = sorted({start for start, _, _ in spans[1:] + wafer_spans[1:]})
+    boundaries = []
     for start in wafer_starts:
-        boundary = int(start - .5)
-        if row_order or groups[boundary] == groups[boundary - 1]:
-            line = _group_boundary(plot, start, wafer=True)
-            line.setToolTip("Wafer boundary")
-        else:
-            line = _group_boundary(plot, start)
-        plot._group_boundaries.append(line)
+        index = int(start - .5)
+        boundaries.append((start, row_order or groups[index] == groups[index - 1]))
+    for name in ("group_boundaries", "wafer_boundaries"):
+        previous = getattr(plot, name, None)
+        if previous is not None:
+            plot.removeItem(previous)
+            setattr(plot, name, None)
+    if len(boundaries) >= 24:
+        wafers = [start for start, wafer in boundaries if wafer]
+        groups_only = [start for start, wafer in boundaries if not wafer]
+        dash = Qt.PenStyle.DashLine
+        if wafers:
+            plot.wafer_boundaries = plot.add_vertical_boundaries(wafers, pg.mkPen("#929292", width=1, style=dash))
+        if groups_only:
+            halo = (pg.mkPen("#eeeeee", width=4, style=dash)
+                    if plot.palette().color(QPalette.ColorRole.Base).lightness() < 128 else None)
+            plot.group_boundaries = plot.add_vertical_boundaries(groups_only, pg.mkPen("#000000", width=2, style=dash), halo=halo)
+            plot.group_boundaries.setZValue(-9)
+    else:
+        plot._group_boundaries = [_group_boundary(plot, start, wafer=wafer) for start, wafer in boundaries]
     bottom = plot.getAxis("bottom")
     bottom.setHeight(40)
     plot.setLabel("bottom", "Die Seq")
@@ -1696,13 +1730,38 @@ class CombinedGroupDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+        for tree in (self.members, self.combined_list):
+            tree.viewport().installEventFilter(self)
         self.combined_list.currentItemChanged.connect(self.load_group)
+        self.combined_list.itemSelectionChanged.connect(self._update_delete_button)
         self.combined_list.itemChanged.connect(self.edit_group)
         self.members.itemChanged.connect(self.update_members)
         if self.groups:
             self.combined_list.setCurrentItem(self.combined_list.topLevelItem(0))
         else:
             self.load_group()
+        self._update_delete_button()
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+            for tree in (self.members, self.combined_list):
+                if watched is tree.viewport() and tree.itemAt(event.position().toPoint()) is None:
+                    self._clear_row_highlights()
+                    return True
+        return super().eventFilter(watched, event)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._clear_row_highlights()
+        super().mousePressEvent(event)
+
+    def _clear_row_highlights(self):
+        # The current combined Group still supplies the displayed membership checks.
+        self.members.clearSelection()
+        self.combined_list.clearSelection()
+
+    def _update_delete_button(self):
+        self.delete_button.setEnabled(bool(self.combined_list.selectedItems()))
 
     def _add_group_row(self, spec):
         item = QTreeWidgetItem([spec["name"]])
@@ -1740,7 +1799,6 @@ class CombinedGroupDialog(QDialog):
 
     def load_group(self, *_):
         spec = self._current_group()
-        self.delete_button.setEnabled(spec is not None)
         self.members._clear_anchor()
         with QSignalBlocker(self.members):
             for row in range(self.members.topLevelItemCount()):
@@ -1766,8 +1824,9 @@ class CombinedGroupDialog(QDialog):
             self.error.clear()
 
     def delete_group(self):
-        item = self.combined_list.currentItem()
-        if item is not None:
+        selected = self.combined_list.selectedItems()
+        if selected:
+            item = selected[0]
             self.show_wafer_groups.discard(item.data(0, Qt.ItemDataRole.UserRole))
             self.groups = [spec for spec in self.groups if spec["id"] != item.data(0, Qt.ItemDataRole.UserRole)]
             self.combined_list.takeTopLevelItem(self.combined_list.indexOfTopLevelItem(item))

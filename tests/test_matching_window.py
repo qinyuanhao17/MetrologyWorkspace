@@ -16,7 +16,7 @@ from PyQt6.QtCore import QCoreApplication, QEvent, QItemSelectionModel, QPoint, 
 from PyQt6.QtGui import QFontMetrics, QImage, QWheelEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import (
-    QApplication, QCheckBox, QDoubleSpinBox, QFileDialog, QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton,
+    QApplication, QCheckBox, QDoubleSpinBox, QFileDialog, QHeaderView, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton,
     QScrollArea, QSplitter, QTabBar, QTableView, QTabWidget, QToolButton,
 )
 
@@ -1087,6 +1087,22 @@ class MatchingWindowTests(unittest.TestCase):
                 QTest.mouseClick(rows.viewport(), Qt.MouseButton.LeftButton, pos=rows.visualItemRect(rows.topLevelItem(0)).center())
                 self.assertEqual([members.topLevelItem(i).checkState(0) for i in range(3)],
                                  [Qt.CheckState.Checked, Qt.CheckState.Checked, Qt.CheckState.Unchecked])
+                members.topLevelItem(0).setCheckState(1, Qt.CheckState.Checked)
+                state = [tuple(members.topLevelItem(i).checkState(column) for column in (0, 1))
+                         for i in range(3)]
+                for target, blank in ((rows.viewport(), rows.viewport().rect().bottomLeft()),
+                                      (members.viewport(), members.viewport().rect().bottomLeft()),
+                                      (dialog, QPoint(1, 1))):
+                    members.setCurrentItem(members.topLevelItem(1))
+                    rows.setCurrentItem(rows.topLevelItem(0))
+                    self.assertTrue(members.selectedItems())
+                    self.assertTrue(rows.selectedItems())
+                    QTest.mouseClick(target, Qt.MouseButton.LeftButton, pos=blank)
+                    self.assertEqual(members.selectedItems(), [])
+                    self.assertEqual(rows.selectedItems(), [])
+                    self.assertFalse(dialog.delete_button.isEnabled())
+                    self.assertEqual([tuple(members.topLevelItem(i).checkState(column) for column in (0, 1))
+                                      for i in range(3)], state)
                 next(b for b in dialog.findChildren(QPushButton) if b.text() == "Apply").click()
             except Exception as error:
                 errors.append(error)
@@ -1095,6 +1111,7 @@ class MatchingWindowTests(unittest.TestCase):
         window.manage_groups_action.trigger()
         self.assertEqual(errors, [])
         plan = window.result.group_plan
+        self.assertEqual(plan.state["show_wafer_groups"], ["All:0"])
         keys = {plan.label(key): key for key in plan.plot_group_keys}
         self.assertEqual(plan.rows(keys["Heads A+B"]), tuple(range(6)))
         self.assertEqual(plan.rows(keys["Heads A+C"]), (0, 1, 2, 6, 7, 8))
@@ -2719,6 +2736,8 @@ class MatchingWindowTests(unittest.TestCase):
                 self.assertEqual(reopened.result.source_rows, (0, 1, 2))
                 export_stages = reopened.excel_export_snapshot()["stages"]
                 self.assertEqual(export_stages[0][1].die_column, "Site")
+                reopened.wafer_panel.min_records.setValue(0)
+                self.assertEqual(reopened.result.source_rows, (0, 1, 2, 3, 4))
             finally:
                 reopened.document.force_close = True
                 reopened.close()
@@ -2760,13 +2779,76 @@ class MatchingWindowTests(unittest.TestCase):
             self.assertEqual(applied_state(reopened.group_controls.state)["data_selection"], saved_selection)
             self.assertEqual(wafer.checkState(0), Qt.CheckState.PartiallyChecked)
             self.assertFalse(reopened.isWindowModified())
+            wafer.setCheckState(0, Qt.CheckState.Unchecked)
+            self.assertEqual(reopened.result.source_rows, ())
+            self.assertEqual(applied_state(reopened.group_controls.state)["data_selection"], saved_selection)
+            paused_path = reopened.save_workbook(Path(self._documents.name) / "paused-wafer.mwkb")
+            self.assertEqual(MatchWorkbook.load(paused_path).analyze().source_rows, ())
+            reopened.load_workbook(paused_path)
+            wafer = reopened.wafer_panel.wafer_list.topLevelItem(0)
+            self.assertEqual(wafer.checkState(0), Qt.CheckState.Unchecked)
             wafer.setCheckState(0, Qt.CheckState.Checked)
-            self.assertEqual(reopened.result.source_rows, tuple(range(13)))
+            self.assertEqual(reopened.result.source_rows, expected)
+            self.assertEqual(wafer.checkState(0), Qt.CheckState.PartiallyChecked)
         finally:
             reopened.document.force_close = True
             reopened.close()
             reopened.deleteLater()
             APP.processEvents()
+
+    def test_wafer_row_click_preserves_point_choices_and_blank_clears_highlight(self):
+        window = self.window
+        raw = pd.DataFrame({"Wafer ID": ["W1"] * 4 + ["W2"] * 4, "CD": range(1, 9)})
+        window.set_reference_frame(pd.DataFrame({"CD Reference": range(2, 18, 2)}))
+        window.set_raw_frame(raw)
+        configure_match_fixture(window)
+        window.run_analysis()
+        window._change_chart_checks([1, 5], False)
+        window.show()
+        APP.processEvents()
+
+        tree = window.wafer_panel.wafer_list
+        item = tree.topLevelItem(0)
+        row_point = tree.visualItemRect(item).center()
+        QTest.mouseClick(tree.viewport(), Qt.MouseButton.LeftButton, pos=row_point)
+        self.assertEqual(item.checkState(0), Qt.CheckState.Unchecked)
+        self.assertEqual(window.result.source_rows, (4, 6, 7))
+        self.assertTrue(tree.selectedItems())
+        blank = QPoint(row_point.x(), tree.visualItemRect(tree.topLevelItem(1)).bottom() + 3)
+        self.assertIsNone(tree.itemAt(blank))
+        QTest.mouseClick(tree.viewport(), Qt.MouseButton.LeftButton, pos=blank)
+        self.assertEqual(tree.selectedItems(), [])
+        self.assertFalse(tree.currentIndex().isValid())
+
+        def accept_off_wafer():
+            dialog = APP.activeModalWidget()
+            model = dialog.model
+            for row in range(4):
+                self.assertEqual(model.index(row, 0).data(Qt.ItemDataRole.CheckStateRole), Qt.CheckState.Unchecked)
+            dialog.check_visible(True)
+            self.assertEqual(model.index(0, 0).data(Qt.ItemDataRole.CheckStateRole), Qt.CheckState.Unchecked)
+            model.setData(model.index(5, 0), Qt.CheckState.Unchecked, Qt.ItemDataRole.CheckStateRole)
+            dialog.accept()
+
+        QTimer.singleShot(0, accept_off_wafer)
+        window.select_analysis_data()
+        QTest.mouseClick(tree.viewport(), Qt.MouseButton.LeftButton, pos=row_point)
+        self.assertEqual(item.checkState(0), Qt.CheckState.PartiallyChecked)
+        self.assertEqual(window.result.source_rows, (0, 2, 3, 4, 6, 7))
+
+        def check_all(menu, _point):
+            action = next(action for action in menu.actions() if action.text() == "Check All")
+            action.trigger()
+
+        with patch.object(QMenu, "exec", check_all):
+            tree.customContextMenuRequested.emit(row_point)
+        self.assertEqual(item.checkState(0), Qt.CheckState.Checked)
+        self.assertEqual(window.result.source_rows, (0, 1, 2, 3, 4, 6, 7))
+        window.wafer_panel.none_button.click()
+        self.assertEqual(window.result.source_rows, ())
+        window.wafer_panel.all_button.click()
+        self.assertEqual(window.result.source_rows, (0, 1, 2, 3, 4, 6, 7))
+        self.assertEqual(tree.topLevelItem(1).checkState(0), Qt.CheckState.PartiallyChecked)
 
     def test_match_wafer_picks_preserve_unapplied_group_settings(self):
         window = self.window
@@ -5944,6 +6026,10 @@ class MatchingWindowTests(unittest.TestCase):
         self.window.set_final_frame(final, "Final clipboard")
         self.window.percent_bias.setChecked(True)
         self.window.run_analysis()
+        preview_window = self.window.open_stage_workspace("preview")
+        final_window = self.window.open_stage_workspace("final")
+        expected_preview = preview_window.model.document_frame()
+        expected_final = final_window.model.document_frame()
         with tempfile.TemporaryDirectory() as folder:
             excel_path = Path(folder) / "result.xlsx"
             image_folder = Path(folder) / "images"
@@ -5953,7 +6039,7 @@ class MatchingWindowTests(unittest.TestCase):
             with pd.ExcelFile(excel_path, engine="openpyxl") as book:
                 self.assertEqual(book.sheet_names, [
                     "_Plot data", "Match Original (WO Card)", "Match Wafer (WO Card)",
-                    "RSQ (WO Card)", "FullMap (WO Card)", "FullMap (W Card)",
+                    "FM_Wafer Map   Radius 1", "FM_Wafer Map   Radius 1_2", "RSQ (WO Card)",
                 ])
             from openpyxl import load_workbook
             exported = load_workbook(excel_path)
@@ -5962,7 +6048,7 @@ class MatchingWindowTests(unittest.TestCase):
             # openpyxl/pandas cannot calculate its formula caches. Verify both
             # the untouched source table and every prepared parameter link.
             fullmaps = []
-            for title in ("FullMap (WO Card)", "FullMap (W Card)"):
+            for title in ("FM_Wafer Map   Radius 1", "FM_Wafer Map   Radius 1_2"):
                 sheet = exported[title]
                 self.assertEqual(sheet["A1"].value, "Wafer")
                 source_column = next(cell.column for cell in sheet[1] if cell.value == "Wafer ID")
@@ -5981,8 +6067,8 @@ class MatchingWindowTests(unittest.TestCase):
             self.assertIn("SPA", exported_values)
             self.assertIn("PMISH+Card", exported_values)
             self.assertIn("Bias", exported_values)
-            self.assertEqual(preview_fullmap["CD_Bot"].tolist(), [12, 22, 32])
-            pd.testing.assert_frame_equal(final_fullmap[list(final.columns)], final, check_dtype=False)
+            pd.testing.assert_frame_equal(preview_fullmap, expected_preview[list(final.columns)], check_dtype=False)
+            pd.testing.assert_frame_equal(final_fullmap, expected_final[list(final.columns)], check_dtype=False)
             exported.close()
             self.assertTrue(image_workbook.is_file())
             self.assertEqual(list(image_folder.glob("*.png")), [])

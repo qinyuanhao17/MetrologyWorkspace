@@ -14,9 +14,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pyqtgraph as pg
-from lmfit.models import LinearModel
-from matplotlib.backends.backend_agg import FigureCanvasAgg
-from matplotlib.figure import Figure
 from PyQt6 import sip
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut
@@ -102,6 +99,8 @@ def fit_numeric_pair(frame, x_name, y_name):
 
 def _fit_numeric_values(x, y, x_name, y_name, model=None, *, moments=None, row_positions=None):
     """Fit already-converted arrays while preserving the public frame seam."""
+    from lmfit.models import LinearModel
+
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
     paired = np.isfinite(x) & np.isfinite(y)
@@ -186,6 +185,7 @@ def _fit_without_points(fit, removed):
     keep = ~np.isin(fit.row_positions, tuple(removed))
     rows, x, y = fit.row_positions[keep], fit.x[keep], fit.y[keep]
     try:
+        from lmfit.models import LinearModel
         return _fit_numeric_values(x, y, fit.x_name, fit.y_name, LinearModel(), row_positions=rows)
     except ValueError:
         return replace(fit, x=x, y=y, row_positions=rows, predicted=np.full(len(x), np.nan),
@@ -284,6 +284,8 @@ def pairwise_linear_fits(frame, metrics, groups=None, cells=None, *, cancelled=N
     measurement sets where **both** columns were selected, so the box grid can
     narrow a fit without mixing in rows the user did not pick.
     """
+    from lmfit.models import LinearModel
+
     fits, errors = [], []
     # Converting a 40-column selection inside every one of its 780 pair loops
     # repeats the same pandas parsing 39 times per column. Convert each column
@@ -325,6 +327,8 @@ def source_pairwise_linear_fits(frame, metrics, sources, groups, cells, *, cance
     Within-source panels remain Reference-first/Raw-second. Cross-source
     panels follow and fit aligned observations, never pooled populations.
     """
+    from lmfit.models import LinearModel
+
     numeric = _owned_numeric_columns(frame, metrics)
     model = LinearModel()
     panels, errors = [], []
@@ -528,11 +532,10 @@ class CorrelationPage(QWidget):
         header.addWidget(self.parameter_filter)
         layout.addLayout(header)
 
-        self.figure = Figure(figsize=(9, 6.5), dpi=100, facecolor="white")
+        self._figure = None
         self._export_dirty = True
         self._copy_image = None
         self._copy_dpi = None
-        FigureCanvasAgg(self.figure)
         self.copy_shortcut = QShortcut(QKeySequence.StandardKey.Copy, self)
         self.copy_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self.copy_shortcut.activated.connect(self.copy_png)
@@ -736,7 +739,8 @@ class CorrelationPage(QWidget):
         self._copy_image = None
         self._copy_dpi = None
         self.update_pagination()
-        self.figure.clear()
+        if self._figure is not None:
+            self._figure.clear()
         self.clear_interactive(preserve_panels=preserve_panels and not self.frame.empty
                                and bool(self.selector.rowCount() and self.selector.columnCount()),
                                retain_layout=True)
@@ -754,6 +758,16 @@ class CorrelationPage(QWidget):
             self.stack.setCurrentWidget(self.selector_panel)
         count = len(self.selector.selected_cells())
         self.summary.setText(f"{count} / {rows * columns} selected  ·  {rows} × {columns}")
+
+    @property
+    def figure(self):
+        if self._figure is None:
+            from matplotlib.backends.backend_agg import FigureCanvasAgg
+            from matplotlib.figure import Figure
+
+            self._figure = Figure(figsize=(9, 6.5), dpi=100, facecolor="white")
+            FigureCanvasAgg(self._figure)
+        return self._figure
 
     def draw_canvas_message(self, message):
         """Draw a readable centered message that follows the plot font setting."""
@@ -1650,15 +1664,16 @@ class CorrelationPage(QWidget):
 
     def restyle(self, *_):
         if not self.ready:
-            for text in self.figure.texts:
-                text.set_fontsize(max(15, int(self.font_size.currentText()) + 3))
+            if self._figure is not None:
+                for text in self._figure.texts:
+                    text.set_fontsize(max(15, int(self.font_size.currentText()) + 3))
             if self.all_fits:
                 self.clear_interactive(f"No pairwise fit has R² > {self.min_rsq.value():.2f}")
             return
         self.render_fits()
 
     def refresh_canvas(self):
-        if not self.ready:
+        if not self.ready or self._figure is None:
             return
         width, height = self.base_size
         # The visible plots are PyQtGraph widgets. Keep only a lightweight

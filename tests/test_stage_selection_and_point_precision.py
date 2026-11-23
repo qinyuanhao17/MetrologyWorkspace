@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import QApplication, QHBoxLayout, QLineEdit, QPushButton
 
 from metrology_app.array_plot import ArrayOptions, prepare_array
 from metrology_app.analysis_export import capture_window
+from metrology_app.match_groups import row_ids
 from metrology_app.matching_window import MatchingWindow
 from metrology_app.plot import ValueLabels
 from metrology_app.window import MainWindow
@@ -97,6 +98,7 @@ class StageSelectionAndPointPrecisionTests(unittest.TestCase):
         window.mode_tabs.setCurrentIndex(1)
         selected = window.group_controls.state["data_selection"]
         excluded = list(selected["excluded"])
+        raw["Die Seq"] = raw["Die Seq"].map(lambda value: f"{value:.1f}")
         window.set_raw_frame(raw.assign(CD=raw.CD * 2))
         self.assertEqual(window.group_controls.state["data_selection"]["excluded"], excluded)
         self.assertEqual(window.group_controls.state["applied"]["data_selection"]["excluded"], excluded)
@@ -137,6 +139,10 @@ class StageSelectionAndPointPrecisionTests(unittest.TestCase):
     def test_selection_survives_stage_specific_literal_id_representations(self):
         window = self.matching_window()
         raw = window.raw_frame.copy()
+        window.group_controls.restore(
+            {"enabled": True, "mark_enabled": True, "mark_rows": {"New": [row_ids(raw)[0]]}},
+            pd.DataFrame({"TestFlag": [0] * 3 + [1] * 3}),
+        )
         raw["Die Seq"] = raw["Die Seq"].map(lambda value: f"{value:.1f}")
         window.mode_tabs.setCurrentIndex(1)
         window.set_raw_frame(raw.assign(CD=raw.CD * 2))
@@ -148,6 +154,19 @@ class StageSelectionAndPointPrecisionTests(unittest.TestCase):
             APP.processEvents()
             self.assertEqual(window.workbook.result_mode, ("preview", "final")[index], window.status.text())
             self.assertEqual(window.result.source_rows, (0, 1, 2))
+            self.assertEqual(window.result.group_plan.row_groups[0], "New:0")
+        self.assertEqual(window.final_raw_model.document_frame()["Die Seq"].tolist(), ["1.0", "2.0", "3.0"] * 2)
+        window.mode_tabs.setCurrentIndex(1)
+        with tempfile.TemporaryDirectory() as folder:
+            path = window.save_workbook(Path(folder) / "mixed-die-format.mwkb")
+            reopened = MatchingWindow()
+            try:
+                reopened.load_workbook(path)
+                self.assertEqual(reopened.result.result_mode, "final")
+                self.assertEqual(reopened.result.source_rows, (0, 1, 2))
+                self.assertEqual(reopened.result.group_plan.row_groups[0], "New:0")
+            finally:
+                self.close(reopened)
 
     def test_point_values_default_to_two_fixed_decimal_places(self):
         labels = ValueLabels(np.array([[0, 0], [1, 1], [2, 2]]), [1.23456, 2., -0.001], 8)

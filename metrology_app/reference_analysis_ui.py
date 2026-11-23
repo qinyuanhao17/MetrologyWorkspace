@@ -4,9 +4,9 @@ import csv
 from io import StringIO
 
 import pandas as pd
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QSignalBlocker, Qt
 from PyQt6.QtWidgets import (
-    QApplication, QDialog, QDialogButtonBox, QListWidgetItem, QPushButton, QVBoxLayout,
+    QApplication, QDialog, QDialogButtonBox, QHBoxLayout, QListWidgetItem, QPushButton, QVBoxLayout,
 )
 
 from .appearance import fit_window_to_screen
@@ -35,12 +35,8 @@ class ReferenceAnalysisPages(CorrelationWindow):
         self.measurement_floating_editor.owner = owner
         self.reference_floating_editor.owner = owner
         self.raw_page = self.tabs.widget(1)
-        for page, title in (
-            (self.reference_page, '4. Ref Data'), (self.raw_page, '5. Raw Data'),
-            (self.correlation_page, '6. Correlation'), (self.sequence_page, '7. Trend'),
-            (self.plot_page, '8. Ref WaferMap'), (self.radius_page, '9. Ref Radius Plot'),
-        ):
-            tabs.addTab(page, title)
+        self.embedded_pages = (self.reference_page, self.raw_page, self.correlation_page,
+                               self.sequence_page, self.plot_page, self.radius_page)
         self.document.force_close = True
         self.document.timer.stop()
 
@@ -213,10 +209,29 @@ class ReferenceAnalysisPages(CorrelationWindow):
             return [columns.item(row).text() for row in range(columns.count())
                     if columns.item(row).checkState() == Qt.CheckState.Checked]
 
-        columns.itemChanged.connect(lambda: copy.setEnabled(bool(checked_columns())))
+        def update_copy():
+            copy.setEnabled(bool(checked_columns()))
+
+        def set_column_checks(state):
+            with QSignalBlocker(columns):
+                for row in range(columns.count()):
+                    columns.item(row).setCheckState(state)
+            update_copy()
+
+        actions = QHBoxLayout()
+        for label, state in (('All', Qt.CheckState.Checked), ('None', Qt.CheckState.Unchecked)):
+            button = QPushButton(label)
+            button.setAutoDefault(False)
+            button.clicked.connect(lambda _checked, state=state: set_column_checks(state))
+            actions.addWidget(button)
+        actions.addStretch()
+        actions.addWidget(buttons)
+        layout.addLayout(actions)
+
+        columns.itemChanged.connect(update_copy)
+        update_copy()
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
         fit_window_to_screen(dialog, (620, 490), minimum=(420, 300))
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.copy_reference(checked_columns())

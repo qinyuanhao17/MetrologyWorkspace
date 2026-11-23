@@ -69,9 +69,13 @@ class ChoiceTree(QTreeWidget):
             item.setSizeHint(0, QSize(0, metrics.lineSpacing() * lines + 12))
 
     def mousePressEvent(self, event):
-        self._pressed_item = self.itemAt(event.position().toPoint()) if event.button() == Qt.MouseButton.LeftButton else None
+        left = event.button() == Qt.MouseButton.LeftButton
+        self._pressed_item = self.itemAt(event.position().toPoint()) if left else None
         self._pressed_state = self._pressed_item.checkState(0) if self._pressed_item else None
         super().mousePressEvent(event)
+        if left and self._pressed_item is None:
+            self.clearSelection()
+            self.setCurrentItem(None)
 
     def mouseReleaseEvent(self, event):
         item = self.itemAt(event.position().toPoint())

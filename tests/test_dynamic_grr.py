@@ -140,6 +140,9 @@ class DynamicGrrWorkflowTests(unittest.TestCase):
                             item.setCheckState(0, Qt.CheckState.Checked)
                     self.assertIsNot(dynamic.tabs.currentWidget(), dynamic.dynamic_page)
                     self.assertTrue(dynamic.dynamic_page.grr_report_controls.isHidden())
+                    next(action for action in dynamic.detrend_methods.actions()
+                         if action.data() == "common_linear").trigger()
+                    dynamic.show_detrend_fit.trigger()
                     path = workbook.save_workbook(root / "fresh.mwkb")
                     report_path = path.with_name("GRR_fresh.xlsx")
                     self.assertTrue(report_path.is_file())
@@ -147,9 +150,20 @@ class DynamicGrrWorkflowTests(unittest.TestCase):
                     dynamic.tabs.setCurrentWidget(dynamic.dynamic_page)
                     self.assertTrue(dynamic.dynamic_page.grr_report_controls.isVisible())
                     self.assertEqual(dynamic.dynamic_page.load_grr_button.text(), "Load GRR")
-                    self.assertEqual(dynamic.dynamic_page.grr_status.text(), "Using saved GRR template.")
+                    self.assertEqual(dynamic.dynamic_page.grr_status.text(), "")
                     self.assertEqual(master.read_bytes(), master_bytes)
                     choose.assert_not_called()
+                    reopened = MatchingWindow()
+                    try:
+                        reopened.load_workbook(path)
+                        preview = reopened.open_dynamic_workspace("preview")
+                        self.assertEqual(preview.detrend_methods.checkedAction().data(), "common_linear")
+                        self.assertTrue(preview.show_detrend_fit.isChecked())
+                        self.assertAlmostEqual(preview.dynamic_page.detrend_results["CD"]["1"].sigma, 0)
+                    finally:
+                        reopened.document.force_close = True
+                        reopened.close()
+                        reopened.deleteLater()
                 finally:
                     workbook.document.force_close = True
                     workbook.close()

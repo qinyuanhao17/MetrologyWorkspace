@@ -41,6 +41,7 @@ HOME_PADDING = 0.06
 PANEL_WIDTH = 900
 PANEL_HEIGHT = 350
 DIE_CONTROL_WIDTH = 150
+DETREND_MARKER_SIZE = TREND_MARKER_SIZE + 1
 # Die traces need to stay distinguishable up to a full reticle of measurements,
 # so this palette is longer than the comparison palettes.
 DIE_COLOURS = (
@@ -49,6 +50,8 @@ DIE_COLOURS = (
     "#255E91", "#43682B", "#698ED0", "#F1975A", "#B7B7B7",
     "#FFCD33", "#7CAFDD", "#8CC168", "#8EA9DB", "#C55A11",
 )
+
+
 class DiePickerComboBox(QComboBox):
     """Switch the plotted Die on vertical wheel input, even without focus."""
 
@@ -79,6 +82,8 @@ class DynamicTrendPage(QWidget):
         self.die_pickers = {}
         self.selected_dies = {}
         self.comparisons = {}
+        self.detrend_results = {}
+        self.show_detrend_fit = False
         self._compare_render_pending = False
         self.home_views = []
         self.secondary_home_views = []
@@ -164,10 +169,11 @@ class DynamicTrendPage(QWidget):
         layout.addWidget(self.status)
         self.invalidate()
 
-    def set_input(self, frame, selection):
+    def set_input(self, frame, selection, detrend_results=None):
         changed = changed_dynamic_parameters(self.frame, frame, self.selection, selection)
         self.frame = pd.DataFrame(frame).copy()
         self.selection = dict(selection)
+        self.detrend_results = detrend_results or {}
         if changed is not None and self.ready and self._update_parameters(changed):
             return
         self.refresh()
@@ -187,14 +193,16 @@ class DynamicTrendPage(QWidget):
                for parameter, table in series.items()):
             return False
         self.panel_tables.update(series)
-        for widget in self.panel_widgets.values():
+        for parameter, widget in self.panel_widgets.items():
             for curve in self.data_curves(widget):
-                parameter, die = curve.dynamic_series
-                if parameter in changed:
-                    table = self.panel_tables[parameter]
+                name, die = curve.dynamic_series
+                if name in changed:
+                    table = self.panel_tables[name]
                     curve.setData(np.asarray(table.index, dtype=float),
                                   pd.to_numeric(table[die], errors="coerce").to_numpy(float))
                     attach_point_hover(curve, [die] * len(table))
+            if self.detrend_results and any(name in changed for name, _ in self.panel_curves(parameter)):
+                self.draw_detrend(widget, parameter)
         self.refresh_statistics()
         self.panel_specs = list(self.panel_tables.items())
         self._export_dirty = True
@@ -380,19 +388,69 @@ class DynamicTrendPage(QWidget):
         self._export_dirty = True
         self._copy_image = None
 
+    def set_detrend_display(self, results, show_fit):
+        if self.detrend_results is results and self.show_detrend_fit == show_fit:
+            return
+        self.detrend_results = results
+        self.show_detrend_fit = show_fit
+        for parameter, widget in self.panel_widgets.items():
+            self.draw_detrend(widget, parameter)
+        self._export_dirty = True
+        self._copy_image = None
+
+    def detrend_curves(self, parameter, die):
+        fit = self.detrend_results.get(parameter, {}).get(die)
+        if fit is not None and fit.valid:
+            yield "Detrended", fit.corrected, Qt.PenStyle.DashLine, "--", "s"
+            if self.show_detrend_fit:
+                yield "Fitted trend", fit.fitted, Qt.PenStyle.DotLine, ":", None
+
+    @staticmethod
+    def _clear_detrend_curves(widget):
+        for target, item in getattr(widget, "dynamic_overlays", ()):
+            target.removeItem(item)
+        widget.dynamic_overlays = []
+
+    def draw_detrend(self, widget, parameter):
+        self._clear_detrend_curves(widget)
+        plot = widget.getPlotItem()
+        raw_curves = {item.dynamic_series: item for item in self.data_curves(widget)}
+        entries = []
+        for name, die in self.panel_curves(parameter):
+            raw = raw_curves[name, die]
+            label = f"{name} · Die {die}"
+            variants = list(self.detrend_curves(name, die))
+            entries.append((raw, f"{label} · Raw" if variants else label))
+            target = plot if name == parameter else widget.dynamic_axes[name]
+            cycles = self.panel_tables[name].index.to_numpy(dtype=float)
+            colour = raw.opts["pen"].color()
+            for variant, values, style, _, marker in variants:
+                item = pg.PlotDataItem(
+                    cycles, values, connect="finite", pen=pg.mkPen(colour, width=TREND_LINE_WIDTH, style=style),
+                    symbol=marker, symbolSize=DETREND_MARKER_SIZE, symbolPen=pg.mkPen(colour), symbolBrush=None,
+                )
+                target.addItem(item)
+                widget.dynamic_overlays.append((target, item))
+                entries.append((item, f"{label} · {variant}"))
+        if len(entries) > 1 and plot.legend is None:
+            plot.addLegend(offset=(8, 8), colCount=2)
+        if plot.legend is not None:
+            plot.legend.clear()
+            plot.legend.setVisible(len(entries) > 1)
+            if len(entries) > 1:
+                for item, label in entries:
+                    plot.legend.addItem(item, label)
+
     def draw_panel(self, widget, parameter):
         plot = widget.getPlotItem()
+        self._clear_detrend_curves(widget)
         for item in list(widget.listDataItems()):
             plot.removeItem(item)
         for view in widget.secondary_views:
             for item in list(view.addedItems):
                 if isinstance(item, pg.PlotDataItem):
                     view.removeItem(item)
-        if plot.legend is not None:
-            plot.legend.clear()
         curves = self.panel_curves(parameter)
-        if len(curves) > 1 and plot.legend is None:
-            plot.addLegend(offset=(8, 8), colCount=2)
         targets = getattr(widget, 'dynamic_axes', {})
         for index, (name, die) in enumerate(curves):
             table = self.panel_tables[name]
@@ -414,10 +472,9 @@ class DynamicTrendPage(QWidget):
                 item.setPen(pg.mkPen(colour, width=TREND_LINE_WIDTH))
                 item.setSymbolBrush(colour)
                 item.setSymbolPen(colour)
-            if plot.legend is not None:
-                plot.legend.addItem(item, f"{name} · Die {die}")
             attach_point_hover(item, [die] * len(table))
         widget.dynamic_axes = targets
+        self.draw_detrend(widget, parameter)
         for view in widget.secondary_views:
             view.autoRange(padding=HOME_PADDING)
         plain_y_axes(widget)
@@ -425,8 +482,8 @@ class DynamicTrendPage(QWidget):
 
     @staticmethod
     def data_curves(widget):
-        return widget.listDataItems() + [item for view in widget.secondary_views
-            for item in view.addedItems if isinstance(item, pg.PlotDataItem)]
+        items = widget.listDataItems() + [item for view in widget.secondary_views for item in view.addedItems]
+        return [item for item in items if hasattr(item, "dynamic_series")]
 
     def add_compare(self, parameter, *, defer=False):
         selected = self.comparisons.setdefault(parameter, [])
@@ -639,6 +696,7 @@ class DynamicTrendPage(QWidget):
             cycles = [float(cycle) for cycle in table.index]
             curves = self.panel_curves(parameter)
             targets = {parameter: ax}
+            line_count = 0
             for index, (name, die) in enumerate(curves):
                 source = self.panel_tables[name]
                 position = list(source.columns).index(die)
@@ -651,19 +709,27 @@ class DynamicTrendPage(QWidget):
                     target.tick_params(labelsize=max(6, base - 2))
                     plain_matplotlib_y(target)
                     targets[name] = target
-                targets[name].plot([float(cycle) for cycle in source.index], values, color=colour,
+                source_cycles = source.index.to_numpy(dtype=float)
+                variants = list(self.detrend_curves(name, die))
+                label = f"{name} · Die {die}"
+                targets[name].plot(source_cycles, values, color=colour,
                         linestyle="-",
                         marker="o", markersize=TREND_MARKER_SIZE,
                         linewidth=TREND_LINE_WIDTH,
-                        label=f"{name} · Die {die}")
-            if len(curves) > 1:
+                        label=f"{label} · Raw" if variants else label)
+                for variant, fitted, _, style, marker in variants:
+                    targets[name].plot(source_cycles, fitted, color=colour, linestyle=style,
+                                       linewidth=TREND_LINE_WIDTH, label=f"{label} · {variant}",
+                                       marker=marker, markersize=DETREND_MARKER_SIZE, markerfacecolor="none")
+                line_count += 1 + len(variants)
+            if line_count > 1:
                 handles, labels = [], []
                 for target in targets.values():
                     lines, names = target.get_legend_handles_labels()
                     handles.extend(lines)
                     labels.extend(names)
                 ax.legend(handles, labels, fontsize=max(6, base - 2),
-                          ncol=min(4, len(curves)))
+                          ncol=min(4, line_count))
             title = f"{parameter} · Die {self.selected_dies[parameter]}"
             ax.set_title(
                 title, fontsize=base + 1,

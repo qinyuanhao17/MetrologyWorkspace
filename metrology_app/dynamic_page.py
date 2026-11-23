@@ -24,6 +24,7 @@ from .background_task import LatestTask
 from .data import die_sequence_column
 from .dynamic import (_sort_measurement_labels, changed_dynamic_parameters, dynamic_pivot,
                       prepare_dynamic_frame, selected_measurement_rows)
+from .dynamic_detrend import MIN_R_SQUARED, VALIDATION_HELP, detrend
 from .plotting import InteractivePlotWidget
 from .settings import get_settings
 from .sheet import clipboard_rows
@@ -295,6 +296,10 @@ class DynamicPage(QWidget):
         self.parameter_models = {}
         self.parameter_tables = {}
         self.parameter_sections = []
+        self.detrend_method = "raw"
+        self.detrend_r_squared = MIN_R_SQUARED
+        self.detrend_results = {}
+        self.detrend_models = {}
         self.plots = []
         self.bar_items = []
         self.comparison_legend = None
@@ -443,19 +448,40 @@ class DynamicPage(QWidget):
                                   for die in model.frame.columns))
         for parameter, pivot in pivots.items():
             self.parameter_models[parameter].update_values(pivot)
+            self._calculate_detrend(parameter, pivot)
+            if parameter in self.detrend_models:
+                self.detrend_models[parameter].update_values(self._detrend_summary(parameter))
             index = parameters.index(parameter)
-            sigma = pivot.loc["3 Sigma"].to_numpy(float)
-            finite = np.isfinite(sigma)
-            x = np.arange(1, len(sigma) + 1, dtype=float)
-            self.bar_items[index + (len(parameters) if comparison else 0)].setOpts(
-                x=x[finite], height=sigma[finite])
+            bars = self.bar_items[index + (len(parameters) if comparison else 0)]
+            self._update_bars(bars, parameter, pivot, pivot.columns)
             if comparison:
-                sigma = pivot.loc["3 Sigma"].reindex(dies).to_numpy(float)
-                finite = np.isfinite(sigma)
-                x = np.arange(1, len(dies) + 1, dtype=float)
                 offset = (index - (len(parameters) - 1) / 2.0) * .78 / len(parameters)
-                self.bar_items[index].setOpts(x=(x + offset)[finite], height=sigma[finite])
+                self._update_bars(self.bar_items[index], parameter, pivot, dies, offset)
         return True
+
+    def _calculate_detrend(self, parameter, pivot):
+        if self.detrend_method != "raw":
+            self.detrend_results[parameter] = detrend(
+                pivot.iloc[:-1], self.detrend_method, min_r_squared=self.detrend_r_squared)
+
+    def _detrend_summary(self, parameter):
+        return pd.DataFrame({
+            die: [fit.raw_sigma, fit.sigma, fit.amplitude, fit.r_squared, fit.status,
+                  ", ".join(f"{name}={value:.6g}" for name, value in fit.parameters.items())]
+            for die, fit in self.detrend_results[parameter].items()
+        }, index=["Raw 3 Sigma", "Detrended 3 Sigma", "Trend amplitude", "Fit R²", "Validation", "Fit parameters"])
+
+    def _bar_values(self, parameter, pivot):
+        if self.detrend_method != "raw":
+            return pd.Series({die: fit.sigma for die, fit in self.detrend_results[parameter].items()}, dtype=float)
+        return pivot.loc["3 Sigma"]
+
+    def _update_bars(self, bars, parameter, pivot, dies, offset=0):
+        sigma = self._bar_values(parameter, pivot).reindex(dies).to_numpy(float)
+        finite = np.isfinite(sigma)
+        x = np.arange(1, len(dies) + 1, dtype=float) + offset
+        bars.setOpts(x=x[finite], height=sigma[finite])
+        bars._selection_rows = [self._die_source_rows.get(str(die), []) for die, valid in zip(dies, finite) if valid]
 
     def set_data_model(self, model):
         """Edit the loaded table through the Data sheet's own undo history."""
@@ -558,6 +584,8 @@ class DynamicPage(QWidget):
         self._die_source_rows = {}
         for die, row in zip(dies, source_rows):
             self._die_source_rows.setdefault(str(die), []).append(int(row))
+        for parameter, pivot in pivots.items():
+            self._calculate_detrend(parameter, pivot)
         if len(parameters) > 1:
             self._add_comparison_plot(parameters, pivots)
         for index, parameter in enumerate(parameters):
@@ -606,6 +634,8 @@ class DynamicPage(QWidget):
         self.parameter_models = {}
         self.parameter_tables = {}
         self.parameter_sections = []
+        self.detrend_results = {}
+        self.detrend_models = {}
         self.plots = []
         self._grr_labels.clear()
         self._grr_axes = ((), ())
@@ -617,7 +647,7 @@ class DynamicPage(QWidget):
         plot.point_selection.set_data(getattr(self, "data_point_edits", None), ("Dynamic",))
         plot.setFixedSize(PLOT_WIDTH, PLOT_HEIGHT)
         plot.setLabel("bottom", self.selection.get("die_column") or die_sequence_column(self.frame.columns) or "Die Seq")
-        plot.setLabel("left", "3 Sigma (nm)")
+        plot.setLabel("left", "3 Sigma (nm)" if self.detrend_method == "raw" else "Detrended 3 Sigma")
         plot.setToolTip(
             "Ctrl+scroll to zoom · Left-drag to select · Ctrl+left-drag to zoom · Ordinary scrolling moves the page"
         )
@@ -679,6 +709,18 @@ class DynamicPage(QWidget):
             )
         section_layout.addWidget(table)
 
+        if parameter in self.detrend_results:
+            summary = self._detrend_summary(parameter)
+            summary_model = DynamicPivotModel(section)
+            summary_model.set_frame(summary)
+            summary_view = DynamicPivotView(summary_model)
+            summary_view.setAccessibleName(f"Detrend results — {parameter}")
+            summary_view.setToolTip(VALIDATION_HELP)
+            summary_view.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+            summary_view.setFixedHeight(summary_view.horizontalHeader().sizeHint().height() + len(summary) * 28 + 22)
+            section_layout.addWidget(summary_view)
+            self.detrend_models[parameter] = summary_model
+
         self.parameter_models[parameter] = model
         self.parameter_tables[parameter] = table
         self.parameter_sections.append(section)
@@ -690,7 +732,6 @@ class DynamicPage(QWidget):
         plot.getAxis("bottom").setTicks([
             [(float(position), str(label)) for position, label in zip(x, dies)]
         ])
-        return x
 
     def _add_comparison_plot(self, parameters, pivots):
         plot = self._new_plot(None)
@@ -716,36 +757,32 @@ class DynamicPage(QWidget):
         dies = list(dict.fromkeys(
             die for parameter in parameters for die in pivots[parameter].columns
         ))
-        x = self._set_die_ticks(plot, dies)
+        self._set_die_ticks(plot, dies)
         group_width = 0.78
         bar_width = group_width / len(parameters)
         for index, parameter in enumerate(parameters):
             colour = SERIES_COLOURS[index % len(SERIES_COLOURS)]
-            sigma = pivots[parameter].loc["3 Sigma"].reindex(dies).to_numpy(float)
-            finite = np.isfinite(sigma)
             offset = (index - (len(parameters) - 1) / 2.0) * bar_width
             bars = pg.BarGraphItem(
-                x=(x + offset)[finite], height=sigma[finite],
+                x=[], height=[],
                 width=bar_width * 0.86, brush=pg.mkBrush(colour),
                 pen=pg.mkPen(colour, width=1),
             )
-            bars._selection_rows = [self._die_source_rows.get(str(die), []) for die, valid in zip(dies, finite) if valid]
+            self._update_bars(bars, parameter, pivots[parameter], dies, offset)
             plot.addItem(bars)
             legend.addItem(bars, parameter)
             self.bar_items.append(bars)
 
     def _add_parameter_plot(self, parameter, pivot, colour):
-        plot = self._new_plot(
-            f"{max(0, len(pivot.index) - 1)} Cycles Dynamic of {parameter} (nm)")
+        units = " (nm)" if self.detrend_method == "raw" else ""
+        plot = self._new_plot(f"{max(0, len(pivot.index) - 1)} Cycles Dynamic of {parameter}{units}")
         dies = list(pivot.columns)
-        x = self._set_die_ticks(plot, dies)
-        sigma = pivot.loc["3 Sigma"].to_numpy(float)
-        finite = np.isfinite(sigma)
+        self._set_die_ticks(plot, dies)
         bars = pg.BarGraphItem(
-            x=x[finite], height=sigma[finite], width=0.72,
+            x=[], height=[], width=0.72,
             brush=pg.mkBrush(colour), pen=pg.mkPen(colour, width=1),
         )
-        bars._selection_rows = [self._die_source_rows.get(str(die), []) for die, valid in zip(dies, finite) if valid]
+        self._update_bars(bars, parameter, pivot, dies)
         plot.addItem(bars)
         self.bar_items.append(bars)
         label = QLabel(objectName="dynamicGrrResult")
@@ -883,8 +920,7 @@ class DynamicPage(QWidget):
         self.load_grr_button.setToolTip(
             "Select a different GRR master template." if installed else "Install an Excel GRR master template."
         )
-        self.grr_status.setText("Using saved GRR template." if installed else "")
-        self.grr_status.setToolTip(str(template) if installed else "")
+        self.grr_status.clear()
         if not installed:
             self._cancel_grr()
         elif self.isVisible():

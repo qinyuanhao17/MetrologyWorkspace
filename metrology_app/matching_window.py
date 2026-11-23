@@ -78,10 +78,11 @@ from .excel_export import write_workbook
 from .trend import MAGNITUDE_RATIO_LIMIT, parse_unit
 from .diagnostics import get_logger
 from .matching import MAX_ROWS, MatchWorkbook, ParameterMapping, extrema_sample_indices
-from .match_groups import copy_group_state, group_state, row_ids
+from .match_groups import copy_group_state, group_state, row_ids, stage_rows_align
 from .match_wafer_statistics_page import MatchWaferStatisticsPage
 from .measurements import compare_match_row_order
-from .match_group_ui import CombinedGroupDialog, GroupControls, GroupPlotPage, ProjectedSheetModel, draw_group_trend, set_group_axes
+from .match_group_ui import (CombinedGroupDialog, GroupControls, GroupPlotPage, ProjectedSheetModel,
+                             draw_group_trend, refresh_group_wafer_labels, set_group_axes)
 from .data_selection import DataSelectionDialog
 from .plotting import InteractivePlotWidget, place_legend_above_frame
 from .plotting.sequence_axis import SpanLabelAxis, space_wafer_plot
@@ -1006,8 +1007,10 @@ class MatchingWindow(QMainWindow):
                 raise ValueError("Invalid Wafers panel settings.")
             groups, die = choices.get("group_columns", []), choices.get("die_column")
             threshold = choices.get("min_records", 0)
+            disabled = choices.get("disabled_wafers", [])
             if (not isinstance(groups, list) or any(not isinstance(c, str) for c in groups)
                     or (die is not None and not isinstance(die, str))
+                    or not isinstance(disabled, list) or any(not isinstance(key, str) for key in disabled)
                     or type(threshold) is not int or not 0 <= threshold <= 1_000_000):
                 raise ValueError("Invalid Wafer or Die selection.")
 
@@ -1445,6 +1448,7 @@ class MatchingWindow(QMainWindow):
         blocks += list(self.group_plot_page.plot_groups.values())
         blocks += [detail for block in self.plot_groups.values()
                    for detail in block.get("wafer_details", {}).values()]
+        caption_cache = {}
         for block in blocks if trend_changed else ():
             result = block.get("result", self.result)
             if result is None:
@@ -1455,9 +1459,12 @@ class MatchingWindow(QMainWindow):
                     continue
                 plot._identity_labels = options["trend"]
                 if result.group_plan.enabled:
-                    data = result.group_series(block["parameter"], block.get("group_key", "all"), trend=True)
-                    set_group_axes(plot, result, data,
-                                   show_wafers=block.get("show_wafers"))
+                    if hasattr(plot, "_refresh_group_axis"):
+                        refresh_group_wafer_labels(plot, result, show_wafers=block.get("show_wafers"),
+                                                   cache=caption_cache)
+                    else:
+                        data = result.group_series(block["parameter"], block.get("group_key", "all"), trend=True)
+                        set_group_axes(plot, result, data, show_wafers=block.get("show_wafers"))
                 else:
                     axis = plot.getAxis("bottom")
                     if isinstance(axis, SpanLabelAxis):
@@ -1468,8 +1475,9 @@ class MatchingWindow(QMainWindow):
             self._offer_plot_labels(child)
         if hasattr(self, "match_statistics_page"):
             self.match_statistics_page.set_label_options(options["trend"])
-        for block in blocks if trend_changed else ():
-            self._expand_parameter_group(block)
+        if trend_changed and self.expand_wafer_ids.isChecked():
+            for block in blocks:
+                self._expand_parameter_group(block)
         if hasattr(self, "document"):
             self.document.refresh_identity()
 
@@ -1494,7 +1502,8 @@ class MatchingWindow(QMainWindow):
         groups = deepcopy(dialog.groups)
         show_wafer_groups = sorted(dialog.show_wafer_groups)
         dialog.deleteLater()
-        if accepted:
+        if accepted and (groups != plan.state["combined_groups"]
+                         or set(show_wafer_groups) != set(plan.state["show_wafer_groups"])):
             self.group_controls.set_display_groups(groups, show_wafer_groups)
             self._stage_sync_inputs = None
             try:
@@ -1510,7 +1519,8 @@ class MatchingWindow(QMainWindow):
         if raw.empty:
             raise ValueError("The Match Workbook has no Raw Data to copy a selection from.")
         reference = self.reference_frame if len(self.reference_frame) == len(raw) else None
-        plan = GroupPlan(raw, self.group_controls.flags_frame(), self.group_controls.state, reference)
+        plan = GroupPlan(raw, self.group_controls.flags_frame(), self.group_controls.state, reference,
+                         wafer_excluded=self._match_wafer_excluded_rows(raw))
         return export_script(selection_frame(plan), {"checked": list(plan.included_rows),
                              **selection_view(plan.state["data_selection"])})
 
@@ -1544,9 +1554,8 @@ class MatchingWindow(QMainWindow):
         self._stage_sync_inputs = None
         return changed
 
-    def _change_chart_checks(self, rows, checked, *, from_wafer_panel=False):
-        included = self._match_wafer_included_rows() if from_wafer_panel else None
-        changed = self._set_row_checks(rows, checked, included=included)
+    def _change_chart_checks(self, rows, checked):
+        changed = self._set_row_checks(rows, checked)
         if changed:
             self.group_controls.refresh()
             self._apply_wafer_participation()
@@ -1557,7 +1566,7 @@ class MatchingWindow(QMainWindow):
             if self.result is not None:
                 self.run_analysis(apply_groups=False)
                 return
-            self._refresh_group_projection(apply_wafer_threshold=True)
+            self._refresh_group_projection()
         except ValueError as error:
             self._set_status(str(error), warning=True)
         self.sync_stage_windows()
@@ -1600,7 +1609,8 @@ class MatchingWindow(QMainWindow):
             raw = self._active_raw_frame()
             if raw.empty or len(raw) != len(self.reference_frame):
                 raise ValueError("Enter row-aligned Reference and Raw Data first.")
-            plan = GroupPlan(raw, self.group_controls.flags_frame(), self.group_controls.state, self.reference_frame)
+            plan = GroupPlan(raw, self.group_controls.flags_frame(), self.group_controls.state, self.reference_frame,
+                             wafer_excluded=self._match_wafer_excluded_rows(raw))
             dialog = DataSelectionDialog(plan, self)
             accepted = dialog.exec() == QDialog.DialogCode.Accepted
             selection = deepcopy(dialog.selection)
@@ -1756,6 +1766,8 @@ class MatchingWindow(QMainWindow):
         self.wafer_panel.all_button.clicked.connect(lambda: self._check_match_wafers(True))
         self.wafer_panel.none_button.clicked.connect(lambda: self._check_match_wafers(False))
         self.wafer_panel.wafer_list.model().dataChanged.connect(self._match_wafer_changed)
+        self.wafer_panel.wafer_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.wafer_panel.wafer_list.customContextMenuRequested.connect(self._match_wafer_menu)
         self.wafer_panel.min_records.valueChanged.connect(self._match_wafer_threshold_changed)
         self.wafer_panel.die_picker.currentIndexChanged.connect(self._match_die_column_changed)
         inputs.addWidget(self.wafer_panel)
@@ -2344,7 +2356,8 @@ class MatchingWindow(QMainWindow):
         match one fall back to the previous participation at the same position,
         so pasting a corrected table does not silently select everything again.
         """
-        from .match_groups import missing_excluded_records, participation_ids, reuse_row_ids, row_ids
+        from .match_groups import (match_source_ids, missing_excluded_records,
+                                   participation_ids, reuse_row_ids, row_ids)
         current = self._active_raw_frame()
         if current.empty:
             # An empty stage has no replacement records. Keep the shared
@@ -2373,12 +2386,13 @@ class MatchingWindow(QMainWindow):
                     # A cell clear/edit cannot move another record to this row,
                     # even if two records now have identical blank identities.
                     positional = preserve_positions
-                    reserved = {by_key[key] for key in new_keys if key in by_key}
+                    matches = match_source_ids(new_keys, by_key)
+                    reserved = set(matches)
                     used = set()
                     records = []
-                    for position, key in enumerate(new_keys):
+                    for position, (key, match) in enumerate(zip(new_keys, matches)):
                         identifier = (old_ids[position] if positional and position < len(old_ids)
-                                      else by_key.get(key))
+                                      else match)
                         if identifier in used:
                             identifier = None
                         if identifier is None and position < len(old_ids):
@@ -2462,15 +2476,16 @@ class MatchingWindow(QMainWindow):
             panel.min_records.setValue(state.get("min_records", 0))
             panel.die_picker.setCurrentIndex(max(0, panel.die_picker.findData(state.get("die_column"))))
 
-    def _refresh_match_wafer_items(self, included):
+    def _refresh_match_wafer_items(self, point_rows):
         panel = self.wafer_panel
         threshold = panel.min_records.value()
-        signature = (included, threshold)
+        disabled = frozenset(self._current_wafer_choices().get("disabled_wafers", ()))
+        signature = (point_rows, threshold, disabled)
         if signature == self._wafer_panel_items:
             return
         metadata_changed = self._wafer_panel_items is None
         self._wafer_panel_items = signature
-        selected = set(included)
+        selected = set(point_rows)
         with QSignalBlocker(panel.wafer_list):
             if panel.wafer_list.topLevelItemCount() != len(self._wafer_measurements) or any(
                 panel.wafer_list.topLevelItem(i).data(0, Qt.ItemDataRole.UserRole) != measurement.key
@@ -2490,9 +2505,15 @@ class MatchingWindow(QMainWindow):
                     item.setToolTip(1, measurement.detail)
                     item.setSizeHint(0, QSize(0, 20 * len(measurement.label.splitlines()) + 12))
                 active = sum(row in selected for row in measurement.rows)
-                item.setCheckState(0, Qt.CheckState.Checked if active == len(measurement.rows)
-                                   else Qt.CheckState.PartiallyChecked if active else Qt.CheckState.Unchecked)
-                item.setHidden(len(measurement.rows) <= threshold)
+                hidden = len(measurement.rows) <= threshold
+                if hidden or measurement.key in disabled:
+                    state = Qt.CheckState.Unchecked
+                elif active == len(measurement.rows):
+                    state = Qt.CheckState.Checked
+                else:
+                    state = Qt.CheckState.PartiallyChecked
+                item.setCheckState(0, state)
+                item.setHidden(hidden)
 
     def _match_wafer_changed(self, top_left, _bottom_right, roles):
         tree = self.wafer_panel.wafer_list
@@ -2501,25 +2522,64 @@ class MatchingWindow(QMainWindow):
             return
         index = top_left.row()
         item = tree.topLevelItem(index)
-        if item is not None and not item.isHidden():
-            state = item.checkState(0)
-            if state != Qt.CheckState.PartiallyChecked:
-                self._change_chart_checks(self._wafer_measurements[index].rows,
-                                          state == Qt.CheckState.Checked, from_wafer_panel=True)
+        if item is not None and not item.isHidden() and item.checkState(0) != Qt.CheckState.PartiallyChecked:
+            key = self._wafer_measurements[index].key
+            # A partially checked row is enabled. Toggle the wafer regardless
+            # of which check state Qt advances the indicator to.
+            enable = key in self._current_wafer_choices().get("disabled_wafers", ())
+            self._set_match_wafers({key}, enable)
+            self._apply_wafer_participation()
+
+    def _match_wafer_menu(self, point):
+        tree = self.wafer_panel.wafer_list
+        item = tree.itemAt(point)
+        if item is None:
+            return
+        measurement = self._wafer_measurements[tree.indexOfTopLevelItem(item)]
+        menu = QMenu(tree)
+        menu.addAction("Check All", lambda: self._check_all_wafer_points(measurement))
+        menu.exec(tree.viewport().mapToGlobal(point))
+        menu.deleteLater()
+
+    def _check_all_wafer_points(self, measurement):
+        changed = self._set_match_wafers({measurement.key}, True)
+        points = self._set_row_checks(measurement.rows, True, included=self._match_point_selected_rows())
+        if points:
+            self.group_controls.refresh()
+        if changed or points:
+            self._apply_wafer_participation()
+
+    def _current_wafer_choices(self):
+        return self._wafer_panel_states[self.result_mode.currentText().lower()]
+
+    def _set_match_wafers(self, keys, checked):
+        choices = self._current_wafer_choices()
+        before = set(choices.get("disabled_wafers", ()))
+        after = before - keys if checked else before | keys
+        if before == after:
+            return False
+        if after:
+            choices["disabled_wafers"] = sorted(after)
+        else:
+            choices.pop("disabled_wafers", None)
+        self._stage_sync_inputs = None
+        return True
 
     def _check_match_wafers(self, checked):
         threshold = self.wafer_panel.min_records.value()
-        rows = [row for measurement in self._wafer_measurements if len(measurement.rows) > threshold
-                for row in measurement.rows]
-        self._change_chart_checks(rows, checked, from_wafer_panel=True)
+        keys = {measurement.key for measurement in self._wafer_measurements if len(measurement.rows) > threshold}
+        if self._set_match_wafers(keys, checked):
+            self._apply_wafer_participation()
 
     def _match_wafer_groups_changed(self):
         state = self._wafer_panel_states[self.result_mode.currentText().lower()]
         state["group_columns"] = [column for column, action in self._wafer_panel_actions.items() if action.isChecked()]
+        self._stage_sync_inputs = None
         self._apply_wafer_participation()
 
     def _match_wafer_threshold_changed(self, threshold):
         self._wafer_panel_states[self.result_mode.currentText().lower()]["min_records"] = threshold
+        self._stage_sync_inputs = None
         self._apply_wafer_participation()
 
     def _match_die_column_changed(self):
@@ -2527,7 +2587,7 @@ class MatchingWindow(QMainWindow):
         state["die_column"] = self.wafer_panel.die_picker.currentData()
         self._apply_wafer_participation()
 
-    def _match_wafer_included_rows(self):
+    def _match_point_selected_rows(self):
         from .match_groups import GroupPlan, participation_rows
 
         controls = self.group_controls
@@ -2544,29 +2604,25 @@ class MatchingWindow(QMainWindow):
                 pass
         return participation_rows(controls.raw, selection)
 
-    def _refresh_group_projection(self, *, apply_wafer_threshold=False):
+    def _match_wafer_excluded_rows(self, raw):
+        from .input_planning import wafer_excluded_rows
+
+        measurements = self._wafer_measurements if raw is self._wafer_panel_source else None
+        return wafer_excluded_rows(raw, self._current_wafer_choices(), measurements=measurements)
+
+    def _refresh_group_projection(self):
         controls = self.group_controls
         raw = self._active_raw_frame()
         controls.set_sources(self.reference_frame, raw)
         self._refresh_match_wafer_choices(raw)
         plan = controls.plan
-        included_rows = self._match_wafer_included_rows()
-        threshold = self.wafer_panel.min_records.value()
-        if apply_wafer_threshold and threshold:
-            hidden = {row for measurement in self._wafer_measurements if len(measurement.rows) <= threshold
-                      for row in measurement.rows}
-            hidden.intersection_update(included_rows)
-            if hidden and self._set_row_checks(hidden, False, included=included_rows):
-                controls.refresh()
-                plan = controls.plan
-                included_rows = self._match_wafer_included_rows()
-        self._refresh_match_wafer_items(included_rows)
+        self._refresh_match_wafer_items(self._match_point_selected_rows())
         selection = controls.state.get("applied", controls.state).get("data_selection") or {}
         hide = bool(selection.get("hide_excluded"))
         projected = plan is not None and len(plan.raw) > 0 and bool(hide or controls.state["filters"] or controls.state["sort"])
         rows = plan.display_rows if projected else None
         if projected and hide:
-            included = set(plan.included_rows)
+            included = set(plan.included_rows) - self._match_wafer_excluded_rows(raw)
             rows = tuple(row for row in rows if row in included)
         mode = self.result_mode.currentText().lower()
         for name, view, source in (("reference", self.reference_view, self.reference_model),
@@ -2604,7 +2660,7 @@ class MatchingWindow(QMainWindow):
         self._analysis_current = False
         self._group_only_pending = self.result is not None
         if hasattr(self, "document"):
-            self.document.refresh_identity()
+            self.document.identity_timer.start()
 
     def _refresh_table_sizes(self):
         from .sheet import table_size_text
@@ -3424,7 +3480,7 @@ class MatchingWindow(QMainWindow):
             raise ValueError("Paste Final Raw Data before running Final analysis.")
         preview_raw = self.raw_frame if not self.raw_frame.empty else active_raw
         if self.group_controls.state["enabled"] and self.result_mode.currentText().lower() == "final" and not self.raw_frame.empty:
-            if row_ids(self.raw_frame) != row_ids(active_raw):
+            if not stage_rows_align(self.raw_frame, active_raw):
                 raise ValueError("Preview/Final record identities or order differ. Align Wafer/Lot/PAD/Die records before sharing TestFlag/Mark classifications.")
         parameter_order = self._reconciled_parameter_order(
             mapping.name for mapping in mappings
@@ -3463,6 +3519,7 @@ class MatchingWindow(QMainWindow):
             parameter_order=parameter_order,
             test_flags=self.group_controls.flags_frame(),
             grouping_state=self.group_controls.state,
+            workspace_states={"match_ui": {"wafer_panel": deepcopy(self._wafer_panel_states)}},
         )
 
     def _analysis_workspace_workbook(self):
@@ -4521,7 +4578,8 @@ class MatchingWindow(QMainWindow):
             from .match_groups import applied_state
             raw = self._active_raw_frame()
             selection = applied_state(self.group_controls.state)["data_selection"]
-            workspace._install_workbook_participation(prepare_source_participation(raw, selection), raw)
+            workspace._install_workbook_participation(prepare_source_participation(
+                raw, selection, wafer_excluded=self._match_wafer_excluded_rows(raw)), raw)
 
     def set_child_reference_copy(self, workspace, checked):
         """Attach or detach Ref without changing the child's Raw table."""
@@ -4580,8 +4638,9 @@ class MatchingWindow(QMainWindow):
         selection = applied_state(book.grouping_state)["data_selection"]
         if len(raw) == current_rows:
             allowed = list(range(len(raw)))
-        elif getattr(workspace, "_workbook_selection_applies", True) and selection is not None:
-            allowed = list(participation_rows(raw, selection))
+        elif getattr(workspace, "_workbook_selection_applies", True):
+            excluded = book.wafer_excluded_rows(raw, stage=None if kind == "correlation" else stage)
+            allowed = [row for row in participation_rows(raw, selection) if row not in excluded]
         else:
             allowed = list(range(len(raw)))
         if len(allowed) != current_rows or len(raw) != len(self.reference_frame):
@@ -5203,14 +5262,12 @@ class MatchingWindow(QMainWindow):
         self._auto_run_pending = False
         self._pending_auto_view_state = None
         scroll_value = self.setup_scroll.verticalScrollBar().value()
-        self._refresh_group_projection(apply_wafer_threshold=not apply_groups)
+        self._refresh_group_projection()
         if apply_groups:
             if self.group_controls.plan is None:
                 raise ValueError(self.group_controls.status.text())
             self.group_controls.accept_changes()
             self._stage_sync_inputs = None
-            if self.wafer_panel.min_records.value():
-                self._refresh_group_projection(apply_wafer_threshold=True)
         self.workbook = self.current_workbook()
         self.result = self._analyze_workbook(self.workbook)
         self._analysis_current = True

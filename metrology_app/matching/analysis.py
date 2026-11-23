@@ -481,6 +481,19 @@ class MatchAnalysisResult:
         _, measurements = self._wafer_summary_groups(group_order=group_order)
         return tuple(tuple(self.source_rows[row] for row in measurement.rows) for measurement in measurements)
 
+    def wafer_series_statistics(self, parameter, row_groups):
+        """Reference and Raw mean and population sigma for each source-row group."""
+        positions = {int(row): index for index, row in enumerate(self.source_rows)}
+        frame = self.series(parameter)[["Reference", "Raw"]].to_numpy(float)
+        for rows in row_groups:
+            samples = frame[[positions[row] for row in rows if row in positions]]
+            statistics = []
+            for values in samples.T:
+                values = values[np.isfinite(values)]
+                statistics.append((float(values.mean()), float(values.std(ddof=0)))
+                                  if len(values) else (np.nan, np.nan))
+            yield tuple(statistics)
+
     def wafer_frames(self, row, *, group_order=False):
         """Paired sources for the same ordering as wafer_summary."""
         _, measurements = self._wafer_summary_groups(group_order=group_order)
@@ -809,6 +822,12 @@ class MatchWorkbook:
             for mapping in self.mappings
         )
 
+    def wafer_excluded_rows(self, source, *, stage=None):
+        from ..input_planning import wafer_excluded_rows
+
+        panel = self.workspace_states.get("match_ui", {}).get("wafer_panel", {})
+        return wafer_excluded_rows(source, panel.get(stage or self.result_mode, {}))
+
     def plan_inputs(self, prepared_plan=None):
         """Resolve the included rows and Group plan this workbook analyzes."""
         analysis_raw = (
@@ -831,17 +850,19 @@ class MatchWorkbook:
                 column = next((c for c in analysis_raw if normalized(c) == 'testflag'), None)
                 expected_flags = analysis_raw[column].tolist() if column else []
         expected_flags = expected_flags + [''] * (len(analysis_raw) - len(expected_flags))
+        wafer_excluded = self.wafer_excluded_rows(analysis_raw)
         if not (plan is not None and plan.raw is analysis_raw and plan.reference is self.reference
+                and plan.wafer_excluded == wafer_excluded
                 and {k: v for k, v in plan.state.items() if k != 'flags'} == expected
                 and plan.order_frame['TestFlag'].tolist() == expected_flags):
-            plan = GroupPlan(analysis_raw, flags, state, self.reference)
+            plan = GroupPlan(analysis_raw, flags, state, self.reference, wafer_excluded=wafer_excluded)
         # Participation follows stored record identities. Head/Mark classifications
         # still require equivalent source rows across the two stages.
         if plan.enabled and self.result_mode == "final" and self.final_match_raw is not None:
-            from ..match_groups import row_ids
-            if row_ids(self.raw) != row_ids(analysis_raw):
+            from ..match_groups import stage_rows_align
+            if not stage_rows_align(self.raw, analysis_raw):
                 raise ValueError("Preview/Final source identities differ; classifications cannot be shared by row count alone.")
-        if not plan.included_rows and plan.state["data_selection"] is None:
+        if not plan.included_rows and plan.state["data_selection"] is None and not plan.wafer_excluded:
             raise ValueError("No paired records pass the current filters.")
         return plan, analysis_raw
 
@@ -897,7 +918,7 @@ class MatchWorkbook:
             try:
                 cards[mapping.name] = _fit_card(raw, reference, mapping.name)
             except ValueError:
-                if plan.state["data_selection"] is None:
+                if plan.state["data_selection"] is None and not plan.wafer_excluded:
                     raise
                 cards[mapping.name] = Card(np.nan, np.nan, np.nan, int((np.isfinite(raw) & np.isfinite(reference)).sum()))
         result = MatchAnalysisResult(
@@ -927,11 +948,14 @@ class MatchWorkbook:
         """Project traceable Workbook rows; never position-match independent data."""
         from ..match_groups import applied_state, participation_rows, participation_source_keys
         selection = applied_state(self.grouping_state)["data_selection"]
-        if selection is None or not apply_selection:
+        if not apply_selection:
             return frame.reset_index(drop=True).copy()
         source = self.final_match_raw if self.result_mode == "final" and self.final_match_raw is not None else self.raw
+        wafer_excluded = self.wafer_excluded_rows(source)
+        if selection is None and not wafer_excluded:
+            return frame.reset_index(drop=True).copy()
         keys = participation_source_keys(source)
-        allowed = set(participation_rows(source, selection))
+        allowed = set(participation_rows(source, selection)) - wafer_excluded
         if paired_source:
             return frame.iloc[sorted(allowed)].reset_index(drop=True).copy()
         excluded = {key for i, key in enumerate(keys) if i not in allowed}

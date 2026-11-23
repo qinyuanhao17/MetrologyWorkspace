@@ -192,6 +192,95 @@ class DynamicWindowTests(unittest.TestCase):
                 reopened.close()
                 reopened.deleteLater()
 
+    def test_detrend_updates_dynamic_bars_and_keeps_raw_data(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        window = self.window
+        window.set_table(pd.DataFrame([
+            {"Wafer ID": "W1", "Die Seq": die, "CD": f"{20 + 3 * cycle + die:.3f}",
+             "Flat": f"{100 + die:.3f}"}
+            for cycle in range(1, 9) for die in (1, 2)
+        ]), "Dynamic.csv")
+        self.select_parameters("CD", "Flat")
+        original = window.model.document_frame()
+        page, trend = window.dynamic_page, window.dynamic_trend
+        raw_pivot = page.parameter_models["CD"].frame.copy()
+        raw_curve = trend.data_curves(trend.panel_widgets["CD"])[0]
+        actions = {action.text(): action for action in window.analysis_menu.actions()}
+        methods = {action.text(): action for action in actions["Detrend"].menu().actions()}
+        self.assertTrue(methods["None / Raw"].isChecked())
+        self.assertNotIn("Show Detrended 3 Sigma Bars", actions)
+
+        methods["Linear Detrend"].trigger()
+        summary = page.detrend_models["CD"].frame
+        self.assertAlmostEqual(summary.loc["Raw 3 Sigma", "1"], raw_pivot.loc["3 Sigma", "1"])
+        self.assertAlmostEqual(summary.loc["Detrended 3 Sigma", "1"], 0)
+        self.assertFalse(page.detrend_results["Flat"]["1"].valid)
+        self.assertTrue(pd.isna(page.detrend_models["Flat"].frame.loc["Detrended 3 Sigma", "1"]))
+
+        def curve_labels():
+            labels = trend.panel_widgets["CD"].getPlotItem().legend.items
+            return [label.text for _, label in labels]
+
+        self.assertEqual(curve_labels(), ["CD · Die 1 · Raw", "CD · Die 1 · Detrended"])
+        widget = trend.panel_widgets["CD"]
+        self.assertEqual(widget.listDataItems()[-1].opts["symbol"], "s")
+        fit = actions["Show Detrend Fit in Trend"]
+        fit.trigger()
+        self.assertEqual(curve_labels()[-1], "CD · Die 1 · Fitted trend")
+        self.assertIsNone(widget.listDataItems()[-1].opts["symbol"])
+        self.assertIs(trend.data_curves(trend.panel_widgets["CD"])[0], raw_curve)
+        trend.ensure_export_figure()
+        export_lines = trend.figure.axes[0].lines
+        self.assertEqual([line.get_label() for line in export_lines], curve_labels())
+        self.assertEqual([line.get_marker() for line in export_lines], ["o", "s", "None"])
+        fit.trigger()
+        self.assertEqual(curve_labels()[-1], "CD · Die 1 · Detrended")
+        fit.trigger()
+
+        self.assertEqual(page.plots[1].getAxis("left").labelText, "Detrended 3 Sigma")
+        np.testing.assert_allclose(page.bar_items[2].opts["height"], [0, 0], atol=1e-12)
+        self.assertEqual(len(page.bar_items[3].opts["height"]), 0)
+        pd.testing.assert_frame_equal(window.model.document_frame(), original)
+        pd.testing.assert_frame_equal(page.parameter_models["CD"].frame, raw_pivot)
+
+        model = page.parameter_models["CD"]
+        before_fit = widget.listDataItems()[-1].getData()[1].copy()
+        self.assertTrue(model.edit({(0, 0): "25.000"}))
+        self.wait_for_dynamic_refresh()
+        sigma = page.detrend_models["CD"].frame.loc["Detrended 3 Sigma", "1"]
+        corrected = widget.listDataItems()[-2].getData()[1]
+        self.assertGreater(sigma, 0)
+        self.assertAlmostEqual(sigma, 3 * np.std(corrected, ddof=1))
+        self.assertAlmostEqual(page.bar_items[2].opts["height"][0], sigma)
+        self.assertFalse(np.allclose(widget.listDataItems()[-1].getData()[1], before_fit))
+        window.model.undo.undo()
+        self.wait_for_dynamic_refresh()
+        np.testing.assert_allclose(widget.listDataItems()[-1].getData()[1], before_fit)
+        pd.testing.assert_frame_equal(window.model.document_frame(), original)
+
+        with TemporaryDirectory() as folder:
+            path = window.document.save(Path(folder) / "detrend.wdyn")
+            reopened = DynamicWindow()
+            try:
+                reopened.load_workspace(path)
+                self.assertTrue(reopened.show_detrend_fit.isChecked())
+                self.assertEqual(reopened.detrend_methods.checkedAction().text(), "Linear Detrend")
+                self.assertAlmostEqual(reopened.dynamic_page.detrend_results["CD"]["1"].sigma, 0)
+                self.assertEqual(reopened.dynamic_page.plots[1].getAxis("left").labelText,
+                                 "Detrended 3 Sigma")
+            finally:
+                reopened.document.force_close = True
+                reopened.close()
+                reopened.deleteLater()
+
+        methods["None / Raw"].trigger()
+        self.assertEqual(page.detrend_models, {})
+        self.assertEqual(len(trend.panel_widgets["CD"].listDataItems()), 1)
+        self.assertEqual(page.plots[1].getAxis("left").labelText, "3 Sigma (nm)")
+        np.testing.assert_allclose(page.bar_items[2].opts["height"], raw_pivot.loc["3 Sigma"].to_numpy(float))
+
     def test_selected_parameters_render_separate_vertical_table_and_plot_sections(self):
         self.window.set_table(self.frame(), "dynamic.csv")
         self.assertEqual(

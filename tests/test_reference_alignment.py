@@ -437,6 +437,48 @@ class ReferenceAlignmentTests(unittest.TestCase):
         self.assertTrue(window.analysis.model.document_frame().empty)
         self.assertTrue(window.analysis.reference_model.document_frame().empty)
 
+    def test_copy_reference_dialog_can_clear_and_restore_all_column_checks(self):
+        from unittest.mock import patch
+
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QApplication, QDialog, QListWidget, QPushButton
+        from metrology_app.matching_window import clipboard_frame
+        from metrology_app.reference_summary_window import ReferenceSummaryWindow
+
+        app = QApplication.instance() or QApplication([])
+        window = ReferenceSummaryWindow()
+        self.addCleanup(window.deleteLater)
+        self.addCleanup(window.close)
+        window.analysis.reference_values = pd.DataFrame({'CD': ['001.00'], 'Depth': ['002.00']})
+
+        def choose_columns(dialog):
+            columns = dialog.findChild(QListWidget)
+            buttons = {button.text(): button for button in dialog.findChildren(QPushButton)}
+            copy = buttons['Copy']
+            self.assertTrue(copy.isEnabled())
+
+            buttons['None'].click()
+            self.assertEqual(dialog.result(), QDialog.DialogCode.Rejected)
+            self.assertFalse(copy.isEnabled())
+            self.assertTrue(all(columns.item(row).checkState() == Qt.CheckState.Unchecked
+                                for row in range(columns.count())))
+
+            columns.item(1).setCheckState(Qt.CheckState.Checked)
+            self.assertTrue(copy.isEnabled())
+            buttons['All'].click()
+            self.assertEqual(dialog.result(), QDialog.DialogCode.Rejected)
+            self.assertTrue(all(columns.item(row).checkState() == Qt.CheckState.Checked
+                                for row in range(columns.count())))
+            copy.click()
+            return dialog.result()
+
+        with patch.object(QDialog, 'exec', choose_columns):
+            window.analysis.choose_reference_columns()
+
+        copied = clipboard_frame(app.clipboard().text())
+        self.assertEqual(list(copied.columns), ['CD', 'Depth'])
+        self.assertEqual(copied.iloc[0].tolist(), ['001.00', '002.00'])
+
     def test_reference_trend_y_axes_menu_updates_plot_and_survives_reopen(self):
         from PyQt6.QtWidgets import QApplication
         from metrology_app.reference_summary_window import ReferenceSummaryWindow

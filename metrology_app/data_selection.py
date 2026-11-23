@@ -26,12 +26,13 @@ class ParticipationModel(QAbstractTableModel):
 
     @property
     def uniform_selection_flags(self):
-        return (type(self).flags is ParticipationModel.flags
+        return (not self.locked_unchecked and type(self).flags is ParticipationModel.flags
                 and type(self).headerData is ParticipationModel.headerData)
 
-    def __init__(self, frame, record_ids, checked, parent=None):
+    def __init__(self, frame, record_ids, checked, parent=None, *, locked_unchecked=()):
         super().__init__(parent)
         self.frame, self.ids = frame, tuple(record_ids)
+        self.locked_unchecked = frozenset(locked_unchecked)
         self.checked = set(checked)
         self.headers = ["Use", "Source row"] + list(frame.columns)
         self.rows = list(range(len(frame)))
@@ -55,6 +56,8 @@ class ParticipationModel(QAbstractTableModel):
             return Qt.CheckState.Checked if self.ids[row] in self.checked else Qt.CheckState.Unchecked
         if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.ToolTipRole):
             if column == 0:
+                if role == Qt.ItemDataRole.ToolTipRole and self.ids[row] in self.locked_unchecked:
+                    return "Excluded by the Wafers panel. Enable the wafer to restore its point choices."
                 return "Participates" if role == Qt.ItemDataRole.ToolTipRole and self.ids[row] in self.checked else ""
             if column == 1:
                 return str(row + 1)
@@ -62,6 +65,8 @@ class ParticipationModel(QAbstractTableModel):
             return "" if pd.isna(value) else str(value)
 
     def flags(self, index):
+        if index.isValid() and index.column() == 0 and self.ids[self.rows[index.row()]] in self.locked_unchecked:
+            return _PARTICIPATION_FLAGS
         return _USE_FLAGS if index.column() == 0 else _PARTICIPATION_FLAGS
 
     def setData(self, index, value, role=Qt.ItemDataRole.EditRole):
@@ -73,7 +78,9 @@ class ParticipationModel(QAbstractTableModel):
         """Change inclusive visible rows once, preserving hidden source IDs."""
         if not 0 <= first <= last < len(self.rows):
             return False
-        keys = (self.ids[row] for row in self.rows[first:last + 1])
+        keys = {self.ids[row] for row in self.rows[first:last + 1]} - self.locked_unchecked
+        if not keys:
+            return False
         if value in (Qt.CheckState.Checked, Qt.CheckState.Checked.value):
             self.checked.update(keys)
         else:
@@ -145,14 +152,15 @@ class SelectionDialog(QDialog):
     def __init__(self, frame, record_ids, checked, groups, parent=None, *,
                  object_name="dataSelectionDialog",
                  title="Data selection — analysis participation",
-                 row_bools=None, group_bools=None, show="all", search="", hide_excluded=False, context=None):
+                 row_bools=None, group_bools=None, show="all", search="", hide_excluded=False, context=None,
+                 locked_unchecked=()):
         super().__init__(parent, objectName=object_name)
         self.setWindowTitle(title)
         self.resize(1100, 650)
         self._base_frame = frame
         self._selection_context = deepcopy(context or [])
         frame = context_frame(frame, {"filters": groups or [], "context": self._selection_context})
-        self.model = ParticipationModel(frame, record_ids, checked, self)
+        self.model = ParticipationModel(frame, record_ids, checked, self, locked_unchecked=locked_unchecked)
         self.filter_groups = [[dict(spec) for spec in group] for group in groups]
         self.filter_row_bools = [list(bools) for bools in (row_bools or [])]
         self.filter_group_bools = [str(value).lower() for value in (group_bools or [])]
@@ -283,7 +291,7 @@ class SelectionDialog(QDialog):
             action.triggered.connect(lambda _=False, name=column: QTimer.singleShot(0, lambda: self.add_row(name)))
         self.filter_groups = state["filters"]
         self.filter_row_bools, self.filter_group_bools = state["row_bools"], state["group_bools"]
-        self.model.checked = {self.model.ids[i] for i in state["checked"]}
+        self.model.checked = {self.model.ids[i] for i in state["checked"]} - self.model.locked_unchecked
         blockers = [QSignalBlocker(widget) for widget in (self.search, self.show_rows, self.hide_excluded)]
         self.search.setText(state["search"])
         self.show_rows.setCurrentIndex(self.show_rows.findData(state["show"]))
@@ -366,7 +374,7 @@ class SelectionDialog(QDialog):
         self.selectionChanged.emit()
 
     def check_visible(self, checked):
-        keys = {self.model.ids[row] for row in self.model.rows}
+        keys = {self.model.ids[row] for row in self.model.rows} - self.model.locked_unchecked
         self.model.checked = self.model.checked | keys if checked else self.model.checked - keys
         self.refresh_rows()
 
@@ -693,16 +701,20 @@ class DataSelectionDialog(SelectionDialog):
         frame = selection_frame(plan)
         ids = participation_ids(plan.raw, self.selection)
         checked = [ids[row] for row in plan.included_rows]
+        locked = {ids[row] for row in plan.wafer_excluded}
+        self._remembered_checks = {ids[row] for row in plan.point_selected_rows if ids[row] in locked}
         view = selection_view(self.selection)
         super().__init__(frame, ids, checked, view["filters"], parent,
                          row_bools=view["row_bools"], group_bools=view["group_bools"],
-                         show=view["show"], search=view["search"], hide_excluded=view["hide_excluded"])
+                         show=view["show"], search=view["search"], hide_excluded=view["hide_excluded"],
+                         locked_unchecked=locked)
         self.hide_excluded.setToolTip("Apply hides unchecked records in Order, Reference, Raw Data and linked Match-selection views. Uncheck and Apply to restore them; source data is never deleted.")
 
     def accept(self):
         records = [{"key": key, "id": identifier} for key, identifier in zip(row_ids(self.plan.raw), self.model.ids)]
         retained = missing_excluded_records(self.selection, records)
-        excluded = [key for key in self.model.ids if key not in self.model.checked]
+        checked = self.model.checked | self._remembered_checks
+        excluded = [key for key in self.model.ids if key not in checked]
         self.selection = {"records": records + retained,
                           "excluded": excluded + [record["id"] for record in retained],
                           "view_filter_groups": deepcopy([list(row) for row in self.filter_groups]),
