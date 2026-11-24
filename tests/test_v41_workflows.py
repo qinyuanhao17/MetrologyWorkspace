@@ -111,6 +111,20 @@ class V41Workflows(unittest.TestCase):
         window.raw_model.undo.undo()
         self.assertEqual(window.raw_source.text(), "4 rows × 2 columns")
 
+    def test_preview_and_final_raw_footers_follow_cleared_tail_rows(self):
+        window = self.match()
+        frame = pd.DataFrame({"Wafer ID": ["W1"] * 4, "Die Seq": [1, 2, 3, 4], "CD": [1, 2, 3, 4]})
+        for mode, model in (("Preview", window.raw_model), ("Final", window.final_raw_model)):
+            with self.subTest(mode=mode):
+                window.result_mode.setCurrentText(mode)
+                window.set_raw_frame(frame)
+                self.assertEqual(window.raw_source.text(), "4 rows × 3 columns")
+                model.edit({(row, column): "" for row in (3, 4) for column in range(3)})
+                self.assertEqual(window.raw_source.text(), "2 rows × 3 columns")
+                self.assertEqual(len(window._active_raw_frame()), 2)
+                model.undo.undo()
+                self.assertEqual(window.raw_source.text(), "4 rows × 3 columns")
+
     def test_order_table_keeps_actual_rows_when_a_draft_has_more_flags_than_raw(self):
         window = self.match()
         window.group_controls.order_model.edit({(8, 0): "0"})
@@ -143,6 +157,12 @@ class V41Workflows(unittest.TestCase):
                 self.assertEqual(window.data_badge.text(), f"4 rows × {columns + 1} columns")
                 window.model.undo.undo()
                 self.assertEqual(window.data_badge.text(), f"3 rows × {columns} columns")
+                window.model.edit({(4, 0): "W1", (5, 0): "W1"})
+                self.assertEqual(window.data_badge.text(), f"5 rows × {columns} columns")
+                window.model.edit({(4, 0): "", (5, 0): " "})
+                self.assertEqual(window.data_badge.text(), f"3 rows × {columns} columns")
+                window.model.undo.undo()
+                self.assertEqual(window.data_badge.text(), f"5 rows × {columns} columns")
 
     def test_correlation_reference_size_refreshes_on_edits_replacement_and_undo(self):
         window = CorrelationWindow()

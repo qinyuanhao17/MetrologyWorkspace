@@ -12,6 +12,7 @@ import weakref
 import numpy as np
 import pandas as pd
 
+from .data import trim_trailing_blank_rows
 from .measurements import Measurement, default_identity_columns, detect_measurements
 
 
@@ -425,6 +426,23 @@ def participation_rows(raw, selection):
         return tuple(range(len(raw)))
     excluded = set((selection or {}).get("excluded", []))
     return tuple(i for i, key in enumerate(participation_ids(raw, selection)) if key not in excluded)
+
+
+def trim_match_raw_tail(frame, selection, *, previous=None):
+    """Keep an unchecked Raw record's pairing slot when its cells are cleared."""
+    populated = trim_trailing_blank_rows(frame)
+    excluded = set((selection or {}).get("excluded", ()))
+    if len(populated) == len(frame) or not excluded:
+        return populated
+    # During a positional edit the old identity is authoritative. A saved
+    # table already records the blank row's identity and exclusion together.
+    source = frame if previous is None else previous
+    records = {record["key"]: record["id"] for record in selection["records"]}
+    identifiers = match_source_ids(row_ids(source), records)
+    for row in range(min(len(source), len(frame)) - 1, len(populated) - 1, -1):
+        if identifiers[row] in excluded:
+            return frame.iloc[:row + 1]
+    return populated
 
 
 class GroupPlan:

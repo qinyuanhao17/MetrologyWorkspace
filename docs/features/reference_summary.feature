@@ -68,6 +68,19 @@ Feature: Summarize multi-vendor reference exports
       And other Excel worksheets and temporary lock files are ignored
       And source files remain unchanged
 
+    # Automation: ReferenceInputFormatTests.test_ref_summary_accepts_optional_channel_fields_and_changing_measurements
+    # Automation: ReferenceInputFormatTests.test_kla_retains_blocks_with_any_missing_channel_fields
+    # Automation: ReferenceInputFormatTests.test_kla_batch_keeps_channels_when_every_file_lacks_test_id
+    # Automation: CDSEMCompatibilityTests.test_batch_readers_preserve_measurements_when_every_file_lacks_result
+    Scenario: Keep measurements when optional channel values or parameters are absent
+      Given reference files contain different measured parameters
+      And any optional field can be absent from every file in the batch
+      And every CDSEM1 file in a batch may omit Result and provide other measurements
+      When the engineer summarizes the reference files
+      Then all valid measurements are retained
+      And columns shared by the output are blank where a source omitted the parameter
+      And the merged NOVA, KLA, and PMISH measurement CSVs list fields supplied by at least one source
+
   Rule: Coordinate comparison uses explicit one-to-one wafer links
 
     Scenario: Align Ref wafer blocks while Raw order is fixed
@@ -89,20 +102,23 @@ Feature: Summarize multi-vendor reference exports
       And unlinked wafers are not plotted
       And the window reports missing physical coordinates
 
-    Scenario: Reorder Ref to match Raw
+    # Automation: ReferenceAlignmentTests.test_linked_order_buttons_restore_original_anchor_and_preserve_pairs_after_sort
+    Scenario: Reorder Ref to match the original Raw order
       Given the Ref and Raw wafers have explicit links
+      And Apply sort has reordered both tables
       When the engineer clicks Raw order on Wafer Alignment
-      Then linked Ref wafer blocks follow the current Raw wafer order
-      And uniquely matched Field X/Y points follow Raw order within the linked wafers
-      And an equal-length pair keeps its point order when those positions cannot all be matched uniquely
-      And the Raw table, source row identities and wafer links are preserved
+      Then Raw returns to its original row order
+      And linked Ref rows follow the matching Raw rows
+      And equal-length wafers keep their current pairs by position when Field X/Y matches are ambiguous
+      And source row identities and wafer links are preserved
 
-    Scenario: Reorder Raw to match Ref
+    Scenario: Reorder Raw to match the original Ref order
       Given the Ref and Raw wafers have explicit links
       When the engineer clicks Ref Order on Wafer Alignment
-      Then linked Raw wafer blocks and their uniquely matched points follow the current Ref order
-      And the Ref table, source row identities and wafer links are preserved
-      And the sorting toolbar has no success message after a successful reorder
+      Then Ref returns to its original row order and linked Raw rows follow
+      And source row identities and wafer links are preserved
+      When the engineer clicks Recover order at the end of the four sorting buttons
+      Then Ref and Raw each return to their own original row order independently
 
     Scenario: Compare common points in wafer links of different lengths
       Given at least one linked wafer has more Ref points than Raw points
@@ -180,13 +196,15 @@ Feature: Summarize multi-vendor reference exports
       When Plot XY Bias succeeds for the new output
       Then Data immediately shows the new matched rows in original Raw order
 
+    # Automation: ReferenceAlignmentTests.test_data_menu_applies_match_workbook_selection_to_analysis_and_xy_bias
     Scenario: Plot only reference measurements in WaferMap and Radius
       Given the current Ref output has been plotted in XY Bias
       When the engineer draws a plot on Ref WaferMap or Ref Radius Plot
       Then the plot uses the aligned Ref measurements
       When the engineer applies Data selection from the Data menu
       Then the analysis tabs and XY Bias use the same included rows for this output
-      And hiding unchecked rows leaves the original aligned tables intact
+      And Hide excluded rows hides each unchecked pair in both Wafer Alignment tables
+      And Copy Reference leaves unchecked Raw row positions blank so pasted Ref values stay aligned
 
     # Automation: ReferenceAlignmentTests.test_invalid_saved_group_options_leave_current_reference_document_intact
     Scenario: Reject invalid saved Group settings without changing the open Reference workspace
@@ -216,13 +234,11 @@ Feature: Summarize multi-vendor reference exports
       Then the Trend redraws using that choice
       And saving and reopening the Reference workspace restores the choice and automatic median ratio threshold
 
-    Scenario: Name a Reference workspace with local date and time
+    # Automation: ReferenceSummaryTests.test_ref_save_suggests_wafer_and_date_and_writes_only_the_workspace
+    Scenario: Suggest a Reference workspace name in the file picker
       Given the engineer is saving a new Reference workspace
-      When the naming dialog opens
-      Then Date and Time is prefilled from the local clock
-      And File Name previews the vendor and wafer identity with that minute
-      When the engineer changes the date and time
-      Then the suggested Reference filename updates in the same dialog
+      When the engineer chooses Save
+      Then the file picker opens directly with the vendor, wafer identity and current local minute in the suggested filename
       And only the Reference workspace is written
 
     Scenario: Use Match Workbook Groups in Reference analysis

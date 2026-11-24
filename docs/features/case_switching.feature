@@ -24,6 +24,17 @@ Feature: Reuse a Workbook without stale analysis sources
     And protected Map coordinates survive recopy while unlocked source strings remain exact
     And unsuccessful child refreshes remain eligible for retry
 
+  # Automation: SelectionStateRegressionTests.test_match_reference_count_correction_refreshes_after_selection
+  # Automation: SelectionStateRegressionTests.test_reference_grid_append_and_clear_refresh_current_row_alignment
+  # Automation: V41Workflows.test_analysis_table_sizes_refresh_on_edits_without_waiting_for_recognition
+  Scenario: Clear excess source rows and resume analysis
+    Given a Match Workbook has extra Reference rows beyond the end of Raw Data
+    When the engineer clears those trailing rows
+    Then its table count ends at the last populated row
+    And the row mismatch clears and matching can run with the current selection
+    And reopening the Workbook keeps the corrected count and analysis
+    And editable analysis tables count occupied rows using the same rule
+
   # Automation: CaseSwitchingTests.test_original_raw_column_uses_its_mapping_card_and_restores_without_changing_literals
   # Automation: CaseSwitchingTests.test_calibrated_stage_reads_original_columns_for_swapped_aliases_and_shared_inputs
   Scenario: Preserve calibration when the mapped Raw column is retained

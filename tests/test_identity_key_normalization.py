@@ -5,7 +5,8 @@ import unittest
 
 import numpy as np
 import pandas as pd
-from metrology_app.match_groups import participation_rows, participation_source_keys, row_identity_columns, row_ids
+from metrology_app.match_groups import (participation_rows, participation_source_keys,
+                                        row_identity_columns, row_ids, trim_match_raw_tail)
 
 
 class IdentityKeyNormalizationTests(unittest.TestCase):
@@ -18,6 +19,10 @@ class IdentityKeyNormalizationTests(unittest.TestCase):
         aliases = raw.assign(**{"Die Seq": ["001", "1", "1.0"]})
         self.assertEqual(participation_rows(aliases, selection), (0, 1))
         self.assertEqual(participation_rows(raw, selection), (1,))
+        cleared = aliases.copy()
+        cleared.iloc[-1] = ""
+        pd.testing.assert_frame_equal(
+            trim_match_raw_tail(cleared, selection, previous=aliases), cleared)
 
     def test_literal_identity_keys_match_original_row_encoding(self):
         fixtures = [

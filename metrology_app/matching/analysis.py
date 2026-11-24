@@ -12,7 +12,7 @@ import sqlite3
 import numpy as np
 import pandas as pd
 
-from ..data import die_sequence_column
+from ..data import die_sequence_column, trim_trailing_blank_rows
 from ..measurements import default_identity_columns, detect_measurements, wafer_identity_labels
 from ..trend import MAGNITUDE_RATIO_LIMIT, parse_unit
 
@@ -20,7 +20,7 @@ from ..trend import MAGNITUDE_RATIO_LIMIT, parse_unit
 SCHEMA_VERSION = 10
 MAX_ROWS = 100_000
 MAX_PARAMETERS = 50
-_ALLOWED_MATCH_TYPES = {"TEM", "NOVA", "KLA"}
+MATCH_TYPES = ("KLA", "NOVA", "TEM", "PMISH")
 _ALLOWED_RESULT_MODES = {"preview", "final"}
 _ALLOWED_BIAS_MODES = {"absolute", "percent"}
 _ROW_COLUMN = "__wkb_row__"
@@ -740,7 +740,7 @@ class MatchWorkbook:
                     raise ValueError(
                         f"{label} column not found for {mapping.name}: {mapping.raw_column}"
                     )
-        if self.match_type not in _ALLOWED_MATCH_TYPES:
+        if self.match_type not in MATCH_TYPES:
             raise ValueError("Match type must be TEM, NOVA, or KLA.")
         if self.result_mode not in _ALLOWED_RESULT_MODES:
             raise ValueError("Result mode must be preview or final.")
@@ -1082,6 +1082,14 @@ class MatchWorkbook:
         names = ("reference", "raw", "test_flags", "preview_raw", "final_raw", "final_match_raw",
                  "preview_map", "final_map", "preview_dynamic", "final_dynamic")
         frames = {name: snapshot.frames[name] for name in names if name in snapshot.frames}
+        from ..match_groups import trim_match_raw_tail
+        grouping = state.get("grouping_state") or {}
+        selection = grouping.get("applied", grouping).get("data_selection")
+        if "reference" in frames:
+            frames["reference"] = trim_trailing_blank_rows(frames["reference"])
+        for name in ("raw", "final_match_raw"):
+            if name in frames:
+                frames[name] = trim_match_raw_tail(frames[name], selection)
         return cls(**frames, **state,
                    workspace_states={key: value for key, value in snapshot.states.items() if key != "match"},
                    workspace_frames={key: value for key, value in snapshot.frames.items() if key not in names})

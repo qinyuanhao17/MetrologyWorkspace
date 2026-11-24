@@ -87,11 +87,7 @@ class _PointSelectionViewBox(pg.ViewBox):
         if event.isFinish():
             self.rbScaleBox.hide()
             rect = self.childGroup.mapRectFromParent(QRectF(event.buttonDownPos(), event.pos())).normalized()
-            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                if not rect.isEmpty():
-                    self.setRange(rect=rect, padding=0)
-            else:
-                self.rectangleSelected.emit(rect, event.modifiers())
+            self.rectangleSelected.emit(rect, event.modifiers())
         else:
             self.updateScaleBox(event.buttonDownPos(), event.pos())
 
@@ -144,7 +140,8 @@ class WaferPointPlot(QWidget):
         self.plot = pg.PlotWidget(viewBox=view)
         self.plot.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         self.plot.setFixedSize(400, 400)
-        self.plot.setToolTip("Left-drag to select points. Shift-drag adds points; Ctrl-drag zooms; click blank space to clear selection.")
+        self.plot.setToolTip("Left-drag to select points. Shift-drag or Ctrl-drag adds points. "
+                            "Click blank space to clear selection.")
         self.plot.scene().sigMouseClicked.connect(self._scene_clicked)
         self.plot.getPlotItem().hideButtons()
         self.plot.setMenuEnabled(False)

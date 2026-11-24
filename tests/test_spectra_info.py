@@ -8,7 +8,7 @@ import unittest
 import pandas as pd
 
 from tests.test_spectra_viewer import make_spectrum
-from metrology_app.spectra_info import build_spectra_info
+from metrology_app.spectra_info import INFO_COLUMNS, build_spectra_info
 from tests.test_spectra_viewer import APP
 from metrology_app.spectra_viewer import SpectraViewerWindow
 from metrology_app.sme_spectra import LoadResult
@@ -28,12 +28,16 @@ class SpectraInfoTests(unittest.TestCase):
 
     def test_original_row_order_sme_metadata_reference_columns_and_flag_position(self):
         raw, spectra = self.sources()
-        result = build_spectra_info(raw, pd.DataFrame({"Ref A": ["8.100", "9.200"], "Ref B": ["3.400", "4.500"]}),
+        reference = pd.DataFrame({"Wafer ID": ["Other", "Other"], "Ref WaferID": ["Ref1", "Ref1"],
+                                  "Field X": [2, 3], "Test Flag": [7, 7],
+                                  "Ref A": ["8.100", "9.200"], "Ref B": ["3.400", "4.500"]})
+        result = build_spectra_info(raw, reference,
                                     spectra, checked_keys={s.key for s in spectra}, flags={spectra[0].key: -1})
         self.assertEqual(result.issues, ())
         self.assertEqual(result.source_rows, (0, 1))
         self.assertEqual(result.with_flags.columns.tolist(), ["Wafer ID", "Lot ID", "Tool SN", "PAD Name", "Die Seq",
                          "Relative Column", "Relative Row", "Time", "Type", "Ref A", "Ref B", "Test Flag"])
+        self.assertEqual(result.with_flags["Wafer ID"].tolist(), ["W1", "W1"])
         self.assertEqual(result.with_flags["Die Seq"].tolist(), [2, 1])
         self.assertEqual(result.with_flags["Relative Column"].tolist(), [-1, -1])
         self.assertEqual(result.with_flags["Relative Row"].tolist(), [5, 5])
@@ -72,6 +76,76 @@ class SpectraInfoTests(unittest.TestCase):
 
 
 class SpectraInfoWorkflowTests(unittest.TestCase):
+    def test_workbook_report_uses_checked_reference_mappings_and_updates_live(self):
+        from PyQt6.QtWidgets import QTabWidget
+        from metrology_app.matching import ParameterMapping
+        from metrology_app.matching_window import MatchingWindow
+
+        owner = MatchingWindow()
+        owner.document.force_close = True
+        self.addCleanup(owner.close)
+        raw, sources = SpectraInfoTests().sources()
+        owner.set_raw_frame(raw.assign(OCD_DEPTH1=['8.0', '9.0'], OCD_FULL1=['3.0', '4.0']))
+        owner.set_reference_frame(pd.DataFrame({
+            'Wafer ID': ['W1', 'W1'], 'Ref WaferID': ['R1', 'R1'], 'Field X': [-1, -1],
+            'OCD_DEPTH1': ['8.100', '9.200'], 'OCD_FULL1': ['3.400', '4.500'],
+        }))
+        owner._populate_mappings([ParameterMapping(name, name, name) for name in ('OCD_DEPTH1', 'OCD_FULL1')])
+        depth, full = (owner.mapping_table.item(row, 0) for row in range(2))
+        full.setCheckState(Qt.CheckState.Unchecked)
+        viewer = owner.open_spectra_workspace()
+        viewer.apply_load_result(LoadResult(sources, ()), replace=True)
+        viewer.check_all_spectra()
+        viewer.info_columns_configured = True
+        info = viewer.open_spectra_info()
+        self.assertEqual(list(info.models[0].frame), [*INFO_COLUMNS, 'OCD_DEPTH1'])
+        self.assertEqual(list(info.models[1].frame), [*INFO_COLUMNS, 'OCD_DEPTH1', 'Test Flag'])
+        self.assertEqual(info.models[0].frame['OCD_DEPTH1'].tolist(), ['8.100', '9.200'])
+        info.copy_table()
+        self.assertEqual(APP.clipboard().text().splitlines()[0].split('\t'), [*INFO_COLUMNS, 'OCD_DEPTH1'])
+
+        info.columns_button.click()
+        picker = info.column_picker
+        choices = picker.findChild(QTabWidget).widget(0)
+        items = {choices.item(row).text(): choices.item(row) for row in range(choices.count())}
+        self.assertEqual(list(items), [*INFO_COLUMNS, 'OCD_DEPTH1', 'OCD_FULL1'])
+        self.assertEqual(items['OCD_DEPTH1'].checkState(), Qt.CheckState.Checked)
+        self.assertEqual(items['OCD_FULL1'].checkState(), Qt.CheckState.Unchecked)
+        picker.accept()  # Unchanged defaults should keep following Match mappings.
+
+        full.setCheckState(Qt.CheckState.Checked)
+        depth.setCheckState(Qt.CheckState.Unchecked)
+        for _ in range(20):
+            if not viewer._info_refresh_timer.isActive():
+                break
+            QTest.qWait(20)
+        self.assertEqual(list(info.models[0].frame), [*INFO_COLUMNS, 'OCD_FULL1'])
+        self.assertEqual(info.models[0].frame['OCD_FULL1'].tolist(), ['3.400', '4.500'])
+
+        info.columns_button.click()
+        picker = info.column_picker
+        choices = picker.findChild(QTabWidget).widget(0)
+        items = {choices.item(row).text(): choices.item(row) for row in range(choices.count())}
+        self.assertEqual(items['OCD_DEPTH1'].checkState(), Qt.CheckState.Unchecked)
+        items['OCD_DEPTH1'].setCheckState(Qt.CheckState.Checked)
+        picker.accept()
+        expected = [*INFO_COLUMNS, 'OCD_DEPTH1', 'OCD_FULL1']
+        self.assertEqual(list(info.models[0].frame), expected)
+        self.assertEqual(list(info.models[1].frame), [*expected, 'Test Flag'])
+        info.undo_action.trigger()
+        self.assertEqual(list(info.models[0].frame), [*INFO_COLUMNS, 'OCD_FULL1'])
+        info.redo_action.trigger()
+        self.assertEqual(list(info.models[0].frame), expected)
+
+        with tempfile.TemporaryDirectory() as folder:
+            saved = owner.save_workbook(Path(folder) / 'spectra_columns.mwkb')
+            reopened = MatchingWindow()
+            reopened.document.force_close = True
+            self.addCleanup(reopened.close)
+            reopened.load_workbook(saved)
+            restored = reopened.open_spectra_workspace().open_spectra_info()
+            self.assertEqual(list(restored.models[0].frame), expected)
+
     def test_group_settings_matches_raw_order_copies_columns_and_updates_info_flags(self):
         from metrology_app.matching_window import MatchingWindow
 

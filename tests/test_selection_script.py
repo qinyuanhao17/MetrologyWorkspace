@@ -84,6 +84,39 @@ class SelectionScriptTests(unittest.TestCase):
         self.assertEqual(pool_values(dialog.filter_pool), ["12", "27"])
         self.assertEqual(dialog.specification(), {"values": ["12", "27"]})
 
+    def test_swap_exchanges_entire_filter_pools_and_preserves_empty_filter(self):
+        dialog = ColumnFilterDialog("Wafer ID", pd.Series(["W1", "W2", "", "W2"]), {"query": "W1"}, None)
+        self.addCleanup(dialog.deleteLater)
+        self.assertEqual(dialog.swap_pools.text(), "Swap")
+        dialog.search.setText("W2")
+        dialog.swap_pools.click()
+        self.assertEqual(dialog.search.text(), "")
+        self.assertEqual(pool_values(dialog.available_pool), ["W1"])
+        self.assertEqual(pool_values(dialog.filter_pool), ["W2", ""])
+        self.assertEqual(dialog.specification(), {"values": ["W2", ""]})
+        dialog.swap_pools.click()
+        self.assertEqual(dialog.specification(), {"values": ["W1"]})
+        dialog.available_pool.selectAll()
+        dialog.to_filter.click()
+        dialog.swap_pools.click()
+        self.assertEqual(dialog.specification(), {"values": []})
+        self.assertEqual(pool_values(dialog.available_pool), ["W1", "W2", ""])
+
+    def test_find_values_uses_exact_commas_and_substring_spaces(self):
+        values = ["3", "5", "6", "13", "23", "35", "60", "7", "03", "Wafer A"]
+        dialog = ColumnFilterDialog("Die Seq", pd.Series(values), {}, None)
+        self.addCleanup(dialog.deleteLater)
+        for query, expected in (("3", ["3", "13", "23", "35", "03"]),
+                                ("3 5 6", ["3", "5", "6", "13", "23", "35", "60", "03"]),
+                                ("3，", ["3"]), (" 6, wafer a ", ["6", "Wafer A"]),
+                                ("3，5, 6", ["3", "5", "6"])):
+            with self.subTest(query=query):
+                dialog.search.setText(query)
+                self.assertEqual(pool_values(dialog.available_pool), expected)
+        dialog.available_pool.selectAll()
+        dialog.to_filter.click()
+        self.assertEqual(dialog.specification(), {"values": ["3", "5", "6"]})
+
     def test_dragging_up_or_down_selects_a_range_without_starting_transfer(self):
         dialog = ColumnFilterDialog("Wafer ID", pd.Series(["A", "B", "C", "D", "E"]), {}, None)
         self.addCleanup(dialog.deleteLater)
@@ -171,6 +204,27 @@ class SelectionScriptTests(unittest.TestCase):
         dialog.show_rows.setCurrentIndex(dialog.show_rows.findData("filtered"))
         self.assertEqual(dialog.model.rows, [0])
         self.assertEqual(json.loads(dialog.selection_script())["filters"], filters)
+
+    def test_unfiltered_view_complements_filter_expression_and_round_trips(self):
+        frame = pd.DataFrame({"Wafer ID": ["W1", "W2", "W3", "W4"], "CD": [1, 2, 3, 4]})
+        filters = [[{"column": "Wafer ID", "values": ["W1"]}], [{"column": "CD", "minimum": 4}]]
+        dialog = FrameSelectionDialog(frame, filters=filters, row_bools=[[], []], group_bools=["or"])
+        self.addCleanup(dialog.deleteLater)
+        dialog.show_rows.setCurrentIndex(dialog.show_rows.findData("filtered"))
+        self.assertEqual(dialog.model.rows, [0, 3])
+        dialog.show_rows.setCurrentIndex(dialog.show_rows.findData("unfiltered"))
+        self.assertEqual(dialog.model.rows, [1, 2])
+        dialog.search.setText("W3")
+        dialog.check_visible(False)
+        recipe = dialog.selection_script()
+        target = FrameSelectionDialog(frame)
+        self.addCleanup(target.deleteLater)
+        target.apply_selection_script(recipe)
+        self.assertEqual(target.show_rows.currentData(), "unfiltered")
+        self.assertEqual(target.model.rows, [2])
+        self.assertEqual([row["use"] for row in json.loads(recipe)["records"]], [True, True, False, True])
+        target.search.clear()
+        self.assertEqual(target.model.rows, [1, 2])
 
     def test_script_search_retains_values_from_source_columns_missing_in_target(self):
         source = pd.DataFrame({"Raw Data / Wafer ID": ["W1", "W2"], "Reference / CD": ["851.195", "840.921"]})

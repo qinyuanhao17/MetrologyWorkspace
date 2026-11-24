@@ -2,9 +2,8 @@
 from __future__ import annotations
 
 import csv
-import re
 from dataclasses import dataclass
-from pathlib import Path, PureWindowsPath
+from pathlib import Path
 
 from PyQt6.QtCore import QDateTime, QSignalBlocker, QThread, Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QAction, QDesktopServices, QKeySequence, QTextOption
@@ -12,11 +11,8 @@ from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QComboBox,
-    QDateTimeEdit,
     QDialog,
-    QDialogButtonBox,
     QFileDialog,
-    QFormLayout,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -37,7 +33,7 @@ from PyQt6.QtWidgets import (
 
 from .appearance import fit_window_to_screen, help_title_label
 from .cdsem1 import merge_cdsem1
-from .reference_alignment import aligned_raw_analysis_frame
+from .reference_alignment import aligned_raw_analysis_frame, ordered_source_pairs
 from .reference_merge import merge, scan_reference_files
 from .reference_input import SOURCE_EXTENSIONS
 from .reference_metadata import (BATCH_SUMMARY, find_output_summary, frame_metadata, measurement_csv_path,
@@ -344,21 +340,28 @@ class ReferenceSummaryWindow(QMainWindow):
 
         inputs = self._aligned_inputs
         state = self.alignment._dataset.data_selection or {}
+        hide = state.get('hide_excluded', False)
         allowed, excluded = set(), set()
+        excluded_raw, excluded_ref = set(), set()
         if inputs is not None:
             raw = aligned_raw_analysis_frame(inputs[1], inputs[4])
             allowed = set(participation_rows(raw, state))
             if len(allowed) < len(raw):
                 excluded = {key for row, key in enumerate(participation_source_keys(raw)) if row not in allowed}
+                for row, (raw_source, ref_source) in enumerate(ordered_source_pairs(self.alignment.results)):
+                    if row not in allowed:
+                        excluded_raw.add(raw_source)
+                        excluded_ref.add(ref_source)
+        self.alignment.raw.hide_source_rows(excluded_raw if hide else ())
+        self.alignment.ref.hide_source_rows(excluded_ref if hide else ())
         if inputs is not None or self._analysis is not None:
-            self.analysis.set_alignment_inputs(inputs, excluded, state.get('hide_excluded', False))
+            self.analysis.set_alignment_inputs(inputs, excluded, hide, excluded_raw_rows=excluded_raw)
         self.data_selection_action.setEnabled(inputs is not None and not inputs[1].empty)
         self.trend_page.refresh_point_checks(allowed)
 
     def open_data_selection(self):
         if self._aligned_inputs is None or self._aligned_inputs[1].empty:
             return
-        from PyQt6.QtWidgets import QDialog
         from .data_selection import DataSelectionDialog
         from .match_groups import GroupPlan
 
@@ -371,6 +374,7 @@ class ReferenceSummaryWindow(QMainWindow):
             QMessageBox.warning(self, 'Cannot select analysis data', str(error))
             return
         dialog = DataSelectionDialog(plan, self)
+        dialog.hide_excluded.setToolTip('Hide unchecked pairs in Wafer Alignment, Ref Data and Raw Data.')
         if dialog.exec() == QDialog.DialogCode.Accepted:
             dataset.data_selection = dialog.selection
             self._publish_analysis_selection()
@@ -444,26 +448,23 @@ class ReferenceSummaryWindow(QMainWindow):
             raise ValueError("Wait for the current summary to finish.")
         cache_available_outputs(self.alignment)
         vendor, fields, outputs, sources = self._summary_metadata()
-        self._suggested_ref_name = suggested_filename(vendor, fields, sources,
-                                                       [metadata for _, metadata in outputs])
         suggested_base = suggested_filename(
             vendor, fields, sources, [metadata for _, metadata in outputs], include_date=False,
         )
+        stamp = QDateTime.currentDateTime().toString('yyyyMMdd_HHmm')
+        self._suggested_ref_name = f'{Path(suggested_base).stem}_{stamp}.ref'
         previous = self._source_metadata
         cached = {**previous.get(vendor, {}), **{name: fields for name, fields in sources.items() if fields}}
         self._source_metadata = {**previous, vendor: cached} if cached else previous
         saved = None
         try:
             if path is None and (save_as or self.document.path is None):
-                filename = _reference_save_filename(self, suggested_base)
-                if filename is None:
-                    return None
                 directory = (self.document.path.parent if self.document.path is not None
                              else self.output_parent or Path.cwd())
                 chosen, _ = QFileDialog.getSaveFileName(
                     self,
                     "Save Reference Workspace As",
-                    str(directory / filename),
+                    str(directory / self._suggested_ref_name),
                     "Reference Workspace (*.ref)",
                 )
                 if not chosen:
@@ -1003,56 +1004,10 @@ class ReferenceSummaryWindow(QMainWindow):
             event.ignore()
             return
         self.document.closed()
+        self.trend_page.close()
         super().closeEvent(event)
 
 
-def _reference_save_filename(parent, suggested_name):
-    dialog = QDialog(parent)
-    dialog.setWindowTitle("Name Reference Workspace")
-    form = QFormLayout(dialog)
-    form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-
-    timestamp = QDateTimeEdit(QDateTime.currentDateTime(), dialog)
-    timestamp.setDisplayFormat("yyyy-MM-dd HH:mm")
-    timestamp.setCalendarPopup(True)
-    form.addRow("Date and Time", timestamp)
-
-    base = Path(suggested_name).stem
-    preview = QLabel(dialog)
-    preview.setObjectName("FileNamePreview")
-    preview.setTextFormat(Qt.TextFormat.PlainText)
-    preview.setWordWrap(True)
-    form.addRow("File Name", preview)
-
-    buttons = QDialogButtonBox(
-        QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
-        parent=dialog,
-    )
-    proceed = buttons.button(QDialogButtonBox.StandardButton.Ok)
-    proceed.setText("Continue")
-    buttons.accepted.connect(dialog.accept)
-    buttons.rejected.connect(dialog.reject)
-    form.addRow(buttons)
-
-    def update_preview():
-        stamp = timestamp.dateTime().toString("yyyyMMdd_HHmm")
-        filename = f"{base}_{stamp}.ref"
-        message = ""
-        if not base or any(re.search(r'[<>:"/\\|?*\x00-\x1f]', part) for part in (base, stamp)):
-            message = "Remove characters that Windows does not allow in file names."
-        elif PureWindowsPath(filename).is_reserved():
-            message = "Choose a file name that Windows does not reserve."
-        preview.setText(message or filename)
-        proceed.setEnabled(not message)
-
-    timestamp.dateTimeChanged.connect(update_preview)
-    update_preview()
-    try:
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            return preview.text()
-        return None
-    finally:
-        dialog.deleteLater()
 
 
 __all__ = [

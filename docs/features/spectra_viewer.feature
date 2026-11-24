@@ -13,6 +13,13 @@ Feature: Review spectral measurements by wafer
       And Check Unselected in a map applies within the clicked Wafer, Lot and PAD
       And similar-wafer actions use the clicked map or the single selected measurement set
 
+    # Automation: DieMapSelectionTests.test_ctrl_box_adds_dies_and_wheel_keeps_the_full_wafer_in_view
+    Scenario: Box-select dies while keeping the full wafer visible
+      Given a Die Map is open
+      When the engineer drags a selection box while holding Ctrl
+      Then the boxed dies are added to the selection
+      And the wafer stays at its original scale during selection and wheel scrolling
+
     Scenario: Enter only configured TestFlags on map points
       Given map points are selected and the configured TestFlags include 0, 1 and -1
       When the engineer types -1 while the map has focus
@@ -584,14 +591,40 @@ Feature: Review spectral measurements by wafer
 
   Rule: Spectra Info follows the current source values
 
-    Scenario: Remove a report column without changing measurements
-      Given a Spectra Info tab has visible columns
-      When the engineer deletes a column using the header or table context menu
-      Then that tab's remaining columns shift left without an empty placeholder
+    # Automation: SpectraInfoWorkflowTests.test_workbook_report_uses_checked_reference_mappings_and_updates_live
+    Scenario: Report the checked Workbook parameters alongside SME metadata
+      Given the Workbook has one or more checked reference mappings
+      When the engineer opens Spectra Info
+      Then optional measurement columns default to those checked mappings
+      And Wafer ID and the other standard report fields appear once using SME metadata
+      And Choose Columns lists available Reference columns even when their Match mappings are unchecked
+      When the engineer checks an additional Reference column and applies the choice
+      Then that column is included in both report variants and survives reopening the Workbook
+      When the engineer changes the checked mappings
+      Then the open report follows the new defaults and keeps explicit choices from the picker
+
+    # Automation: SpectraInfoEditTests.test_picker_all_and_none_keep_required_columns_and_share_report_choices
+    Scenario: Choose optional columns for Spectra Info and XY
+      Given the engineer opens Choose Spectra Info columns
+      Then the picker shows Spectra Info and XY
+      When the engineer chooses All or None on a picker tab
+      Then the optional columns on that tab are checked or unchecked as a group
+      And the nine standard Spectra Info columns stay checked wherever they appear
+      When the engineer applies the choices
+      Then the With Test Flag report matches Spectra Info and also shows editable Test Flag
+
+    # Automation: SpectraInfoEditTests.test_delete_column_shifts_report_and_exports_without_changing_source
+    Scenario: Remove and restore a report column without changing measurements
+      Given a Spectra Info tab has visible optional columns
+      When the engineer deletes an optional column using the header or table context menu
+      Then the remaining columns shift left without an empty placeholder
+      And optional reference columns are shared by Spectra Info and With Test Flag
       And copying and export omit the deleted column
       And Workbook and SME source columns remain unchanged
       And Undo restores the column and Redo removes it again
       And the report projection survives Spectra document or Workbook child save and reopen
+      When the engineer reopens the picker with the Choose Columns button
+      Then the deleted column is unchecked and can be checked again before applying
 
     Scenario: Edit reversible Test Flags in the report
       Given Spectra Info and Die Map are open for the same spectra

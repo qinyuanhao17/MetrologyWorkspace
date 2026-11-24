@@ -640,6 +640,7 @@ class ReferenceAlignmentTests(unittest.TestCase):
         from unittest.mock import patch
         from PyQt6.QtWidgets import QApplication, QDialog
         from metrology_app.data_selection import DataSelectionDialog
+        from metrology_app.matching_window import clipboard_frame
         from metrology_app.reference_summary_window import ReferenceSummaryWindow
 
         app = QApplication.instance() or QApplication([])
@@ -675,12 +676,37 @@ class ReferenceAlignmentTests(unittest.TestCase):
         for plot in (analysis.plot_page, analysis.radius_page):
             self.assertEqual({row for positions in plot.selection['groups'].values() for row in positions}, {0, 2})
         self.assertTrue(pd.isna(window.trend_page.plots[0].listDataItems()[0].yData[1]))
-        self.assertEqual(len(page.raw.source_rows), 3)
+        for sheet, values in ((page.ref, ['1', '3']), (page.raw, ['4', '6'])):
+            model = sheet.view.model()
+            column = sheet.frame().columns.get_loc('CD')
+            self.assertEqual(model.rowCount(), 3)
+            self.assertEqual([model.index(row, column).data() for row in (1, 2)], values)
+            self.assertEqual(sheet.source_rows, [2, 3, 4])
+        for columns in (['CD'], ['WaferID', 'CD']):
+            analysis.copy_reference(columns)
+            self.assertEqual(clipboard_frame(app.clipboard().text())['CD'].tolist(), ['1', '', '3'])
 
         with tempfile.TemporaryDirectory() as folder:
             reopened.load_workspace(window.save_reference(Path(folder) / 'selection.ref'))
             restored = reopened.analysis
             self.assertEqual(restored.participating_positions(restored.raw_model.document_frame()), {0, 2})
+            self.assertEqual(reopened.alignment.ref.view.model().rowCount(), 3)
+            self.assertEqual(reopened.alignment.raw.view.model().rowCount(), 3)
+
+        def show_excluded(dialog):
+            dialog.hide_excluded.setChecked(False)
+            dialog.accept()
+            return QDialog.DialogCode.Accepted
+
+        with patch.object(DataSelectionDialog, 'exec', new=show_excluded):
+            window.data_selection_action.trigger()
+        for sheet in (page.ref, page.raw):
+            self.assertIs(sheet.view.model(), sheet.model)
+        analysis.copy_reference(['WaferID', 'CD'])
+        self.assertEqual(clipboard_frame(app.clipboard().text())['CD'].tolist(), ['1', '', '3'])
+        window.change_analysis_rows({1}, True)
+        analysis.copy_reference(['WaferID', 'CD'])
+        self.assertEqual(clipboard_frame(app.clipboard().text())['CD'].tolist(), ['1', '2', '3'])
 
     def test_loaded_outputs_preserve_raw_edits_and_trends_when_either_tab_switches(self):
         from PyQt6.QtWidgets import QApplication, QLabel
@@ -972,6 +998,73 @@ class ReferenceAlignmentTests(unittest.TestCase):
         self.assertEqual(page.raw.source_rows, [2, 3, 4, 5, 6])
         self.assertEqual([key[0] for key in page.raw_wafers.keys() if key], ['D2', 'Unlinked', 'D1'])
         self.assertTrue(page.status.isHidden())
+
+    def test_linked_order_buttons_restore_original_anchor_and_preserve_pairs_after_sort(self):
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.reference_alignment_ui import ReferenceAlignmentPage, CoordinateTrendPage
+
+        app = QApplication.instance() or QApplication([])
+        page = ReferenceAlignmentPage(CoordinateTrendPage())
+        self.addCleanup(lambda app=app: page.close())
+        page.ref.set_frame(pd.DataFrame({
+            'Wafer ID': ['R1', 'R2', 'R1', 'R2'], 'Field X': ['0', '1', '0', '2'],
+            'Field Y': ['0'] * 4, 'X(mm)': ['2', '1', '1', '2'], 'Y(mm)': ['20', '10', '10', '20'],
+            'Value': ['r12', 'r21', 'r11', 'r22'],
+        }))
+        page.raw.set_frame(pd.DataFrame({
+            'Wafer ID': ['D2', 'D1', 'D2', 'D1'], 'Field X': ['2', '0', '1', '0'],
+            'Field Y': ['0'] * 4, 'X(mm)': ['2', '1', '1', '2'], 'Y(mm)': ['20', '10', '10', '20'],
+            'Value': ['d22', 'd11', 'd21', 'd12'],
+        }))
+        ref, raw = page.ref.frame(), page.raw.frame()
+        page.set_link(('R1', '', ''), ('D1', '', ''))
+        page.set_link(('R2', '', ''), ('D2', '', ''))
+        links = page.links.copy()
+        page.sort_basis.setCurrentIndex(page.sort_basis.findData('xy'))
+        widgets = [page._sort_actions.itemAt(index).widget() for index in range(page._sort_actions.count())]
+        buttons = [widget for widget in widgets if widget is not None][:4]
+        self.assertEqual([button.text() for button in buttons], ['Apply sort', 'Raw order', 'Ref Order', 'Recover order'])
+        apply_sort, raw_order, ref_order, recover = buttons
+
+        apply_sort.click()
+        self.assertEqual(page.ref.frame()['Value'].tolist(), ['r11', 'r12', 'r21', 'r22'])
+        self.assertEqual(page.raw.frame()['Value'].tolist(), ['d21', 'd22', 'd11', 'd12'])
+
+        raw_order.click()
+        pd.testing.assert_frame_equal(page.raw.frame(), raw)
+        self.assertEqual(page.ref.frame()['Value'].tolist(), ['r22', 'r11', 'r21', 'r12'])
+        self.assertEqual(page.ref.source_rows, [5, 4, 3, 2])
+
+        ref_order.click()
+        pd.testing.assert_frame_equal(page.ref.frame(), ref)
+        self.assertEqual(page.raw.frame()['Value'].tolist(), ['d12', 'd21', 'd11', 'd22'])
+        self.assertEqual(page.raw.source_rows, [5, 4, 3, 2])
+        page.draw()
+        self.assertEqual(len(page.results), 2)
+        for _, _, result in page.results:
+            self.assertEqual(result[['Bias X (mm)', 'Bias Y (mm)']].values.tolist(), [[0, 0], [0, 0]])
+
+        recover.click()
+        pd.testing.assert_frame_equal(page.ref.frame(), ref)
+        pd.testing.assert_frame_equal(page.raw.frame(), raw)
+        self.assertEqual(page.links, links)
+        self.assertFalse(page.results)
+        page.draw()
+        self.assertEqual({ref_key: raw_key for ref_key, raw_key, _ in page.results}, links)
+        bias_by_wafer = {ref_key[0]: result[['Bias X (mm)', 'Bias Y (mm)']].values.tolist()
+                         for ref_key, _, result in page.results}
+        self.assertEqual(bias_by_wafer, {'R1': [[-1, -10], [1, 10]], 'R2': [[1, 10], [-1, -10]]})
+        trend = page.trend_page
+        self.addCleanup(trend.close)
+        trend.resize(980, 460)
+        trend.show()
+        app.processEvents()
+        trend.order_buttons['ref'].click()
+        app.processEvents()
+        self.assertEqual([panel.layout().itemAt(0).widget().toolTip() for panel in trend.panels], ['D1', 'D2'])
+        for plot in trend.plots:
+            self.assertEqual(len(plot.listDataItems()), 2)
+            self.assertFalse(plot.grab().isNull())
 
     def test_only_linked_wafers_are_compared_in_mm_and_mismatch_is_an_error(self):
         ref = pd.DataFrame({'WaferID':['R']*2,'MpointX':['1000','2000'],'MpointY':['3000','4000']})

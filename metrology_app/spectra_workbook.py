@@ -129,6 +129,7 @@ def snapshot(viewer):
           "data_selection": deepcopy(viewer._data_selection_view),
           "test_flags": dict(viewer.test_flags), "verify_spectra_time": viewer.verify_spectra_time_action.isChecked(),
           "info_deleted_columns": [sorted(columns) for columns in viewer.info_deleted_columns],
+          "info_included_columns": sorted(viewer.info_included_columns),
           "info_columns_configured": viewer.info_columns_configured,
           "groups": viewer.group_options.snapshot(),
           "test_flag_values": list(viewer.test_flag_values), "test_flag_grouping": list(viewer.test_flag_grouping),
@@ -173,10 +174,12 @@ def _validate_ui(viewer, draft):
     values = ui.get("test_flag_values", [0, 1, -1])
     grouping = ui.get("test_flag_grouping", ["wafer", "lot", "pad"])
     removed = ui.get("info_deleted_columns", [[], [], []])
+    included = ui.get("info_included_columns", [])
     if (type(ui.get("info_columns_configured", False)) is not bool
             or not isinstance(removed, list) or len(removed) != 3
             or any(not isinstance(columns, list) or any(not isinstance(column, str) for column in columns)
-                   for columns in removed)):
+                   for columns in removed)
+            or not isinstance(included, list) or any(not isinstance(column, str) for column in included)):
         raise ValueError("Invalid Spectra Info report columns.")
     folders = ui.get("import_folders", [])
     if (not isinstance(folders, list) or any(not isinstance(folder, str) or not folder for folder in folders)):
@@ -302,8 +305,11 @@ def restore(viewer, draft):
     viewer._checked_keys = set(ui["checked"]) & keys
     viewer._data_selection_view = view
     viewer.group_options.restore(ui.get("groups"))
-    viewer.info_deleted_columns = [set(columns) for columns in ui.get("info_deleted_columns", [[], [], []])]
-    viewer.info_columns_configured = ui.get("info_columns_configured", any(viewer.info_deleted_columns))
+    from .spectra_info import normalize_info_column_choices
+    hidden = ui.get("info_deleted_columns", [[], [], []])
+    viewer.info_deleted_columns, viewer.info_included_columns = normalize_info_column_choices(
+        hidden, ui.get("info_included_columns", []))
+    viewer.info_columns_configured = ui.get("info_columns_configured", any(hidden))
     viewer.test_flags = {key: value for key, value in ui.get("test_flags", {}).items() if key in keys | unavailable.keys() and value}
     viewer.group_options._cache = None
     viewer._apply_highlights(ui.get('highlighted',[]))
@@ -384,9 +390,17 @@ def open_child(owner, scope):
     child._spectra_workbook_owner = owner
     child.set_workbook_selection_source(owner.selection_script)
     child.group_options.set_source(lambda: (owner._active_raw_frame(), owner.group_controls.flags_frame(), owner.group_controls.state))
-    child.set_spectra_info_source(lambda: (owner._active_raw_frame(), owner.reference_frame))
+
+    def default_reference_columns():
+        return {mapping["reference_column"] for mapping in owner._mapping_state() if mapping["checked"]} or None
+
+    child.set_spectra_info_source(lambda: (owner._active_raw_frame(), owner.reference_frame),
+                                  reference_columns=default_reference_columns)
     for model in (owner.reference_model, owner.raw_model, owner.final_raw_model):
         model.changed.connect(child.schedule_spectra_info_refresh)
+    mappings = owner.mapping_table.model()
+    mappings.dataChanged.connect(child.schedule_spectra_info_mapping_refresh)
+    mappings.rowsRemoved.connect(child.schedule_spectra_info_refresh)
     owner.result_mode.currentIndexChanged.connect(child.schedule_spectra_info_refresh)
     child._analysis_window_name = window_metadata(scope, saved)["name"]
     child.document.refresh_identity()

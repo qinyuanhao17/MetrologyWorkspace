@@ -1050,6 +1050,11 @@ class SheetModel(QAbstractTableModel):
         height, width = self._cell_extent()
         return max(self._document_rows, height - 1), width
 
+    def data_shape(self):
+        """Data dimensions through the last populated row, including interior gaps."""
+        height, _ = self.selection_extent()
+        return max(0, height - 1), self._cell_extent()[1]
+
     def document_frame(self):
         """Save a draft exactly, including duplicate headers and empty rows."""
         if "document" in self._frames:

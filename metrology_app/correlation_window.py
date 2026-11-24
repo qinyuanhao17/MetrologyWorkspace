@@ -515,8 +515,8 @@ class CorrelationWindow(DataWorkspaceWindow):
     def _independent_reference_rows(self):
         if not hasattr(self, "reference_model"):
             return False
-        reference_rows, _ = self.reference_model.document_shape()
-        raw_rows, _ = self.raw_model.document_shape()
+        reference_rows, _ = self.reference_model.data_shape()
+        raw_rows, _ = self.raw_model.data_shape()
         return bool(reference_rows and reference_rows != raw_rows)
 
     def _refresh_table_sizes(self):

@@ -202,11 +202,13 @@ class SelectionDialog(QDialog):
         self.search.setText(search)
         self.show_rows = QComboBox(objectName="dataSelectionShow")
         for label, key in (("All rows", "all"), ("Filtered rows", "filtered"),
+                           ("Unfiltered rows", "unfiltered"),
                            ("Checked rows", "checked"), ("Unchecked rows", "unchecked")):
             self.show_rows.addItem(label, key)
         self.show_rows.setCurrentIndex(max(0, self.show_rows.findData(show)))
         self.show_rows.setToolTip(
-            "Only Filtered rows applies filter conditions. Checked rows / Unchecked rows show current "
+            "Filtered rows match the conditions. Unfiltered rows fall outside those conditions. "
+            "Checked rows / Unchecked rows show current "
             "participation across the source data. Search refines every view; "
             "Check Visible / Uncheck Visible act on exactly the displayed rows.")
         tools.addWidget(self.search, 1)
@@ -354,12 +356,13 @@ class SelectionDialog(QDialog):
         self._prune_filters()
         mask = np.ones(len(self.model.frame), dtype=bool)
         show = self.show_rows.currentData() or "all"
-        if show == "filtered" and any(self.filter_groups):
+        if show in ("filtered", "unfiltered") and self.filter_groups:
             row_masks = []
             for row_index, row in enumerate(self.filter_groups):
                 parts = [filter_mask(self.model.frame[spec["column"]], spec) for spec in row]
                 row_masks.append(self._combine_masks(parts, self._normalized_row_bools(row_index)))
-            mask &= self._combine_masks(row_masks, self._normalized_group_bools())
+            matches = self._combine_masks(row_masks, self._normalized_group_bools())
+            mask &= matches if show == "filtered" else ~matches
         query = self.search.text().strip()
         if query:
             found = np.zeros(len(mask), dtype=bool)
@@ -391,7 +394,7 @@ class SelectionDialog(QDialog):
         parts = []
         if spec.get("values") is not None:
             values = [str(value) for value in spec["values"]]
-            parts.append(", ".join(values[:3]) + ("…" if len(values) > 3 else ""))
+            parts.append((", ".join(values[:3]) + ("…" if len(values) > 3 else "")) if values else "No values")
         if spec.get("query"):
             parts.append(f"contains {spec['query']}")
         if spec.get("minimum") not in (None, ""):
@@ -579,9 +582,9 @@ class SelectionDialog(QDialog):
         self.add_condition(len(self.filter_groups) - 1, column)
 
     def _show_filtered_rows(self):
-        """Jump the Show combo to Filtered rows once a condition exists."""
+        """Show the filter result while preserving an explicit complement view."""
         index = self.show_rows.findData("filtered")
-        if index >= 0 and self.show_rows.currentData() != "filtered":
+        if index >= 0 and self.show_rows.currentData() not in ("filtered", "unfiltered"):
             self.show_rows.setCurrentIndex(index)
 
     def add_row(self, column):

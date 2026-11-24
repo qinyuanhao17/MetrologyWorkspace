@@ -25,6 +25,7 @@ class ReferenceAnalysisPages(CorrelationWindow):
     def __init__(self, tabs, owner):
         self.owner = owner
         self.reference_values = pd.DataFrame()
+        self._excluded_raw_rows = frozenset()
         self.reference_parameters = ()
         self._raw_metadata = {}
         self._loaded_inputs = object()
@@ -93,7 +94,8 @@ class ReferenceAnalysisPages(CorrelationWindow):
     def default_reference_parameters(self, metrics):
         return [name for name in super().default_reference_parameters(metrics) if name in self.reference_parameters]
 
-    def set_alignment_inputs(self, inputs, excluded, hide_excluded):
+    def set_alignment_inputs(self, inputs, excluded, hide_excluded, *, excluded_raw_rows=()):
+        self._excluded_raw_rows = excluded_raw_rows
         changed = (excluded != getattr(self, '_participation_excluded', set())
                    or hide_excluded != getattr(self, '_hide_workbook_excluded', False))
         self._participation_excluded = excluded
@@ -242,5 +244,7 @@ class ReferenceAnalysisPages(CorrelationWindow):
         output = StringIO(newline='')
         writer = csv.writer(output, delimiter=',' if len(columns) == 1 else '\t')
         writer.writerow(data.columns)
-        writer.writerows(data.itertuples(index=False, name=None))
+        blank = ('',) * len(columns)
+        writer.writerows(blank if row in self._excluded_raw_rows else values
+                         for row, values in zip(data.index, data.itertuples(index=False, name=None)))
         QApplication.clipboard().setText(output.getvalue())

@@ -20,6 +20,16 @@ Feature: Share source participation between analysis windows
       Then the script reflects that draft
       And cancelling Data selection leaves the owning window unchanged
 
+    # Automation: SelectionScriptTests.test_swap_exchanges_entire_filter_pools_and_preserves_empty_filter
+    # Automation: SelectionScriptTests.test_unfiltered_view_complements_filter_expression_and_round_trips
+    Scenario: Swap filter values and inspect rows outside the filter
+      Given a filter has Available Values and Filter Pool entries
+      When the engineer swaps the pools
+      Then every value moves to the opposite pool
+      When the engineer chooses Unfiltered rows
+      Then only rows outside the filter appear with the current search applied
+      And the selection script preserves this view
+
     Scenario: Refuse an incompatible script without losing the current selection
       Given a window already has a selection
       When an imported script uses an unavailable column or source record
@@ -74,11 +84,14 @@ Feature: Share source participation between analysis windows
 
   Rule: Finding available filter values supports several search terms
 
+    # Automation: SelectionScriptTests.test_find_values_uses_exact_commas_and_substring_spaces
     Scenario: Find multiple values and apply their checkbox choices
       Given a column filter lists available values with existing checkbox choices
       When the engineer finds values using search terms separated by commas or spaces
       Then values matching any term are shown regardless of letter case
-      And English commas, Chinese commas and whitespace can be mixed as separators
+      And English and Chinese commas match complete values and ignore whitespace around each term
+      And a query without commas matches any of its space-separated substrings
+      And a trailing comma can make a single search term exact
       And empty terms are ignored
       And searching alone preserves every checkbox choice
       When the engineer checks the visible values and accepts the filter

@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from contextlib import nullcontext
 from dataclasses import asdict, replace
+from html import escape
 import json
 from io import StringIO
 from pathlib import Path, PureWindowsPath
@@ -73,12 +74,12 @@ from .appearance import (CORRELATION_FIT_COLOR, CORRELATION_POINT_COLOR,
                          fit_window_to_screen, help_title_label)
 from . import dynamic_grr
 from .analysis_windows import LABELS as WINDOW_LABELS, scope_parts, validate_windows, window_entries, window_metadata
-from .data import inspect_table
+from .data import inspect_table, trim_trailing_blank_rows
 from .excel_export import write_workbook
 from .trend import MAGNITUDE_RATIO_LIMIT, parse_unit
 from .diagnostics import get_logger
-from .matching import MAX_ROWS, MatchWorkbook, ParameterMapping, extrema_sample_indices
-from .match_groups import copy_group_state, group_state, row_ids, stage_rows_align
+from .matching import MATCH_TYPES, MAX_ROWS, MatchWorkbook, ParameterMapping, extrema_sample_indices
+from .match_groups import copy_group_state, group_state, row_ids, stage_rows_align, trim_match_raw_tail
 from .match_wafer_statistics_page import MatchWaferStatisticsPage
 from .measurements import compare_match_row_order
 from .match_group_ui import (CombinedGroupDialog, GroupControls, GroupPlotPage, ProjectedSheetModel,
@@ -105,6 +106,7 @@ PLOT_LIMIT = 20_000
 _PARAMETER_MIME = "application/x-metrology-match-parameter"
 LOGGER = get_logger()
 DEFAULT_METRIC_HIGHLIGHTING = {"slope_min": .9, "slope_max": 1.1, "rsq_min": .9}
+WORKBOOK_NAME_FIELDS = ("Project", "Layer", "Site", "Version")
 
 
 def _mapping_choice_rows(selected):
@@ -762,6 +764,8 @@ class MatchingWindow(QMainWindow):
         self.final_dynamic_frame = None
         self.workbook = None
         self.workbook_path = None
+        self._filename_fields = {}
+        self._raw_legend = ""
         self.result = None
         self._removed_mapping_columns = set()
         self._mapping_candidates = ()
@@ -924,6 +928,8 @@ class MatchingWindow(QMainWindow):
               "plot_layouts": capture(self._plot_layout_states),
               "wafer_statistics_plot_type": self.match_statistics_page.plot_type,
               "plot_labels": capture(self._plot_label_options),
+              "filename_fields": dict(self._filename_fields),
+              "raw_legend": self._raw_legend,
               "expand_wafer_ids": self.expand_wafer_ids.isChecked(),
               "trend_cards": [[list(key), value] for key, value in self._trend_card_state.items()],
               "statistics": [[list(key), value] for key, value in self._statistics_state.items()]}
@@ -979,7 +985,15 @@ class MatchingWindow(QMainWindow):
         )
         if not isinstance(statistics_plot_type, str) or statistics_plot_type not in MatchWaferStatisticsPage.PLOT_TYPES:
             raise ValueError("Invalid Wafer Mean / Sigma plot type.")
-        labels = plot_label_options(snapshot.states.get("match_ui", {}).get("plot_labels"))
+        ui = snapshot.states.get("match_ui", {})
+        labels = plot_label_options(ui.get("plot_labels"))
+        filename_fields = ui.get("filename_fields", {})
+        if (not isinstance(filename_fields, dict) or set(filename_fields) - set(WORKBOOK_NAME_FIELDS)
+                or any(not isinstance(value, str) for value in filename_fields.values())):
+            raise ValueError("Invalid workbook filename fields.")
+        raw_legend = ui.get("raw_legend", "")
+        if not isinstance(raw_legend, str):
+            raise ValueError("Invalid Raw legend.")
         expanded = snapshot.states.get("match_ui", {}).get("expand_wafer_ids", False)
         if type(expanded) is not bool:
             raise ValueError("Invalid Expand Wafers setting.")
@@ -1019,6 +1033,8 @@ class MatchingWindow(QMainWindow):
             close_children(self)
         self._close_stage_workspaces(tuple(self._stage_windows))
         self._clear_plot_groups()
+        self._filename_fields = dict(filename_fields)
+        self.set_raw_legend(raw_legend, refresh_identity=False)
         self.set_plot_labels(labels)
         self.expand_wafer_ids.setChecked(expanded)
         self._removed_mapping_columns = set(removed)
@@ -1100,7 +1116,11 @@ class MatchingWindow(QMainWindow):
                 frame = snapshot.frames.get(name, pd.DataFrame()).copy()
                 model.load(frame)
                 try:
-                    analysis_frame = self._analysis_input_frame(model.document_frame(), headers=model.headers())
+                    document = model._document_view()
+                    selection = self.group_controls.state.get("applied", self.group_controls.state)["data_selection"]
+                    source = (trim_trailing_blank_rows(document) if name == "reference"
+                              else trim_match_raw_tail(document, selection))
+                    analysis_frame = self._analysis_input_frame(source, headers=model.headers())
                     if not analysis_frame.empty:
                         self._validate_input_frame(analysis_frame, name)
                 except ValueError:
@@ -1161,7 +1181,7 @@ class MatchingWindow(QMainWindow):
         self.result_mode.addItems(["Preview", "Final"])
         self.result_mode.hide()
         self.match_type = QComboBox(self)
-        self.match_type.addItems(["KLA", "NOVA", "TEM"])
+        self.match_type.addItems(MATCH_TYPES)
         self.match_type.hide()
         self.absolute_bias = QCheckBox("Bias", self)
         self.absolute_bias.setChecked(True)
@@ -1304,6 +1324,8 @@ class MatchingWindow(QMainWindow):
         self.analysis_menu.addAction(self.run_action)
         self.metric_highlighting_action = self.analysis_menu.addAction("Metric highlighting…")
         self.metric_highlighting_action.triggered.connect(self.edit_metric_highlighting)
+        self.raw_legend_action = self.analysis_menu.addAction("Raw Legend…")
+        self.raw_legend_action.triggered.connect(self.edit_raw_legend)
         wafer_plot_type_menu = self.analysis_menu.addMenu("Wafer Mean / Sigma Plot Type")
         wafer_plot_type_group = QActionGroup(wafer_plot_type_menu)
         wafer_plot_type_group.setExclusive(True)
@@ -1318,7 +1340,7 @@ class MatchingWindow(QMainWindow):
         self.match_type_group = QActionGroup(self)
         self.match_type_group.setExclusive(True)
         self.match_type_actions = {}
-        for match_type in ("KLA", "NOVA", "TEM"):
+        for match_type in MATCH_TYPES:
             action = QAction(match_type, self, checkable=True)
             action.setChecked(match_type == self.match_type.currentText())
             action.triggered.connect(
@@ -1479,6 +1501,49 @@ class MatchingWindow(QMainWindow):
             for block in blocks:
                 self._expand_parameter_group(block)
         if hasattr(self, "document"):
+            self.document.refresh_identity()
+
+    def edit_raw_legend(self):
+        label, accepted = QInputDialog.getText(
+            self, "Raw Legend", "Raw label (blank uses the default):", text=self._raw_legend,
+        )
+        if accepted:
+            self.set_raw_legend(label)
+
+    def _source_plot_labels(self, match_type):
+        raw = self._raw_legend or "PMISH"
+        reference = f"{match_type} (Reference)" if raw.casefold() == match_type.casefold() else match_type
+        return raw, reference
+
+    def set_raw_legend(self, label, *, refresh_identity=True):
+        label = label.strip()
+        if self._raw_legend == label:
+            return
+        self._raw_legend = label
+        blocks = [*self.plot_groups.values(), *self.group_plot_page.plot_groups.values()]
+        for _, groups in self._stage_plot_cache.values():
+            blocks.extend(groups.values())
+        blocks += [detail for block in blocks for detail in block.get("wafer_details", {}).values()]
+        for block in blocks:
+            if "annotation_data" not in block:
+                continue
+            labels = self._source_plot_labels(block["annotation_data"][2])
+            match, trend = block["plots"]["match"], block["plots"]["trend"]
+            match.setLabel("bottom", escape(labels[0]))
+            match.setLabel("left", escape(labels[1]))
+            legend = trend.getPlotItem().legend
+            for curve, name in zip(getattr(trend, "_match_trend_curves", ()), labels):
+                curve.opts["name"] = name
+                if legend is not None and (item := legend.getLabel(curve)) is not None:
+                    item.setText(escape(name))
+            if legend is not None:
+                legend.updateSize()
+                place_legend_above_frame(trend)
+            statistics = getattr(trend, "_statistics_series", ())
+            if len(statistics) == len(labels):
+                set_plot_statistics(trend, [(name, series) for name, (_, series) in zip(labels, statistics)])
+        self.match_statistics_page.set_raw_legend(label)
+        if refresh_identity:
             self.document.refresh_identity()
 
     def _offer_plot_labels(self, workspace):
@@ -2192,7 +2257,7 @@ class MatchingWindow(QMainWindow):
         if not isinstance(frame, pd.DataFrame) or len(frame) > MAX_ROWS:
             self._validate_input_frame(frame, "Reference")
         source_frame = frame.reset_index(drop=True)
-        frame = self._analysis_input_frame(source_frame)
+        frame = self._analysis_input_frame(trim_trailing_blank_rows(source_frame))
         self._validate_input_frame(frame, "Reference")
         view_state = self._capture_setup_view_state()
         mapping_state = self._mapping_state()
@@ -2211,7 +2276,7 @@ class MatchingWindow(QMainWindow):
         if not isinstance(frame, pd.DataFrame) or len(frame) > MAX_ROWS:
             self._validate_input_frame(frame, title)
         source_frame = frame.reset_index(drop=True)
-        frame = self._analysis_input_frame(source_frame)
+        frame = self._analysis_input_frame(trim_trailing_blank_rows(source_frame))
         self._validate_input_frame(frame, title)
         view_state = self._capture_setup_view_state()
         mapping_state = self._mapping_state()
@@ -2273,7 +2338,15 @@ class MatchingWindow(QMainWindow):
                 # unnamed, populated columns use the existing spreadsheet alias.
                 headers = [name if str(name).strip() else headers[column]
                            for column, name in enumerate(document.columns)]
-            frame = self._analysis_input_frame(document, headers=headers, preserve_rows=preserve_rows,
+            source = document
+            if name == "reference":
+                source = trim_trailing_blank_rows(document)
+            elif preserve_rows:
+                previous = self.final_match_frame if name == "final_raw" else self.raw_frame
+                selection = self.group_controls.state.get("applied", self.group_controls.state)["data_selection"]
+                source = (trim_match_raw_tail(document, selection, previous=previous)
+                          if model.preserves_record_positions else trim_trailing_blank_rows(document))
+            frame = self._analysis_input_frame(source, headers=headers, preserve_rows=preserve_rows,
                                                source=model._literal_source(document))
             if not frame.empty:
                 self._validate_input_frame(frame, title)
@@ -2628,7 +2701,11 @@ class MatchingWindow(QMainWindow):
         for name, view, source in (("reference", self.reference_view, self.reference_model),
                                    (mode, self.raw_view, self.final_raw_model if mode == "final" else self.raw_model)):
             proxy = self._group_proxies[name]
-            proxy.set_rows(rows)
+            displayed = rows
+            if name == "reference" and rows is not None and len(self.reference_frame) > len(raw):
+                # Excess Reference rows have no Raw selection and must remain editable.
+                displayed = (*rows, *range(len(raw), len(self.reference_frame)))
+            proxy.set_rows(displayed)
             model = proxy if projected else source
             if view.model() is not model:
                 view.setModel(model)
@@ -2668,7 +2745,7 @@ class MatchingWindow(QMainWindow):
         for label, view, source in (
                 (self.reference_source, self.reference_view, self.reference_model),
                 (self.raw_source, self.raw_view, raw)):
-            rows, columns = source.document_shape()
+            rows, columns = source.data_shape()
             projected = getattr(view.model(), "rows", None)
             visible = sum(0 < row <= rows for row in projected) if projected is not None else None
             label.setText(table_size_text(rows, columns, visible_rows=visible))
@@ -2849,7 +2926,7 @@ class MatchingWindow(QMainWindow):
 
     @staticmethod
     def _analysis_input_frame(frame, *, headers=None, preserve_rows=True, source=None):
-        """Ignore columns without measurements; never mutate the source sheet."""
+        """Exclude empty columns and optionally exclude blank rows."""
         if source is not None:
             from .table_version import LiteralFrameSource
             if isinstance(source, LiteralFrameSource) and source.matches(frame, source.version):
@@ -2914,7 +2991,7 @@ class MatchingWindow(QMainWindow):
         # The paired tables only report their size; the file name and origin are
         # already visible in the window title and File menu.
         from .sheet import table_size_text
-        return table_size_text(len(frame), len(frame.columns))
+        return table_size_text(len(trim_trailing_blank_rows(frame)), len(frame.columns))
 
     def _populate_mappings(self, selected=None):
         rows = _mapping_choice_rows(selected)
@@ -5467,8 +5544,9 @@ class MatchingWindow(QMainWindow):
         card_layout.addLayout(heading)
 
         primary_height = 330
+        raw_label, ref_label = self._source_plot_labels(self.match_type.currentText())
         specs = [
-            ("match", "PMISH", self.match_type.currentText()),
+            ("match", escape(raw_label), escape(ref_label)),
             ("trend", " ", ""),
         ]
         if self.absolute_bias.isChecked():
@@ -5946,8 +6024,9 @@ class MatchingWindow(QMainWindow):
         enabled = True
         if enabled and data is None:
             data = group.get("result", self.result).series(group["parameter"])
-        series = ({"trend": [("PMISH", data["Card Value" if card else "Raw"].to_numpy(float)),
-                             (reference_name, data["Reference"].to_numpy(float))],
+        raw_label, ref_label = self._source_plot_labels(reference_name)
+        series = ({"trend": [(raw_label, data["Card Value" if card else "Raw"].to_numpy(float)),
+                             (ref_label, data["Reference"].to_numpy(float))],
                   "bias": [("Bias", data["Bias"].to_numpy(float))],
                   "bias-percent": [("Bias %", data["Bias %"].to_numpy(float))]}
                   if enabled else {name: [] for name in ("trend", "bias", "bias-percent")})
@@ -5971,17 +6050,8 @@ class MatchingWindow(QMainWindow):
     def _draw_collected_trend(self, parameter, group, row, reference, raw, card_value):
         """Reuse the Trend curves while the collected Wafer order moves them."""
         trend_plot = group["plots"]["trend"]
-        result = group.get("result", self.result)
-        for curve in trend_plot.listDataItems():
-            if not isinstance(curve, pg.PlotDataItem) or curve.yData is None:
-                continue
-            name = curve.name()
-            if name == "PMISH":
-                values = card_value if trend_plot.card_checkbox.isChecked() else raw
-            elif name == str(result.match_type):
-                values = reference
-            else:
-                continue
+        raw_values = card_value if trend_plot.card_checkbox.isChecked() else raw
+        for curve, values in zip(getattr(trend_plot, "_match_trend_curves", ()), (raw_values, reference)):
             curve.setData(row, values)
             trend_plot.set_point_rows(curve.scatter, group["trend_rows"])
 
@@ -6026,6 +6096,7 @@ class MatchingWindow(QMainWindow):
         trend_plot = group["plots"]["trend"]
         result = group.get("result", self.result)
         workbook = group.get("workbook", self.workbook)
+        labels = self._source_plot_labels(workbook.match_type)
         if result.group_plan.enabled:
             mode = "global" if trend_plot.card_checkbox.isChecked() else "raw"
             if data is None:
@@ -6034,23 +6105,24 @@ class MatchingWindow(QMainWindow):
                 data = data.copy()
                 data["Trend value"] = data["Card Value"] if mode == "global" else data["Raw"]
             draw_group_trend(trend_plot, result, parameter, card_mode=mode,
-                             group_only=not group.get("show_wafers", False), data=data)
+                             group_only=not group.get("show_wafers", False), data=data, labels=labels)
             return
         curves = tuple(trend_plot.listDataItems())
         row, reference, raw, card_value = group["trend_data"]
-        pmish = card_value if trend_plot.card_checkbox.isChecked() else raw
-        if reuse and len(curves) == 2 and [item.name() for item in curves] == ["PMISH", workbook.match_type]:
-            curves[0].setData(row, pmish)
+        raw_values = card_value if trend_plot.card_checkbox.isChecked() else raw
+        if reuse and len(curves) == 2 and tuple(item.name() for item in curves) == labels:
+            curves[0].setData(row, raw_values)
             curves[1].setData(row, reference)
         else:
             for item in curves:
                 trend_plot.removeItem(item)
             legend = place_legend_above_frame(trend_plot)
             legend.setLabelTextColor("#30343b")
-            for name, values, color in (("PMISH", pmish, "#5b9bd5"),
-                                        (workbook.match_type, reference, "#ed7d31")):
-                trend_plot.plot(row, values, pen=pg.mkPen(color, width=TREND_LINE_WIDTH),
-                    symbol="o", symbolSize=TREND_MARKER_SIZE, symbolBrush=color, symbolPen=None, name=name)
+            for name, values, color in zip(labels, (raw_values, reference), ("#5b9bd5", "#ed7d31")):
+                curve = trend_plot.plot(row, values, pen=pg.mkPen(color, width=TREND_LINE_WIDTH),
+                    symbol="o", symbolSize=TREND_MARKER_SIZE, symbolBrush=color, symbolPen=None, name=escape(name))
+                curve.opts["name"] = name
+        trend_plot._match_trend_curves = tuple(trend_plot.listDataItems())
         for curve in trend_plot.listDataItems():
             trend_plot.set_point_rows(curve.scatter, group["trend_rows"])
         legend = place_legend_above_frame(trend_plot)
@@ -6550,7 +6622,7 @@ class MatchingWindow(QMainWindow):
         return saved
 
     @recovery_decision
-    def save_workbook(self, path, *, capture_children=True, child=None):
+    def save_workbook(self, path, *, capture_children=True, child=None, filename_fields=None):
         commit_editors(self)
         if self._auto_run_pending:
             # Save the result of edits made before Save, even when their
@@ -6599,6 +6671,8 @@ class MatchingWindow(QMainWindow):
                 return None
             spectra_children = tuple(self._spectra_windows.items())
             snapshot = self.workspace_snapshot()
+            if filename_fields is not None:
+                snapshot.states["match_ui"]["filename_fields"] = dict(filename_fields)
             candidate = self._accepted_workspace_state()
         finally:
             # Candidate construction must not accept anything before durable IO.
@@ -6609,6 +6683,8 @@ class MatchingWindow(QMainWindow):
                  if large_spectra_payload(snapshot, target) else save_workspace(target, snapshot, expected_revision=expected))
         self.document.last_warning = "; ".join(snapshot.warnings)
         self._restore_accepted_workspace_state(candidate)
+        if filename_fields is not None:
+            self._filename_fields = dict(filename_fields)
         self.workbook_path = Path(saved).resolve()
         self.document.path = self.workbook_path
         self.document.revision = snapshot.revision
@@ -6788,9 +6864,10 @@ class MatchingWindow(QMainWindow):
 
     def save_wkb_dialog(self, *, capture_children=True, child=None):
         try:
-            filename = _match_save_filename(self)
-            if filename is None:
+            naming = _match_save_filename(self)
+            if naming is None:
                 return None
+            filename, fields = naming
             directory = self.workbook_path.parent if self.workbook_path is not None else Path.home()
             default = str(directory / filename)
             path, _ = QFileDialog.getSaveFileName(
@@ -6800,7 +6877,7 @@ class MatchingWindow(QMainWindow):
                 "Matching Workbook (*.mwkb)",
             )
             if path:
-                saved = self.save_workbook(path, capture_children=capture_children, child=child)
+                saved = self.save_workbook(path, capture_children=capture_children, child=child, filename_fields=fields)
                 if saved is not None:
                     self._remember_recent_wkb(saved)
                 return saved
@@ -7046,8 +7123,9 @@ def _match_save_filename(parent):
     form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
     form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
     fields = []
-    for label in ("Project", "Layer", "Site", "Version"):
-        field = QLineEdit(dialog)
+    defaults = parent._filename_fields or _legacy_workbook_name_fields(parent.workbook_path)
+    for label in WORKBOOK_NAME_FIELDS:
+        field = QLineEdit(defaults.get(label, ""), dialog)
         field.setObjectName(label)
         form.addRow(label, field)
         fields.append(field)
@@ -7108,10 +7186,23 @@ def _match_save_filename(parent):
     update_preview()
     try:
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            return preview.text()
+            return preview.text(), {field.objectName(): field.text().strip() for field in fields}
         return None
     finally:
         dialog.deleteLater()
+
+
+def _legacy_workbook_name_fields(path):
+    """Recover fields from conventional names saved before fields were stored."""
+    if path is None:
+        return {}
+    parts = Path(path).stem.split("_")
+    fields, suffix = parts[:4], parts[4:]
+    if len(fields) != 4 or not all(fields):
+        return {}
+    if suffix and not re.fullmatch(r"\d{8}(?:_\d{4})?|\d{4}", "_".join(suffix)):
+        return {}
+    return dict(zip(WORKBOOK_NAME_FIELDS, fields))
 
 
 def _safe_filename(value):

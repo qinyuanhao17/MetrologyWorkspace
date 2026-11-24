@@ -14,6 +14,27 @@ def workbook(path, rows):
 
 
 class CDSEMCompatibilityTests(unittest.TestCase):
+    def test_batch_readers_preserve_measurements_when_every_file_lacks_result(self):
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            identifiers = ['ACD_No', 'MP_Name', 'Chip_X', 'Chip_Y']
+            first = root / 'median.xlsx'
+            workbook(first, [identifiers + ['Median'], ['CD', 'MP1', '1', '0', '30.1000']])
+            second = root / 'mean.csv'
+            with second.open('w', encoding='utf-8', newline='') as stream:
+                csv.writer(stream).writerows([identifiers + ['Mean', 'EdgeCenterPosX'],
+                                              ['CD', 'MP1', '1', '0', '31.2000', '0.0012300']])
+
+            result = merge_cdsem1([first, second], root)
+            self.assertEqual((result.parsed_files, result.kept_rows, result.error_count), (2, 2, 0))
+            outputs = [pd.read_csv(path, dtype=str, keep_default_na=False)
+                       for path in result.output_dir.glob('*_Results.csv')]
+            median = next(frame for frame in outputs if 'MP1 / Median' in frame)
+            self.assertEqual(median[['MP1', 'MP1 / Median']].values.tolist(), [['', '30.1000']])
+            partial = next(frame for frame in outputs if 'MP1 / Mean' in frame)
+            self.assertEqual(partial[['MP1', 'MP1 / Mean', 'MP1 / EdgeCenterPosX']].values.tolist(),
+                             [['', '31.2000', '0.0012300']])
+
     def test_results_and_pivot_preserve_absolute_xy_and_extra_source_fields_without_ids(self):
         from metrology_app.reference_alignment import load_alignment_output
         with TemporaryDirectory() as folder:

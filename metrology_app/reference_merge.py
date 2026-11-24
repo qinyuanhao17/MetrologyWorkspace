@@ -106,9 +106,12 @@ def metadata_pairs(cells: list[str]) -> dict[str, str]:
             canonical = CANONICAL.get(compact(m.group(1)))
             if canonical and m.group(2).strip():
                 result[canonical] = m.group(2).strip()
-        canonical = CANONICAL.get(compact(token.rstrip(":")))
-        if canonical and index + 1 < len(cells) and cells[index + 1].strip():
-            result[canonical] = cells[index + 1].strip()
+        canonical = CANONICAL.get(compact(token.rstrip(":=")))
+        if canonical and index + 1 < len(cells):
+            value = cells[index + 1].strip()
+            next_field = re.match(r"^(.+?)[:=]", value)
+            if value and (not next_field or compact(next_field.group(1)) not in CANONICAL):
+                result[canonical] = value
     return result
 
 
@@ -117,9 +120,13 @@ def is_kla_header(cells: list[str]) -> bool:
 
 
 def is_pmish_header(cells: list[str]) -> bool:
-    keys = {compact(v) for v in cells}
-    return (len(cells) >= 4 and "seq" in keys and
-            len(keys & {"num", "padname", "refdiecol", "refdierow", "recipe", "metrologyunit", "azimuthangle"}) >= 2)
+    keys = {compact(v) for v in cells} - {""}
+    return "seq" in keys and (
+        (len(keys) >= 2 and compact(cells[0]) == "seq")
+        or (len(keys) >= 3 and "num" in keys)
+        or (len(cells) >= 4 and len(keys & {"padname", "refdiecol", "refdierow", "recipe",
+                                            "metrologyunit", "azimuthangle"}) >= 2)
+    )
 
 
 def is_summary_row(cells: list[str]) -> bool:
@@ -409,11 +416,8 @@ def parse_sectioned(path: Path, vendor: str, cancelled=None) -> ParsedFile:
             if "AzimuthAngle" in row:
                 row["AzimuthAngle"] = normalized_angle(row["AzimuthAngle"])
         row = collapse_lbh(row)
-        missing = [c for c in CHANNEL_FIELDS[vendor] if str(row.get(c, "")).strip().casefold() in MISSING]
-        if missing:
-            result.issues.append(row_error(path, line, "CHANNEL", "Missing: " + ", ".join(missing)))
-            continue
-        channel = tuple(row[k].strip() for k in CHANNEL_FIELDS[vendor])
+        channel_values = (row.get(field, "").strip() for field in CHANNEL_FIELDS[vendor])
+        channel = tuple(value if value.casefold() not in MISSING else "" for value in channel_values)
         result.records.append({"channel": channel, "data": row,
                                "path": str(path), "line": line, "schema": schema})
     result.total_measurement_rows = len(captured)

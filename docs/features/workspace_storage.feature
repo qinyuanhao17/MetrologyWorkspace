@@ -55,6 +55,9 @@ Feature: Durable metrology workspaces
       And changes the prefilled local date and time to 2026-11-19 14:07
       Then the suggested name is "Project A_M2_FAB1_v1.2_20261119_1407.mwkb"
       And later saves update the chosen file
+      When the engineer reopens the saved Workbook and chooses Save As
+      Then the editable Project, Layer, Site and Version fields are prefilled from the previous save
+      And the date and time use the current local clock
 
     # test_cancel_match_filename_leaves_workbook_unsaved
     Scenario: Cancel naming a new Match Workbook

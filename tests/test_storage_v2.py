@@ -320,6 +320,28 @@ class StorageV2Tests(unittest.TestCase):
         naming.assert_not_called()
         location.assert_not_called()
 
+        fields = {"Project": "Project A", "Layer": "M2", "Site": "FAB1", "Version": "v1.2"}
+        self.assertEqual(load_workspace(saved).states["match_ui"]["filename_fields"], fields)
+        self.match.load_workbook(saved)
+        next_now = QDateTime.fromString("2026-11-23 10:35:00", "yyyy-MM-dd HH:mm:ss")
+
+        def reuse_name(dialog):
+            self.assertEqual({name: dialog.findChild(QLineEdit, name).text() for name in fields}, fields)
+            self.assertEqual(dialog.findChild(QDateEdit, "workbookDateInput").date(), next_now.date())
+            self.assertEqual(dialog.findChild(QTimeEdit, "workbookTimeInput").time(), next_now.time())
+            dialog.findChild(QLineEdit, "Version").setText("v2_1")
+            dialog.accept()
+            return dialog.result()
+
+        with (
+            patch.object(QDateTime, "currentDateTime", return_value=next_now),
+            patch.object(QDialog, "exec", reuse_name),
+            patch.object(QFileDialog, "getSaveFileName", side_effect=choose_location),
+        ):
+            renamed = self.match.save_wkb_dialog()
+        self.assertEqual(renamed, self.folder / "Project A_M2_FAB1_v2_1_20261123_1035.mwkb")
+        self.assertEqual(load_workspace(renamed).states["match_ui"]["filename_fields"], {**fields, "Version": "v2_1"})
+
     def test_cancel_match_filename_leaves_workbook_unsaved(self):
         with (
             patch.object(QDialog, "exec", return_value=QDialog.DialogCode.Rejected) as naming,

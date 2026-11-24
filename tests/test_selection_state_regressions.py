@@ -4,6 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 import pandas as pd
+from PyQt6.QtCore import QItemSelection, QItemSelectionModel, Qt
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtTest import QTest
 from metrology_app.matching_window import MatchingWindow
@@ -242,7 +243,6 @@ class SelectionStateRegressionTests(unittest.TestCase):
         pd.testing.assert_frame_equal(w.reference_model.document_frame(), ref)
 
     def test_reference_grid_append_and_clear_refresh_current_row_alignment(self):
-        from PyQt6.QtCore import Qt
         w = CorrelationWindow()
         self.addCleanup(self.close, w)
         ref, raw = self.sources()
@@ -256,8 +256,10 @@ class SelectionStateRegressionTests(unittest.TestCase):
         w.reference_model.edit({(7,0):'9.000'})
         self.wait_for_recognition(w)
         self.assertFalse(w.reference_measurements)
+        self.assertIn('Raw Data has 6 rows', w.reference_footer.text())
         w.reference_sheet.setCurrentIndex(w.reference_model.index(7,0))
         QTest.keyClick(w.reference_sheet, Qt.Key.Key_Delete)
+        self.assertEqual(w.reference_footer.text(), '6 rows × 1 columns')
         self.wait_for_recognition(w)
         self.assertEqual(sum(len(m.rows) for m in w.reference_measurements), len(ref))
         pd.testing.assert_frame_equal(w.reference_model.frame(), ref)
@@ -285,15 +287,32 @@ class SelectionStateRegressionTests(unittest.TestCase):
         w.run_analysis()
         self.select(w, [0,1,2])
         w.run_analysis(apply_groups=False)
-        extra = pd.concat([ref, ref.iloc[:1]], ignore_index=True)
+        extra = pd.concat([ref, ref.iloc[:2]], ignore_index=True)
         w.reference_model.replace_matrix([list(extra.columns)] + extra.values.tolist())
         QTest.qWait(150)
         self.assertFalse(w.analyze_button.isEnabled())
-        w.reference_model.replace_matrix([list(ref.columns)] + ref.values.tolist())
+        self.assertIn('Row count differs: Reference 8; Raw Data 6.', w.status.text())
+        view, model = w.reference_view, w.reference_view.model()
+        first, last = (w.reference_model.index(row, 0) for row in (7, 8))
+        if model is not w.reference_model:
+            first, last = model.mapFromSource(first), model.mapFromSource(last)
+        self.assertTrue(first.isValid() and last.isValid())
+        view.selectionModel().select(QItemSelection(first, last),
+                                     QItemSelectionModel.SelectionFlag.ClearAndSelect)
+        QTest.keyClick(view, Qt.Key.Key_Delete)
+        self.assertIn('6 rows × 1 columns', w.reference_source.text())
         QTest.qWait(300)
         self.assertTrue(w.analyze_button.isEnabled())
         self.assertTrue(w._analysis_current)
         self.assertEqual(w.result.source_rows, (0,1,2))
+        self.assertNotIn('Row count differs', w.status.text())
+        with TemporaryDirectory() as folder:
+            saved = w.save_workbook(Path(folder) / 'trimmed.mwkb')
+            restored = self.window()
+            restored.load_workbook(saved)
+            self.assertIn('6 rows × 1 columns', restored.reference_source.text())
+            self.assertTrue(restored.analyze_button.isEnabled())
+            self.assertEqual(restored.result.source_rows, (0, 1, 2))
 
     def test_map_font_can_be_smaller_and_round_trips(self):
         from metrology_app.window import MainWindow

@@ -1731,6 +1731,8 @@ class WorkbookPerformanceTests(unittest.TestCase):
                     window.raw_model.edit({(sheet_row, column): "" for column in range(3)})
                     app.processEvents()
                     self.assertEqual(len(window.raw_frame), 12, "Blank selected source rows must not disappear")
+                    visible_rows = 11 if sheet_row == 12 else 12
+                    self.assertEqual(window.raw_source.text(), f"{visible_rows} rows × 3 columns")
                     self.assertEqual(window.group_controls.state["data_selection"]["excluded"], ["1", "5", "6", "11"])
                     self.assertEqual(window.result.source_rows, expected_rows)
                     self.assertTrue(window._analysis_current)

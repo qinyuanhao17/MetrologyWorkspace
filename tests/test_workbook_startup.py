@@ -110,6 +110,9 @@ class WorkbookStartupTests(unittest.TestCase):
         try:
             self.assertIsNone(dialog.path)
             self.assertEqual(dialog.stack.currentIndex(), 1)
+            self.assertEqual(dialog.windowTitle(), "Match Workbook")
+            self.assertEqual(dialog.file_label.text(), "New Workbook")
+            self.assertNotIn("Match Workbook", [label.text() for label in dialog.findChildren(QLabel)])
             self.assertEqual(dialog.confirm_button.text(), "Create Workbook")
             self.assertEqual(dialog.settings()["match_type"], "KLA")
             self.assertEqual(dialog.axis_ratio.value(), 1.)

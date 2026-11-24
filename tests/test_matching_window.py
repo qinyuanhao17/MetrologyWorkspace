@@ -2317,13 +2317,13 @@ class MatchingWindowTests(unittest.TestCase):
                                          "Trend title and legend need separate header rows after Card toggles")
 
     def test_all_match_trends_use_parameter_titles_and_instrument_legends(self):
-        """KLA / NOVA / TEM trends label the Reference curve with the match type."""
+        """Trends label the Reference curve with the selected match type."""
         window = self.window
         reference = pd.DataFrame({"CD Reference": [3., 5., 7., 8., 11., 14.]})
         raw = pd.DataFrame({"Wafer ID": ["W1"] * 3 + ["W2"] * 3, "Die Seq": [1, 2, 3] * 2,
                             "CD": [1., 2., 3.] * 2})
         flags = pd.DataFrame({"TestFlag": [0] * 3 + [1] * 3})
-        for match_type in ("KLA", "NOVA", "TEM"):
+        for match_type in ("KLA", "NOVA", "TEM", "PMISH"):
             for grouped in (False, True):
                 with self.subTest(match_type=match_type, grouped=grouped):
                     window.match_type.setCurrentText(match_type)
@@ -2341,8 +2341,51 @@ class MatchingWindowTests(unittest.TestCase):
                     self.assertEqual(trend.getAxis("left").labelText, "CD")
                     self.assertEqual(
                         sorted(curve.name() for curve in trend.listDataItems()),
-                        sorted([match_type, "PMISH"]),
+                        sorted(["PMISH (Reference)" if match_type == "PMISH" else match_type, "PMISH"]),
                     )
+
+    def test_raw_legend_menu_updates_existing_pmish_match_plots_and_reopens(self):
+        from PyQt6.QtWidgets import QInputDialog
+        from metrology_app.workbook_startup import WorkbookStartupDialog
+
+        window = self.window
+        startup = WorkbookStartupDialog(new=True)
+        self.addCleanup(startup.deleteLater)
+        startup.match_type.setCurrentText("PMISH")
+        self.assertEqual(startup.settings()["match_type"], "PMISH")
+        window.match_type_actions["PMISH"].trigger()
+        window.set_reference_frame(pd.DataFrame({"CD Reference": [3., 5., 7., 8., 11., 14.]}))
+        window.set_raw_frame(pd.DataFrame({"Wafer ID": ["W1"] * 3 + ["W2"] * 3,
+                                          "Die Seq": [1, 2, 3] * 2, "CD": [1., 2., 3.] * 2}))
+        configure_match_fixture(window)
+        window.group_controls.restore({"enabled": True}, pd.DataFrame({"TestFlag": [0] * 6}))
+        window.run_analysis()
+        blocks = [window.plot_groups["CD"], window.group_plot_page.plot_groups[("All:0", "CD")]]
+        trend = blocks[0]["plots"]["trend"]
+        curves = trend.listDataItems()
+        self.assertEqual({curve.name() for curve in curves}, {"PMISH", "PMISH (Reference)"})
+        with patch.object(QInputDialog, "getText", return_value=("Source CD", True)):
+            window.raw_legend_action.trigger()
+        self.assertEqual(trend.listDataItems(), curves)
+        for block in blocks:
+            plot = block["plots"]["trend"]
+            self.assertEqual({entry.text for _, entry in plot.getPlotItem().legend.items}, {"Source CD", "PMISH"})
+            self.assertEqual(block["plots"]["match"].getAxis("bottom").labelText, "Source CD")
+        window.match_statistics_page.render()
+        mean = window.match_statistics_page.plots_by_parameter["CD"][0]
+        self.assertEqual({entry.text for _, entry in mean.getPlotItem().legend.items}, {"Source CD", "Reference"})
+
+        reopened = MatchingWindow()
+        self.addCleanup(reopened.deleteLater)
+        self.addCleanup(reopened.close)
+        path = window.save_workbook(Path(self._documents.name) / "pmish.mwkb")
+        reopened.load_workbook(path)
+        self.assertTrue(reopened.match_type_actions["PMISH"].isChecked())
+        plot = reopened.plot_groups["CD"]["plots"]["trend"]
+        self.assertEqual({curve.name() for curve in plot.listDataItems()}, {"Source CD", "PMISH"})
+        with patch.object(QInputDialog, "getText", return_value=("", True)):
+            reopened.raw_legend_action.trigger()
+        self.assertEqual({curve.name() for curve in plot.listDataItems()}, {"PMISH", "PMISH (Reference)"})
 
     def test_single_wafer_matrix_follows_applied_group_order_and_keeps_draw_with_wafer(self):
         window = self.window
@@ -3255,7 +3298,7 @@ class MatchingWindowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "current.mwkb"
             with (
-                patch("metrology_app.matching_window._match_save_filename", return_value="match.mwkb"),
+                patch("metrology_app.matching_window._match_save_filename", return_value=("match.mwkb", {})),
                 patch.object(QFileDialog, "getSaveFileName", return_value=(str(path), "")) as first_prompt,
             ):
                 self.window.save_action.trigger()
@@ -3320,6 +3363,9 @@ class MatchingWindowTests(unittest.TestCase):
                 self.assertGreaterEqual(calendar.minimumWidth(), 330)
                 self.assertGreaterEqual(calendar.minimumHeight(), 280)
                 self.assertEqual(time.displayFormat(), "HH:mm")
+                self.assertEqual([dialog.findChild(QLineEdit, field).text()
+                                  for field in ("Project", "Layer", "Site", "Version")],
+                                 ["P0", "L0", "S0", "V0"])
                 for field, value in zip(("Project", "Layer", "Site", "Version"), ("P", "L", "S", "V")):
                     dialog.findChild(QLineEdit, field).setText(value)
                 date.setDate(QDate(2026, 11, 22))
@@ -3342,9 +3388,11 @@ class MatchingWindowTests(unittest.TestCase):
                 dialog.reject()
 
         QTimer.singleShot(0, select)
-        filename = _match_save_filename(self.window)
+        with patch.object(self.window, "workbook_path", Path("P0_L0_S0_V0_20251101_0305.mwkb")):
+            filename, fields = _match_save_filename(self.window)
         self.assertEqual(errors, [])
         self.assertEqual(filename, "P_L_S_V_20261122_1433.mwkb")
+        self.assertEqual(fields, {"Project": "P", "Layer": "L", "Site": "S", "Version": "V"})
 
     def test_save_as_selects_a_new_current_wkb_for_later_saves(self):
         self.assertEqual(
@@ -3363,7 +3411,7 @@ class MatchingWindowTests(unittest.TestCase):
 
             self.window.match_type.setCurrentText("TEM")
             with (
-                patch("metrology_app.matching_window._match_save_filename", return_value="match.mwkb"),
+                patch("metrology_app.matching_window._match_save_filename", return_value=("match.mwkb", {})),
                 patch.object(QFileDialog, "getSaveFileName", return_value=(str(renamed), "")),
             ):
                 self.window.save_as_action.trigger()
@@ -3726,7 +3774,7 @@ class MatchingWindowTests(unittest.TestCase):
         self.assertFalse(self.window.reveal_wkb_action.isEnabled())
         self.assertEqual(
             [action.text() for action in self.window.match_type_menu.actions()],
-            ["KLA", "NOVA", "TEM"],
+            ["KLA", "NOVA", "TEM", "PMISH"],
         )
         self.assertEqual(
             [action.text() for action in self.window.bias_menu.actions()],

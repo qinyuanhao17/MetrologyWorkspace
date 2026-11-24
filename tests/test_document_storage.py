@@ -970,7 +970,7 @@ class DocumentStorageTests(unittest.TestCase):
             child.model.edit({(1, column): "99"})
             with (
                 patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Save),
-                patch("metrology_app.matching_window._match_save_filename", return_value="match.mwkb"),
+                patch("metrology_app.matching_window._match_save_filename", return_value=("match.mwkb", {})),
                 patch.object(QFileDialog, "getSaveFileName", return_value=("", "")) as location,
             ):
                 self.assertFalse(child.close())

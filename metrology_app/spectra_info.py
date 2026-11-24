@@ -12,6 +12,18 @@ from .selection_script import canonical_die
 INFO_COLUMNS = ("Wafer ID", "Lot ID", "Tool SN", "PAD Name", "Die Seq",
                 "Relative Column", "Relative Row", "Time", "Type")
 XY_COLUMNS = ("Wafer ID", "Lot ID", "PAD Name", "Die Seq", "FIELD X", "FIELD Y", "X(mm)", "Y(mm)")
+REQUIRED_REPORT_COLUMNS = frozenset((*INFO_COLUMNS, "Test Flag"))
+_REPORT_FIELD_KEYS = {normalized(name) for name in REQUIRED_REPORT_COLUMNS} | {
+    "wafer", "waferno", "wafernumber", "lot", "lotno", "lotnumber", "toolserialnumber", "pad",
+    "seq", "diesequence", "diesequenceno", "dieid", "fieldx", "fieldy", "colx", "rowy", "refdiecol", "refdierow",
+}
+
+
+def normalize_info_column_choices(hidden, included=()):
+    """Keep the Spectra Info projection authoritative for both report variants."""
+    report = set(hidden[0]) - REQUIRED_REPORT_COLUMNS
+    return ([report, set(report), set(hidden[2]) - REQUIRED_REPORT_COLUMNS],
+            set(included) - REQUIRED_REPORT_COLUMNS - report)
 
 
 @dataclass(frozen=True)
@@ -22,6 +34,7 @@ class SpectraInfo:
     xy: pd.DataFrame
     raw_order: bool = True
     spectrum_keys: tuple[str, ...] = ()
+    available_reference_columns: tuple[str, ...] = ()
 
     @property
     def without_flags(self):
@@ -110,7 +123,7 @@ def group_rows_in_raw_order(raw, spectra, *, verify_timestamp=True):
 
 
 def build_spectra_info(raw, reference, spectra, *, checked_keys, visible_keys=None,
-                       verify_timestamp=True, flags=None):
+                       verify_timestamp=True, flags=None, reference_columns=None):
     """Return original Raw-order tables, or natural SME order without Raw Data.
 
     Matching uses Wafer/Lot/PAD/Die/FIELD X/FIELD Y, optionally disambiguated by
@@ -131,6 +144,16 @@ def build_spectra_info(raw, reference, spectra, *, checked_keys, visible_keys=No
                  if source.key in required]
         issues, reference = [], pd.DataFrame()
     records, rows, coordinates, keys = [], [], [], []
+    # SME metadata owns these report fields even when Reference supplies aliases.
+    ref_positions = []
+    for column, name in enumerate(reference.columns):
+        key = normalized(name)
+        if key not in _REPORT_FIELD_KEYS and key.removeprefix("ref") not in _REPORT_FIELD_KEYS:
+            ref_positions.append(column)
+    available_reference_columns = tuple(reference.columns[column] for column in ref_positions)
+    if reference_columns is not None:
+        ref_positions = [column for column in ref_positions if reference.columns[column] in reference_columns]
+    reference = reference.iloc[:, ref_positions]
     ref_columns = list(reference.columns)
     for row, sources in pairs:
         if len(sources) != 1:
@@ -149,4 +172,5 @@ def build_spectra_info(raw, reference, spectra, *, checked_keys, visible_keys=No
         rows.append(row)
         keys.append(source.key)
     return SpectraInfo(pd.DataFrame(records, columns=[*INFO_COLUMNS, *ref_columns, "Test Flag"]),
-                       tuple(rows), tuple(issues), pd.DataFrame(coordinates, columns=XY_COLUMNS), raw_order, tuple(keys))
+                       tuple(rows), tuple(issues), pd.DataFrame(coordinates, columns=XY_COLUMNS),
+                       raw_order, tuple(keys), available_reference_columns)

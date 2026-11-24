@@ -32,6 +32,7 @@ class AlignmentSheet(QFrame):
         self.vendor = 'Raw'
         self._loading = False
         self.source_rows = []
+        self._projection = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16,14,16,12)
         layout.setSpacing(8)
@@ -68,6 +69,19 @@ class AlignmentSheet(QFrame):
 
     def frame(self):
         return self.model.document_frame()
+
+    def hide_source_rows(self, excluded):
+        if not excluded:
+            if self.view.model() is not self.model:
+                self.view.setModel(self.model)
+            return
+        if self._projection is None:
+            from .match_group_ui import ProjectedSheetModel
+
+            self._projection = ProjectedSheetModel(self.model, self)
+        self._projection.set_rows([row for row, source in enumerate(self.source_rows) if source not in excluded])
+        if self.view.model() is not self._projection:
+            self.view.setModel(self._projection)
 
     def columns(self):
         return AlignmentColumns(**{name: combo.currentData() for name, combo in self.pickers.items()})
@@ -282,18 +296,18 @@ class ReferenceAlignmentPage(QWidget):
             pair.addWidget(combo, 1)
             self._sort_options.addLayout(pair)
         sort = QPushButton('Apply sort'); sort.clicked.connect(self.apply_sort); self._sort_actions.addWidget(sort)
-        recover = QPushButton('Recover order')
-        recover.setToolTip('Restore the original row order of the current Ref and Raw tables.')
-        recover.clicked.connect(self.recover_sort)
-        self._sort_actions.addWidget(recover)
         raw_order = QPushButton('Raw order')
-        raw_order.setToolTip('Order linked Ref wafers and uniquely matched Field X/Y points by the current Raw table.')
+        raw_order.setToolTip('Restore the original Raw row order and move linked Ref rows into that order.')
         raw_order.clicked.connect(self.apply_raw_order)
         self._sort_actions.addWidget(raw_order)
         ref_order = QPushButton('Ref Order')
-        ref_order.setToolTip('Order linked Raw wafers and uniquely matched Field X/Y points by the current Ref table.')
+        ref_order.setToolTip('Restore the original Ref row order and move linked Raw rows into that order.')
         ref_order.clicked.connect(self.apply_ref_order)
         self._sort_actions.addWidget(ref_order)
+        recover = QPushButton('Recover order')
+        recover.setToolTip('Restore the original Ref and Raw row orders independently.')
+        recover.clicked.connect(self.recover_sort)
+        self._sort_actions.addWidget(recover)
         draw = QPushButton('Plot XY Bias',objectName='primary'); draw.clicked.connect(self.draw); self._sort_actions.addWidget(draw)
         layout.addLayout(self._sort_toolbar)
         self.status = QLabel()
@@ -630,20 +644,23 @@ class ReferenceAlignmentPage(QWidget):
         self._apply_linked_order(self.raw, self.ref, {raw: ref for ref, raw in self.links.items()})
 
     def _apply_linked_order(self, target, anchor, links):
+        anchor_order = sorted(range(len(anchor.source_rows)), key=anchor.source_rows.__getitem__)
         try:
-            order, keys = linked_row_order(target.frame(), anchor.frame(), target.columns(), anchor.columns(), links)
+            order, keys = linked_row_order(target.frame(), anchor.frame(), target.columns(), anchor.columns(), links,
+                                           anchor_order=anchor_order)
         except ValueError as error:
             self._set_status(str(error))
             return
-        changed = order != list(range(len(order)))
-        if changed:
-            target.reorder(order)
+        changed = False
+        for sheet, rows in ((anchor, anchor_order), (target, order)):
+            if rows != list(range(len(rows))):
+                sheet.reorder(rows)
+                changed = True
         widget = self.ref_wafers if target is self.ref else self.raw_wafers
         list_changed = keys != [key for key in widget.keys() if key is not None]
         self._set_status()
         if changed or list_changed:
-            orders = (keys, self.raw_wafers.keys()) if widget is self.ref_wafers else (self.ref_wafers.keys(), keys)
-            self._rebuild_wafer_lists(orders)
+            self._rebuild_wafer_lists(((), ()))
             self._invalidate()
 
     def draw(self):
@@ -718,10 +735,18 @@ class CoordinateTrendPage(QWidget):
     def _clear_plots(self):
         old = self.scroll.takeWidget()
         if old is not None:
+            # Release legend labels from their Qt layout while their Python
+            # wrappers are still owned by the live plots.
+            for plot in self.plots:
+                plot.getPlotItem().legend.clear()
             old.deleteLater()
         self.plots = []
         self.panels = []
         self.summary.setText('0 linked wafers')
+
+    def closeEvent(self, event):
+        self._clear_plots()
+        super().closeEvent(event)
 
     def relayout(self):
         # Reparent existing panels: column changes do not recreate curves or reset zoom.

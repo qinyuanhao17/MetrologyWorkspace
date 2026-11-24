@@ -1246,14 +1246,14 @@ class MainWindow(QMainWindow):
 
     def _refresh_table_sizes(self):
         """Keep source and visible dimensions current, even before plot recognition."""
-        raw_rows, _ = self.model.document_shape()
+        raw_rows, _ = self.model.data_shape()
         for name, view, model, caption in (
                 ("raw", getattr(self, "sheet", None), self.model, getattr(self, "data_badge", None)),
                 ("reference", getattr(self, "reference_sheet", None), getattr(self, "reference_model", None),
                  getattr(self, "reference_footer", None))):
             if view is None or model is None or caption is None:
                 continue
-            rows, columns = model.document_shape()
+            rows, columns = model.data_shape()
             projected = getattr(view.model(), "rows", None)
             visible = sum(0 < row <= rows for row in projected) if projected is not None else None
             text = table_size_text(rows, columns, visible_rows=visible)
@@ -1279,7 +1279,7 @@ class MainWindow(QMainWindow):
                     setattr(self, attribute, proxy)
                 if model.duplicate_header_count():
                     continue  # Keep the previous safe row map while headers are repaired.
-                frame = model.document_frame()
+                frame = model.document_frame().iloc[:model.data_shape()[0]]
                 positions = self._table_participating_positions(name, frame)
                 proxy.set_rows(sorted(positions))
                 view.setModel(proxy) if view.model() is not proxy else None
@@ -1292,7 +1292,7 @@ class MainWindow(QMainWindow):
                 if self._workbook_selection_applies else self._local_view.get("hide_excluded", False))
 
     def _table_participating_positions(self, name, frame):
-        raw = self.model.document_frame() if name == "reference" else frame
+        raw = self.model.document_frame().iloc[:self.model.data_shape()[0]] if name == "reference" else frame
         return self.participating_positions(raw if len(raw) == len(frame) else frame)
 
     def _selection_scope_changed(self, *_args):

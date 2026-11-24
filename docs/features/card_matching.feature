@@ -115,6 +115,15 @@ Feature: Build a card matching workbook
       Then the current WKB file is replaced without asking for another path
       And Save As can choose a different WKB file for later saves
 
+    # Automation: MatchingWindowTests.test_raw_legend_menu_updates_existing_pmish_match_plots_and_reopens
+    Scenario: Use PMISH as Reference and rename the Raw plot legend
+      Given the engineer selects PMISH as the Match Type
+      When the engineer runs analysis
+      Then the legend distinguishes the Raw and Reference series
+      When the engineer edits Raw Legend in the Analysis menu
+      Then Trend, Group plots and Wafer Mean / Sigma use that label for Raw
+      And reopening the saved Workbook restores the choice and label
+
     Scenario: Compare absolute and percentage bias in one review
       Given DP and EW have valid Reference and Raw Data mappings
       And both absolute and percentage bias are selected

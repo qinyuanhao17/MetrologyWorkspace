@@ -86,7 +86,7 @@ def read_cd_rows(path: str | Path, cancelled=None) -> tuple[str, int, list[dict]
             columns = [cells.get(i, "").strip() for i in range(max(cells) + 1)]
             if len(set(columns)) != len(columns) or not all(columns):
                 raise ValueError(f"First sheet has empty/duplicate header fields: {name}")
-            required = {"ACD_No", "MP_Name", "Chip_X", "Chip_Y", "Result"}
+            required = {"ACD_No", "MP_Name", "Chip_X", "Chip_Y"}
             missing = required - set(columns)
             if missing:
                 raise ValueError("Missing CDSEM1 columns: " + ", ".join(sorted(missing)))

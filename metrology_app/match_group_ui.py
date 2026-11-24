@@ -2,6 +2,7 @@
 from copy import copy, deepcopy
 from bisect import bisect_left, bisect_right
 from collections.abc import Mapping
+from html import escape
 from math import ceil
 import json
 from uuid import uuid4
@@ -416,14 +417,18 @@ class ColumnFilterDialog(QDialog):
         for label, field in (("Contains", self.query), ("Minimum", self.minimum), ("Maximum", self.maximum)):
             form.addRow(label, field)
         layout.addLayout(form)
-        self.search = QLineEdit(placeholderText="Find values (commas or spaces)…")
-        self.search.setToolTip('Search available values. Separate terms with commas (, / ，) or spaces.')
+        self.search = QLineEdit(placeholderText="Find values · Comma exact, space contains…")
+        self.search.setToolTip(
+            "Use commas (, or ，) to match complete values. Use spaces to match anything containing a term. "
+            "Add a trailing comma to match a single value exactly."
+        )
         self.available_pool = _FilterValuePool("Available Values")
         self.filter_pool = _FilterValuePool("Filter Pool")
         self.available_pool.peer = self.filter_pool
         self.filter_pool.peer = self.available_pool
         self.to_filter = QPushButton()
         self.to_available = QPushButton()
+        self.swap_pools = QPushButton("Swap", objectName="swapFilterPools")
         pools = QGridLayout()
         pools.addWidget(QLabel("Available Values"), 0, 0)
         pools.addWidget(QLabel("Filter Pool"), 0, 2)
@@ -439,10 +444,14 @@ class ColumnFilterDialog(QDialog):
                 (self.to_filter, QStyle.StandardPixmap.SP_ArrowRight, "Move to Filter Pool"),
                 (self.to_available, QStyle.StandardPixmap.SP_ArrowLeft, "Move to Available Values")):
             button.setIcon(button.style().standardIcon(icon))
-            button.setFixedWidth(42)
-            button.setAutoDefault(False)
             button.setToolTip(label)
             button.setAccessibleName(label)
+        self.swap_pools.setToolTip("Swap all values between the two pools, including values hidden by search.")
+        self.swap_pools.setAccessibleName("Swap Available Values and Filter Pool")
+        self.swap_pools.clicked.connect(self._swap_pools)
+        for button in (self.to_filter, self.swap_pools, self.to_available):
+            button.setMinimumWidth(66)
+            button.setAutoDefault(False)
             arrows.addWidget(button)
         arrows.addStretch()
         pools.addLayout(arrows, 2, 1)
@@ -482,11 +491,18 @@ class ColumnFilterDialog(QDialog):
         layout.addWidget(buttons)
 
     def _find_values(self, text):
-        terms = text.replace('，', ' ').replace(',', ' ').lower().split()
+        query = text.replace('，', ',').casefold()
+        exact = ',' in query
+        if exact:
+            terms = {term.strip() for term in query.split(',')}
+            terms.discard('')
+        else:
+            terms = query.split()
         with QSignalBlocker(self.available_pool):
             for row in range(self.available_pool.count()):
                 item = self.available_pool.item(row)
-                hidden = bool(terms) and not any(term in item.text().lower() for term in terms)
+                value = item.text().casefold()
+                hidden = bool(terms) and not (value in terms if exact else any(term in value for term in terms))
                 item.setHidden(hidden)
                 if hidden:
                     item.setSelected(False)
@@ -528,7 +544,14 @@ class ColumnFilterDialog(QDialog):
             self.search.clear()
         else:
             selected = self._pool_values - values
-        self._value_filter = [value for value in self._labels if value in selected] or None
+        self._apply_pool_filter([value for value in self._labels if value in selected] or None)
+
+    def _swap_pools(self):
+        self.search.clear()
+        self._apply_pool_filter([value for value in self._labels if value not in self._pool_values])
+
+    def _apply_pool_filter(self, values):
+        self._value_filter = values
         for field in (self.query, self.minimum, self.maximum):
             with QSignalBlocker(field):
                 field.clear()
@@ -1539,7 +1562,7 @@ def set_group_axes(plot, result, data, *, show_wafers=None):
     plot._refresh_group_axis()
 
 
-def draw_group_trend(plot, result, parameter, key="all", card_mode="raw", *, group_only=False, data=None):
+def draw_group_trend(plot, result, parameter, key="all", card_mode="raw", *, group_only=False, data=None, labels=None):
     """Append measurement spans; keep NaN gaps and the shared Trend chrome."""
     plot.clear()
     legend = place_legend_above_frame(plot)
@@ -1549,10 +1572,14 @@ def draw_group_trend(plot, result, parameter, key="all", card_mode="raw", *, gro
     if data is None:
         data = result.group_series(parameter, key, trend=True, card_mode=card_mode)
     plan = result.group_plan
+    if labels is None:
+        reference_label = "PMISH (Reference)" if result.match_type == "PMISH" else result.match_type
+        labels = "PMISH", reference_label
+    raw_label, reference_label = labels
     x = np.arange(1, len(data) + 1, dtype=float)
     reference = plot.plot(x, data["Reference"].to_numpy(float), pen=pg.mkPen("#ed7d31", width=TREND_LINE_WIDTH),
               symbol="o", symbolSize=TREND_MARKER_SIZE, symbolBrush="#ed7d31", symbolPen=None,
-              name=str(result.match_type), connect="finite")
+              name=escape(reference_label), connect="finite")
     reference.setZValue(5)  # Reference stays visible above overlapping Raw/Card curves.
     # Boundaries annotate the ordinal sequence; only missing observations break it.
     groups = data["Group"].tolist()
@@ -1560,7 +1587,10 @@ def draw_group_trend(plot, result, parameter, key="all", card_mode="raw", *, gro
     trend = plot.plot(x, data["Trend value"].to_numpy(float),
               pen=pg.mkPen("#5b9bd5", width=TREND_LINE_WIDTH),
               symbol="o", symbolSize=TREND_MARKER_SIZE, symbolBrush="#5b9bd5", symbolPen=None,
-              name="PMISH", connect="finite")
+              name=escape(raw_label), connect="finite")
+    trend.opts["name"] = raw_label
+    reference.opts["name"] = reference_label
+    plot._match_trend_curves = (trend, reference)
     legend = place_legend_above_frame(plot)
     legend.setLabelTextColor("#30343b")
     offset, labels, boundaries, previous_group = 0, [], [], None

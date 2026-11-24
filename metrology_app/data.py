@@ -18,6 +18,23 @@ def number(series):
     return pd.to_numeric(series, errors="coerce").replace([np.inf, -np.inf], np.nan)
 
 
+def trim_trailing_blank_rows(frame):
+    """Keep positional gaps between records; exclude the trailing empty range."""
+    def populated(value):
+        if isinstance(value, str):
+            return bool(value.strip())
+        missing = pd.isna(value)
+        return not (np.isscalar(missing) and missing) and bool(str(value).strip())
+
+    if not len(frame) or any(populated(value) for value in frame.iloc[-1]):
+        return frame
+    values = frame.to_numpy(copy=False)
+    for row in range(len(frame) - 2, -1, -1):
+        if any(populated(value) for value in values[row]):
+            return frame.iloc[:row + 1]
+    return frame.iloc[:0]
+
+
 def coordinate_name(name):
     return ''.join(char for char in str(name).casefold().replace('µ', 'u').replace('μ', 'u') if char.isalnum())
 

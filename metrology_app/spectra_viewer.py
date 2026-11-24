@@ -260,6 +260,7 @@ class SpectraViewerWindow(QMainWindow):
         self.test_flags = {}
         self.edit_history = QUndoStack(self)
         self.info_deleted_columns = [set(), set(), set()]
+        self.info_included_columns = set()
         self.info_columns_configured = False
         self.spec_save_type = "embedded"
         self._unavailable_paths = {}
@@ -267,6 +268,7 @@ class SpectraViewerWindow(QMainWindow):
         self.test_flag_values = [0, 1, -1]
         self.test_flag_grouping = ["wafer", "lot", "pad"]
         self._spectra_info_source = None
+        self._spectra_info_reference_columns = None
         self.info_window = None
         self._info_refresh_timer = QTimer(self, singleShot=True, interval=0)
         self._info_refresh_timer.timeout.connect(self._refresh_spectra_info)
@@ -1357,9 +1359,10 @@ class SpectraViewerWindow(QMainWindow):
                                       search=view.get("search", ""), hide_excluded=view.get("hide_excluded", False),
                                       context=view.get("context"))
 
-    def set_spectra_info_source(self, source):
+    def set_spectra_info_source(self, source, *, reference_columns=None):
         """Bind current original-order Raw Data and row-aligned Reference frames."""
         self._spectra_info_source = source
+        self._spectra_info_reference_columns = reference_columns
         self._refresh_placeholder()
         self.schedule_spectra_info_refresh()
 
@@ -1367,13 +1370,21 @@ class SpectraViewerWindow(QMainWindow):
         """Coalesce source edits without changing Spectra participation or plots."""
         self._info_refresh_timer.start()
 
+    def schedule_spectra_info_mapping_refresh(self, first, last):
+        if first.column() == 0 or first.column() <= 2 <= last.column():
+            self.schedule_spectra_info_refresh()
+
     def spectra_info(self):
         from .spectra_info import build_spectra_info
         sources = self.catalog.spectra
         raw, reference = self._spectra_info_source() if self._spectra_info_source is not None else (None, None)
+        defaults = self._spectra_info_reference_columns
+        columns = defaults() if defaults is not None else None
+        if columns is not None:
+            columns = set(columns) | self.info_included_columns
         return build_spectra_info(raw, reference, sources, checked_keys=self._checked_keys,
                                   visible_keys=self._checked_keys, verify_timestamp=self.verify_spectra_time_action.isChecked(),
-                                  flags=self.test_flags)
+                                  flags=self.test_flags, reference_columns=columns)
 
     def spectra_group_rows(self):
         from .spectra_info import group_rows_in_raw_order
@@ -1441,22 +1452,28 @@ class SpectraViewerWindow(QMainWindow):
 
     def delete_info_columns(self, tab, columns):
         hidden = [set(names) for names in self.info_deleted_columns]
-        hidden[tab].update(columns)
+        hidden[0 if tab == 1 else tab].update(columns)
         self.set_info_columns(hidden, "Delete report columns")
 
     def restore_info_columns(self, tab, columns):
         hidden = [set(names) for names in self.info_deleted_columns]
-        hidden[tab].difference_update(columns)
-        self.set_info_columns(hidden, "Restore report columns")
+        columns = set(columns)
+        hidden[0 if tab == 1 else tab].difference_update(columns)
+        included = self.info_included_columns | columns if tab != 2 else self.info_included_columns
+        self.set_info_columns(hidden, "Restore report columns", included=included)
 
-    def set_info_columns(self, hidden, title="Choose report columns"):
-        previous = [set(names) for names in self.info_deleted_columns]
-        if hidden != previous:
-            self.record_edit(title, lambda: self._apply_info_columns(previous),
-                             lambda: self._apply_info_columns(hidden))
+    def set_info_columns(self, hidden, title="Choose report columns", *, included=None):
+        from .spectra_info import normalize_info_column_choices
 
-    def _apply_info_columns(self, hidden):
+        previous = ([set(names) for names in self.info_deleted_columns], set(self.info_included_columns))
+        updated = normalize_info_column_choices(hidden, previous[1] if included is None else included)
+        if updated != previous:
+            self.record_edit(title, lambda: self._apply_info_columns(*previous),
+                             lambda: self._apply_info_columns(*updated))
+
+    def _apply_info_columns(self, hidden, included):
         self.info_deleted_columns = [set(names) for names in hidden]
+        self.info_included_columns = set(included)
         self.stateChanged.emit()
         self._info_refresh_timer.stop()
         self._refresh_spectra_info()

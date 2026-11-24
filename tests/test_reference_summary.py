@@ -136,7 +136,7 @@ class ReferenceSummaryTests(unittest.TestCase):
     def test_ref_save_suggests_wafer_and_date_and_writes_only_the_workspace(self):
         from unittest.mock import patch
         from PyQt6.QtCore import QDateTime
-        from PyQt6.QtWidgets import QDateTimeEdit, QDialog, QDialogButtonBox, QFileDialog, QLabel
+        from PyQt6.QtWidgets import QDialog, QFileDialog
 
         window, reopened = ReferenceSummaryWindow(), ReferenceSummaryWindow()
         for item in (window, reopened):
@@ -144,19 +144,6 @@ class ReferenceSummaryTests(unittest.TestCase):
             self.addCleanup(item.deleteLater)
             self.addCleanup(item.close)
         now = QDateTime.fromString("2026-11-21 22:03:59", "yyyy-MM-dd HH:mm:ss")
-        edited = QDateTime.fromString("2026-11-19 14:07:26", "yyyy-MM-dd HH:mm:ss")
-        observed = []
-
-        def accept_name(dialog):
-            timestamp = dialog.findChild(QDateTimeEdit)
-            preview = dialog.findChild(QLabel, "FileNamePreview")
-            observed.append((timestamp.text(), preview.text()))
-            timestamp.setDateTime(edited)
-            observed.append(preview.text())
-            dialog.findChild(QDialogButtonBox).button(
-                QDialogButtonBox.StandardButton.Ok
-            ).click()
-            return dialog.result()
 
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -166,24 +153,21 @@ class ReferenceSummaryTests(unittest.TestCase):
             window.set_source_files([source])
             original = window.workspace_snapshot()
             with (patch.object(QDateTime, "currentDateTime", return_value=now),
-                  patch.object(QDialog, "exec", accept_name),
+                  patch.object(QDialog, "exec") as naming,
                   patch.object(QFileDialog, 'getSaveFileName', return_value=('', ''))):
                 self.assertIsNone(window.save_reference())
-            self.assertEqual(observed[0], (
-                "2026-11-21 22:03",
-                "NOVA_Wafer-W01_Lot-L03_PAD-PAD1_20261121_2203.ref",
-            ))
-            self.assertEqual(observed[1], "NOVA_Wafer-W01_Lot-L03_PAD-PAD1_20261119_1407.ref")
+            naming.assert_not_called()
             self.assertEqual(window.workspace_snapshot().states, original.states)
 
-            name = 'NOVA_Wafer-W01_Lot-L03_PAD-PAD1_20261119_1407.ref'
+            name = 'NOVA_Wafer-W01_Lot-L03_PAD-PAD1_20261121_2203.ref'
             path = root / name
             unrelated = path.with_suffix('.txt')
             unrelated.write_text('Keep this note', encoding='utf-8')
             with (patch.object(QDateTime, "currentDateTime", return_value=now),
-                  patch.object(QDialog, "exec", accept_name),
+                  patch.object(QDialog, "exec") as naming,
                   patch.object(QFileDialog, 'getSaveFileName', return_value=(str(path), '')) as dialog):
                 self.assertEqual(window.save_reference(), path)
+            naming.assert_not_called()
             self.assertEqual(Path(dialog.call_args.args[2]).name, name)
             self.assertEqual(unrelated.read_text(encoding='utf-8'), 'Keep this note')
             self.assertEqual(list(root.glob('*.txt')), [unrelated])

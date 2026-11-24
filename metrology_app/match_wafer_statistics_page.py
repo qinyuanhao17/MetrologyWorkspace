@@ -1,5 +1,7 @@
 """Wafer Mean, Sigma and Bias plots for the Match Workbook result area."""
 
+from html import escape
+
 import numpy as np
 import pyqtgraph as pg
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
@@ -36,6 +38,7 @@ class MatchWaferStatisticsPage(QWidget):
         self.data_point_edits = None
         self.layouts = {}
         self.label_options = {"pad": True, "lot": True}
+        self.raw_legend = ""
         self.plot_type = self.DEFAULT_PLOT_TYPE
         self._dirty = True
         self._render_timer = QTimer(self, interval=0, singleShot=True)
@@ -93,6 +96,13 @@ class MatchWaferStatisticsPage(QWidget):
             raise ValueError("Invalid Wafer Mean / Sigma plot type.")
         if plot_type != self.plot_type:
             self.plot_type = plot_type
+            self._dirty = True
+            if self.isVisible():
+                self._render_timer.start()
+
+    def set_raw_legend(self, label):
+        if label != self.raw_legend:
+            self.raw_legend = label
             self._dirty = True
             if self.isVisible():
                 self._render_timer.start()
@@ -279,9 +289,11 @@ class MatchWaferStatisticsPage(QWidget):
         }
 
     def _reference_raw_bars(self, values, rows):
+        raw = self.raw_legend or "Raw Data"
+        reference = "Reference (Ref)" if raw.casefold() == "reference" else "Reference"
         return [
-            (values[0], self.REFERENCE_COLOR, "Reference", rows),
-            (values[1], self.RAW_COLOR, "Raw Data", rows),
+            (values[0], self.REFERENCE_COLOR, reference, rows),
+            (values[1], self.RAW_COLOR, raw, rows),
         ]
 
     def _build_plot(self, parameter, kind, statistic, spans, values, definitions,
@@ -356,7 +368,7 @@ class MatchWaferStatisticsPage(QWidget):
             if self.plot_type == "line":
                 item = plot.plot(x, series, connect="finite", pen=pg.mkPen(color, width=TREND_LINE_WIDTH),
                                  symbol="o", symbolSize=TREND_MARKER_SIZE, symbolBrush=color, symbolPen=None)
-                if label == "Reference":
+                if color == self.REFERENCE_COLOR:
                     item.setZValue(5)
                 plot.set_point_rows(item.scatter, rows)
             else:
@@ -369,7 +381,7 @@ class MatchWaferStatisticsPage(QWidget):
                 item._statistics_bases = x
                 item._statistics_offset = len(bars) - (len(definitions) - 1) / 2
                 bars.append(item)
-            legend.addItem(item, label)
+            legend.addItem(item, escape(label))
             statistics.append((label, series))
         plot.addItem(pg.InfiniteLine(
             pos=0, angle=0,

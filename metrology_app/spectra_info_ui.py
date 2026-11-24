@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (QApplication, QDialog, QDialogButtonBox, QFileDialo
 
 from .appearance import fit_window_to_screen
 from .settings import apply_theme
+from .spectra_info import INFO_COLUMNS, REQUIRED_REPORT_COLUMNS
 from .table_clipboard import attach_copy_feedback
 from .table_selection import RangeSelectionTableView
 from .widgets import CheckableListWidget, ScrollSafeComboBox
@@ -57,6 +58,9 @@ class SpectraInfoWindow(QMainWindow):
         refresh = QPushButton("Refresh")
         refresh.clicked.connect(self.refresh)
         tools.addWidget(refresh)
+        self.columns_button = QPushButton("Choose Columns…", objectName="spectraInfoChooseColumns")
+        self.columns_button.clicked.connect(self.open_column_picker)
+        tools.addWidget(self.columns_button)
         self.copy_button = QPushButton("Copy Table")
         self.export_button = QPushButton("Export CSV…", objectName="primary")
         self.copy_button.clicked.connect(self.copy_table)
@@ -107,6 +111,8 @@ class SpectraInfoWindow(QMainWindow):
             self.result = None
             frames, problems = (pd.DataFrame(), pd.DataFrame(), pd.DataFrame()), (str(error),)
         self.source_columns = [tuple(frame.columns) for frame in frames]
+        if self.result is not None:
+            self.source_columns[0] = (*INFO_COLUMNS, *self.result.available_reference_columns)
         for tab, (model, table, frame) in enumerate(zip(self.models, self.tables, frames)):
             frame = frame.drop(columns=list(self.viewer.info_deleted_columns[tab]), errors="ignore")
             if not model.frame.equals(frame):
@@ -139,9 +145,10 @@ class SpectraInfoWindow(QMainWindow):
         if 0 <= column < len(frame.columns):
             selected = [index.column() for index in self.tables[tab].selectionModel().selectedColumns()]
             columns = sorted(selected) if column in selected else [column]
-            names = [frame.columns[i] for i in columns]
-            menu.addAction("Delete Column" if len(names) == 1 else "Delete Columns",
-                           lambda: self.viewer.delete_info_columns(tab, names))
+            names = [frame.columns[i] for i in columns if frame.columns[i] not in REQUIRED_REPORT_COLUMNS]
+            if names:
+                menu.addAction("Delete Column" if len(names) == 1 else "Delete Columns",
+                               lambda: self.viewer.delete_info_columns(tab, names))
             if header:
                 copy = menu.addAction("Copy Column" if len(columns) == 1 else "Copy Columns",
                                       lambda: self._copy_frame(frame.iloc[:, columns]))
@@ -167,36 +174,69 @@ class SpectraInfoWindow(QMainWindow):
         dialog.setWindowTitle("Choose Spectra Info columns")
         layout = QVBoxLayout(dialog)
         tabs = QTabWidget()
-        lists = []
-        for tab, columns in enumerate(self.source_columns):
+        lists = {}
+        visible = {tab: set(self.models[tab].frame.columns) for tab in (0, 2)}
+        for tab in (0, 2):
             choices = CheckableListWidget()
-            hidden = self.viewer.info_deleted_columns[tab]
-            for name in dict.fromkeys(columns):
+            for name in dict.fromkeys(self.source_columns[tab]):
                 item = QListWidgetItem(name)
-                item.setCheckState(Qt.CheckState.Unchecked if name in hidden else Qt.CheckState.Checked)
+                if name in REQUIRED_REPORT_COLUMNS:
+                    item.setCheckState(Qt.CheckState.Checked)
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
+                    item.setToolTip("Required column")
+                else:
+                    item.setCheckState(Qt.CheckState.Checked if name in visible[tab] else Qt.CheckState.Unchecked)
                 choices.addItem(item)
             tabs.addTab(choices, self.tabs.tabText(tab))
-            lists.append(choices)
-        tabs.setCurrentIndex(self.tabs.currentIndex())
-        layout.addWidget(tabs)
+            lists[tab] = choices
+        tabs.setCurrentIndex(int(self.tabs.currentIndex() == 2))
+        layout.addWidget(tabs, 1)
+
+        def set_column_checks(state):
+            choices = tabs.currentWidget()
+            with QSignalBlocker(choices):
+                for row in range(choices.count()):
+                    item = choices.item(row)
+                    if item.flags() & Qt.ItemFlag.ItemIsUserCheckable:
+                        item.setCheckState(state)
+
+        actions = QHBoxLayout()
+        for label, state, tip in (
+            ("All", Qt.CheckState.Checked, "Select all columns on this tab"),
+            ("None", Qt.CheckState.Unchecked, "Keep only the required columns on this tab"),
+        ):
+            button = QPushButton(label)
+            button.setAutoDefault(False)
+            button.setToolTip(tip)
+            button.clicked.connect(lambda _checked, state=state: set_column_checks(state))
+            actions.addWidget(button)
+        actions.addStretch()
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
         buttons.addButton("Apply", QDialogButtonBox.ButtonRole.AcceptRole)
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
+        actions.addWidget(buttons)
+        layout.addLayout(actions)
 
         def finished(code):
             self.column_picker = None
             if code == QDialog.DialogCode.Accepted:
                 hidden = [set(names) for names in self.viewer.info_deleted_columns]
-                for tab, choices in enumerate(lists):
+                included = set(self.viewer.info_included_columns)
+                for tab, choices in lists.items():
                     for row in range(choices.count()):
                         item = choices.item(row)
-                        if item.checkState() == Qt.CheckState.Checked:
-                            hidden[tab].discard(item.text())
+                        name = item.text()
+                        checked = item.checkState() == Qt.CheckState.Checked
+                        if checked == (name in visible[tab]):
+                            continue
+                        if checked:
+                            hidden[tab].discard(name)
+                            if tab == 0:
+                                included.add(name)
                         else:
-                            hidden[tab].add(item.text())
-                self.viewer.set_info_columns(hidden)
+                            hidden[tab].add(name)
+                self.viewer.set_info_columns(hidden, included=included)
             if not self.viewer.info_columns_configured:
                 self.viewer.info_columns_configured = True
                 self.viewer.stateChanged.emit()

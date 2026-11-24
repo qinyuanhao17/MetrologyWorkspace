@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
     QStackedWidget, QVBoxLayout, QWidget,
 )
 
-from .matching import MatchWorkbook
+from .matching import MATCH_TYPES, MatchWorkbook
 from .matching.analysis import _normalized_trend_axis_settings
 from .settings import apply_theme, recent_wkb_paths
 from .workspace_store import MATCH_FILTER, load_workspace, workspace_kind
@@ -83,7 +83,7 @@ def analysis_settings(state=None, *, allow_empty_bias=False):
     primary = state.get("bias_mode", "absolute")
     if primary not in views and views:
         primary = views[0]
-    if match_type not in ("KLA", "NOVA", "TEM") or result_mode not in ("preview", "final"):
+    if match_type not in MATCH_TYPES or result_mode not in ("preview", "final"):
         raise ValueError("Choose a valid Match Type and Preview or Final.")
     if (not views and not allow_empty_bias) or len(set(views)) != len(views) or any(view not in ("absolute", "percent") for view in views):
         raise ValueError("Select Bias, Bias %, or both.")
@@ -108,7 +108,6 @@ class WorkbookStartupDialog(QDialog):
         root = QVBoxLayout(self)
         root.setContentsMargins(22, 20, 22, 18)
         root.setSpacing(14)
-        root.addWidget(QLabel("Match Workbook", objectName="title"))
         self.stack = QStackedWidget()
         root.addWidget(self.stack, 1)
         self._build_choices()
@@ -187,7 +186,7 @@ class WorkbookStartupDialog(QDialog):
         form.setContentsMargins(18, 16, 18, 16)
         form.setVerticalSpacing(12)
         self.match_type = QComboBox()
-        self.match_type.addItems(["KLA", "NOVA", "TEM"])
+        self.match_type.addItems(MATCH_TYPES)
         form.addRow("Match Type", self.match_type)
         bias_row = QWidget()
         bias_layout = QHBoxLayout(bias_row)

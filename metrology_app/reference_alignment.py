@@ -94,8 +94,8 @@ def _field_positions(frame, columns, rows):
     return {tuple(pair): row for pair, row, valid in zip(values, rows, unique) if valid}
 
 
-def linked_row_order(target, anchor, target_columns, anchor_columns, links):
-    """Order rows in the target table using the linked wafers in the anchor table."""
+def linked_row_order(target, anchor, target_columns, anchor_columns, links, *, anchor_order=None):
+    """Pair the current rows and project them into the requested anchor order."""
     if not links:
         raise ValueError('Link at least one Ref/Raw wafer pair first.')
     target_groups = wafer_groups(target, target_columns)
@@ -104,7 +104,10 @@ def linked_row_order(target, anchor, target_columns, anchor_columns, links):
     if len(by_anchor) != len(links) or not links.keys() <= target_groups.keys() or not by_anchor.keys() <= anchor_groups.keys():
         raise ValueError('Rebuild the one-to-one wafer links before reordering.')
 
-    keys, order = [], []
+    if anchor_order is None:
+        anchor_order = range(len(anchor))
+    position = {row: index for index, row in enumerate(anchor_order)}
+    at_anchor = {}
     for anchor_key, anchor_rows in anchor_groups.items():
         if anchor_key not in by_anchor:
             continue
@@ -112,19 +115,19 @@ def linked_row_order(target, anchor, target_columns, anchor_columns, links):
         target_rows = target_groups[target_key]
         target_fields = _field_positions(target, target_columns, target_rows)
         anchor_fields = _field_positions(anchor, anchor_columns, anchor_rows)
-        matched = [target_fields[field] for field in anchor_fields if field in target_fields]
-        keys.append(target_key)
-        # Equal-length pairs are compared by row position. Only a full match
-        # can replace that order without shifting ambiguously matched points.
-        if matched and (len(target_rows) != len(anchor_rows) or len(matched) == len(target_rows)):
-            matched_set = set(matched)
-            target_rows = [*matched, *(row for row in target_rows if row not in matched_set)]
-        order.extend(target_rows)
-    for target_key, rows in target_groups.items():
-        if target_key not in links:
-            keys.append(target_key)
-            order.extend(rows)
-    return order, keys
+        matched = {row: target_fields[field] for field, row in anchor_fields.items() if field in target_fields}
+        # Preserve current positional pairs when equal-length wafers cannot all match uniquely.
+        if len(target_rows) == len(anchor_rows) and len(matched) < len(target_rows):
+            matched = dict(zip(anchor_rows, target_rows))
+        at_anchor.update({row: [target_row] for row, target_row in matched.items()})
+        matched_rows = set(matched.values())
+        last = max(anchor_rows, key=position.__getitem__)
+        at_anchor.setdefault(last, []).extend(row for row in target_rows if row not in matched_rows)
+
+    order = [target_row for row in anchor_order for target_row in at_anchor.get(row, ())]
+    order.extend(row for key, rows in target_groups.items() if key not in links for row in rows)
+    key_by_row = {row: key for key, rows in target_groups.items() for row in rows}
+    return order, list(dict.fromkeys(key_by_row[row] for row in order))
 
 
 def _absolute_xy(label, frame, columns, rows, source_rows):
@@ -201,18 +204,21 @@ def coordinate_bias(ref, raw, ref_columns, raw_columns, links, *,
     return results
 
 
+def ordered_source_pairs(results):
+    return sorted(
+        (raw, ref) for _, _, result in results
+        for raw, ref in zip(result['Raw source row'], result['Ref source row'])
+    )
+
+
 def aligned_reference_data(ref, raw, raw_columns, results, ref_source_rows, raw_source_rows):
     """Build both paired tables and a full-length, Raw-indexed Ref clipboard table."""
     ref_positions = {source: index for index, source in enumerate(ref_source_rows)}
     raw_positions = {source: index for index, source in enumerate(raw_source_rows)}
-    pairs = sorted(
-        (d, raw_positions[d], ref_positions[r])
-        for _, _, result in results
-        for r, d in zip(result['Ref source row'], result['Raw source row'])
-    )
-    source_rows, raw_positions, ref_positions = zip(*pairs) if pairs else ((), (), ())
-    raw_values = raw.iloc[list(raw_positions)].reset_index(drop=True)
-    ref_values = ref.iloc[list(ref_positions)].reset_index(drop=True)
+    pairs = ordered_source_pairs(results)
+    source_rows = [raw for raw, _ in pairs]
+    raw_values = raw.iloc[[raw_positions[raw] for raw in source_rows]].reset_index(drop=True)
+    ref_values = ref.iloc[[ref_positions[ref] for _, ref in pairs]].reset_index(drop=True)
     names = {compact(column): column for column in raw}
     unit = raw_columns.unit
     axes = tuple(f'{axis}({unit})' if unit else f'Absolute {axis}' for axis in ('X', 'Y'))

@@ -101,7 +101,7 @@ def validate_view(frame, state):
     view = {name: deepcopy(state.get(name, default)) for name, default in
             (("filters", []), ("row_bools", []), ("group_bools", []),
              ("show", "all"), ("search", ""), ("hide_excluded", False))}
-    if (view["show"] not in ("all", "filtered", "checked", "unchecked")
+    if (view["show"] not in ("all", "filtered", "unfiltered", "checked", "unchecked")
             or not isinstance(view["search"], str) or type(view["hide_excluded"]) is not bool):
         raise ValueError("Invalid selection view or Hide excluded rows setting.")
     groups, rows, joins = view["filters"], view["row_bools"], view["group_bools"]

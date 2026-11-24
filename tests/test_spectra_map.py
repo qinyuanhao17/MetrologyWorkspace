@@ -336,8 +336,10 @@ class SpectraMapWindowTests(unittest.TestCase):
         self.assertEqual(selected[-1], set())
         self.assertEqual(view.viewRange(), ranges)
         drag((-10, 25), (10, 40), Qt.KeyboardModifier.ControlModifier)
-        self.assertEqual(selected[-1], set())
-        self.assertLess(view.viewRange()[0][1] - view.viewRange()[0][0], ranges[0][1] - ranges[0][0])
+        self.assertEqual(selected[-1], {spectra[2].key})
+        drag((-30, -20), (-10, 0), Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual(selected[-1], {spectra[i].key for i in (0, 2, 3)})
+        self.assertEqual(view.viewRange(), ranges)
 
     def test_map_uses_equal_aspect_and_infers_common_wafer_diameters(self):
         small = replace(make_spectrum(1, wafer="W1"), x_mm=40.0, y_mm=0.0)
