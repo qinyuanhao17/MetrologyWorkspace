@@ -31,6 +31,11 @@ def snapshot(window):
         options = {"enabled": True, "follow_groups": True, "labels_enabled": True, "follow_labels": True,
                    "labels": {"pad": True, "lot": True}, "workbook_labels": {"pad": True, "lot": True},
                    "local_applied": False, "local_identities": None, "grouping": None, "flags": []}
+        saved = window._saved_analysis_ui or {}
+        axis_mode = saved.get("trend_axis_mode", axis_mode)
+        axis_ratio = saved.get("trend_axis_ratio", axis_ratio)
+        die_column = saved.get("die_columns", {}).get("raw", die_column)
+        options = saved.get("analysis_options") or options
     else:
         trend = analysis.sequence_page
         axis_mode, axis_ratio = trend.axis_mode_value(), trend.axis_ratio_limit()
@@ -287,21 +292,10 @@ def install(window, prepared):
     page._set_output_indexes(page.output_picker.findData(str(active)) if active is not None else -1)
     page._rebuild_wafer_lists(page._dataset.orders)
     trend.source_output = active
-    trend.show_results(page.results)
+    trend.show_results(page.results, defer=ui["tab"] != 2)
     page.active_output_changed.emit(active)
-    display_options = window.analysis.display_options
-    analysis_options = ui.get("analysis_options")
-    if not analysis_options:
-        display_options.restore({})
+    window._saved_analysis_ui = ui
     page.alignment_changed.emit()
-    analysis = window.analysis
-    die_columns = ui.get("die_columns", {})
-    analysis._restore_die_picker(analysis.die_picker, die_columns.get("raw"))
-    analysis.update_plan()
-    sequence = analysis.sequence_page
-    sequence.restore_axis_ratio(ui.get("trend_axis_ratio", MAGNITUDE_RATIO_LIMIT))
-    sequence.restore_axis_mode(ui.get("trend_axis_mode", "auto"))
-    if analysis_options:
-        display_options.restore(analysis_options)
-        display_options.refresh()
+    window._restore_analysis_controls()
     window.tabs.setCurrentIndex(ui["tab"])
+    window._analysis_tab_opened(ui["tab"])

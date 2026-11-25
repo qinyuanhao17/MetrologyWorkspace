@@ -136,6 +136,8 @@ def snapshot(viewer):
           "views": {name: action.isChecked() for name, action in viewer.view_actions.items()},
           "colors": [[asdict(key), color.rgba()] for key, color in viewer._channel_colors.items()],
           "hidden": [asdict(key) for key in viewer._hidden_channel_keys],
+          "hidden_wafers": {section: [list(wafer) for wafer in sorted(wafers)]
+                            for section, wafers in viewer._hidden_wafers.items() if wafers},
           "expanded": [list(path) for path in viewer._expanded_paths],
           "ranges": {name: {**_view_state(panel.plot.getViewBox()),
                              "secondary": _view_state(panel.secondary) if panel.secondary is not None else None}
@@ -204,6 +206,13 @@ def _validate_ui(viewer, draft):
             raise ValueError("Invalid spectrum selection.")
     if not isinstance(ui.get('highlighted',[]),list) or any(not isinstance(k,str) for k in ui.get('highlighted',[])):
         raise ValueError('Invalid highlighted spectra.')
+    hidden_wafers = ui.get("hidden_wafers", {})
+    if (not isinstance(hidden_wafers, dict)
+            or any(section not in viewer.legends or not isinstance(wafers, list)
+                   or any(not isinstance(wafer, list) or len(wafer) != 3
+                          or not all(isinstance(part, str) for part in wafer) for wafer in wafers)
+                   for section, wafers in hidden_wafers.items())):
+        raise ValueError("Invalid Spectra wafer visibility.")
     views = ui.get("views", {})
     if set(views) != set(viewer.view_actions) or any(type(value) is not bool for value in views.values()):
         raise ValueError("Invalid Spectra views.")
@@ -336,6 +345,8 @@ def restore(viewer, draft):
         action.blockSignals(False)
     viewer._channel_colors = {_key(key): QColor.fromRgba(rgba) for key, rgba in ui.get("colors", ())}
     viewer._hidden_channel_keys = {_key(key) for key in ui.get("hidden", ())}
+    viewer._hidden_wafers = {section: {tuple(wafer) for wafer in wafers}
+                            for section, wafers in ui.get("hidden_wafers", {}).items()}
     viewer._expanded_paths = {tuple(path) for path in ui.get("expanded", ())}
     viewer._rebuild_tree(remember_expansion=False)
     viewer._update_baseline_marker()

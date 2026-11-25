@@ -11,6 +11,9 @@ from .reference_merge import compact
 from .file_paths import filesystem_path
 
 
+MM_PER_COORDINATE_UNIT = {"mm": 1., "µm": .001, "um": .001, "nm": .000001}
+
+
 @dataclass(frozen=True)
 class AlignmentColumns:
     wafer: str | None = None
@@ -172,7 +175,7 @@ def paired_wafer_rows(ref, raw, ref_columns, raw_columns, links, *, notes=None):
 def coordinate_bias(ref, raw, ref_columns, raw_columns, links, *,
                     ref_source_rows=None, raw_source_rows=None, notes=None):
     """Compare explicit wafer links; with notes, retain independently comparable pairs."""
-    scales = {"mm": 1., "µm": .001, "um": .001, "nm": .000001}
+    scales = MM_PER_COORDINATE_UNIT
     for label, frame, columns in (("Ref", ref, ref_columns), ("Raw", raw, raw_columns)):
         if columns.unit not in scales:
             raise ValueError(f"{label}: choose the coordinate unit (mm, µm or nm).")
@@ -182,6 +185,8 @@ def coordinate_bias(ref, raw, ref_columns, raw_columns, links, *,
     ref_source_rows = list(range(2, len(ref) + 2)) if ref_source_rows is None else ref_source_rows
     raw_source_rows = list(range(2, len(raw) + 2)) if raw_source_rows is None else raw_source_rows
     unit = 'µm' if raw_columns.unit == 'um' else raw_columns.unit
+    map_columns = {"Raw Die Seq": die_sequence_column(raw.columns),
+                   "Raw Field X": raw_columns.field_x, "Raw Field Y": raw_columns.field_y}
     results = []
     for ref_key, raw_key, rr, dr in paired_wafer_rows(ref, raw, ref_columns, raw_columns, links, notes=notes):
         try:
@@ -199,6 +204,9 @@ def coordinate_bias(ref, raw, ref_columns, raw_columns, links, *,
             f"Raw X ({unit})": raw_xy[:, 0], f"Bias X ({unit})": raw_xy[:, 0] - ref_xy[:, 0],
             f"Ref Y ({unit})": ref_xy[:, 1], f"Raw Y ({unit})": raw_xy[:, 1],
             f"Bias Y ({unit})": raw_xy[:, 1] - ref_xy[:, 1]})
+        for label, column in map_columns.items():
+            if column in raw:
+                result[label] = raw[column].iloc[list(dr)].to_numpy()
         result.attrs['unit'] = unit
         results.append((ref_key,raw_key,result))
     return results

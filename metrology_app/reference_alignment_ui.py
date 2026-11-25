@@ -4,7 +4,6 @@ from html import escape
 from pathlib import Path
 
 import numpy as np
-import pyqtgraph as pg
 from PyQt6.QtCore import (QEvent, QItemSelection, QItemSelectionModel, Qt, QSize, QPoint,
                           QSignalBlocker, pyqtSignal)
 from PyQt6.QtGui import QPainter, QPen, QColor, QPainterPath
@@ -17,7 +16,6 @@ from .widgets import CheckableListWidget, LinkedVerticalScroll, ScrollSafeComboB
 from .sheet import SheetModel, SheetView, DuplicateHeaderBanner
 from .appearance import fit_window_to_screen, help_title_label
 from .file_dialogs import choose_folders
-from .plotting import InteractivePlotWidget, PlotPanel, place_legend_above_frame
 from .reference_alignment import (AlignmentColumns, infer_alignment_columns, wafer_groups,
     wafer_row_order, coordinate_row_order, coordinate_bias, load_alignment_output,
     scan_alignment_outputs, aligned_reference_data, linked_row_order)
@@ -685,7 +683,7 @@ class ReferenceAlignmentPage(QWidget):
 
 
 class CoordinateTrendPage(QWidget):
-    def __init__(self):
+    def __init__(self, *, set_point_checks=None, point_records=None):
         super().__init__()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10,12,10,10)
@@ -704,6 +702,7 @@ class CoordinateTrendPage(QWidget):
         self.columns.currentIndexChanged.connect(self.relayout)
         tools.addWidget(self.columns)
         self._results = []
+        self._plot_pending = False
         self._checked_positions = None
         self.order_buttons = {}
         self._order = 'sorted'
@@ -715,6 +714,14 @@ class CoordinateTrendPage(QWidget):
             control.clicked.connect(lambda _checked, value=order: self.set_order(value))
             self.order_buttons[order] = control
             tools.addWidget(control)
+        self.die_map_button = QPushButton("Die Map")
+        self.die_map_button.setEnabled(False)
+        self.die_map_button.clicked.connect(self.open_die_map)
+        tools.addWidget(self.die_map_button)
+        self._die_map = None
+        self.data_point_edits = None
+        self._set_point_checks = set_point_checks
+        self._point_records = point_records
         tools.addStretch()
         self.summary = QLabel('0 linked wafers', objectName='accent')
         tools.addWidget(self.summary)
@@ -728,6 +735,11 @@ class CoordinateTrendPage(QWidget):
 
     def clear(self):
         self._results = []
+        self._plot_pending = False
+        self._discard_die_map()
+        self.die_map_button.setEnabled(False)
+        if self.data_point_edits is not None:
+            self.data_point_edits.reset()
         for control in self.order_buttons.values():
             control.setEnabled(False)
         self._clear_plots()
@@ -745,6 +757,7 @@ class CoordinateTrendPage(QWidget):
         self.summary.setText('0 linked wafers')
 
     def closeEvent(self, event):
+        self._discard_die_map()
         self._clear_plots()
         super().closeEvent(event)
 
@@ -752,6 +765,7 @@ class CoordinateTrendPage(QWidget):
         # Reparent existing panels: column changes do not recreate curves or reset zoom.
         old = self.scroll.takeWidget()
         content = QWidget()
+        content.installEventFilter(self)
         grid = QGridLayout(content)
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setSpacing(6)
@@ -770,55 +784,126 @@ class CoordinateTrendPage(QWidget):
             panel.setFixedSize(width, 350)
 
     def eventFilter(self, watched, event):
-        if watched is self.scroll.viewport() and event.type() == QEvent.Type.Resize:
+        kind = event.type()
+        if watched is self.scroll.viewport() and kind == QEvent.Type.Resize:
             self._size_panels()
+        elif (kind == QEvent.Type.MouseButtonPress
+              and watched in (self.scroll.viewport(), self.scroll.widget())
+              and event.button() == Qt.MouseButton.LeftButton
+              and event.modifiers() == Qt.KeyboardModifier.NoModifier
+              and watched.childAt(event.position().toPoint()) is None
+              and self.data_point_edits is not None):
+            self.data_point_edits.clear_highlight()
         return super().eventFilter(watched, event)
 
     def reset_views(self):
         for plot in self.plots:
             plot.getViewBox().autoRange()
 
-    def show_results(self, results):
+    def show_results(self, results, *, defer=False):
+        if results is not self._results:
+            self._discard_die_map()
+            if self.data_point_edits is not None:
+                self.data_point_edits.reset()
         self._results = results
         self._checked_positions = None
-        for control in self.order_buttons.values():
+        self.die_map_button.setEnabled(any(
+            f"Ref X ({frame.attrs.get('unit', 'mm')})" in frame for _, _, frame in results
+        ))
+        for order, control in self.order_buttons.items():
+            control.setChecked(order == self._order)
             control.setEnabled(bool(results))
-        self.set_order(self._order)
+        if defer and results:
+            self._clear_plots()
+            self._plot_pending = True
+            self.summary.setText(f'{len(results)} linked wafers')
+        else:
+            self.set_order(self._order)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._plot_pending:
+            self.set_order(self._order)
+
+    def source_row_positions(self):
+        return {row: index for index, row in enumerate(sorted({
+            row for _, _, frame in self._results for row in frame.get("Raw source row", ())
+        }))}
 
     def refresh_point_checks(self, allowed):
-        self._checked_positions = set(allowed)
+        allowed = set(allowed)
+        if allowed == self._checked_positions:
+            return
+        self._checked_positions = allowed
         for plot in self.plots:
             for curve in plot.listDataItems():
-                values = getattr(curve, "_xy_bias_values", None)
-                if values is None:
-                    continue
-                rows = curve.scatter._selection_rows
-                visible = np.array([row in allowed for row in rows])
-                plot.point_selection.masks.pop(curve, None)
-                curve.setData(x=curve.xData, y=np.where(visible, values, np.nan))
-                plot.point_selection.apply_saved(curve)
+                if hasattr(curve, "_xy_bias_points"):
+                    self._update_bias_curve(plot, curve)
             plot.point_selection.update_highlight()
+        if self._die_map is not None:
+            self._die_map.set_checked_rows(allowed)
+
+    def _update_bias_curve(self, plot, curve):
+        x, y, rows = curve._xy_bias_points
+        plot.point_selection.prepare_item_update(curve)
+        if self._checked_positions is None:
+            indexes = np.arange(len(rows))
+        else:
+            indexes = [index for index, row in enumerate(rows) if row in self._checked_positions]
+        curve.setData(x=x[indexes], y=y[indexes])
+        plot.set_point_rows(curve.scatter, tuple(rows[index] for index in indexes))
+
+    def _discard_die_map(self):
+        if self._die_map is not None:
+            self._die_map.close()
+            self._die_map.deleteLater()
+            self._die_map = None
+
+    def _ensure_point_edits(self):
+        if self.data_point_edits is None and self._set_point_checks is not None:
+            from .plotting.selection import DataPointEdits
+
+            self.data_point_edits = DataPointEdits(self._set_point_checks, records=self._point_records)
+        return self.data_point_edits
+
+    def open_die_map(self):
+        if not self.die_map_button.isEnabled():
+            return
+        if self._die_map is None:
+            from .reference_die_map import AlignmentDieMap
+
+            self._die_map = AlignmentDieMap(self._results, self.source_row_positions(), self,
+                                            data_point_edits=self._ensure_point_edits())
+            self._die_map.set_checked_rows(self._checked_positions)
+        self._die_map.show()
+        self._die_map.raise_()
 
     def set_order(self, order):
+        self._plot_pending = False
         self._order = order
         for value, control in self.order_buttons.items():
             control.setChecked(value == order)
         self._clear_plots()
         source = {'raw': 'Raw source row', 'ref': 'Ref source row'}.get(order)
         results = self._results
-        ordinals = {row: index for index, row in enumerate(sorted({
-            row for _, _, frame in results for row in frame.get("Raw source row", ())
-        }))}
+        if not results:
+            return
+        import pyqtgraph as pg
+
+        from .plotting import InteractivePlotWidget, PlotPanel, place_legend_above_frame
+        from .spectra_plots import DecimalAxisItem
+        self._ensure_point_edits()
+
+        ordinals = self.source_row_positions()
         if source:
             results = sorted(results, key=lambda result: result[2][source].min())
         for ref,raw,frame in results:
             if source:
                 frame = frame.sort_values(source, kind='stable')
             unit = frame.attrs.get('unit','mm')
-            from .spectra_plots import DecimalAxisItem
             plot = InteractivePlotWidget(background='white', axisItems={'left':DecimalAxisItem('left'), 'bottom':DecimalAxisItem('bottom')})
             plot.point_selection.set_data(
-                getattr(self, "data_point_edits", None), ("XY Bias",),
+                self.data_point_edits, ("XY Bias", ref, raw),
             )
             for name in ('left','bottom'):
                 axis = plot.getAxis(name)
@@ -830,7 +915,7 @@ class CoordinateTrendPage(QWidget):
             heading.setStyleSheet('color: #20242a; padding: 6px;')
             heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
             heading.setToolTip(title)
-            plot.setToolTip('Left-drag to select · Ctrl+left-drag to zoom')
+            plot.setToolTip('Left-drag to select · Ctrl+Shift+left-drag to add · Ctrl+left-drag to zoom\nDouble-click to remove · Shift+double-click to uncheck')
             order_label = self.order_buttons[order].text()
             plot.setLabel('left',f'Bias ({unit})',color='#30343b'); plot.setLabel('bottom',f'Paired point ({order_label})',color='#30343b')
             plot.showGrid(x=False,y=True,alpha=.18); plot.addLegend(offset=None,labelTextColor='#333333')
@@ -840,11 +925,8 @@ class CoordinateTrendPage(QWidget):
             if "Raw source row" in frame:
                 rows = [ordinals[row] for row in frame["Raw source row"]]
                 for curve in (x_curve, y_curve):
-                    curve._xy_bias_values = curve.yData.copy()
-                    if self._checked_positions is not None:
-                        visible = np.array([row in self._checked_positions for row in rows])
-                        curve.setData(x=curve.xData, y=np.where(visible, curve._xy_bias_values, np.nan))
-                    plot.set_point_rows(curve.scatter, rows)
+                    curve._xy_bias_points = (curve.xData.copy(), curve.yData.copy(), rows)
+                    self._update_bias_curve(plot, curve)
                 plot.point_selection.update_preview()
             plot.addItem(pg.InfiniteLine(pos=0,angle=0,pen=pg.mkPen('#888888',style=Qt.PenStyle.DashLine)))
             place_legend_above_frame(plot)

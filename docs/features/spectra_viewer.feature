@@ -236,6 +236,31 @@ Feature: Review spectral measurements by wafer
       When the engineer chooses View All
       Then the full measured wavelength range is restored without extra X padding
 
+    Scenario: Add spectra with a second selection box
+      Given spectra are selected in a plot
+      When the engineer drags a box with Ctrl and Shift held
+      Then spectra inside the box are added without zooming
+
+    Scenario: Use spectra commands from the plot menu
+      Given spectra are drawn in the viewer
+      When the engineer right-clicks the plot
+      Then spectrum commands are available alongside plot navigation commands
+      And Fold Tree, Unfold Tree and Delete Tree appear only on the tree menu
+
+    Scenario: Select wafers from a legend
+      Given spectra from different wafers are drawn
+      When the engineer turns a wafer off with Select Wafer in a legend
+      Then only that wafer's curves in the legend section are hidden
+      When the engineer chooses Hide All
+      Then every wafer visibility checkbox in that section is off
+      And spectrum checks and selection are retained
+
+    Scenario: Fit all spectrum plots with one button
+      Given the engineer has zoomed into main and floating spectrum plots
+      When the engineer clicks View All in the viewer header
+      Then every spectrum plot fits its measured wavelengths and both value axes where present
+      And the checked and selected spectra are retained
+
     Scenario: Zoom and enlarge a plot
       Given the engineer has drawn at least one plot
       When the engineer drags a rectangle inside it
@@ -398,6 +423,13 @@ Feature: Review spectral measurements by wafer
       And original measurement arrays and source files remain unchanged
 
   Rule: Wafer maps reflect checked spectra
+
+    Scenario: Control displayed wafer maps from Wafers
+      Given Die Map has spectra from several wafers
+      When the engineer chooses Hide All from Wafers
+      Then all wafer map tiles are hidden and their visibility checkboxes are off
+      When the engineer checks one wafer
+      Then only that wafer map is displayed and the spectrum checks are retained
 
     Scenario: Inspect checked spectra on a wafer
       Given checked spectra have valid millimetre coordinates

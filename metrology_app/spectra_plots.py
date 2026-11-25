@@ -9,6 +9,7 @@ from PyQt6.QtCore import QByteArray, QDataStream, QEvent, QIODevice, Qt, pyqtSig
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QMainWindow,
+    QMenu,
     QFrame,
     QScrollArea,
     QSizePolicy,
@@ -330,25 +331,58 @@ class ResizablePlotSplitter(QSplitter):
         return _ResetHandle(self.orientation(), self)
 
 
+class SpectrumViewMenu(QMenu):
+    """Keep checkable view choices open for successive changes."""
+
+    def mouseReleaseEvent(self, event):
+        action = self.actionAt(event.pos())
+        if (event.button() == Qt.MouseButton.LeftButton and action is not None
+                and action.isEnabled() and action.isCheckable()):
+            action.trigger()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event):
+        action = self.activeAction()
+        if (event.key() == Qt.Key.Key_Space and action is not None
+                and action.isEnabled() and action.isCheckable()):
+            action.trigger()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+
 class DecimalAxisItem(pg.AxisItem):
     """Use plain decimal/scientific labels instead of SI prefixes."""
 
-    def __init__(self, orientation, *, max_labels=None, parent=None):
+    def __init__(self, orientation, *, parent=None):
         super().__init__(orientation, parent=parent)
-        self.max_labels = max_labels
+        if orientation in ("left", "right"):
+            self.setStyle(textFillLimits=[])
 
     def tickStrings(self, values, scale, spacing):
-        labels = [f"{value * scale:.4g}" for value in values]
-        if self.max_labels is None or len(labels) <= self.max_labels:
-            return labels
-        keep = {
-            round(index * (len(labels) - 1) / (self.max_labels - 1))
-            for index in range(self.max_labels)
-        }
-        return [
-            label if index in keep else ""
-            for index, label in enumerate(labels)
-        ]
+        return [f"{value * scale:.4g}" for value in values]
+
+    def generateDrawSpecs(self, painter):
+        specs = super().generateDrawSpecs(painter)
+        if specs is None or self.orientation not in ("left", "right"):
+            return specs
+        axis, ticks, labels = specs
+        line_height = painter.fontMetrics().height() + 1
+        candidates = []
+        for label in labels:
+            rect, _, _ = label
+            margin = max(0, (line_height - rect.height()) / 2)
+            candidates.append((rect.top() - margin, rect.bottom() + margin, label))
+        # Earliest finishing labels leave the most room for later ones.
+        # The stable sort gives major ticks priority when edges coincide.
+        visible, bottom = [], float("-inf")
+        for top, end, label in sorted(candidates, key=lambda candidate: candidate[1]):
+            if top >= bottom:
+                visible.append(label)
+                bottom = end
+        return axis, ticks, visible
 
 
 class SpectrumPlotPanel(QWidget):
@@ -399,18 +433,9 @@ class SpectrumPlotPanel(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        max_labels = 4 if compact else None
-        axes = {
-            "left": DecimalAxisItem("left", max_labels=max_labels),
-            "bottom": DecimalAxisItem(
-                "bottom",
-            ),
-        }
+        axes = {"left": DecimalAxisItem("left"), "bottom": DecimalAxisItem("bottom")}
         if dual:
-            axes["right"] = DecimalAxisItem(
-                "right",
-                max_labels=4 if compact else None,
-            )
+            axes["right"] = DecimalAxisItem("right")
         self.plot = pg.PlotWidget(axisItems=axes)
         self.plot.setMinimumSize(0, 0)
         if compact:
@@ -428,9 +453,9 @@ class SpectrumPlotPanel(QWidget):
         )
         self.plot.getPlotItem().showButtons()
         self.plot.getPlotItem().setMenuEnabled(False, True)
-        self.plot.getPlotItem().vb.getMenu(None).viewAll.triggered.connect(self._auto_range_all)
+        self.plot.getPlotItem().vb.getMenu(None).viewAll.triggered.connect(self.view_all)
         self.plot.getPlotItem().getViewBox().setMouseMode(pg.ViewBox.RectMode)
-        self.plot.getPlotItem().autoBtn.clicked.connect(self._auto_range_all)
+        self.plot.getPlotItem().autoBtn.clicked.connect(self.view_all)
         self.plot.showGrid(x=True, y=True, alpha=0.16)
         layout.addWidget(self.plot, 1)
         self.plot.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
@@ -456,11 +481,16 @@ class SpectrumPlotPanel(QWidget):
 
         def populate():
             for action in actions:
+                child = action.menu()
                 menu.removeAction(action)
-                action.deleteLater()
+                (child if child is not None else action).deleteLater()
             previous = set(menu.actions())
             add_selection_actions(menu, lambda: self._selected_keys, lambda: self._removed_spectra,
-                                  self._remove_spectra, self._restore_spectra, set, self.data_point_edits)
+                                  self._remove_spectra, self._restore_spectra, set, self.data_point_edits,
+                                  include_flags=self.context_menu is None)
+            if self.context_menu is not None:
+                menu.addSeparator()
+                self.context_menu(menu=menu)
             actions[:] = [action for action in menu.actions() if action not in previous]
         menu.aboutToShow.connect(populate)
 
@@ -550,11 +580,7 @@ class SpectrumPlotPanel(QWidget):
             return True
         return super().eventFilter(watched, event)
 
-    def _context_requested(self, position):
-        if self.context_menu is not None:
-            self.context_menu(self.plot.mapToGlobal(position))
-
-    def _auto_range_all(self, *_args):
+    def view_all(self):
         view = self.plot.getPlotItem().getViewBox()
         view.autoRange()
         view.enableAutoRange(axis="y", enable=True)
@@ -594,10 +620,11 @@ class SpectrumPlotPanel(QWidget):
             axis = self.plot.getAxis(axis_name)
             axis.setPen(self._foreground)
             axis.setTextPen(self._foreground)
-        left_width = 32 if self.compact else 40
-        right_width = 6 if self.compact else 40
-        self.plot.getAxis("left").setWidth(left_width)
-        self.plot.getAxis("right").setWidth(right_width)
+        # Use a common margin within each layout so y tick text fits while
+        # the panel frames stay aligned across the splitter.
+        width = max(48, self.fontMetrics().horizontalAdvance("-0.123") + 8)
+        self.plot.getAxis("left").setWidth(width)
+        self.plot.getAxis("right").setWidth(6 if self.compact and self.secondary is None else width)
         self.plot.getAxis("top").setStyle(showValues=False)
         self.plot.getAxis("right").setStyle(
             showValues=self.secondary is not None,

@@ -18,6 +18,7 @@ from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QLabel,
     QLineEdit,
     QMenu,
     QPushButton,
@@ -364,6 +365,49 @@ class SpectraViewerTreeTests(unittest.TestCase):
                                 for i in range(self.window.legends["NCS"].count())))
             self.assertEqual({s.key for s in self.window.checked_spectra()}, checked)
             self.assertEqual(panel.plot.getViewBox().viewRange()[0], [250, 350])
+
+    def test_select_wafer_filters_legend_family_and_keeps_spectra_checked(self):
+        other = make_spectrum(2, wafer="W2")
+        self.window.apply_load_result(LoadResult((other,), ()), replace=False)
+        self.window.check_all_spectra()
+        self.window.set_color_mode("testflag")
+        self.window.select_spectrum_keys({other.key})
+        matrix = self.window.mueller_panel.mij_plots["M00"]
+        floating = self.window.open_plot_window(matrix)
+        menu = self.window.build_legend_menu("Mueller")
+        wafers = next(action.menu() for action in menu.actions() if action.text() == "Select Wafer")
+        choice = next(action for action in wafers.actions() if action.text().startswith("W1 ·"))
+        self.assertTrue(choice.isChecked())
+        choice.trigger()
+
+        def plotted(panel):
+            return {part.spectrum_key for group in panel.groups for part in group.segments}
+
+        self.assertFalse(choice.isChecked())
+        self.assertEqual(plotted(matrix), {other.key})
+        self.assertEqual(plotted(floating.panel), {other.key})
+        self.assertEqual(plotted(self.window.plot_panels["S"]), {other.key, *(s.key for s in self.spectra)})
+        self.assertEqual({s.key for s in self.window.checked_spectra()}, {other.key, *(s.key for s in self.spectra)})
+        self.assertEqual({item.data(0, ROLE_KEY) for item in self.window.tree.selectedItems()}, {other.key})
+        snapshot = self.window.workspace_snapshot()
+        reopened = SpectraViewerWindow()
+        self.addCleanup(reopened.deleteLater)
+        self.addCleanup(reopened.close)
+        reopened.restore_workspace(snapshot)
+        self.assertEqual(plotted(reopened.mueller_panel.mij_plots["M00"]), {other.key})
+        choice.trigger()
+        self.assertEqual(plotted(matrix), {other.key, *(s.key for s in self.spectra)})
+
+        actions = {action.text(): action for action in menu.actions()}
+        actions["Hide All"].trigger()
+        self.assertFalse(matrix.groups)
+        self.assertTrue(all(not action.isChecked() for action in wafers.actions()))
+        choice.trigger()
+        self.assertEqual(plotted(matrix), {s.key for s in self.spectra})
+        self.assertEqual([action.isChecked() for action in wafers.actions()], [True, False])
+        actions["Show All"].trigger()
+        self.assertTrue(all(action.isChecked() for action in wafers.actions()))
+        self.assertEqual(plotted(matrix), {other.key, *(s.key for s in self.spectra)})
 
     def test_tree_groups_wafer_lot_pad_and_orders_die_numerically(self):
         tree = self.window.tree
@@ -1319,7 +1363,7 @@ class SpectraViewerTreeTests(unittest.TestCase):
                 menu.close()
         QTimer.singleShot(0, choose_show_all)
         self.window.legends["NCS"].customContextMenuRequested.emit(QPoint(15, 15))
-        self.assertEqual(popup_actions, ["Show All", "Hide All", "Select Channel"])
+        self.assertEqual(popup_actions, ["Show All", "Hide All", "Select Channel", "Select Wafer"])
         self.assertFalse(any(b.text() == "Show All" for b in self.window.findChildren(QPushButton)))
         self.assertFalse(self.window.channel_hidden(ncs))
         self.assertTrue(self.window.channel_hidden(reflectance))
@@ -1586,6 +1630,75 @@ class SpectraViewerTreeTests(unittest.TestCase):
                 self.assertEqual(tuple(panel._highlight_items), highlights)
                 self.assertEqual([group.color.name() for group in panel.groups], colors)
 
+    def test_header_view_all_fits_main_and_floating_plots_and_retains_selection(self):
+        reference = make_spectrum(3, wafer="Reflectance")
+        channel = replace(reference.channels[0], spectrum_type="reflectance",
+                          numeric=reference.channels[0].numeric[:, :2])
+        self.window.apply_load_result(LoadResult((replace(reference, channels=(channel,)),), ()),
+                                      replace=False)
+        self.window.check_all_spectra()
+        self.window.resize(1800, 1000)
+        self.window.show()
+        selected = {self.spectra[0].key}
+        self.window.select_spectrum_keys(selected)
+        checked = self.window.checked_spectra()
+        matrix = self.window.mueller_panel.mij_plots
+        floating_s = self.window.open_plot_window(self.window.plot_panels["S"])
+        floating_mueller = self.window.open_plot_window(matrix["M00"])
+        APP.processEvents()
+        panels = (*self.window.plot_panels.values(), *matrix.values(),
+                  floating_s.panel, floating_mueller.panel)
+        for panel in panels:
+            panel.plot.getViewBox().setRange(xRange=(250, 350), yRange=(-100, -90), padding=0)
+        secondary = self.window.plot_panels["psi_delta"].secondary
+        secondary.setYRange(-100, -90, padding=0)
+
+        QTest.mouseClick(self.window.view_all_button, Qt.MouseButton.LeftButton)
+        APP.processEvents()
+
+        for panel in panels:
+            with self.subTest(plot=panel.title):
+                view = panel.plot.getViewBox()
+                self.assertEqual(view.viewRange()[0], [200, 400])
+                self.assertGreater(view.viewRange()[1][0], -90)
+                self.assertTrue(view.autoRangeEnabled()[1])
+        self.assertGreater(secondary.viewRange()[1][0], -90)
+        self.assertTrue(secondary.autoRangeEnabled()[1])
+        self.assertEqual(self.window.checked_spectra(), checked)
+        self.assertEqual({item.data(0, ROLE_KEY) for item in self.window.tree.selectedItems()}, selected)
+        self.assertEqual(floating_s.panel.selected_keys, selected)
+
+    def test_small_plot_value_labels_fit_without_overlapping(self):
+        from PyQt6.QtGui import QImage, QPainter
+
+        self.window.check_all_spectra()
+        self.window.resize(1500, 850)
+        self.window.show()
+        APP.processEvents()
+        axes = (
+            (self.window.plot_panels["S"], "left"),
+            (self.window.mueller_panel.mij_plots["M12"], "left"),
+            (self.window.plot_panels["psi_delta"], "right"),
+        )
+        for panel, side in axes:
+            with self.subTest(plot=panel.title, side=side):
+                axis = panel.plot.getAxis(side)
+                axis.linkedView().setYRange(-.08, 1.08, padding=0)
+                axis.setTicks([[(tick / 10, f"{tick / 10:g}") for tick in range(11)]])
+                APP.processEvents()
+                image = QImage(200, 250, QImage.Format.Format_ARGB32_Premultiplied)
+                painter = QPainter(image)
+                painter.setFont(panel.font())
+                try:
+                    _, _, labels = axis.generateDrawSpecs(painter)
+                    line_height = painter.fontMetrics().height()
+                finally:
+                    painter.end()
+                self.assertGreaterEqual(len(labels), 2)
+                centers = sorted(rect.center().y() for rect, _, _ in labels)
+                for upper, lower in zip(centers, centers[1:]):
+                    self.assertGreaterEqual(lower - upper, line_height)
+
     def test_plot_navigation_uses_box_zoom_native_axis_menu_and_auto_button(self):
         pad = self.window.tree.topLevelItem(0).child(0).child(0)
         pad.setExpanded(True)
@@ -1643,6 +1756,13 @@ class SpectraViewerTreeTests(unittest.TestCase):
             actions = {action.text(): action for action in menu.actions()}
             self.assertIn("View All", actions)
             self.assertIn("Mouse Mode", actions)
+            self.assertIn("Remove Selection", actions)
+            tree_only = {"Fold Tree", "Unfold Tree", "Delete Tree"}
+            tree_actions = {action.text() for action in self.window.build_tree_menu().actions()
+                            if not action.isSeparator()}
+            self.assertTrue(tree_only <= tree_actions)
+            self.assertTrue(tree_only.isdisjoint(actions))
+            self.assertTrue(tree_actions - tree_only <= actions.keys())
             x_axis = actions["X axis"].menu()
             widget = x_axis.actions()[0].defaultWidget()
             minimum = widget.findChild(QLineEdit, "minText")
@@ -1656,6 +1776,12 @@ class SpectraViewerTreeTests(unittest.TestCase):
             APP.processEvents()
             self.assertEqual(view.viewRange()[0], [200, 400])
             menu.close()
+        self.window.select_spectrum_keys({self.spectra[0].key})
+        menu.aboutToShow.emit()
+        action = next(action for action in menu.actions() if action.text() == "Uncheck Selected")
+        self.assertTrue(action.isEnabled())
+        action.trigger()
+        self.assertEqual({spectrum.key for spectrum in self.window.checked_spectra()}, {self.spectra[1].key})
 
     def test_plot_boundaries_are_resizable_splitters(self):
         self.assertIsInstance(self.window.plot_splitter, QSplitter)
@@ -1663,6 +1789,29 @@ class SpectraViewerTreeTests(unittest.TestCase):
         self.assertGreater(self.window.plot_splitter.handleWidth(), 0)
         self.assertGreater(self.window.left_plot_splitter.handleWidth(), 0)
         self.assertIsInstance(self.window.mueller_panel.plot_splitter, QSplitter)
+
+    def test_legend_resize_gives_extra_height_to_lists(self):
+        self.window.resize(1500, 950)
+        self.window.show()
+        APP.processEvents()
+        splitter = self.window.legend_plot_splitter
+        splitter.setSizes([125, 700])
+        APP.processEvents()
+        titles = {name: section.findChild(QLabel, "navigationLabel")
+                  for name, section in self.window.legend_sections.items()}
+        before = {name: (title.geometry(), self.window.legends[name].height())
+                  for name, title in titles.items()}
+
+        splitter.setSizes([390, 435])
+        APP.processEvents()
+
+        for name, title in titles.items():
+            with self.subTest(legend=name):
+                title_geometry, list_height = before[name]
+                legend = self.window.legends[name]
+                self.assertEqual(title.geometry(), title_geometry)
+                self.assertGreater(legend.height(), list_height + 100)
+                self.assertEqual(legend.geometry().bottom(), self.window.legend_sections[name].rect().bottom())
 
     def test_mueller_wavelength_major_labels_are_uniform_at_full_and_zoomed_ranges(self):
         axis = self.window.mueller_panel.mij_plots["M00"].plot.getAxis("bottom")

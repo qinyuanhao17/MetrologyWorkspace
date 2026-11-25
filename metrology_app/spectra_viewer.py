@@ -59,6 +59,7 @@ from .spectra_plots import (
     MuellerPanel,
     ResizablePlotSplitter,
     SpectrumPlotPanel,
+    SpectrumViewMenu,
     WaferChannelKey,
     highlight_pens,
 )
@@ -139,28 +140,6 @@ def _line_icon(color: QColor, *, selected=False, highlighted=False) -> QIcon:
         painter.drawLine(2, 7, 22, 7)
     painter.end()
     return QIcon(pixmap)
-
-
-class _ViewMenu(QMenu):
-    """Keep checkable view choices open for successive changes."""
-
-    def mouseReleaseEvent(self, event):
-        action = self.actionAt(event.pos())
-        if (event.button() == Qt.MouseButton.LeftButton and action is not None
-                and action.isEnabled() and action.isCheckable()):
-            action.trigger()
-            event.accept()
-            return
-        super().mouseReleaseEvent(event)
-
-    def keyPressEvent(self, event):
-        action = self.activeAction()
-        if (event.key() == Qt.Key.Key_Space and action is not None
-                and action.isEnabled() and action.isCheckable()):
-            action.trigger()
-            event.accept()
-            return
-        super().keyPressEvent(event)
 
 
 class SpectraLoadThread(QThread):
@@ -257,6 +236,7 @@ class SpectraViewerWindow(QMainWindow):
         QPixmapCache.setCacheLimit(max(QPixmapCache.cacheLimit(), 64 * 1024))
         self._checked_keys: set[str] = set()
         self._hidden_channel_keys: set[WaferChannelKey] = set()
+        self._hidden_wafers = {}
         self.test_flags = {}
         self.edit_history = QUndoStack(self)
         self.info_deleted_columns = [set(), set(), set()]
@@ -462,7 +442,7 @@ class SpectraViewerWindow(QMainWindow):
             self.spec_save_group.addAction(action)
             action.triggered.connect(lambda _checked, mode=mode: self.set_spec_save_type(mode))
             self.spec_save_actions[mode] = action
-        self.views_menu = _ViewMenu("Views", self.options_menu)
+        self.views_menu = SpectrumViewMenu("Views", self.options_menu)
         self.options_menu.addMenu(self.views_menu)
         for key, _label in VIEW_LABELS:
             self.views_menu.addAction(self.view_actions[key])
@@ -566,6 +546,11 @@ class SpectraViewerWindow(QMainWindow):
         self.spectra_info_button = QPushButton("Spectra Info", objectName="primary")
         self.spectra_info_button.setEnabled(False)
         self.spectra_info_button.clicked.connect(self.open_spectra_info)
+        self.view_all_button = QPushButton("View All")
+        self.view_all_button.setEnabled(False)
+        self.view_all_button.setToolTip("Fit all spectrum plots, including floating windows.")
+        self.view_all_button.clicked.connect(self._view_all_plots)
+        heading.addWidget(self.view_all_button)
         heading.addWidget(self.spectra_info_button)
         heading.addWidget(self.open_map_button)
         outer.addLayout(heading)
@@ -664,13 +649,15 @@ class SpectraViewerWindow(QMainWindow):
             section = QVBoxLayout(section_widget)
             section.setContentsMargins(0, 0, 0, 0)
             section.setSpacing(4)
-            section.addWidget(QLabel(name, objectName="navigationLabel"))
+            title = QLabel(name, objectName="navigationLabel")
+            title.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+            section.addWidget(title)
             section_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             section_widget.customContextMenuRequested.connect(
                 lambda pos, section=name, widget=section_widget:
                 self.build_legend_menu(section).exec(widget.mapToGlobal(pos)))
             legend = QListWidget(objectName="spectrumLegend")
-            legend.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+            legend.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
             legend.setAccessibleName(f"{name} channel legend")
             legend.setFlow(QListWidget.Flow.TopToBottom)
             legend.setWrapping(False)
@@ -688,9 +675,9 @@ class SpectraViewerWindow(QMainWindow):
             legend.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
             legend.setSpacing(1)
             legend.setMinimumHeight(32)
-            legend.setToolTip("Scroll to browse channels. Double-click to hide or restore a channel. Right-click for Select Channel, Show All or Hide All.")
+            legend.setToolTip("Scroll to browse channels. Double-click to hide or restore a channel. Right-click for Select Wafer, Select Channel, Show All or Hide All.")
             legend.itemDoubleClicked.connect(self._legend_double_clicked)
-            section.addWidget(legend)
+            section.addWidget(legend, 1)
             legend_row.addWidget(section_widget)
             self.legends[name] = legend
             self.legend_sections[name] = section_widget
@@ -702,25 +689,25 @@ class SpectraViewerWindow(QMainWindow):
 
         self.plot_panels = {
             "N": SpectrumPlotPanel(
-                "N", context_menu=self._show_view_menu
+                "N", context_menu=self.build_tree_menu
             ),
             "C": SpectrumPlotPanel(
-                "C", context_menu=self._show_view_menu
+                "C", context_menu=self.build_tree_menu
             ),
             "S": SpectrumPlotPanel(
-                "S", context_menu=self._show_view_menu
+                "S", context_menu=self.build_tree_menu
             ),
             "psi_delta": SpectrumPlotPanel(
                 "Psi Delta",
                 dual=True,
-                context_menu=self._show_view_menu,
+                context_menu=self.build_tree_menu,
             ),
             "reflectance": SpectrumPlotPanel(
                 "Reflectance",
-                context_menu=self._show_view_menu,
+                context_menu=self.build_tree_menu,
             ),
         }
-        self.mueller_panel = MuellerPanel(context_menu=self._show_view_menu)
+        self.mueller_panel = MuellerPanel(context_menu=self.build_tree_menu)
         self.all_plot_panels = {
             **self.plot_panels,
             "mueller": self.mueller_panel,
@@ -883,6 +870,7 @@ class SpectraViewerWindow(QMainWindow):
             self._selected_keys.clear()
             self._apply_highlights(set())
             self._hidden_channel_keys.clear()
+            self._hidden_wafers.clear()
             self.test_flags.clear()
             self._channel_colors.clear()
         else:
@@ -914,6 +902,7 @@ class SpectraViewerWindow(QMainWindow):
         if hasattr(self, 'group_options'):
             self.group_options.refresh_enabled()
         self.spectra_info_button.setEnabled(bool(spectra))
+        self.view_all_button.setEnabled(bool(self._checked_keys))
         self.test_flag_action.setEnabled(bool(spectra))
         self.copy_wkb_selection_action.setEnabled(self._workbook_selection_source is not None and bool(spectra))
         if not spectra:
@@ -1197,10 +1186,12 @@ class SpectraViewerWindow(QMainWindow):
 
         self.refresh_group_labels(emit_state=False)
 
-    def build_tree_menu(self, wafer=None):
-        menu = QMenu(self)
-        menu.setObjectName("spectrumTreeMenu")
-        menu.setStyleSheet("QMenu#spectrumTreeMenu::separator { height: 1px; background: palette(mid); margin: 5px 8px; }")
+    def build_tree_menu(self, wafer=None, *, menu=None):
+        tree_context = menu is None
+        if tree_context:
+            menu = QMenu(self)
+            menu.setObjectName("spectrumTreeMenu")
+            menu.setStyleSheet("QMenu#spectrumTreeMenu::separator { height: 1px; background: palette(mid); margin: 5px 8px; }")
         menu.addAction("Check All Spectra", self.check_all_spectra)
         menu.addAction("Uncheck All Spectra", self.uncheck_all_spectra)
         menu.addSeparator()
@@ -1217,8 +1208,8 @@ class SpectraViewerWindow(QMainWindow):
         flags.setEnabled(bool(self._selected_keys))
         for value in self.test_flag_values:
             flags.addAction("0 (Fallback)" if value == 0 else str(value),
-                            lambda _=False, value=value:self.set_test_flags(
-                                {key:value for key in self._selected_keys}))
+                            lambda _=False, value=value: self.set_test_flags(
+                                {key: value for key in self._selected_keys}))
         unselected = {s.key for s in self.catalog.spectra
                       if (wafer is None or (s.identity.wafer,s.identity.lot,s.identity.pad) == wafer)
                       and (wafer is None or s.has_map_point)
@@ -1235,11 +1226,12 @@ class SpectraViewerWindow(QMainWindow):
         menu.addSeparator()
         menu.addAction("Set as BSL", self.set_selected_as_baseline).setEnabled(len(self._selected_keys) == 1)
         menu.addAction("Clear BSL", self.clear_baseline).setEnabled(self.baseline_spectrum is not None)
-        menu.addSeparator()
-        menu.addAction("Fold Tree", self.fold_tree)
-        menu.addAction("Unfold Tree", self.unfold_tree)
-        menu.addAction("Delete Tree", self.delete_selected_tree).setEnabled(
-            bool(self._selected_keys) and self._loader is None)
+        if tree_context:
+            menu.addSeparator()
+            menu.addAction("Fold Tree", self.fold_tree)
+            menu.addAction("Unfold Tree", self.unfold_tree)
+            menu.addAction("Delete Tree", self.delete_selected_tree).setEnabled(
+                bool(self._selected_keys) and self._loader is None)
         menu.addSeparator()
         menu.addAction("Export Checked Spectra…", self.choose_spectra_export).setEnabled(
             bool(self._checked_keys) and self._loader is None and self._exporter is None)
@@ -2175,9 +2167,15 @@ class SpectraViewerWindow(QMainWindow):
         colors = self._color_for
         families = {"N": "NCS", "C": "NCS", "S": "NCS", "psi_delta": "Psi Delta",
                     "mueller": "Mueller", "reflectance": "Reflectance"}
+        hidden_spectra = {
+            family: {spectrum.key for spectrum in checked
+                     if self._wafer_identity(spectrum) in wafers}
+            for family, wafers in self._hidden_wafers.items() if wafers
+        }
         signatures = {
             key: (self._plot_revision, frozenset(self._checked_keys), self._analysis_mode, self.color_mode, self._color_assignments(),
-                  self._baseline_key if self._analysis_mode == "residual" else None)
+                  self._baseline_key if self._analysis_mode == "residual" else None,
+                  frozenset(hidden_spectra.get(family, ())))
             for key, family in families.items()
         }
         changed_panels = []
@@ -2190,8 +2188,19 @@ class SpectraViewerWindow(QMainWindow):
                                  hidden_keys=self._hidden_channel_keys)
             changed_panels.append(panel)
 
+        metric_families = {metric: family for family, metrics in LEGEND_METRICS.items()
+                           for metric in metrics}
+
         def curves_for(metric):
-            return lambda: self._curve_groups(self._segments_for(metric), colors)
+            hidden = hidden_spectra.get(metric_families[metric])
+            def groups():
+                series = self._segments_for(metric)
+                if hidden:
+                    series = {key: [segment for segment in segments
+                                    if (segment.spectrum_keys or {segment.spectrum_key}) - hidden]
+                              for key, segments in series.items()}
+                return self._curve_groups(series, colors)
+            return groups
 
         for metric in ("N", "C", "S", "reflectance"):
             if metric not in visible_views or self._rendered_view_signatures.get(metric) == signatures[metric]:
@@ -2313,6 +2322,13 @@ class SpectraViewerWindow(QMainWindow):
             self.status.setText(f"Drawing {done} / {self._plot_paint_total} plots…")
         self._plot_paint_timer.start(0 if self._pending_plot_paints else 16)
 
+    def _view_all_plots(self):
+        for panel in (*self.plot_panels.values(), *self.mueller_panel.mij_plots.values()):
+            panel.view_all()
+        for window in self.floating_plot_windows.values():
+            if not sip.isdeleted(window):
+                window.panel.view_all()
+
     def open_plot_window(self, source: SpectrumPlotPanel):
         window = self.floating_plot_windows.get(source)
         if window is not None and not sip.isdeleted(window):
@@ -2348,9 +2364,30 @@ class SpectraViewerWindow(QMainWindow):
     def show_all_channels(self, section):
         legend = self.legends[section]
         keys = {legend.item(index).data(Qt.ItemDataRole.UserRole) for index in range(legend.count())}
-        if self._hidden_channel_keys & keys:
+        if self._hidden_channel_keys & keys or self._hidden_wafers.get(section):
             self._hidden_channel_keys.difference_update(keys)
+            self._hidden_wafers.pop(section, None)
             self._refresh_plots()
+
+    @staticmethod
+    def _wafer_identity(spectrum):
+        identity = spectrum.identity
+        return identity.wafer, identity.lot, identity.pad
+
+    def _set_legend_wafer_visible(self, section, wafer, visible, wafer_keys):
+        hidden = self._hidden_wafers.setdefault(section, set())
+        if visible:
+            hidden.discard(wafer)
+            keys = wafer_keys[wafer]
+            if keys <= self._hidden_channel_keys:
+                # Bulk/channel hiding can leave every key for this wafer off.
+                # Keep other hidden wafers off if they share its color group.
+                hidden.update(other for other, groups in wafer_keys.items()
+                              if other != wafer and groups & keys and groups <= self._hidden_channel_keys)
+                self._hidden_channel_keys.difference_update(keys)
+        else:
+            hidden.add(wafer)
+        self._refresh_plots()
 
     def build_legend_menu(self, section):
         menu = QMenu(self.legends[section])
@@ -2358,7 +2395,7 @@ class SpectraViewerWindow(QMainWindow):
         keys = {legend.item(index).data(Qt.ItemDataRole.UserRole) for index in range(legend.count())}
         menu.addAction("Show All", lambda: self.show_all_channels(section)).setEnabled(bool(keys & self._hidden_channel_keys))
         menu.addAction("Hide All", lambda: self.hide_all_channels(section)).setEnabled(bool(keys - self._hidden_channel_keys))
-        select = _ViewMenu("Select Channel", menu)
+        select = SpectrumViewMenu("Select Channel", menu)
         menu.addMenu(select).setEnabled(bool(keys))
         channel_actions = {}
         for channel in sorted({key.channel for key in keys}, key=lambda channel: channel.sort_key):
@@ -2368,16 +2405,39 @@ class SpectraViewerWindow(QMainWindow):
             action.triggered.connect(lambda visible, key=channel: self.set_channel_visible(key, visible))
             channel_actions[channel] = action
 
+        wafers = SpectrumViewMenu("Select Wafer", menu)
+        metrics = LEGEND_METRICS[section]
+        wafer_keys = {}
+        for spectrum in self.checked_spectra():
+            for channel in spectrum.channels:
+                key = self._color_key(spectrum, channel)
+                if key in keys and any(channel.series(metric) is not None for metric in metrics):
+                    wafer_keys.setdefault(self._wafer_identity(spectrum), set()).add(key)
+        menu.addMenu(wafers).setEnabled(bool(wafer_keys))
+        wafer_actions = {}
+        for wafer in sorted(wafer_keys, key=lambda identity: tuple(map(natural_key, identity))):
+            action = wafers.addAction(" · ".join(filter(None, wafer)) or "(Blank Wafer ID)")
+            action.setCheckable(True)
+            action.triggered.connect(lambda visible, identity=wafer:
+                                     self._set_legend_wafer_visible(section, identity, visible, wafer_keys))
+            wafer_actions[wafer] = action
+
         def sync_actions(_checked=False):
-            menu.actions()[0].setEnabled(bool(keys & self._hidden_channel_keys))
-            menu.actions()[1].setEnabled(bool(keys - self._hidden_channel_keys))
+            hidden_wafers = self._hidden_wafers.get(section, ())
+            menu.actions()[0].setEnabled(bool(keys & self._hidden_channel_keys or hidden_wafers))
+            visible_wafers = {wafer for wafer, groups in wafer_keys.items()
+                              if wafer not in hidden_wafers and groups - self._hidden_channel_keys}
+            menu.actions()[1].setEnabled(bool(visible_wafers) if wafer_keys else bool(keys - self._hidden_channel_keys))
             for channel, action in channel_actions.items():
                 action.setChecked(any(key.channel == channel and key not in self._hidden_channel_keys for key in keys))
+            for wafer, action in wafer_actions.items():
+                action.setChecked(wafer in visible_wafers)
 
-        for action in (*menu.actions()[:2], *channel_actions.values()):
+        for action in (*menu.actions()[:2], *channel_actions.values(), *wafer_actions.values()):
             action.triggered.connect(sync_actions)
         menu.aboutToShow.connect(sync_actions)
         select.aboutToShow.connect(sync_actions)
+        wafers.aboutToShow.connect(sync_actions)
         sync_actions()
         return menu
 
@@ -2407,12 +2467,6 @@ class SpectraViewerWindow(QMainWindow):
         keys = {self._color_key(s, c) for s in self.catalog.spectra
                 for c in s.channels if c.key == key}
         return bool(keys) and keys <= self._hidden_channel_keys
-
-    def _show_view_menu(self, global_position):
-        menu = _ViewMenu(self)
-        for key, _label in VIEW_LABELS:
-            menu.addAction(self.view_actions[key])
-        menu.exec(global_position)
 
     def _view_visibility_changed(self, _checked: bool):
         self._refresh_plots()

@@ -32,7 +32,7 @@ from .appearance import fit_window_to_screen, style_titlebar
 from .settings import apply_theme as apply_window_theme, get_settings, theme_stylesheet
 from .sme_spectra import SpectrumFile, natural_key
 from .appearance import SELECTION_HIGHLIGHT_COLOR
-from .spectra_plots import HIGHLIGHT_COLOR, test_flag_color
+from .spectra_plots import HIGHLIGHT_COLOR, SpectrumViewMenu, test_flag_color
 
 TILE_WIDTH, TILE_HEIGHT = 420, 496
 GRID_MARGIN, GRID_SPACING = 12, 12
@@ -326,9 +326,10 @@ class WaferPointPlot(QWidget):
             f"PAD grid: {self.pad_layout.width_mm:.2f} × {self.pad_layout.height_mm:.2f} mm"))
         angle = np.linspace(0, 2 * math.pi, 361)
         self.outline.setData(half * np.cos(angle), half * np.sin(angle))
+        extent = max(half, radius)
         self.plot.setRange(
-            xRange=(-half, half),
-            yRange=(-half, half),
+            xRange=(-extent, extent),
+            yRange=(-extent, extent),
             padding=0.03,
         )
         self._avoid_label_collisions(selected)
@@ -524,6 +525,8 @@ class SpectraMapWindow(QMainWindow):
         self._flag_input_timer = QTimer(self, singleShot=True, interval=700)
         self._flag_input_timer.timeout.connect(self._commit_flag_input)
         self._wafers: list[tuple[str, str, str]] = []
+        self._hidden_wafers = set()
+        self._wafer_menu_keys = None
         self.page_index = 0
         self.page_size = 12
         self.wafer_plots: dict[tuple[str, str, str], WaferPointPlot] = {}
@@ -557,6 +560,13 @@ class SpectraMapWindow(QMainWindow):
         self.summary_label = QLabel("0 wafers · 0 points", objectName="muted")
         controls.addWidget(self.summary_label)
         controls.addStretch(1)
+        self.wafers_button = QPushButton("Wafers")
+        self.wafers_button.setEnabled(False)
+        self.wafers_button.setVisible(not self._read_only)
+        menu = QMenu(self.wafers_button)
+        menu.aboutToShow.connect(self._populate_wafer_menu)
+        self.wafers_button.setMenu(menu)
+        controls.addWidget(self.wafers_button)
         layout.addLayout(controls)
         controls = QHBoxLayout()
         for name, shortcut, create in (
@@ -591,6 +601,7 @@ class SpectraMapWindow(QMainWindow):
         self.select_out_of_range_button.setVisible(self._read_only)
         self.select_out_of_range_button.clicked.connect(self.select_out_of_range)
         controls.addWidget(self.select_out_of_range_button)
+        self._add_selection_controls(controls)
         controls.addStretch(1)
         layout.addLayout(controls)
         controls = QHBoxLayout()
@@ -638,6 +649,9 @@ class SpectraMapWindow(QMainWindow):
         layout.addWidget(self.empty, 1)
         self.setCentralWidget(root)
 
+    def _add_selection_controls(self, layout):
+        pass
+
     def apply_theme(self, palette):
         for plot in self.wafer_plots.values():
             plot.apply_theme(palette)
@@ -656,7 +670,7 @@ class SpectraMapWindow(QMainWindow):
         style_titlebar(self, get_settings()["theme"])
 
     def _reflow_grid(self):
-        count = min(self.page_size, max(0, len(self._wafers) - self.page_index * self.page_size))
+        count = min(self.page_size, max(0, self.wafer_count - self.page_index * self.page_size))
         columns = min(3, max(1, count))
         rows = max(1, math.ceil(count / columns))
         # QGridLayout retains old row/column indices after a page is cleared.
@@ -677,22 +691,26 @@ class SpectraMapWindow(QMainWindow):
                 self.grid.addWidget(plot, index // columns, index % columns)
 
     @property
+    def _visible_wafers(self):
+        return [wafer for wafer in self._wafers if wafer not in self._hidden_wafers]
+
+    @property
     def wafer_count(self) -> int:
-        return len(self._wafers)
+        return len(self._wafers) - len(self._hidden_wafers)
 
     @property
     def page_count(self) -> int:
-        return max(1, math.ceil(len(self._wafers) / self.page_size))
+        return max(1, math.ceil(self.wafer_count / self.page_size))
 
     @property
     def point_count(self) -> int:
         points = set()
         for spectrum in self._spectra:
-            if (
-                spectrum.has_map_point
-            ):
+            identity = spectrum.identity
+            wafer = identity.wafer, identity.lot, identity.pad
+            if spectrum.has_map_point and wafer not in self._hidden_wafers:
                 points.add((
-                    (spectrum.identity.wafer, spectrum.identity.lot, spectrum.identity.pad),
+                    wafer,
                     round(spectrum.x_mm, 6),
                     round(spectrum.y_mm, 6),
                 ))
@@ -717,6 +735,8 @@ class SpectraMapWindow(QMainWindow):
             },
             key=lambda identity: tuple(natural_key(part) for part in identity),
         )
+        self._hidden_wafers.intersection_update(self._wafers)
+        self.wafers_button.setEnabled(bool(self._wafers))
         self.page_index = min(self.page_index, self.page_count - 1)
         self._rebuild_page()
 
@@ -907,6 +927,49 @@ class SpectraMapWindow(QMainWindow):
         elif text:
             self.statusBar().showMessage('Allowed Test Flags: ' + ', '.join(map(str,self._flag_values)))
 
+    def _set_hidden_wafers(self, hidden):
+        hidden = set(hidden) & set(self._wafers)
+        if hidden != self._hidden_wafers:
+            self._hidden_wafers = hidden
+            self.page_index = min(self.page_index, self.page_count - 1)
+            self._rebuild_page()
+
+    def _set_wafer_visible(self, wafer, visible):
+        hidden = self._hidden_wafers - {wafer} if visible else self._hidden_wafers | {wafer}
+        self._set_hidden_wafers(hidden)
+
+    def _populate_wafer_menu(self):
+        keys = tuple(self._wafers)
+        if keys == self._wafer_menu_keys:
+            return
+        self._wafer_menu_keys = keys
+        menu = self.wafers_button.menu()
+        submenus = [action.menu() for action in menu.actions() if action.menu() is not None]
+        menu.clear()
+        for submenu in submenus:
+            submenu.deleteLater()
+        show = menu.addAction("Show All", lambda: self._set_hidden_wafers(()))
+        hide = menu.addAction("Hide All", lambda: self._set_hidden_wafers(self._wafers))
+        select = SpectrumViewMenu("Select Wafer", menu)
+        menu.addMenu(select).setEnabled(bool(self._wafers))
+        choices = {}
+        for wafer in self._wafers:
+            action = select.addAction(" · ".join(filter(None, wafer)) or "(Blank Wafer ID)")
+            action.setCheckable(True)
+            action.triggered.connect(lambda visible, identity=wafer: self._set_wafer_visible(identity, visible))
+            choices[wafer] = action
+
+        def sync():
+            show.setEnabled(bool(self._hidden_wafers))
+            hide.setEnabled(bool(self.wafer_count))
+            for wafer, action in choices.items():
+                action.setChecked(wafer not in self._hidden_wafers)
+
+        for action in (show, hide, *choices.values()):
+            action.triggered.connect(sync)
+        select.aboutToShow.connect(sync)
+        sync()
+
     def build_selection_menu(self, wafer=None):
         menu = QMenu(self)
         menu.setObjectName("spectrumTreeMenu")
@@ -1092,21 +1155,30 @@ class SpectraMapWindow(QMainWindow):
     def _rebuild_page(self):
         self._clear_grid()
         start = self.page_index * self.page_size
-        page_wafers = self._wafers[start:start + self.page_size]
+        page_wafers = self._visible_wafers[start:start + self.page_size]
         self._pending_page_wafers = list(page_wafers)
         self._reflow_grid()
         self.page_label.setText(
             f"Page {self.page_index + 1} / {self.page_count}"
         )
-        self.summary_label.setText(f"{self.wafer_count} {'wafer' if self.wafer_count == 1 else 'wafers'} · {self.point_count} points")
+        self._update_summary()
         self.previous.setEnabled(self.page_index > 0)
         self.next.setEnabled(self.page_index < self.page_count - 1)
         has_page = bool(page_wafers)
+        self.empty.setText("Use Wafers to show Die Maps." if self._wafers
+                           else "Load spectrum measurements to display Die Maps.")
         self.empty.setVisible(not has_page)
         self.grid.parentWidget().setVisible(has_page)
         self.scroll_area.setVisible(has_page)
         if has_page:
             self._page_build_timer.start()
+
+    def _update_summary(self):
+        self.summary_label.setText(f"{self.wafer_count} {'wafer' if self.wafer_count == 1 else 'wafers'} · {self.point_count} points")
+
+    def _create_wafer_plot(self, title, wafer):
+        return WaferPointPlot(title, checked_label="out of range" if self._read_only else "checked",
+                              checked_color="#dc2626" if self._read_only else "#3E8BD8")
 
     def _build_next_page_batch(self):
         for _ in range(1):
@@ -1114,8 +1186,7 @@ class SpectraMapWindow(QMainWindow):
                 return
             wafer = self._pending_page_wafers.pop(0)
             title = " · ".join(part for part in wafer if part)
-            plot = WaferPointPlot(title, checked_label="out of range" if self._read_only else "checked",
-                                  checked_color="#dc2626" if self._read_only else "#3E8BD8")
+            plot = self._create_wafer_plot(title, wafer)
             plot.apply_theme(self.palette())
             plot.plot.installEventFilter(self)
             if not self._read_only:

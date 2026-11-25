@@ -207,7 +207,9 @@ class ReferenceSummaryWindow(QMainWindow):
         self._close_when_finished = False
         self._aligned_results = None
         self._aligned_inputs = None
+        self._aligned_raw = None
         self._analysis = None
+        self._saved_analysis_ui = None
         self._build_ui()
         self._vendor_changed()
         from .settings import apply_theme
@@ -261,12 +263,28 @@ class ReferenceSummaryWindow(QMainWindow):
         analysis.analysis_menu.removeAction(trend_axes.menuAction())
         trend_axes.setParent(self.analysis_menu, trend_axes.windowFlags())
         self.analysis_menu.addMenu(trend_axes)
-        self.trend_page.data_point_edits = analysis._chart_edits
         trend = analysis.sequence_page
         trend.axis_mode.currentIndexChanged.connect(lambda _: self.document.identity_timer.start())
         trend.axis_ratio.valueChanged.connect(lambda _: self.document.identity_timer.start())
-        if self._aligned_inputs is None:
-            analysis.set_alignment_inputs(None, set(), False)
+        self._publish_analysis_selection()
+        self._restore_analysis_controls()
+
+    def _restore_analysis_controls(self):
+        if self._analysis is None or self._saved_analysis_ui is None:
+            return
+        from .trend import MAGNITUDE_RATIO_LIMIT
+
+        ui, self._saved_analysis_ui = self._saved_analysis_ui, None
+        analysis = self._analysis
+        options = ui.get("analysis_options") or {}
+        previous_die = analysis.die_picker.currentData()
+        analysis._restore_die_picker(analysis.die_picker, ui.get("die_columns", {}).get("raw"))
+        if analysis.die_picker.currentData() != previous_die:
+            analysis.update_plan()
+        analysis.sequence_page.restore_axis_ratio(ui.get("trend_axis_ratio", MAGNITUDE_RATIO_LIMIT))
+        analysis.sequence_page.restore_axis_mode(ui.get("trend_axis_mode", "auto"))
+        analysis.display_options.restore(options)
+        analysis.display_options.refresh()
 
     @property
     def vendor_name(self):
@@ -289,7 +307,8 @@ class ReferenceSummaryWindow(QMainWindow):
         from .reference_alignment_ui import ReferenceAlignmentPage, CoordinateTrendPage
         self.tabs = QTabWidget()
         self.tabs.addTab(root, '1. Summary')
-        self.trend_page = CoordinateTrendPage()
+        self.trend_page = CoordinateTrendPage(
+            set_point_checks=self.change_analysis_rows, point_records=self._xy_bias_records)
         self.alignment = ReferenceAlignmentPage(self.trend_page)
         self.alignment.external_outputs_loaded.connect(self._summarize_external_outputs)
         self.alignment.active_output_changed.connect(self._show_output_summary)
@@ -333,18 +352,24 @@ class ReferenceSummaryWindow(QMainWindow):
                 self._aligned_inputs = None
                 self.statusBar().showMessage(str(error), 10000)
             self._aligned_results = results
+            inputs = self._aligned_inputs
+            self._aligned_raw = aligned_raw_analysis_frame(inputs[1], inputs[4]) if inputs is not None else None
         self._publish_analysis_selection()
 
-    def _publish_analysis_selection(self):
-        from .match_groups import participation_rows, participation_source_keys
+    def _xy_bias_records(self):
+        raw = self._aligned_raw
+        return range(len(raw)) if raw is not None else range(0)
 
+    def _publish_analysis_selection(self):
         inputs = self._aligned_inputs
+        raw = self._aligned_raw
         state = self.alignment._dataset.data_selection or {}
         hide = state.get('hide_excluded', False)
         allowed, excluded = set(), set()
         excluded_raw, excluded_ref = set(), set()
-        if inputs is not None:
-            raw = aligned_raw_analysis_frame(inputs[1], inputs[4])
+        if raw is not None:
+            from .match_groups import participation_rows, participation_source_keys
+
             allowed = set(participation_rows(raw, state))
             if len(allowed) < len(raw):
                 excluded = {key for row, key in enumerate(participation_source_keys(raw)) if row not in allowed}
@@ -354,8 +379,8 @@ class ReferenceSummaryWindow(QMainWindow):
                         excluded_ref.add(ref_source)
         self.alignment.raw.hide_source_rows(excluded_raw if hide else ())
         self.alignment.ref.hide_source_rows(excluded_ref if hide else ())
-        if inputs is not None or self._analysis is not None:
-            self.analysis.set_alignment_inputs(inputs, excluded, hide, excluded_raw_rows=excluded_raw)
+        if self._analysis is not None:
+            self._analysis.set_alignment_inputs(inputs, excluded, hide, excluded_raw_rows=excluded_raw)
         self.data_selection_action.setEnabled(inputs is not None and not inputs[1].empty)
         self.trend_page.refresh_point_checks(allowed)
 
@@ -384,10 +409,9 @@ class ReferenceSummaryWindow(QMainWindow):
     def change_analysis_rows(self, rows, checked):
         from .match_groups import missing_excluded_records, participation_ids, row_ids
 
-        if self._aligned_inputs is None:
+        raw = self._aligned_raw
+        if raw is None:
             return set()
-        _, raw, _, _, metadata = self._aligned_inputs
-        raw = aligned_raw_analysis_frame(raw, metadata)
         dataset = self.alignment._dataset
         state = dataset.data_selection or {}
         excluded = set(state.get('excluded', ()))

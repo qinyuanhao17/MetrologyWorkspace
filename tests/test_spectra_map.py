@@ -201,6 +201,44 @@ class SpectraMapWindowTests(unittest.TestCase):
             time.sleep(0.005)
         self.assertEqual(len(self.window.wafer_plots), expected)
 
+    def test_wafer_visibility_menu_matches_display_and_preserves_point_checks(self):
+        first, second = make_spectrum(1), make_spectrum(2, wafer="W2")
+        self.window.show()
+        self.window.set_data((first, second), checked_keys={first.key}, selected_keys={second.key})
+        self.settle_page(2)
+        changes = []
+        self.window.checks_changed.connect(changes.append)
+        menu = self.window.wafers_button.menu()
+        menu.aboutToShow.emit()
+        actions = {action.text(): action for action in menu.actions()}
+        wafers = actions["Select Wafer"].menu()
+        entries = wafers.actions()
+        self.assertTrue(all(action.isChecked() for action in entries))
+
+        actions["Hide All"].trigger()
+        self.assertTrue(all(not action.isChecked() for action in entries))
+        self.assertTrue(self.window.wafers_button.isEnabled())
+        self.assertEqual((self.window.wafer_count, self.window.point_count), (0, 0))
+        self.assertFalse(self.window.wafer_plots)
+
+        entries[1].trigger()
+        self.settle_page(1)
+        self.assertEqual(tuple(self.window.wafer_plots), (("W2", "L1", "P1"),))
+        self.assertEqual([action.isChecked() for action in entries], [False, True])
+
+        actions["Show All"].trigger()
+        self.settle_page(2)
+        self.assertTrue(all(action.isChecked() for action in entries))
+        self.assertEqual(self.window._checked_keys, {first.key})
+        self.assertEqual(self.window._selected_keys, {second.key})
+        self.assertEqual(changes, [])
+
+        replacement = make_spectrum(3, wafer="W3")
+        self.window.set_data((first, replacement), checked_keys={first.key})
+        menu.aboutToShow.emit()
+        choices = next(action.menu() for action in menu.actions() if action.text() == "Select Wafer")
+        self.assertEqual([action.text() for action in choices.actions()], ["W1 · L1 · P1", "W3 · L1 · P1"])
+
     def test_long_titles_keep_whole_wafers_visible_on_full_pages_and_resize(self):
         spectra = tuple(replace(make_spectrum(die, wafer=f"AI01750.00-{index:02d}", lot="AI01750.00", pad="2026-8-18-15-8-39"),
                                 x_mm=x, y_mm=0.0)

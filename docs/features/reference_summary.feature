@@ -258,3 +258,22 @@ Feature: Summarize multi-vendor reference exports
       Given a Reference analysis already has applied Groups
       When the engineer replaces the Raw measurements with values containing different TestFlags
       Then the affected measurements are grouped using the replacement TestFlags
+
+  Rule: XY Bias can inspect and edit its aligned measurement points
+
+    Scenario: Edit points by mouse without breaking the Bias curves
+      Given XY Bias has been drawn for linked Ref and Raw wafers
+      When the engineer drags a box with Ctrl and Shift held
+      Then those points are added without zooming
+      When the engineer clicks blank plot space
+      Then the point selection clears
+      When the engineer double-clicks a point
+      Then it is removed from the plot
+      When the engineer Shift-double-clicks a point
+      Then its paired row is unchecked and the curves join the remaining points
+
+    Scenario: Review both die layouts from XY Bias
+      Given XY Bias has been drawn for linked Ref and Raw wafers
+      When the engineer opens Die Map
+      Then Ref coordinates are orange and Raw coordinates are blue
+      And the two sources can be displayed together or independently using the legend

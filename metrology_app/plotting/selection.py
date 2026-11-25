@@ -50,11 +50,14 @@ class BoxDrag(QObject):
                 self.start = None
                 self.band.hide()
                 if dragged:
-                    if modifiers & Qt.KeyboardModifier.ControlModifier:
-                        if rect.width() > 3 and rect.height() > 3:
-                            self.zoom(target, rect)
-                    else:
-                        self.select(target, rect, modifiers)
+                    if target is not None:
+                        ctrl = modifiers & Qt.KeyboardModifier.ControlModifier
+                        shift = modifiers & Qt.KeyboardModifier.ShiftModifier
+                        if ctrl and not shift:
+                            if rect.width() > 3 and rect.height() > 3:
+                                self.zoom(target, rect)
+                        else:
+                            self.select(target, rect, modifiers)
                     return True
                 if self.on_click is not None and not modifiers & Qt.KeyboardModifier.ControlModifier:
                     self.on_click(target, point, modifiers)
@@ -217,7 +220,7 @@ def populate_test_flag_menu(menu, values, callback):
 
 
 def add_selection_actions(menu, selection, removed, remove, restore, data_keys, data, *,
-                          can_restore=None, data_selection=None):
+                          can_restore=None, data_selection=None, include_flags=True):
     """Add actions to an existing chart menu without removing navigation."""
     actions = menu.actions()
     if actions and not actions[-1].isSeparator():
@@ -237,7 +240,7 @@ def add_selection_actions(menu, selection, removed, remove, restore, data_keys, 
             bool(removed_keys))
         menu.addAction("Restore Applied Unchecks", lambda: data.restore(from_removed=True)).setEnabled(
             bool(data.applied_unchecks))
-        if data.set_flag is not None:
+        if include_flags and data.set_flag is not None:
             menu.addSeparator()
             flags = populate_test_flag_menu(menu, data.available_flags(),
                                             lambda value: data.set_flag(checked, value))
@@ -375,11 +378,13 @@ class CurveSelection:
 
     def preview_click(self, _view, point, _modifiers):
         visible = self.points_near(point, include_hidden=False)
-        if not visible or self.data is None:
+        if not visible:
+            self.selected.clear()
             if self.data is not None:
-                self.selected.clear()
                 self.data.clear_highlight()
-                self.update_highlight()
+            self.update_highlight()
+            return
+        if self.data is None:
             return
         views = {item: view for view, item in self.series(include_hidden=True)}
 

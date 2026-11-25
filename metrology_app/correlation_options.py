@@ -21,6 +21,7 @@ class CorrelationOptions(QObject):
         self._follow_disabled_without_data = False
         self._follow_user_choice = False
         self._context_cache = None
+        self._source_frames = None
         self.dialog = None
         self.controls = GroupControls(owner)
         self.controls.restore({'mark_values':[{'id':n,'name':n} for n in ('POR','POR+','POR-')],
@@ -130,9 +131,15 @@ class CorrelationOptions(QObject):
             self.refresh()
 
     def frames(self):
-        reference = getattr(self.owner,'reference_model',None)
-        raw = self.owner._measurement_frame(self.owner.model._analysis_view())
-        return raw, reference._analysis_view() if reference is not None else pd.DataFrame()
+        raw_model = self.owner.model
+        reference = getattr(self.owner, "reference_model", None)
+        revisions = (raw_model, raw_model.revision, reference,
+                     reference.revision if reference is not None else None)
+        if self._source_frames is None or self._source_frames[0] != revisions:
+            raw = self.owner._measurement_frame(raw_model._analysis_view())
+            ref = reference._analysis_view() if reference is not None else pd.DataFrame()
+            self._source_frames = revisions, (raw, ref)
+        return self._source_frames[1]
 
     def remember_workbook(self, context):
         self.workbook_context = context
@@ -165,7 +172,9 @@ class CorrelationOptions(QObject):
             return None
         self.controls.set_sources(reference,raw)
         state = deepcopy(self.controls.state)
-        flags = state.get('applied',{}).get('flags',self.controls.flags_frame().iloc[:,0].tolist())
+        flags = state.get('applied', {}).get('flags')
+        if flags is None:
+            flags = self.controls.flags_frame().iloc[:, 0].tolist()
         result = {'grouping':state,'flags':list(flags),'identities':identities,
                   'provenance':list(participation_source_keys(raw))}
         self._context_cache = (revisions,result)
@@ -256,13 +265,18 @@ class CorrelationOptions(QObject):
             self.follow_groups.setChecked(False)
         self.settings_action.setEnabled(True)
         self._context_cache = None
-        if self.is_wafer:
-            owner.update_plan()
+        if getattr(owner, "derived_table", False) and owner._workbook_sources:
+            # Ref and Raw are already paired and recognized. Group edits only
+            # replace classification and the selection derived from it.
+            self.refresh()
         else:
-            owner._group_result_cache = None
-            owner._match_groups = self.context(None)
-            owner._rebuild_source_analysis()
-        owner.document.refresh_identity()
+            if self.is_wafer:
+                owner.update_plan()
+            else:
+                owner._group_result_cache = None
+                owner._match_groups = self.context(None)
+                owner._rebuild_source_analysis()
+            owner.document.refresh_identity()
         if self.dialog is not None and self.dialog.isVisible():
             self.dialog.accept()
         return True

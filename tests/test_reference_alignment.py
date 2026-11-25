@@ -256,6 +256,260 @@ class ReferenceAlignmentTests(unittest.TestCase):
         self.assertEqual([len(plot.point_selection.preview.data) for plot in page.plots], [2, 2])
         records.assert_not_called()
 
+    def test_xy_bias_die_map_uses_wafer_cards_and_keeps_layer_state_across_pages(self):
+        from PyQt6.QtCore import QEvent
+        from PyQt6.QtTest import QTest
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.reference_alignment_ui import CoordinateTrendPage
+
+        app = QApplication.instance() or QApplication([])
+        pairs = [(f"W{index}", "L", "P") for index in range(1, 5)]
+        common = {"Wafer ID": [wafer for wafer, _, _ in pairs for _ in range(3)],
+                  "Lot ID": ["L"] * 12, "PAD Name": ["P"] * 12,
+                  "Die Seq": [11, 12, 13] * 4,
+                  "Field X": [0, 1, 0] * 4, "Field Y": [0, 0, 1] * 4}
+        ref = pd.DataFrame({**common, "X(mm)": [0, 120, 0] * 4, "Y(mm)": [0, 0, 120] * 4})
+        raw = pd.DataFrame({**common, "X(um)": [0, 120100, 0] * 4, "Y(um)": [0, 0, 120000] * 4})
+        results = coordinate_bias(ref, raw, infer_alignment_columns(ref),
+                                  infer_alignment_columns(raw), {wafer: wafer for wafer in pairs})
+        page = CoordinateTrendPage()
+
+        def close_page():
+            page.clear()
+            page.deleteLater()
+            app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+        self.addCleanup(close_page)
+        page.show_results(results, defer=True)
+        page.open_die_map()
+        window = page._die_map
+
+        def wait_for_cards(count):
+            for _ in range(50):
+                if len(window.wafer_plots) == count:
+                    break
+                QTest.qWait(20)
+
+        window.page_size_spin.setValue(3)
+        wait_for_cards(3)
+        self.assertEqual(tuple(window.wafer_plots), tuple(pairs[:3]))
+        self.assertEqual([window.grid.getItemPosition(i)[:2] for i in range(3)],
+                         [(0, 0), (0, 1), (0, 2)])
+        wafer = window.wafer_plots[pairs[0]]
+        self.assertEqual(wafer.title_label.text(), "W1 · L · P")
+        self.assertEqual(wafer.wafer_diameter, 300)
+        self.assertEqual({label.toPlainText() for label in wafer.labels}, {"11", "12", "13"})
+        self.assertEqual(wafer.plot.getAxis("bottom").labelText, "X (mm)")
+        coincident = next(point for point in wafer.scatter.points() if point.pos().isNull())
+        self.assertEqual(set(coincident.data()["keys"]), {"Raw:0", "Ref:0"})
+        raw_marker = next(point for point in wafer.raw_markers.points() if point.pos().isNull())
+        self.assertEqual(coincident.size(), 16)
+        self.assertGreater(coincident.size(), raw_marker.size())
+        self.assertEqual(raw_marker.size(), wafer.scatter.opts["size"])
+        self.assertEqual(coincident.brush().color().name(), "#e67722")
+        self.assertEqual(raw_marker.brush().color().name(), "#2878bd")
+        scene_items = wafer.plot.scene().items()
+        self.assertLess(scene_items.index(wafer.raw_markers), scene_items.index(wafer.scatter))
+
+        window.sources["Raw"].click()
+        self.assertEqual({point.brush().color().name() for point in wafer.scatter.points()}, {"#e67722"})
+        self.assertEqual(len(wafer.raw_markers.points()), 0)
+        window.sources["Raw"].click()
+
+        window.sources["Ref"].click()
+        window.next.click()
+        wait_for_cards(1)
+        self.assertEqual(tuple(window.wafer_plots), (pairs[3],))
+        self.assertEqual(window.page_label.text(), "Page 2 / 2")
+        self.assertEqual([point.pos().x() for point in window.wafer_plots[pairs[3]].scatter.points()],
+                         [0, 0, 120.1])
+        window.sources["Raw"].click()
+        self.assertEqual(len(window.wafer_plots[pairs[3]].scatter.points()), 0)
+        self.assertEqual(window.point_count, 0)
+        window._populate_wafer_menu()
+        actions = {action.text(): action for action in window.wafers_button.menu().actions()}
+        actions["Hide All"].trigger()
+        self.assertEqual(window.wafer_count, 0)
+        window.sources["Ref"].click()
+        actions["Show All"].trigger()
+        app.processEvents()
+        self.assertEqual(window.wafer_count, 4)
+        self.assertEqual(window.point_count, 12)
+
+    def test_xy_bias_die_map_remove_and_uncheck_use_spectrum_gestures(self):
+        from PyQt6.QtCore import QPointF, Qt
+        from PyQt6.QtTest import QTest
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.reference_summary_window import ReferenceSummaryWindow
+
+        app = QApplication.instance() or QApplication([])
+        window = ReferenceSummaryWindow()
+        window.document.force_close = True
+        self.addCleanup(lambda app=app: window.close())
+        alignment = window.alignment
+        coordinates = {"X(mm)": [-90, 0, 40], "Y(mm)": [0, 0, 80]}
+        alignment.ref.set_frame(pd.DataFrame({"Wafer ID": ["R"] * 3, **coordinates}))
+        alignment.raw.set_frame(pd.DataFrame({"Wafer ID": ["D"] * 3, **coordinates}))
+        alignment.link_aligned()
+        alignment.draw()
+        window.show()
+        window.trend_page.open_die_map()
+        die_map = window.trend_page._die_map
+        QTest.qWait(100)
+        wafer, plot = next(iter(die_map.wafer_plots.items()))
+        target = plot.plot.mapFromScene(plot.plot.getViewBox().mapViewToScene(QPointF(-90, 0)))
+        x_curve, y_curve = window.trend_page.plots[0].listDataItems()
+
+        def double_click(modifiers=Qt.KeyboardModifier.NoModifier):
+            QTest.qWait(20)
+            QTest.mouseDClick(plot.plot.viewport(), Qt.MouseButton.LeftButton, modifiers, pos=target)
+            QTest.mouseRelease(plot.plot.viewport(), Qt.MouseButton.LeftButton, modifiers, pos=target)
+            app.processEvents()
+
+        def run_menu_action(label):
+            menu = die_map.build_selection_menu(wafer)
+            action = next(action for action in menu.actions() if action.text() == label)
+            self.assertTrue(action.isEnabled(), label)
+            action.trigger()
+
+        double_click()
+        self.assertEqual(die_map.point_count, 2)
+        self.assertEqual(x_curve.xData.tolist(), [1, 2, 3])
+        self.assertEqual(y_curve.xData.tolist(), [1, 2, 3])
+        double_click()
+        self.assertEqual(die_map.point_count, 3)
+        double_click()
+        run_menu_action("Restore Removed Selection")
+        self.assertEqual(die_map.point_count, 3)
+
+        double_click(Qt.KeyboardModifier.ShiftModifier)
+        self.assertEqual(die_map.point_count, 2)
+        self.assertEqual(x_curve.xData.tolist(), [2, 3])
+        self.assertEqual(y_curve.xData.tolist(), [2, 3])
+        self.assertEqual(window.trend_page.data_point_edits.unchecked, {0})
+        double_click(Qt.KeyboardModifier.ShiftModifier)
+        self.assertEqual(die_map.point_count, 3)
+        self.assertEqual(x_curve.xData.tolist(), [1, 2, 3])
+        self.assertEqual(y_curve.xData.tolist(), [1, 2, 3])
+        double_click(Qt.KeyboardModifier.ShiftModifier)
+        run_menu_action("Restore Unchecked Selection")
+        self.assertEqual(die_map.point_count, 3)
+        self.assertEqual(x_curve.xData.tolist(), [1, 2, 3])
+
+        run_menu_action("Remove Selection")
+        run_menu_action("Apply Remove to Uncheck")
+        self.assertEqual(x_curve.xData.tolist(), [2, 3])
+        run_menu_action("Restore Applied Unchecks")
+        self.assertEqual(die_map.point_count, 2)
+        run_menu_action("Restore Removed Selection")
+        self.assertEqual(die_map.point_count, 3)
+        run_menu_action("Uncheck Selection")
+        self.assertEqual(x_curve.xData.tolist(), [2, 3])
+
+    def test_xy_bias_gestures_and_die_map_share_aligned_rows(self):
+        from PyQt6.QtCore import QPoint, QPointF, Qt
+        from PyQt6.QtTest import QTest
+        from PyQt6.QtWidgets import QApplication
+        from metrology_app.reference_summary_window import ReferenceSummaryWindow
+
+        app = QApplication.instance() or QApplication([])
+        window = ReferenceSummaryWindow()
+        self.addCleanup(lambda app=app: window.close())
+        window.document.force_close = True
+        alignment = window.alignment
+        alignment.ref.set_frame(pd.DataFrame({
+            "Wafer ID": ["R"] * 4, "X(mm)": [0, 1, 2, 3], "Y(mm)": [0] * 4,
+        }))
+        alignment.raw.set_frame(pd.DataFrame({
+            "Wafer ID": ["D"] * 4, "X(mm)": [.2, 1.2, 2.2, 3.2], "Y(mm)": [-.2] * 4,
+        }))
+        alignment.link_aligned()
+        alignment.draw()
+        window.show()
+        app.processEvents()
+        self.assertIsNone(window._analysis)
+        trend = window.trend_page
+        plot = trend.plots[0]
+        selection = plot.point_selection
+        x_curve, y_curve = plot.listDataItems()
+        view = plot.getViewBox()
+
+        def at(x, y):
+            return plot.mapFromScene(view.mapViewToScene(QPointF(x, y)))
+
+        def drag(point, modifiers):
+            start, end = point - QPoint(12, 12), point + QPoint(12, 12)
+            QTest.mousePress(plot.viewport(), Qt.MouseButton.LeftButton, modifiers, start)
+            QTest.mouseMove(plot.viewport(), end, 25)
+            QTest.mouseRelease(plot.viewport(), Qt.MouseButton.LeftButton, modifiers, end)
+            app.processEvents()
+
+        ranges = view.viewRange()
+        drag(at(1, .2), Qt.KeyboardModifier.NoModifier)
+        drag(at(3, .2), Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)
+        self.assertEqual(selection.data_keys(selection.selected), {0, 2})
+        self.assertEqual(view.viewRange(), ranges)
+        QTest.mouseClick(plot.viewport(), Qt.MouseButton.LeftButton, pos=at(2, 0))
+        self.assertFalse(selection.selected)
+        self.assertFalse(selection.data.preview_rows)
+        drag(at(1, .2), Qt.KeyboardModifier.NoModifier)
+        content = trend.scroll.widget()
+        blank = content.rect().bottomRight() - QPoint(4, 4)
+        self.assertIsNone(content.childAt(blank))
+        QTest.mouseClick(content, Qt.MouseButton.LeftButton, pos=blank)
+        self.assertFalse(selection.selected)
+        self.assertFalse(selection.data.preview_rows)
+
+        trend.die_map_button.click()
+        app.processEvents()
+        die_map = trend._die_map
+        wafer = next(iter(die_map.wafer_plots.values()))
+
+        def plotted_x(source):
+            return [point.pos().x() for point in wafer.scatter.points()
+                    if any(key.startswith(f"{source}:") for key in point.data()["keys"])]
+
+        self.assertEqual(plotted_x("Ref"), [0, 1, 2, 3])
+        self.assertEqual(plotted_x("Raw"), [.2, 1.2, 2.2, 3.2])
+        die_map.sources["Ref"].click()
+        self.assertEqual(plotted_x("Ref"), [])
+        self.assertEqual(plotted_x("Raw"), [.2, 1.2, 2.2, 3.2])
+        die_map.sources["Ref"].click()
+        die_map.sources["Raw"].click()
+        self.assertEqual(plotted_x("Ref"), [0, 1, 2, 3])
+        self.assertEqual(plotted_x("Raw"), [])
+        die_map.sources["Raw"].click()
+        die_map.close()
+
+        QTest.mouseDClick(plot.viewport(), Qt.MouseButton.LeftButton, pos=at(2, .2))
+        self.assertEqual(x_curve.xData.tolist(), [1, 3, 4])
+        self.assertEqual(y_curve.xData.tolist(), [1, 2, 3, 4])
+        self.assertTrue(selection.removed())
+        QTest.mouseDClick(plot.viewport(), Qt.MouseButton.LeftButton, pos=at(2, .2))
+        self.assertEqual(x_curve.xData.tolist(), [1, 2, 3, 4])
+        QTest.mouseDClick(plot.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.ShiftModifier, at(2, .2))
+        for curve in (x_curve, y_curve):
+            self.assertEqual(curve.xData.tolist(), [1, 3, 4])
+            self.assertFalse(pd.isna(curve.yData).any())
+        self.assertEqual(plotted_x("Ref"), [0, 2, 3])
+        self.assertEqual(plotted_x("Raw"), [.2, 2.2, 3.2])
+        self.assertEqual(selection.data.unchecked, {1})
+        QTest.mouseDClick(plot.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.ShiftModifier, at(2, .2))
+        self.assertEqual(x_curve.xData.tolist(), [1, 2, 3, 4])
+        self.assertFalse(selection.data.unchecked)
+        window.tabs.setCurrentIndex(1)
+        with tempfile.TemporaryDirectory() as folder:
+            saved = window.save_reference(Path(folder) / "bias.ref")
+            reopened = ReferenceSummaryWindow()
+            self.addCleanup(reopened.close)
+            reopened.load_workspace(saved)
+            self.assertIsNone(reopened._analysis)
+            self.assertEqual(reopened.trend_page.plots, [])
+            reopened.show()
+            reopened.tabs.setCurrentIndex(2)
+            app.processEvents()
+            self.assertEqual(len(reopened.trend_page.plots), 1)
+
     def test_sparse_trend_layout_keeps_panels_left_aligned_and_fixed_size(self):
         from PyQt6.QtWidgets import QApplication
         from metrology_app.reference_alignment_ui import CoordinateTrendPage
@@ -675,7 +929,9 @@ class ReferenceAlignmentTests(unittest.TestCase):
         self.assertEqual(rows, {0, 2, 3, 5})
         for plot in (analysis.plot_page, analysis.radius_page):
             self.assertEqual({row for positions in plot.selection['groups'].values() for row in positions}, {0, 2})
-        self.assertTrue(pd.isna(window.trend_page.plots[0].listDataItems()[0].yData[1]))
+        curve = window.trend_page.plots[0].listDataItems()[0]
+        self.assertEqual(curve.xData.tolist(), [1, 3])
+        self.assertFalse(pd.isna(curve.yData).any())
         for sheet, values in ((page.ref, ['1', '3']), (page.raw, ['4', '6'])):
             model = sheet.view.model()
             column = sheet.frame().columns.get_loc('CD')
