@@ -300,9 +300,9 @@ class TestFlagDialog(QDialog):
         self.records = tuple(viewer.catalog.spectra if records is None else records)
         self.assignments = dict(viewer.test_flags)
         layout = QVBoxLayout(self)
-        from .spectra_viewer import _ViewMenu
+        from .spectra_plots import SpectrumViewMenu
         self.group_picker = QPushButton()
-        self.group_menu = _ViewMenu(self.group_picker)
+        self.group_menu = SpectrumViewMenu(self.group_picker)
         self.group_picker.setMenu(self.group_menu)
         self.group_columns = (("wafer", "Wafer ID"), ("lot", "Lot ID"), ("tool_sn", "Tool SN"), ("pad", "PAD Name"))
         for field, title in self.group_columns:
