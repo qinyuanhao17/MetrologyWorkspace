@@ -191,11 +191,12 @@ class SpectraImportTests(unittest.TestCase):
         cache = window.workspace_snapshot().frames["spectra"]
         incoming = LoadResult(tuple(make_spectrum(index) for index in range(2, 8)), ())
         with TemporaryDirectory() as folder, \
-                patch("metrology_app.spectra_viewer.load_folders", return_value=LoadResult((), ())), \
-                patch.object(spectra_workbook, "_encode_source", wraps=spectra_workbook._encode_source) as encode:
+                patch("metrology_app.spectra_viewer.load_folders", return_value=LoadResult((), ())):
             window.start_loading(folder, replace=False)
+            loader = window._loader
             self.wait_for_load(window)
-            encode.assert_not_called()
+            self.assertEqual(loader.active_compression_threads, 0)
+            self.assertEqual(loader.workbook_samples, {})
             self.assertEqual(window.catalog.spectra, previous)
             self.assertIn("No readable spectra", window.status.text())
         with TemporaryDirectory() as folder, \
