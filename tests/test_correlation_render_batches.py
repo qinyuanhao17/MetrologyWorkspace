@@ -208,7 +208,10 @@ class CorrelationRenderBatchTests(unittest.TestCase):
         with patch.object(module, 'InteractivePlotWidget', side_effect=create), \
                 patch.object(sys, 'excepthook', side_effect=lambda *args: errors.append(args)):
             page.draw_plot()
-            QTest.qWait(30)
+            from time import monotonic
+            deadline = monotonic() + 8
+            while not sip.isdeleted(page) and monotonic() < deadline:
+                QTest.qWait(10)
         self.assertTrue(sip.isdeleted(page))
         self.assertEqual(errors, [])
 

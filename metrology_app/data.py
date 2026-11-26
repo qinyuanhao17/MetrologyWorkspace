@@ -90,7 +90,13 @@ def _has_numeric_value(series):
     """Stop once finite data proves qualification; inspect all remaining rows otherwise."""
     if number(series.iloc[:64]).notna().any():
         return True
-    return len(series) > 64 and number(series.iloc[64:]).notna().any()
+    tail = series.iloc[64:]
+    if tail.empty:
+        return False
+    # For text columns, repeated values can't change whether any value is numeric.
+    if pd.api.types.infer_dtype(tail, skipna=True) == "string":
+        tail = pd.Series(tail.unique())
+    return number(tail).notna().any()
 
 
 def read_table(path=None, *, text=None, sheet=0, dtype=None):

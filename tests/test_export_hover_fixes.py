@@ -4,13 +4,15 @@ from pathlib import Path
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 import pandas as pd
 from openpyxl import load_workbook
-from PyQt6.QtCore import QPointF
+from PyQt6.QtCore import QEvent, QPointF, Qt
+from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QToolTip
 
@@ -80,12 +82,17 @@ class ExportHoverFixTests(unittest.TestCase):
         self.assertIn("Die 1", text)
         self.assertIn("CD = 1", text)
         self.assertIn("X = -1", text)
-        # A real mouse move must reach the panel and show the tooltip.
+        # Deliver the move through the viewport without relying on the OS cursor.
         view = map_page.scroll
         scene_point = panel.mapToScene(point)
-        QTest.mouseMove(view.viewport(), view.mapFromScene(scene_point))
-        APP.processEvents()
-        self.assertIn("Die 1", QToolTip.text())
+        position = view.mapFromScene(scene_point)
+        viewport = view.viewport()
+        event = QMouseEvent(QEvent.Type.MouseMove, QPointF(position), QPointF(viewport.mapToGlobal(position)),
+                            Qt.MouseButton.NoButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier)
+        with patch.object(QToolTip, "showText", wraps=QToolTip.showText) as tooltip:
+            APP.sendEvent(viewport, event)
+            tooltip.assert_called()
+            self.assertIn("Die 1", tooltip.call_args.args[1])
         self.assertIn("Die 1", map_page.status.text())
 
         radius_page = self.child.radius_page

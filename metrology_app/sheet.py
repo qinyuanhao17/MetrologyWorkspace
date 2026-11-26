@@ -257,14 +257,47 @@ class TableReplace(QUndoCommand):
     def __init__(self, model, matrix):
         super().__init__("Replace table")
         self.model = model
-        self.before = model.snapshot()
-        self.after = model.state_from_matrix(matrix)
+        version = model.literal_version if type(model) is SheetModel else None
+        self.before = ((self._version_cells(version), model.height, model.width)
+                       if version is not None else model.snapshot())
+        self.after = self._matrix_state(matrix)
+
+    def _version_cells(self, version):
+        return VersionCells(version, changed=self.model._direct_cells_changed)
+
+    def _matrix_state(self, matrix):
+        if (type(self.model) is SheetModel and isinstance(matrix, (list, tuple)) and matrix
+                and all(isinstance(row, (list, tuple)) and len(row) == len(matrix[0]) for row in matrix)):
+            try:
+                version = LiteralTableVersion(tuple(matrix[0]), tuple(zip(*matrix[1:])))
+            except (TypeError, ValueError):
+                pass
+            else:
+                if version.dense:
+                    return (self._version_cells(version), max(100, len(matrix) + 20),
+                            max(26, len(version.headers) + 3))
+        return self.model.state_from_matrix(matrix)
+
+    def has_changes(self):
+        old, new = self.before[0], self.after[0]
+        if isinstance(old, VersionCells) and isinstance(new, VersionCells):
+            return (self.before[1:] != self.after[1:] or old.version.headers != new.version.headers
+                    or old.version.columns != new.version.columns)
+        return self.before != self.after
+
+    def _restore(self, state):
+        cells, height, width = state
+        if isinstance(cells, VersionCells):
+            version = cells.version
+            self.model._restore_owned(self._version_cells(version), height, width, version.row_count)
+        else:
+            self.model.restore(state)
 
     def redo(self):
-        self.model.restore(self.after)
+        self._restore(self.after)
 
     def undo(self):
-        self.model.restore(self.before)
+        self._restore(self.before)
 
 
 class SheetModel(QAbstractTableModel):
@@ -531,10 +564,21 @@ class SheetModel(QAbstractTableModel):
 
     def _replacement_paste_before(self, state):
         cells, _, _ = state
-        before = {key: self.cells.get(key, "") for key, value in cells.items()
-                  if self.cells.get(key, "") != value}
-        before.update((key, value) for key, value in self.cells.items()
-                      if value and key not in cells)
+        old = self.literal_version
+        new = cells.version if isinstance(cells, VersionCells) else None
+        if (old is not None and new is not None and old.row_count == new.row_count
+                and len(old.headers) == len(new.headers)):
+            before = {(0, column): name for column, (name, replacement) in
+                      enumerate(zip(old.headers, new.headers)) if name != replacement}
+            for column, (previous, replacement) in enumerate(zip(old.columns, new.columns)):
+                if previous != replacement:
+                    before.update(((row, column), start) for row, (start, end) in
+                                  enumerate(zip(previous, replacement), start=1) if start != end)
+        else:
+            before = {key: self.cells.get(key, "") for key, value in cells.items()
+                      if self.cells.get(key, "") != value}
+            before.update((key, value) for key, value in self.cells.items()
+                          if value and key not in cells)
         headers = {column: self.cells.get((0, column), "") for _, column in before}
         return before, self._document_rows, headers
 
@@ -870,7 +914,7 @@ class SheetModel(QAbstractTableModel):
             matrix = self._merge_clipboard_matrix(matrix)
         command = TableReplace(self, matrix)
         before = self._replacement_paste_before(command.after) if report_paste else None
-        if command.before != command.after:
+        if command.has_changes():
             self.undo.push(command)
         if before is not None:
             self._report_paste(*before, self._matrix_bounds(matrix))
@@ -927,7 +971,9 @@ class SheetModel(QAbstractTableModel):
         # borrowed buffers remain alive independently of this cache.
         self._frames.clear()
         self._borrowed_frames = False
-        self._extent = self._selection_extent = self._selection_bounds = None
+        version = self.literal_version
+        self._extent = (version.row_count + 1, len(version.headers)) if version is not None else None
+        self._selection_extent = self._selection_bounds = None
         self.endResetModel()
         if self.clipboard_locks:
             # New/Open may remove fields entirely. Do not leave hidden locks

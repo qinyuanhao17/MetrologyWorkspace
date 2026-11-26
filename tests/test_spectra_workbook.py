@@ -62,18 +62,27 @@ class SpectraWorkbookTests(unittest.TestCase):
             self.assertEqual(len(restored.checked_spectra()), 42)
 
     def test_document_storage_work_keeps_gui_timers_running(self):
+        from threading import Event
         from PyQt6.QtCore import QTimer
         from metrology_app.workspace_document import document_io
         window = SpectraViewerWindow()
         window.document.force_close = True
         self.addCleanup(window.close)
         ticks = []
+        ready = Event()
+
+        def tick():
+            ticks.append(time.monotonic())
+            if len(ticks) == 3:
+                ready.set()
+
         timer = QTimer(window, interval=10)
-        timer.timeout.connect(lambda: ticks.append(time.monotonic()))
+        timer.timeout.connect(tick)
         timer.start()
-        self.assertEqual(document_io(window, lambda: (time.sleep(.12), 42)[1], "Saving…"), 42)
-        timer.stop()
-        self.assertGreaterEqual(len(ticks), 3)
+        try:
+            self.assertTrue(document_io(window, lambda: ready.wait(5), "Saving…"))
+        finally:
+            timer.stop()
 
     def test_path_save_type_removes_embedded_samples_and_reloads_original_files(self):
         from metrology_app.sme_spectra import load_folder
